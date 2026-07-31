@@ -6,7 +6,7 @@ candidate-search契約へ投影する。HTTP endpoint、DB schema、具体的な
 ```text
 [browser]
     |
-[Django web] -> [suggestions] -> [recommendation]
+[Django web] -> [authentication] -> [suggestions] -> [recommendation]
                             |             |
                             |             +-> [records: private runtime data]
                             |
@@ -21,6 +21,8 @@ ADR-0005の候補提案は、同じモノリスの中で次のように流れる
 ```text
 [authenticated browser]
     | screen opens / chooses a different lens
+    v
+[Django session + CSRF boundary]
     v
 [candidate-proposal web boundary]
     v
@@ -38,6 +40,12 @@ ADR-0005の候補提案は、同じモノリスの中で次のように流れる
     +-> re-proposal modal (next-lens labels only)
 ```
 
+`authentication` は管理者が作成・無効化する個別幹事 account と same-origin Django session を扱う。
+候補提案 boundary は有効な session を前提とし、未認証または無効化済み account に候補・地図・切り口を返さない。
+公開時の HTTPS、Secure/HttpOnly/SameSite cookie、CSRF、login throttle の要求は ADR-0006 と
+`contracts/authentication.feature` / `contracts/authentication-api.md` が持つ。host、domain、email、SSO、
+session expiry、具体的な管理 UI はこの設計図では決めない。
+
 認証済み画面は最初の候補と店舗間の位置関係を直ちに表示する。範囲・ジャンルの補助条件を入力する
 moduleやfilter taxonomyはこの流れに含まれない。別の切り口は、現在表示中の候補を追加せず、モーダルで
 一つ選んだ後の新規proposalが置き換える。ブラウザへ渡る地図位置は候補店舗だけであり、検索基点、経路、
@@ -47,6 +55,7 @@ moduleやfilter taxonomyはこの流れに含まれない。別の切り口は�
 
 | モジュール | 責務 | 禁止・境界 |
 |---|---|---|
+| `authentication` | 管理者作成の個別account、session、login/logout/password change、account有効性の保護境界 | 公開signup、メールreset、SSO、実account・session・secretをGitまたはbrowser出力へ置かない |
 | `web` | 利用時の検索条件入力、候補表示、credit表示 | providerキー・実URL・provider固有形式を扱わない |
 | `suggestions` | provider、records、pipelineを調停 | provider事実を保存・改変しない |
 | `recommendation` | 正規化済み候補の除外、順位付け、代替候補選択 | Django、HTTP、ORM、provider形式へ依存しない |
@@ -57,6 +66,8 @@ moduleやfilter taxonomyはこの流れに含まれない。別の切り口は�
 
 - 検索基点・探索範囲はruntimeの非公開設定であり、公開リポジトリやデプロイ既定値へ実在の名称・座標・距離を置かない。
 - credentialはserverのruntime secretにだけ置く。provider仕様で必要なクエリパラメータはadapterからのみ送り、キー入りURLを観測可能な出力に残さない。
+- session signing secret、CSRF secret、実account・password hash・login履歴はprovider credentialと同じく runtime/private store に閉じ、Git、browser、観測可能な出力に置かない。
+- browser-facingの保護requestは同一originの有効なDjango sessionとCSRFを必要とする。外部公開ではHTTPSとSecure/HttpOnly/SameSite cookieを用い、credentialを伴う任意origin CORSまたはlocal-storage tokenを導入しない。
 - 初期版はproviderレスポンスを保存・cacheしない。合成fixtureだけをコミットする。
 - schema migrationはGitで版管理するが、実データを投入するdata migration、実fixture、DB dumpはGitへ置かない。
 - provider事実は変更せず、アプリは候補の選択・順序・除外だけを行う。画面には必要なprovider creditを表示し、provider画像は使わない。

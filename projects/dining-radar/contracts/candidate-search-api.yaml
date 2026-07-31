@@ -72,8 +72,9 @@ components:
       name: sessionid
       description: >-
         Same-origin Django session cookie for an authenticated organizer. The
-        separate authentication slice defines login, logout, account lifecycle,
-        cookie settings, and session expiry.
+        authentication boundary in contracts/authentication-api.md defines
+        login, logout, account lifecycle, cookie settings, and the decisions
+        intentionally deferred from this API contract.
   parameters:
     CsrfToken:
       name: X-CSRFToken
