@@ -6,6 +6,11 @@
 
 このfoundationは、非公開のruntime検索条件で外部候補を探し、利用済み・ブラックリストを除外して候補と代替候補を示すための責務分割だけを定める。画面、endpoint、DB schema、API接続、認証情報、実データは定めない。候補提案の現在の画面・APIの振る舞いは、ADR-0005とcandidate-search契約が定める。
 
+候補提案は、管理者が作成した有効な個別幹事 account の same-origin Django session だけに開く。公開signup、
+メールreset、SSOは初期スコープにない。認証・公開運用の状態と設定境界は ADR-0006、
+`contracts/authentication.feature`、`contracts/authentication-api.md` が定める。ここでは認証画面、
+管理画面、host、domain、email、session expiryの具体を定めない。
+
 ## 処理の流れ
 
 ```text
