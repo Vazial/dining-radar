@@ -1,9 +1,9 @@
-# Status: human content-approved in PR #65 (2026-07-31); the approval becomes
-# durable when that PR merges.
+# Status: human content-approved in chat (2026-08-01); this revision becomes
+# durable when the active design PR merges.
 openapi: 3.0.3
 info:
   title: Toyama Dining Radar Candidate Proposal API
-  version: 0.3.0
+  version: 0.4.0
   description: >-
     Produces deterministic lunch-candidate concepts around one private
     runtime-configured location. The location, configured radius, credentials,
@@ -16,40 +16,18 @@ servers:
       Placeholder HTTPS public origin. The authentication and public-deployment
       slice selects and configures the real origin; browser access is same-origin.
 paths:
-  /candidate-search-filters:
-    get:
-      operationId: getCandidateSearchFilters
-      summary: Get authenticated candidate-proposal secondary conditions
-      description: >-
-        Returns application-owned range-preference labels and provider-supplied
-        genre choices. It does not return a search origin, configured distance,
-        concept, or shop result.
-      security:
-        - organizerSession: []
-      responses:
-        '200':
-          description: Supported secondary conditions and the provider credit.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CandidateSearchFiltersResponse'
-        '401':
-          $ref: '#/components/responses/AuthenticationRequired'
-        '429':
-          $ref: '#/components/responses/ProposalRateLimited'
-        '503':
-          $ref: '#/components/responses/ProviderUnavailable'
   /candidate-proposals:
     post:
       operationId: proposeCandidates
-      summary: Generate lunch-candidate concepts
+      summary: Generate one displayed lunch-candidate proposal
       description: >-
-        Performs one fresh Hot Pepper search and returns at most three
-        deterministic concepts with their normalized candidate sets. The browser
-        selects a concept locally and displays its candidates; it does not ask
-        for a next page. Re-proposal performs another fresh provider search and
-        replaces the prior response. The configured search origin and its exact
-        radius are server-only and are not request parameters.
+        Performs one fresh Hot Pepper search and returns the initial deterministic
+        proposal, or a newly chosen re-proposal lens, with its normalized candidate
+        set. Opening the authenticated screen sends an empty request and displays
+        the returned proposal immediately. Re-proposal is a separate fresh request
+        after the browser presents the response's available lenses in a modal and
+        the organizer selects one. The configured search origin and its exact radius
+        are server-only and are not request parameters.
       security:
         - organizerSession: []
       parameters:
@@ -63,21 +41,21 @@ paths:
       responses:
         '200':
           description: >-
-            A complete replacement concept response. An empty concepts array is
-            a successful no-match result.
+            A complete replacement displayed-proposal response. A null proposal
+            is a successful no-match result.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/CandidateProposalResponse'
         '400':
-          description: A browser-visible secondary condition is invalid.
+          description: A browser-visible re-proposal lens is invalid or unavailable.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProblemResponse'
               example:
-                code: PROPOSAL_CONDITIONS_INVALID
-                message: Proposal conditions are not supported.
+                code: PROPOSAL_REPROPOSAL_KIND_INVALID
+                message: This proposal lens is not available. Choose another one.
         '401':
           $ref: '#/components/responses/AuthenticationRequired'
         '403':
@@ -155,51 +133,55 @@ components:
       type: object
       additionalProperties: false
       properties:
-        rangePreference:
-          $ref: '#/components/schemas/RangePreference'
-        genreCodes:
-          type: array
-          items:
-            type: string
-          uniqueItems: true
+        reproposalKind:
+          $ref: '#/components/schemas/ConceptKind'
           description: >-
-            Zero or more values from the authenticated genre taxonomy. An omitted
-            or empty list does not constrain genre.
-        previousConceptKinds:
-          type: array
-          items:
-            $ref: '#/components/schemas/ConceptKind'
-          uniqueItems: true
-          maxItems: 4
-          description: >-
-            Optional current-screen concept kinds already presented to the
-            organizer. On re-proposal, the server uses this only to prefer a
-            different eligible concept kind. It is not a provider identifier,
+            Omit when the authenticated screen first opens. For re-proposal, send
+            exactly one kind selected from the current response's reProposalOptions.
+            It is an application-owned comparison lens, not a provider identifier,
             candidate reference, or durable history.
-    RangePreference:
-      type: string
-      enum: [NEARBY, STANDARD, WIDE]
-      default: NEARBY
-      description: >-
-        An application-level relative search preference. Its mapping to a
-        provider radius is private runtime configuration and is never exposed as
-        a numeric distance or walking-route estimate.
     CandidateProposalResponse:
       type: object
-      required: [concepts, providerCredit]
+      required: [proposal, reProposalOptions, providerCredit]
       additionalProperties: false
       properties:
-        concepts:
+        proposal:
+          allOf:
+            - $ref: '#/components/schemas/CandidateConcept'
+          nullable: true
+          description: >-
+            The one concept and candidate set to display immediately. It is null
+            when the selected lens has no matching lunch candidates. The browser
+            holds it only in current-screen memory and replaces it on every
+            successful response.
+        reProposalOptions:
           type: array
           maxItems: 3
           description: >-
-            A complete current-screen set of selectable concepts. A candidate
-            may occur in more than one concept because concepts are alternate
-            comparison lenses, not mutually exclusive provider results.
+            Application-owned lenses the browser may show only after the organizer
+            chooses to re-propose. For a non-null proposal, this array excludes the
+            displayed proposal's kind. It does not contain provider IDs, candidate
+            references, search-origin data, or a guarantee that a fresh search will
+            return candidates.
           items:
-            $ref: '#/components/schemas/CandidateConcept'
+            $ref: '#/components/schemas/ReproposalOption'
         providerCredit:
           $ref: '#/components/schemas/ProviderCredit'
+    ReproposalOption:
+      type: object
+      required: [kind, title, rationale]
+      additionalProperties: false
+      properties:
+        kind:
+          $ref: '#/components/schemas/ConceptKind'
+        title:
+          type: string
+          description: A plain-language label for the next comparison lens.
+        rationale:
+          type: string
+          description: >-
+            A plain-language explanation of the lens. It must not promise seats,
+            reservations, payment, or other unavailable facts.
     CandidateConcept:
       type: object
       required: [conceptRef, kind, title, rationale, candidates]
@@ -311,41 +293,6 @@ components:
           format: uri
           enum: ['http://webservice.recruit.co.jp/']
           description: Required destination of the Hot Pepper text credit.
-    CandidateSearchFiltersResponse:
-      type: object
-      required: [rangePreferences, genreOptions, providerCredit]
-      additionalProperties: false
-      properties:
-        rangePreferences:
-          type: array
-          minItems: 1
-          uniqueItems: true
-          items:
-            $ref: '#/components/schemas/RangePreferenceOption'
-        genreOptions:
-          type: array
-          items:
-            type: object
-            required: [code, label]
-            additionalProperties: false
-            properties:
-              code:
-                type: string
-              label:
-                type: string
-                description: Provider-supplied genre label; do not alter it.
-        providerCredit:
-          $ref: '#/components/schemas/ProviderCredit'
-    RangePreferenceOption:
-      type: object
-      required: [key, label]
-      additionalProperties: false
-      properties:
-        key:
-          $ref: '#/components/schemas/RangePreference'
-        label:
-          type: string
-          description: Generic user-facing relative-range label with no numeric radius.
     ProblemResponse:
       type: object
       required: [code, message]
@@ -354,7 +301,7 @@ components:
         code:
           type: string
           enum:
-            [AUTHENTICATION_REQUIRED, REQUEST_REJECTED, PROPOSAL_CONDITIONS_INVALID,
+            [AUTHENTICATION_REQUIRED, REQUEST_REJECTED, PROPOSAL_REPROPOSAL_KIND_INVALID,
              PROPOSAL_RATE_LIMITED, PROVIDER_UNAVAILABLE]
         message:
           type: string

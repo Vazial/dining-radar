@@ -1,6 +1,7 @@
 # ARCHITECTURE.md — Toyama Dining Radar
 
-ADR-0001/0002に従うfoundation設計である。HTTP endpoint、DB schema、具体的な依存は未決定である。
+ADR-0001/0002に従うfoundation設計である。候補提案の現在の利用者体験はADR-0005と
+candidate-search契約へ投影する。HTTP endpoint、DB schema、具体的な依存は未決定である。
 
 ```text
 [browser]
@@ -11,6 +12,36 @@ ADR-0001/0002に従うfoundation設計である。HTTP endpoint、DB schema、�
                             |
                             +-> [Hot Pepper adapter] -> [provider API]
 ```
+
+## 候補提案の現在の投影
+
+ADR-0005の候補提案は、同じモノリスの中で次のように流れる。これは責務とデータの流れを示す地図であり、
+具体的なHTTP形状・型・実装方式は `contracts/candidate-search-api.yaml` が持つ。
+
+```text
+[authenticated browser]
+    | screen opens / chooses a different lens
+    v
+[candidate-proposal web boundary]
+    v
+[suggestions: one fresh proposal]
+    +-> [recommendation: deterministic displayed lens]
+    |        |
+    |        +-> one proposal + next-lens labels
+    v
+[Hot Pepper adapter] -> [provider API]
+    |
+    +-> normalized candidate fields in the current response only
+
+[browser current-screen memory]
+    +-> one proposal's cards <-> shop-only map markers
+    +-> re-proposal modal (next-lens labels only)
+```
+
+認証済み画面は最初の候補と店舗間の位置関係を直ちに表示する。範囲・ジャンルの補助条件を入力する
+moduleやfilter taxonomyはこの流れに含まれない。別の切り口は、現在表示中の候補を追加せず、モーダルで
+一つ選んだ後の新規proposalが置き換える。ブラウザへ渡る地図位置は候補店舗だけであり、検索基点、経路、
+現在地、徒歩時間はこの流れのどこにも置かない。
 
 ## モジュール境界
 

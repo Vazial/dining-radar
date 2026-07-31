@@ -1,8 +1,6 @@
 import {
   AlertCircle,
   ArrowRight,
-  Check,
-  ChevronDown,
   Clock3,
   Compass,
   ExternalLink,
@@ -20,7 +18,7 @@ import {
   Utensils,
   X,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 
 /**
  * Required API additions: None required.
@@ -30,7 +28,6 @@ import { useMemo, useState } from 'react';
  * response, provider identifier, or geographic coordinate fixture.
  */
 
-type RangePreference = 'NEARBY' | 'STANDARD' | 'WIDE';
 type ConceptKind =
   | 'PROXIMITY'
   | 'CAPACITY_REFERENCE'
@@ -39,12 +36,13 @@ type ConceptKind =
 
 type ReviewState =
   | 'NORMAL'
+  | 'CONCEPT_SELECTION'
   | 'AUTHENTICATION_REQUIRED'
   | 'INITIAL_LOADING'
   | 'REPROPOSING'
   | 'EMPTY'
   | 'PROVIDER_UNAVAILABLE'
-  | 'CONDITIONS_INVALID'
+  | 'REPROPOSAL_INVALID'
   | 'REQUEST_REJECTED'
   | 'RATE_LIMITED';
 
@@ -77,13 +75,7 @@ interface Concept {
   candidates: Candidate[];
 }
 
-const rangeOptions: Array<{ key: RangePreference; label: string; note: string }> = [
-  { key: 'NEARBY', label: '近く', note: '移動を軽めに' },
-  { key: 'STANDARD', label: '標準', note: '選択肢と近さの両立' },
-  { key: 'WIDE', label: '広め', note: '新しい候補も含める' },
-];
-
-const genreOptions = ['指定なし', '和食', '洋食', 'カフェ・軽食'];
+type ReproposalOption = Omit<Concept, 'conceptRef' | 'candidates'>;
 
 const candidates: Record<string, Candidate> = {
   a: {
@@ -136,8 +128,8 @@ const candidates: Record<string, Candidate> = {
   },
 };
 
-const initialConcepts: Concept[] = [
-  {
+const proposals: Record<ConceptKind, Concept> = {
+  PROXIMITY: {
     conceptRef: 'concept-near',
     kind: 'PROXIMITY',
     title: '移動を軽く、ゆっくり話す',
@@ -146,7 +138,7 @@ const initialConcepts: Concept[] = [
     icon: LocateFixed,
     candidates: [candidates.a, candidates.b, candidates.c],
   },
-  {
+  CAPACITY_REFERENCE: {
     conceptRef: 'concept-room',
     kind: 'CAPACITY_REFERENCE',
     title: '席数を見ながら選ぶ',
@@ -155,7 +147,7 @@ const initialConcepts: Concept[] = [
     icon: Users,
     candidates: [candidates.d, candidates.a, candidates.b],
   },
-  {
+  GENRE_VARIETY: {
     conceptRef: 'concept-variety',
     kind: 'GENRE_VARIETY',
     title: 'いつもと違う味を試す',
@@ -164,10 +156,7 @@ const initialConcepts: Concept[] = [
     icon: Sparkles,
     candidates: [candidates.b, candidates.c, candidates.d],
   },
-];
-
-const replacementConcepts: Concept[] = [
-  {
+  AMENITY_REFERENCE: {
     conceptRef: 'concept-amenity',
     kind: 'AMENITY_REFERENCE',
     title: '落ち着いて比較する',
@@ -176,42 +165,47 @@ const replacementConcepts: Concept[] = [
     icon: Layers3,
     candidates: [candidates.c, candidates.d, candidates.a],
   },
-  initialConcepts[1]!,
-  initialConcepts[2]!,
-];
+};
+
+const reproposalOptionsFor = (currentKind: ConceptKind): ReproposalOption[] =>
+  Object.values(proposals)
+    .filter((concept) => concept.kind !== currentKind)
+    .slice(0, 3)
+    .map(({ kind, title, eyebrow, rationale, icon }) => ({ kind, title, eyebrow, rationale, icon }));
 
 const reviewStates: Array<{ value: ReviewState; label: string; scenario: string }> = [
   { value: 'NORMAL', label: '通常', scenario: 'TDR-CS-01/02/04' },
+  { value: 'CONCEPT_SELECTION', label: '切り口選択', scenario: 'TDR-CS-03 modal' },
   { value: 'AUTHENTICATION_REQUIRED', label: '未認証', scenario: 'TDR-CS-00 / 401' },
   { value: 'INITIAL_LOADING', label: '提案中', scenario: 'loading' },
   { value: 'REPROPOSING', label: '再提案中', scenario: 'TDR-CS-03' },
   { value: 'EMPTY', label: '候補なし', scenario: 'TDR-CS-05' },
   { value: 'PROVIDER_UNAVAILABLE', label: '取得失敗', scenario: 'TDR-CS-06 / 503' },
-  { value: 'CONDITIONS_INVALID', label: '条件不正', scenario: 'TDR-CS-07 / 400' },
+  { value: 'REPROPOSAL_INVALID', label: '切り口不正', scenario: 'TDR-CS-07 / 400' },
   { value: 'REQUEST_REJECTED', label: '要求拒否', scenario: '403' },
   { value: 'RATE_LIMITED', label: '回数制限', scenario: 'TDR-CS-08 / 429' },
 ];
 
-type StatusState = Exclude<ReviewState, 'NORMAL' | 'AUTHENTICATION_REQUIRED'>;
+type StatusState = Exclude<ReviewState, 'NORMAL' | 'CONCEPT_SELECTION' | 'AUTHENTICATION_REQUIRED'>;
 
 function StatusPanel({ state }: { state: StatusState }) {
   const copy = {
     INITIAL_LOADING: {
       icon: Search,
       title: 'ランチ候補を探しています',
-      body: '条件に合う店舗を集め、選び方のコンセプトを組み立てています。',
+      body: 'ランチ営業の店舗を集め、最初の候補を用意しています。',
       tone: 'progress',
     },
     REPROPOSING: {
       icon: RefreshCcw,
-      title: '別の切り口を考えています',
-      body: '前の候補へ追加せず、新しいコンセプトの組み合わせに入れ替えます。',
+      title: '別の切り口で探しています',
+      body: '前の候補へ追加せず、選んだ切り口の候補へ入れ替えます。',
       tone: 'progress',
     },
     EMPTY: {
       icon: Compass,
-      title: 'この条件では候補が見つかりませんでした',
-      body: '検索範囲やジャンルを変えて、もう一度提案を作れます。',
+      title: 'この切り口では候補が見つかりませんでした',
+      body: '別の切り口を選んで、もう一度提案を作れます。',
       tone: 'neutral',
     },
     PROVIDER_UNAVAILABLE: {
@@ -220,10 +214,10 @@ function StatusPanel({ state }: { state: StatusState }) {
       body: '時間をおいてから、もう一度お試しください。',
       tone: 'danger',
     },
-    CONDITIONS_INVALID: {
+    REPROPOSAL_INVALID: {
       icon: Info,
-      title: '選んだ条件では提案できません',
-      body: '表示されている選択肢から条件を選び直してください。',
+      title: 'その切り口では再提案できません',
+      body: '表示されている切り口から選び直してください。',
       tone: 'warning',
     },
     REQUEST_REJECTED: {
@@ -383,52 +377,87 @@ function AuthRequired() {
   );
 }
 
+function ReproposalModal({
+  options,
+  onClose,
+  onSelect,
+}: {
+  options: ReproposalOption[];
+  onClose: () => void;
+  onSelect: (option: ReproposalOption) => void;
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="reproposal-modal" role="dialog" aria-modal="true" aria-labelledby="reproposal-title">
+        <header className="reproposal-modal__header">
+          <div>
+            <p className="eyebrow">再提案</p>
+            <h2 id="reproposal-title">別の切り口を選ぶ</h2>
+            <p>選ぶと、現在の候補と地図が新しい提案に置き換わります。</p>
+          </div>
+          <button className="modal-close" onClick={onClose} aria-label="切り口の選択を閉じる">
+            <X size={18} />
+          </button>
+        </header>
+        <div className="reproposal-options">
+          {options.map((option) => {
+            const Icon = option.icon;
+            return (
+              <button key={option.kind} className="reproposal-option" onClick={() => onSelect(option)}>
+                <span className="reproposal-option__icon"><Icon size={21} /></span>
+                <span className="concept-card__eyebrow">{option.eyebrow}</span>
+                <strong>{option.title}</strong>
+                <p>{option.rationale}</p>
+                <span className="concept-card__action">この切り口で再提案 <ArrowRight size={15} /></span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="reproposal-modal__note">現在表示中の切り口は選択肢に含まれません。</p>
+      </section>
+    </div>
+  );
+}
+
 export default function CandidateSearchPreview() {
   const [reviewState, setReviewState] = useState<ReviewState>('NORMAL');
-  const [rangePreference, setRangePreference] = useState<RangePreference>('NEARBY');
-  const [genre, setGenre] = useState('指定なし');
-  const [concepts, setConcepts] = useState(initialConcepts);
-  const [selectedConceptRef, setSelectedConceptRef] = useState(initialConcepts[0].conceptRef);
-  const [activeCandidateRef, setActiveCandidateRef] = useState<string | null>(
-    initialConcepts[0].candidates[0].candidateRef,
+  const [proposal, setProposal] = useState<Concept>(proposals.PROXIMITY);
+  const [reproposalOptions, setReproposalOptions] = useState<ReproposalOption[]>(
+    reproposalOptionsFor(proposals.PROXIMITY.kind),
   );
+  const [activeCandidateRef, setActiveCandidateRef] = useState<string | null>(
+    proposals.PROXIMITY.candidates[0].candidateRef,
+  );
+  const [modalOpen, setModalOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(true);
   const [generation, setGeneration] = useState(1);
 
-  const selectedConcept = useMemo(
-    () => concepts.find((concept) => concept.conceptRef === selectedConceptRef) ?? concepts[0]!,
-    [concepts, selectedConceptRef],
-  );
-
-  const selectConcept = (concept: Concept) => {
-    setSelectedConceptRef(concept.conceptRef);
-    setActiveCandidateRef(concept.candidates[0]?.candidateRef ?? null);
-  };
-
-  const regenerate = () => {
+  const chooseReproposal = (option: ReproposalOption) => {
+    setModalOpen(false);
     setReviewState('REPROPOSING');
     window.setTimeout(() => {
-      const next = generation % 2 === 1 ? replacementConcepts : initialConcepts;
-      setConcepts(next);
-      setSelectedConceptRef(next[0].conceptRef);
-      setActiveCandidateRef(next[0].candidates[0]?.candidateRef ?? null);
+      const next = proposals[option.kind];
+      setProposal(next);
+      setReproposalOptions(reproposalOptionsFor(next.kind));
+      setActiveCandidateRef(next.candidates[0]?.candidateRef ?? null);
       setGeneration((current) => current + 1);
       setReviewState('NORMAL');
     }, 850);
   };
 
-  const requestProposals = () => {
-    setReviewState('INITIAL_LOADING');
-    window.setTimeout(() => setReviewState('NORMAL'), 850);
-  };
-
   const setScenario = (state: ReviewState) => {
     setReviewState(state);
+    setModalOpen(state === 'CONCEPT_SELECTION');
     if (state === 'NORMAL') {
-      setConcepts(initialConcepts);
-      selectConcept(initialConcepts[0]);
+      setProposal(proposals.PROXIMITY);
+      setReproposalOptions(reproposalOptionsFor(proposals.PROXIMITY.kind));
+      setActiveCandidateRef(proposals.PROXIMITY.candidates[0]?.candidateRef ?? null);
+      setGeneration(1);
     }
   };
+
+  const contentVisible = reviewState === 'NORMAL' || reviewState === 'CONCEPT_SELECTION';
+  const showModal = modalOpen || reviewState === 'CONCEPT_SELECTION';
 
   return (
     <div className="app-shell">
@@ -450,113 +479,55 @@ export default function CandidateSearchPreview() {
           <main id="top" className="content-shell">
             <section className="hero">
               <div>
-                <h1>ランチ候補を探す</h1>
+                <h1>ランチ候補</h1>
                 <p className="hero__lead">
-                  条件を選ぶと、候補をコンセプト別に表示します。地図と店舗情報を比較して選べます。
+                  店舗の位置関係と情報を比較できます。合わなければ、別の切り口で提案し直せます。
                 </p>
               </div>
             </section>
 
-            <section className="search-panel" aria-label="候補の補助条件">
-              <div className="search-panel__intro">
-                <span className="step-number">1</span>
-                <div><p className="eyebrow">まずは補助条件</p><h2>どの範囲から探しますか？</h2></div>
-              </div>
-              <div className="range-control" role="group" aria-label="検索範囲の希望">
-                {rangeOptions.map((option) => (
-                  <button
-                    key={option.key}
-                    className={rangePreference === option.key ? 'selected' : ''}
-                    onClick={() => setRangePreference(option.key)}
-                  >
-                    <span>{rangePreference === option.key && <Check size={14} />}{option.label}</span>
-                    <small>{option.note}</small>
-                  </button>
-                ))}
-              </div>
-              <label className="select-control">
-                <span>ジャンル</span>
-                <select value={genre} onChange={(event) => setGenre(event.target.value)}>
-                  {genreOptions.map((option) => <option key={option}>{option}</option>)}
-                </select>
-                <ChevronDown size={16} aria-hidden="true" />
-              </label>
-              <div className="lunch-required"><Utensils size={16} /><span>ランチ営業</span><strong>必須</strong></div>
-              <button className="primary-button search-button" onClick={requestProposals}>
-                <Search size={17} />候補を提案
-              </button>
-            </section>
-
-            {reviewState !== 'NORMAL' ? (
+            {!contentVisible ? (
               <StatusPanel state={reviewState} />
             ) : (
-              <>
-                <section className="proposal-section">
-                  <div className="section-heading">
-                    <div className="section-heading__title">
-                      <span className="step-number">2</span>
-                      <div><p className="eyebrow">コンセプト</p><h2>候補の見方を選ぶ</h2></div>
+              <section className="comparison-section">
+                <div className="comparison-heading">
+                  <div>
+                    <div className="comparison-heading__meta">
+                      <p className="eyebrow">現在の切り口</p>
+                      <span className="proposal-meta"><Sparkles size={14} />第{generation}案</span>
                     </div>
-                    <div className="proposal-meta"><Sparkles size={15} />第{generation}案</div>
+                    <h2>{proposal.title}</h2>
+                    <p>{proposal.rationale}</p>
                   </div>
-                  <div className="concept-grid">
-                    {concepts.map((concept) => {
-                      const selected = concept.conceptRef === selectedConcept.conceptRef;
-                      const Icon = concept.icon;
-                      return (
-                        <button
-                          key={concept.conceptRef}
-                          className={`concept-card${selected ? ' concept-card--selected' : ''}`}
-                          onClick={() => selectConcept(concept)}
-                        >
-                          <span className="concept-card__icon"><Icon size={21} /></span>
-                          <span className="concept-card__eyebrow">{concept.eyebrow}</span>
-                          <strong>{concept.title}</strong>
-                          <p>{concept.rationale}</p>
-                          <span className="concept-card__action">この切り口で見る <ArrowRight size={15} /></span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </section>
-
-                <section className="comparison-section">
-                  <div className="comparison-heading">
-                    <div>
-                      <p className="eyebrow">選択中のコンセプト</p>
-                      <h2>{selectedConcept.title}</h2>
-                      <p>{selectedConcept.rationale}</p>
+                  <button className="secondary-button" onClick={() => setModalOpen(true)}>
+                    <RefreshCcw size={16} />別の切り口で再提案
+                  </button>
+                </div>
+                <div className="comparison-grid">
+                  <SyntheticMap
+                    candidates={proposal.candidates}
+                    activeCandidateRef={activeCandidateRef}
+                    onActivate={setActiveCandidateRef}
+                  />
+                  <section className="candidate-list" aria-label="候補店舗一覧">
+                    <div className="candidate-list__header">
+                      <div><p className="eyebrow">候補店舗</p><h3>{proposal.candidates.length}件を比較</h3></div>
+                      <span>席数は参考情報です</span>
                     </div>
-                    <button className="secondary-button" onClick={regenerate}>
-                      <RefreshCcw size={16} />別の切り口で再提案
-                    </button>
-                  </div>
-                  <div className="comparison-grid">
-                    <SyntheticMap
-                      candidates={selectedConcept.candidates}
-                      activeCandidateRef={activeCandidateRef}
-                      onActivate={setActiveCandidateRef}
-                    />
-                    <section className="candidate-list" aria-label="候補店舗一覧">
-                      <div className="candidate-list__header">
-                        <div><p className="eyebrow">候補店舗</p><h3>{selectedConcept.candidates.length}件を比較</h3></div>
-                        <span>席数は参考情報です</span>
-                      </div>
-                      <div className="candidate-list__scroll">
-                        {selectedConcept.candidates.map((candidate, index) => (
-                          <CandidateCard
-                            key={candidate.candidateRef}
-                            candidate={candidate}
-                            index={index}
-                            active={candidate.candidateRef === activeCandidateRef}
-                            onActivate={() => setActiveCandidateRef(candidate.candidateRef)}
-                          />
-                        ))}
-                      </div>
-                    </section>
-                  </div>
-                </section>
-              </>
+                    <div className="candidate-list__scroll">
+                      {proposal.candidates.map((candidate, index) => (
+                        <CandidateCard
+                          key={candidate.candidateRef}
+                          candidate={candidate}
+                          index={index}
+                          active={candidate.candidateRef === activeCandidateRef}
+                          onActivate={() => setActiveCandidateRef(candidate.candidateRef)}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                </div>
+              </section>
             )}
           </main>
 
@@ -565,6 +536,17 @@ export default function CandidateSearchPreview() {
             <a href="http://webservice.recruit.co.jp/">Powered by ホットペッパーグルメ Webサービス</a>
           </footer>
         </>
+      )}
+
+      {reviewState !== 'AUTHENTICATION_REQUIRED' && showModal && (
+        <ReproposalModal
+          options={reproposalOptions}
+          onClose={() => {
+            setModalOpen(false);
+            if (reviewState === 'CONCEPT_SELECTION') setReviewState('NORMAL');
+          }}
+          onSelect={chooseReproposal}
+        />
       )}
 
       <aside className={`review-console${reviewOpen ? ' review-console--open' : ''}`}>

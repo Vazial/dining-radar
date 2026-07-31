@@ -121,6 +121,7 @@ round 2の最低受け入れ条件:
 
 - 2026-08-01: 同じexternal modelでのrefinementを行わず、Codex自身がDesigner契約と承認済みbriefに基づき作成する案を人間が選択した。
 - 2026-08-01: 人間が画面の方向性を承認し、「有料アプリ感」が強い販促的なcatch copyを減らすよう指摘した。
+- 2026-08-01: 人間が、補助条件と初回コンセプト選択を削除し、ログイン後すぐ候補と位置関係を表示するよう裁定した。別の切り口は再提案時のモーダルだけで選び、選択後に提案全体を置き換える。この判断はADR-0005とAPI v0.4へ反映した。
 - 現在の `CandidateSearchPreview.tsx` は外部AI round-1成果物ではなく、Codex作成のreviewable artifactである。したがってround-1の行番号付き照合は履歴として残し、現成果物の判定には用いない。
 
 ### 現成果物の照合
@@ -128,15 +129,15 @@ round 2の最低受け入れ条件:
 | 境界 | 判定 | 現成果物 |
 |---|---|---|
 | `TDR-CS-00`〜`TDR-CS-08` と補足 `403` / loading | 適合 | product UIから分離したreview consoleで全状態を切り替えられる。未認証時は候補、条件、地図を表示しない。 |
-| 補助条件と提案 | 適合 | 相対範囲、ジャンル、ランチ必須表示、提案開始を持つ。手動sortや禁止条件は追加していない。 |
-| コンセプト選択と再提案 | 適合 | 最大3件、理由表示、browser-local選択、処理中状態、前の提案を追加せず完全置換する動作を持つ。 |
+| 初期提案 | 適合 | 補助条件、提案開始、常設コンセプト一覧を置かず、一つの初期提案の地図とカードを直ちに示す。ランチ必須はserver-sideの不変条件として、解除controlを置かない。 |
+| 切り口選択と再提案 | 適合 | 現在のkindを除く最大3つの `reProposalOptions` をモーダルで理由つき表示する。選択後は再提案中を示し、選んだkindの一提案で前のカードと地図を完全置換する。 |
 | 地図とカード | 適合 | 非地理的な合成位置図でmarker/cardを相互強調し、全候補を見渡せる。実装時の `Candidate.location` との境界をsource commentで示す。 |
 | 店舗表示項目 | 適合 | name、genre、description、businessHours、regularHoliday、totalSeats、access、providerPageUrlと中立null表示を持つ。 |
 | provider / map credit | 適合 | Hot Pepperの固定linked creditとOpenStreetMap attribution treatmentを示す。店舗linkは `example.invalid` のみ。 |
 | privacy / repository | 適合 | 実地点、地名、座標、距離、実店舗、provider ID/response/image、key、永続化、live API/tile requestを持たない。 |
 | 成果物形式 | 適合 | raw TSXのdefault exportを独立Vite receiverで型検査・buildできる。 |
-| copy tone | 適合 | heroを「ランチ候補を探す」という機能名と短い説明に縮め、販促tagline、英語catch copy、装飾heroを除いた。 |
+| copy tone | 適合 | heroを「ランチ候補」という機能名と短い説明に縮め、販促tagline、英語catch copy、装飾heroを除いた。 |
 
 ### Human screen review readiness
 
-**Ready; direction approved.** 現receiverは設計PRでレビューできる。承認済みなのは画面の方向性と上記copy修正であり、Django本番実装、認証、実API、Leaflet/OSM通信の承認ではない。
+**Ready for revised screen review; interaction direction approved.** ADR-0005のinteractionはchatで人間承認済みであり、現receiverは更新後の見た目を設計PRで再確認できる。Django本番実装、認証、実API、Leaflet/OSM通信の承認ではない。
