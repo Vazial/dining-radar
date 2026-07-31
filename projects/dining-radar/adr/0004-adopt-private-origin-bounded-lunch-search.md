@@ -1,11 +1,11 @@
 ---
 id: 0004
 scope: project/toyama-dining-radar
-status: 承認済み
+status: superseded
 date: 2026-07-31
 approved_by: "PR #65のマージをもって承認（人間内容承認 2026-07-31: 『PR内容はok』）"
 supersedes: []
-superseded_by: null
+superseded_by: 0005
 relates_to: [P-01, P-02, P-03, P-08, TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04]
 ---
 
