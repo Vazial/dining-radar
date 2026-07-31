@@ -1,30 +1,34 @@
 # activeContext.md — Toyama Dining Radar
 
-> P-11: このファイルは常に「現在」を表す。恒久的な決定はADR、承認済みの成果物はgitに置く。
+> P-11: This file represents only the current state. Durable decisions belong in ADRs; approved artifacts belong in git.
 
-## 現在
+## Current state
 
-foundationの設計文書をレビュー中である。目的は、月例ランチ会の幹事が、利用時に設定する検索基点の徒歩圏で、複数人利用の参考情報を持つ店舗候補と代替候補を得ることである。候補数は固定しない。利用済みの店舗は通常除外し、ブラックリストは登録・解除できる。
+The Product Brief is human-approved. The candidate-proposal acceptance/API contracts and ADR-0004 are now reviewable proposals: an authenticated organizer chooses a deterministic concept, compares its candidates on a Leaflet/OpenStreetMap map and cards, and re-proposes rather than using fixed-page additions. They remain unapproved; no implementation authorization is implied.
 
-初期providerはHot Pepperグルメ WebサービスのAPIであり、スクレイピングやそのfallbackは採用しない。connpassは別プロジェクトである。
+Hot Pepper Gourmet Web Service API is the sole initial provider. One private runtime-configured location is never accepted from or shown to the browser. Lunch is mandatory; cards and maps show only agreed provider reference fields. The map is derived only from returned shop locations and has no origin marker, routing, or current-location feature. ADR-0002's public-repository and provider-data boundary remains in effect.
 
-## 確定した方針
+## Confirmed policies
 
-- 検索基点と探索範囲は、利用時の非公開設定として扱う。公開リポジトリ、fixture、設計例、デプロイ既定値へ実在の生活圏を示す名称・座標・距離を置かない。
-- APIキー、秘密値、実APIリクエストURL、provider由来の実レスポンス・実店舗ID・画像・店舗情報、実データを投入するdata migration、実fixture、DB dumpをリポジトリへ入れない。schema migrationはGitで版管理し、テストは合成fixtureだけを用いる。
-- APIキーはprovider仕様に従い、serverからproviderへ送るクエリパラメータだけで利用する。ブラウザ、アプリの公開URL、ログ、エラー、トレースへキー入りURLを出さない。
-- 初期版はproviderレスポンスをcache・永続化しない。将来cacheを導入する場合は、その時点のprovider規約を再確認し、少なくとも規約の更新・削除期限を守る。
-- providerの店舗事実は改変・再配布しない。アプリケーション固有の処理は候補の選択、除外、順序付けに限る。必要なcreditを表示し、初期版ではprovider画像を使わない。
-- 利用済み・ブラックリスト等の実データはGit外のprivate runtime DBにだけ置く。provider IDを保存するか、サーバー秘密鍵を用いるHMACトークンで照合するかは、現行provider規約の確認後に選ぶ。確認前は長期保存を導入しない。
+- Do not commit real life-area names, coordinates, configured ranges, API keys, secrets, provider request URLs/responses, shop IDs, images, shop data, real-data migrations, fixtures, or database dumps. Use only synthetic test/design data.
+- Do not cache or persist provider responses initially. Do not introduce durable provider IDs or HMAC-derived lookup data until current provider terms permit it.
+- Send the API key only from the server to the provider; never expose a key-bearing URL, provider internals, or the private origin to a browser, public URL, log, error, or trace.
+- Use Leaflet with OpenStreetMap standard tiles only for small authenticated interactive use, with attribution and without tile prefetch, bulk download, or offline cache. The map must not expose the private search origin.
+- Authentication, account lifecycle, HTTPS/cookie/CSRF/proxy/host deployment settings, rate limiting, and public deployment remain a separate slice. Candidate-search endpoints depend on an authenticated organizer but do not implement that boundary.
 
-## 次に行うこと
+## Next work
 
-1. ADR-0001/0002、ARCHITECTURE、designのfoundationレビューを完了する。
-2. provider由来IDをprivate runtime DBへ保存するか、HMACトークンで照合するかを、規約確認後に決める。確認できなければ保存なしにする。
-3. foundation承認後、最初の実装スライスの受け入れ契約を起草する。
+1. Obtain human review of the revised candidate-search acceptance contract, API contract, and ADR-0004. Do not treat Product Brief approval as their approval.
+2. After those contracts are approved, replace the stale review-only design brief and preview against the approved contract.
+3. Draft and obtain approval for the separate authentication/public-deployment slice before candidate-search implementation.
+4. Reconfirm current Hot Pepper and map-provider terms before implementation or public operation, especially credit, schema, caching, and long-term identifier handling.
 
-## 未確定
+## Open questions
 
-- 推薦順位の重み、評価・学習の方法。
-- 複数人利用・予約可否の扱い。API情報は保証ではなく参考とする。
-- provider IDまたはHMACトークンを含む長期照合データがprovider規約上許容されるか。
+- Whether the proposed relative range labels and the maximum-three concept response are acceptable contract choices.
+- Provider-terms permission for durable provider identifiers or HMAC-derived lookup data.
+- The concrete authentication/public-deployment boundary.
+
+## Approval state
+
+`product-brief.md` is human-approved (2026-07-31 chat). `contracts/candidate-search.feature`, `contracts/candidate-search-api.yaml`, and ADR-0004 are proposals awaiting human review. The current design brief and preview remain stale/non-authoritative until a later design slice replaces them.
