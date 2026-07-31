@@ -1,7 +1,7 @@
 # Toyama Dining Radar acceptance contract — TDR-CS candidate proposals
 #
-# Status: draft for human review. This contract projects the human-approved
-# Product Brief; it is not an approval record for this contract artifact.
+# Status: human content-approved in PR #65 (2026-07-31); the approval becomes
+# durable when that PR merges. This contract projects the human-approved Product Brief.
 
 Feature: 幹事がコンセプトからランチ候補を比べ直す
   幹事は非公開の検索地点の周辺にあるランチ候補を、選ぶ理由の異なる

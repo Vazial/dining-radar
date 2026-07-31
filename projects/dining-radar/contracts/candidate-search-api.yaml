@@ -1,7 +1,9 @@
+# Status: human content-approved in PR #65 (2026-07-31); the approval becomes
+# durable when that PR merges.
 openapi: 3.0.3
 info:
   title: Toyama Dining Radar Candidate Proposal API
-  version: 0.3.0-draft
+  version: 0.3.0
   description: >-
     Produces deterministic lunch-candidate concepts around one private
     runtime-configured location. The location, configured radius, credentials,
