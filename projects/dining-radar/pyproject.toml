@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "toyama-dining-radar"
+version = "0.1.0"
+description = "An invite-only lunch candidate organizer application."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "Django>=5.2.16,<5.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "coverage[toml]>=7.15,<8",
+    "jsonschema>=4.25,<5",
+    "pytest>=9.1,<10",
+    "pytest-django>=4.12,<5",
+    "pytest-gremlins>=1.9,<2",
+    "PyYAML>=6.0.2,<7",
+    "ruff>=0.15,<0.16",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "dining_radar.settings_test"
+pythonpath = ["src"]
+python_files = ["test_*.py"]
+addopts = ["-ra", "--strict-markers"]
+
+[tool.coverage.run]
+branch = true
+source = ["dining_radar"]
+omit = [
+    "*/migrations/*",
+    "*/wsgi.py",
+]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = true
+
+[tool.pytest-gremlins]
+paths = [
+    "src/dining_radar/authentication/forms.py",
+    "src/dining_radar/authentication/throttle.py",
+    "src/dining_radar/test_support/views.py",
+    "src/dining_radar/web/views.py",
+]
+exclude = ["**/__pycache__/*"]
+report = ["json"]
+max_pardons = 0
