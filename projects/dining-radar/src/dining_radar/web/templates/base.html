@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}ランチ候補{% endblock %}</title>
+    <style>
+      :root {
+        color: #1c2420;
+        background: #f4f5f1;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.6;
+      }
+
+      * { box-sizing: border-box; }
+
+      body { margin: 0; }
+
+      a { color: #155c42; }
+
+      .app-shell {
+        width: min(100% - 2rem, 42rem);
+        margin: 0 auto;
+        padding: 2rem 0 3rem;
+      }
+
+      .app-card {
+        background: #fff;
+        border: 1px solid #dce3da;
+        border-radius: 0.75rem;
+        padding: clamp(1.25rem, 4vw, 2rem);
+        box-shadow: 0 0.25rem 1.25rem rgb(23 49 36 / 6%);
+      }
+
+      .app-header { margin-bottom: 1.5rem; }
+      .app-header h1 { margin: 0; font-size: clamp(1.5rem, 6vw, 2rem); line-height: 1.3; }
+      .app-header p { margin: 0.5rem 0 0; color: #536057; }
+
+      .account-nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem 1rem;
+        align-items: center;
+        margin-top: 1rem;
+      }
+
+      .account-nav form { margin: 0; }
+      form > p { margin: 1rem 0; }
+      label { display: block; margin-bottom: 0.25rem; font-weight: 650; }
+      input { width: 100%; min-height: 2.75rem; padding: 0.55rem 0.65rem; border: 1px solid #aeb9b1; border-radius: 0.4rem; font: inherit; }
+      button { min-height: 2.75rem; padding: 0.55rem 1rem; border: 0; border-radius: 0.4rem; background: #155c42; color: #fff; font: inherit; font-weight: 650; cursor: pointer; }
+      button:hover { background: #0e4933; }
+      .notice { margin: 1.25rem 0 0; color: #536057; }
+      .errorlist, .form-error { padding: 0.75rem 1rem; border-radius: 0.4rem; background: #fff0ed; color: #982c22; }
+      .errorlist { padding-left: 2rem; }
+    </style>
+  </head>
+  <body>
+    <div class="app-shell">
+      <div class="app-card">
+        {% block content %}{% endblock %}
+      </div>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}サインイン | ランチ候補{% endblock %}
+
+{% block content %}
+    <main>
+      <header class="app-header">
+      <h1>サインイン</h1>
+      <p>管理者から案内された個別アカウントで利用してください。</p>
+      </header>
+      <form method="post" data-testid="auth-sign-in-form">
+        {% csrf_token %}
+        {% if form.throttled %}
+          <p class="form-error" data-testid="auth-sign-in-throttled">正しいユーザー名とパスワードを入力してください。</p>
+        {% elif form.non_field_errors %}
+          <p class="form-error" data-testid="auth-sign-in-failure">正しいユーザー名とパスワードを入力してください。</p>
+        {% endif %}
+        <p>
+          <label for="{{ form.username.id_for_label }}">{{ form.username.label }}</label>
+          {{ form.username }}
+        </p>
+        <p>
+          <label for="{{ form.password.id_for_label }}">{{ form.password.label }}</label>
+          {{ form.password }}
+        </p>
+        <input type="hidden" name="next" value="{{ next }}">
+        <button type="submit" data-testid="auth-sign-in-submit">サインイン</button>
+      </form>
+      <p class="notice" data-testid="auth-administrator-assistance">パスワードを忘れた場合は、管理者に連絡してください。</p>
+    </main>
+{% endblock %}

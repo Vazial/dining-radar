@@ -1,0 +1,221 @@
+# Toyama Dining Radar authentication browser acceptance interface
+#
+# This is test infrastructure, not a new public API. It is the machine-readable
+# control-surface and observation SSoT for local authentication acceptance work.
+# Developer and tester must read it verbatim (meta/adr/0008). It projects the
+# human resolution recorded by ADR-0007 and does not change TDR-AUTH outcomes.
+contractVersion: '0.1'
+kind: acceptance-browser-interface
+scope: authentication
+profiles:
+  localAcceptance:
+    transport: HTTP
+    publicDeployment: false
+    verifiesScenarios:
+      [TDR-AUTH-01, TDR-AUTH-02, TDR-AUTH-03, TDR-AUTH-04, TDR-AUTH-05, TDR-AUTH-07]
+    sessionCookie:
+      secure: false
+      httpOnly: true
+      sameSiteAllowed: [Lax, Strict]
+    invariant:
+      - This profile is isolated and must never be selected by a public deployment.
+      - Its Secure=false cookie exception exists only so a local HTTP browser can exercise session behaviour.
+      - CSRF protection, same-origin use, HttpOnly, and SameSite remain required.
+    syntheticDisclosureCanaries:
+      privateSearchOrigin: synthetic-private-origin-never-disclose.invalid
+      providerInternals: synthetic-provider-internals-never-disclose
+      description: >-
+        Public browser and API response bodies must not contain these exact
+        synthetic values. They stand in for the private-origin and provider
+        internals named by TDR-AUTH; no real value is used by acceptance work.
+  deployment:
+    transport: HTTPS
+    publicDeployment: true
+    verifiesScenarios: [TDR-AUTH-06]
+    sessionCookie:
+      secure: true
+      httpOnly: true
+      sameSiteAllowed: [Lax, Strict]
+    invariant:
+      - Actual HTTPS transport, certificate, redirect, and real-origin checks are deferred to the deployment slice.
+      - No real origin, certificate material, allowlist, secret, or account may appear in this repository.
+
+browserEntry:
+  localAcceptanceRunner:
+    baseUrl:
+      environmentVariable: TDR_ACCEPTANCE_BASE_URL
+      requiredScheme: http
+      description: >-
+        Supplied by the isolated acceptance runner; it is a local runtime value,
+        never a committed origin. The runner must not discover an entry URL from
+        implementation source or a developer-specific server port.
+    startPath: /
+    startUrlTemplate: '${TDR_ACCEPTANCE_BASE_URL}/'
+    unauthenticatedOutcome:
+      present: [auth-sign-in-form]
+      absent: [authenticated-application-shell]
+    authenticatedOutcome:
+      present: [authenticated-application-shell]
+      absent: [auth-sign-in-form]
+
+browserControlSurface:
+  unauthenticated:
+    requiredTestIds:
+      signInForm: auth-sign-in-form
+      loginIdentifier: auth-login-identifier
+      password: auth-password
+      submit: auth-sign-in-submit
+      administratorAssistance: auth-administrator-assistance
+    forbiddenTestIds:
+      - authenticated-application-shell
+      - auth-sign-out
+      - auth-password-change-open
+      - candidate-proposal-content
+      - candidate-map
+      - candidate-reproposal-lenses
+      - private-search-origin
+    absenceCheck:
+      entry: localAcceptanceRunner
+      states: [initial, genericFailure, throttledFailure]
+  authenticated:
+    requiredTestIds:
+      applicationShell: authenticated-application-shell
+      signOut: auth-sign-out
+      passwordChangeOpen: auth-password-change-open
+      individualAccountGuidance: auth-individual-account-guidance
+    semanticObservations:
+      individualAccountGuidance:
+        testId: auth-individual-account-guidance
+        requiredDataAttributes:
+          data-auth-account-use: individual-only
+          data-auth-credential-sharing: not-requested
+        description: >-
+          This semantic state records the approved individual-account outcome:
+          the signed-in organizer uses an individual account and is not asked
+          to share credentials. It deliberately does not prescribe visible
+          wording, layout, or a new public operation.
+    forbiddenTestIds:
+      - auth-sign-in-form
+  passwordChange:
+    requiredTestIds:
+      form: auth-password-change-form
+      currentPassword: auth-current-password
+      newPassword: auth-new-password
+      confirmation: auth-new-password-confirmation
+      submit: auth-password-change-submit
+  unavailablePublicOperations:
+    forbiddenTestIds:
+      - auth-public-sign-up
+      - auth-email-password-reset
+    absenceCheck:
+      entry: localAcceptanceRunner
+      states: [initial, genericFailure, throttledFailure]
+    routeProbes:
+      publicSignUp:
+        path: /sign-up
+        requiredStatus: 404
+      emailPasswordReset:
+        path: /password-reset
+        requiredStatus: 404
+        responseBodyForbiddenKeys: [token, resetToken, email]
+
+browserActions:
+  signIn:
+    inputs: [auth-login-identifier, auth-password, auth-sign-in-submit]
+    success:
+      present:
+        [authenticated-application-shell, auth-sign-out,
+         auth-password-change-open, auth-individual-account-guidance]
+      absent: [auth-sign-in-form]
+      requiredSemanticObservations:
+        - browserControlSurface.authenticated.semanticObservations.individualAccountGuidance
+      sessionPersistenceProof:
+        action: reopen-localAcceptanceRunner-with-same-browser-cookie-jar
+        present: [authenticated-application-shell]
+        absent: [auth-sign-in-form]
+    genericFailure:
+      present: [auth-sign-in-failure]
+      forbiddenDisclosure: [account-exists, account-disabled, private-search-origin, credential, provider-internals]
+      accountStateProof:
+        normalizedPublicContentMustMatchFor: [unknown-account, disabled-account]
+    throttledFailure:
+      present: [auth-sign-in-throttled]
+      forbiddenDisclosure: [account-exists, account-disabled, private-search-origin, credential, provider-internals]
+      accountStateProof:
+        normalizedPublicContentMustMatchFor: [unknown-account, disabled-account]
+  signOut:
+    inputs: [auth-sign-out]
+    success:
+      present: [auth-sign-in-form]
+      absent: [authenticated-application-shell, auth-sign-out]
+  changePassword:
+    inputs:
+      [auth-password-change-open, auth-current-password, auth-new-password,
+       auth-new-password-confirmation, auth-password-change-submit]
+    success:
+      observable: subsequent-sign-in-accepts-new-password
+  protectedCandidateAccess:
+    unauthenticated:
+      browser:
+        present: [auth-sign-in-form]
+        absent:
+          [authenticated-application-shell, candidate-proposal-content,
+           candidate-map, candidate-reproposal-lenses, private-search-origin]
+      apiContract:
+        file: contracts/candidate-search-api.yaml
+        schemaRef: '#/components/schemas/ProblemResponse'
+        response: {status: 401, code: AUTHENTICATION_REQUIRED}
+    deactivatedSession:
+      requiredSequence:
+        - establish-authenticated-session
+        - deactivate-account-through-setAuthenticationAcceptanceAccount
+        - send-candidate-proposal-request-with-existing-browser-cookie-jar
+        - assert-api-response
+        - reopen-localAcceptanceRunner-and-assert-browser-state
+      firstPostDeactivationOperation: candidate-proposal-request-with-existing-browser-cookie-jar
+      browser:
+        present: [auth-sign-in-form]
+        absent:
+          [authenticated-application-shell, candidate-proposal-content,
+           candidate-map, candidate-reproposal-lenses, private-search-origin]
+      apiContract:
+        file: contracts/candidate-search-api.yaml
+        schemaRef: '#/components/schemas/ProblemResponse'
+        response: {status: 401, code: AUTHENTICATION_REQUIRED}
+
+disclosureObservations:
+  responseSurfaces:
+    [initial-browser-entry, generic-sign-in-failure, throttled-sign-in-failure,
+     unauthenticated-candidate-api, deactivated-session-candidate-api]
+  bodyMustNotContain:
+    - source: profiles.localAcceptance.syntheticDisclosureCanaries.privateSearchOrigin
+    - source: profiles.localAcceptance.syntheticDisclosureCanaries.providerInternals
+    - source: submitted-login-password
+  bodyMustNotExposeTestIds:
+    [auth-account-exists, auth-account-disabled, private-search-origin]
+  accountStateComparison:
+    genericFailure: normalized-public-content-identical-for-unknown-and-disabled
+    throttledFailure: normalized-public-content-identical-for-unknown-and-disabled
+  apiSchemaValidation:
+    file: contracts/candidate-search-api.yaml
+    schemaRef: '#/components/schemas/ProblemResponse'
+    appliesTo: [unauthenticated-candidate-api, deactivated-session-candidate-api]
+
+securityObservations:
+  stateChangingOperations:
+    - signIn
+    - signOut
+    - changePassword
+    - candidateProposal
+  invalidOrAbsentCsrf:
+    requiredOutcome: rejected-4xx
+  arbitraryCredentialedOrigin:
+    requiredOutcome: not-allowed
+  browserBearerTokenStorage:
+    requiredOutcome: absent
+  acceptanceProfileObservation:
+    testSupportOperation: getAuthenticationAcceptanceSecurityBoundary
+    contract: contracts/test-support-api.yaml
+    responseMustReflect: effective-running-acceptance-configuration
+  deploymentTransport:
+    requiredOutcome: deferred-to-deployment-slice

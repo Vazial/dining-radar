@@ -1,0 +1,136 @@
+import json
+
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.test import Client, TestCase, override_settings
+from django.urls import clear_url_caches
+
+ACCEPTANCE_SETTINGS = {
+    "ROOT_URLCONF": "dining_radar.acceptance_urls",
+    "ACCEPTANCE_TEST_SUPPORT": True,
+    "SESSION_COOKIE_SECURE": False,
+}
+
+
+@override_settings(**ACCEPTANCE_SETTINGS)
+class AcceptanceTestSupportTests(TestCase):
+    def setUp(self):
+        clear_url_caches()
+
+    def tearDown(self):
+        clear_url_caches()
+
+    def test_security_boundary_observes_the_effective_local_profile(self):
+        response = self.client.get("/test-support/authentication/security-boundary")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "profile": "acceptance",
+                "transport": "HTTP_LOCAL_ONLY",
+                "sessionCookie": {"secure": False, "httpOnly": True, "sameSite": "Lax"},
+                "csrfProtectedOperations": [
+                    "SIGN_IN",
+                    "SIGN_OUT",
+                    "CHANGE_PASSWORD",
+                    "CANDIDATE_PROPOSAL",
+                ],
+                "credentialedArbitraryOriginCorsAllowed": False,
+                "browserLocalStorageBearerTokenUsed": False,
+            },
+        )
+
+    def test_synthetic_account_can_be_replaced_without_returning_credential_data(self):
+        response = self.client.put(
+            "/test-support/authentication/accounts/synthetic-account-a",
+            data=json.dumps(
+                {
+                    "loginIdentifier": "synthetic-organizer-a",
+                    "password": "synthetic-password-only",
+                    "isActive": True,
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response.content, b"")
+
+        account = get_user_model().objects.get(username="synthetic-organizer-a")
+        self.assertTrue(account.is_active)
+        self.assertTrue(account.check_password("synthetic-password-only"))
+
+        replacement = self.client.put(
+            "/test-support/authentication/accounts/synthetic-account-a",
+            data=json.dumps(
+                {
+                    "loginIdentifier": "synthetic-organizer-renamed",
+                    "password": "replacement-synthetic-password",
+                    "isActive": False,
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(replacement.status_code, 204)
+        account.refresh_from_db()
+        self.assertEqual(account.username, "synthetic-organizer-renamed")
+        self.assertFalse(account.is_active)
+        self.assertTrue(account.check_password("replacement-synthetic-password"))
+
+    def test_throttle_seed_applies_to_the_next_browser_login_for_that_identifier(self):
+        account = get_user_model().objects.create_user(
+            username="synthetic-throttled-visitor", password="synthetic-password-only"
+        )
+        self.assertTrue(account.is_active)
+        seed = self.client.post(
+            "/test-support/authentication/login-throttle",
+            data=json.dumps({"loginIdentifier": "synthetic-throttled-visitor"}),
+            content_type="application/json",
+        )
+        self.assertEqual(seed.status_code, 204)
+
+        browser = Client()
+        response = browser.post(
+            "/accounts/login/",
+            {"username": "synthetic-throttled-visitor", "password": "synthetic-password-only"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-testid="auth-sign-in-throttled"')
+
+    def test_reset_removes_only_synthetic_accounts_and_acceptance_sessions(self):
+        self.client.put(
+            "/test-support/authentication/accounts/synthetic-account-a",
+            data=json.dumps(
+                {
+                    "loginIdentifier": "synthetic-organizer-a",
+                    "password": "synthetic-password-only",
+                    "isActive": True,
+                }
+            ),
+            content_type="application/json",
+        )
+        synthetic_account = get_user_model().objects.get(username="synthetic-organizer-a")
+        external_account = get_user_model().objects.create_user(
+            username="ordinary-test-user", password="other-synthetic-password"
+        )
+        browser = Client()
+        browser.force_login(synthetic_account)
+
+        response = self.client.delete("/test-support/authentication-state")
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(get_user_model().objects.filter(pk=synthetic_account.pk).exists())
+        self.assertTrue(get_user_model().objects.filter(pk=external_account.pk).exists())
+        self.assertEqual(browser.get("/").status_code, 302)
+
+
+@override_settings(
+    ROOT_URLCONF="dining_radar.urls",
+    ACCEPTANCE_TEST_SUPPORT=False,
+    SESSION_COOKIE_SECURE=True,
+)
+class PublicApplicationTestSupportIsolationTests(TestCase):
+    def test_test_support_routes_are_not_registered_in_the_standard_test_profile(self):
+        response = self.client.get("/test-support/authentication/security-boundary")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(getattr(settings, "ACCEPTANCE_TEST_SUPPORT", False))

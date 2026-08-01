@@ -78,4 +78,5 @@ moduleやfilter taxonomyはこの流れに含まれない。別の切り口は�
 - L1: `recommendation` と調停の純粋ロジックを合成データで検証する。
 - L2: provider固有依存のadapter外流出、`web`からadapter/ORMへの直接アクセス、`recommendation`へのframework依存を検出する。
 - L3: 合成fixtureでadapterの正規化・redactionを検証する。資格情報を用いるlive APIテストはしない。
-- L4: foundation後の受け入れ契約で定める。
+- L3: TDR-AUTH-06 の deployment 向け cookie/CSRF/CORS/token 非使用は設定・security-boundary 検証で確認する。ローカル acceptance profile の HTTP は public HTTPS の代替ではなく、実 transport は deployment slice が確認する。
+- L4: TDR-AUTH-01〜05・07 の利用者操作・観測は `contracts/authentication-browser-interface.yaml` の browser control surface と既存 browser-facing 境界だけを通す。公開境界だけでは作れない認証の Given、security-boundary 観測、シナリオ間の初期化は、acceptance-test 構成にだけ存在する `contracts/test-support-api.yaml` の機械可読 seam を使う。この seam は合成 account・session・login throttle state と有効な acceptance 設定に限定し、実 account、非公開検索基点、provider data、secret、production 設定には触れない。

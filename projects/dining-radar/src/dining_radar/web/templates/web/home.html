@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block title %}ランチ候補{% endblock %}
+
+{% block content %}
+    <header data-testid="authenticated-application-shell">
+      <div class="app-header">
+        <h1>ランチ候補</h1>
+      </div>
+      <nav class="account-nav" aria-label="アカウント">
+        <a href="{% url 'authentication:password_change' %}" data-testid="auth-password-change-open">パスワード変更</a>
+        <form method="post" action="{% url 'authentication:logout' %}" data-testid="auth-sign-out-form">
+          {% csrf_token %}
+          <button type="submit" data-testid="auth-sign-out">サインアウト</button>
+        </form>
+      </nav>
+    </header>
+    <main>
+      <p
+        data-testid="auth-individual-account-guidance"
+        data-auth-account-use="individual-only"
+        data-auth-credential-sharing="not-requested"
+      >管理者から案内された個別アカウントで利用してください。認証情報は共有しないでください。</p>
+      <p>候補探索を準備しています。</p>
+      <p>候補と地図は、候補探索の実装後にここへ表示されます。</p>
+    </main>
+{% endblock %}

@@ -1,0 +1,215 @@
+# Toyama Dining Radar test-support API — acceptance-test Given seams
+#
+# This is test infrastructure, not a browser-facing business API.  It is the
+# machine-readable SSoT for the acceptance-only seams required by TDR-AUTH.
+# Per meta/adr/0008, developer and tester must read this file verbatim rather
+# than receiving a paraphrase in a task prompt.
+#
+# Availability: the endpoints exist only in the isolated acceptance-test
+# configuration.  They must not be registered in development, production, or
+# any internet-facing deployment.  They operate only on synthetic test data.
+# They never reveal or alter a private search origin, provider data or
+# credentials, runtime secrets, or any real account.
+openapi: 3.0.3
+info:
+  title: Toyama Dining Radar authentication test-support API
+  version: 0.1.0
+  description: >-
+    Acceptance-only setup and reset seams for TDR-AUTH-01 through TDR-AUTH-07.
+    Browser actions and outcomes under test must use the public same-origin
+    authentication and candidate-search boundaries; these operations are only
+    for deterministic Given state and scenario isolation.
+paths:
+  /test-support/authentication-state:
+    delete:
+      operationId: resetAuthenticationAcceptanceState
+      summary: Reset only authentication state owned by the acceptance harness
+      description: >-
+        Removes every synthetic account created through this contract, all of
+        their sessions, and all failed-sign-in/throttle state seeded or produced
+        during the acceptance test. It does not read, write, or reset provider
+        data, candidate data, private runtime settings, runtime secrets, or
+        accounts outside the acceptance configuration. Call before each
+        authentication scenario to keep scenarios independent.
+      x-acceptance-scenarios:
+        [TDR-AUTH-01, TDR-AUTH-02, TDR-AUTH-03, TDR-AUTH-04, TDR-AUTH-05,
+         TDR-AUTH-06, TDR-AUTH-07]
+      responses:
+        '204':
+          description: The acceptance authentication state is reset. No response body is returned.
+  /test-support/authentication/accounts/{accountRef}:
+    put:
+      operationId: setAuthenticationAcceptanceAccount
+      summary: Create or replace one synthetic organizer account for a Given state
+      description: >-
+        Sets the exact synthetic account state for accountRef. A missing account
+        is created; an existing synthetic account is replaced with the supplied
+        login identifier, password, and active state. When isActive is false,
+        any session already associated with that synthetic account must cease to
+        authorize protected use after this operation completes. Password is
+        write-only and must not appear in a response, log, trace, fixture, or
+        browser-visible output.
+      x-acceptance-scenarios: [TDR-AUTH-02, TDR-AUTH-04, TDR-AUTH-05, TDR-AUTH-07]
+      parameters:
+        - name: accountRef
+          in: path
+          required: true
+          description: >-
+            An opaque synthetic scenario label, not a real name, email address,
+            provider identifier, or browser-facing account value.
+          schema:
+            type: string
+            pattern: '^[a-z][a-z0-9-]{0,31}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AcceptanceAccountState'
+            example:
+              loginIdentifier: synthetic-organizer-a
+              password: synthetic-password-only
+              isActive: true
+      responses:
+        '204':
+          description: The requested synthetic account state is now in effect. No response body is returned.
+  /test-support/authentication/login-throttle:
+    post:
+      operationId: seedThrottledSignInAttempt
+      summary: Seed a deterministic throttled sign-in Given state
+      description: >-
+        Seeds failed-sign-in state for loginIdentifier so that the next browser
+        sign-in attempt using exactly that identifier is throttled by the
+        application's normal sign-in protection, regardless of the supplied
+        credential. It does not return the configured attempt count, time
+        window, delay, account existence, or account status. This seam lets L4
+        verify TDR-AUTH-07 without encoding an operational throttle threshold
+        or depending on elapsed time.
+      x-acceptance-scenarios: [TDR-AUTH-07]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ThrottledSignInState'
+            example:
+              loginIdentifier: synthetic-throttled-visitor
+      responses:
+        '204':
+          description: The next matching browser sign-in attempt will be throttled. No response body is returned.
+  /test-support/authentication/security-boundary:
+    get:
+      operationId: getAuthenticationAcceptanceSecurityBoundary
+      summary: Observe the effective acceptance-profile authentication boundary
+      description: >-
+        Returns the security-relevant values effectively applied by the running
+        acceptance configuration. It exists only so L3 can verify the local
+        exception and the remaining browser-security invariants without
+        representing local HTTP as public HTTPS transport. It must be derived
+        from active configuration, not a fixture or a duplicated expected value.
+        It never returns a secret, cookie value, account, private origin,
+        provider data, or production/deployment configuration.
+      x-acceptance-scenarios: [TDR-AUTH-06]
+      responses:
+        '200':
+          description: Effective acceptance-profile security-boundary values.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptanceSecurityBoundary'
+              example:
+                profile: acceptance
+                transport: HTTP_LOCAL_ONLY
+                sessionCookie:
+                  secure: false
+                  httpOnly: true
+                  sameSite: Lax
+                csrfProtectedOperations:
+                  [SIGN_IN, SIGN_OUT, CHANGE_PASSWORD, CANDIDATE_PROPOSAL]
+                credentialedArbitraryOriginCorsAllowed: false
+                browserLocalStorageBearerTokenUsed: false
+components:
+  schemas:
+    AcceptanceAccountState:
+      type: object
+      additionalProperties: false
+      required: [loginIdentifier, password, isActive]
+      properties:
+        loginIdentifier:
+          type: string
+          minLength: 1
+          description: >-
+            Synthetic identifier supplied unchanged to the browser sign-in
+            form. It is the known credential name for this scenario and must
+            not be a real name or email address.
+        password:
+          type: string
+          minLength: 1
+          writeOnly: true
+          description: >-
+            A synthetic acceptance-test credential. Password-policy selection is
+            outside ADR-0006, so this acceptance-only seam must make the exact
+            supplied value usable by the corresponding browser sign-in flow.
+        isActive:
+          type: boolean
+          description: >-
+            Whether this synthetic account may authorize protected use. False
+            models the administrator-deactivated state; it does not disclose
+            that state through a browser sign-in response.
+    ThrottledSignInState:
+      type: object
+      additionalProperties: false
+      required: [loginIdentifier]
+      properties:
+        loginIdentifier:
+          type: string
+          minLength: 1
+          description: >-
+            Synthetic identifier supplied unchanged to the subsequent browser
+            sign-in form. It need not identify an existing account and must not
+            be a real name or email address.
+    AcceptanceSecurityBoundary:
+      type: object
+      additionalProperties: false
+      required:
+        [profile, transport, sessionCookie, csrfProtectedOperations,
+         credentialedArbitraryOriginCorsAllowed,
+         browserLocalStorageBearerTokenUsed]
+      properties:
+        profile:
+          type: string
+          enum: [acceptance]
+        transport:
+          type: string
+          enum: [HTTP_LOCAL_ONLY]
+          description: >-
+            This is a local acceptance transport marker, never proof of public
+            HTTPS. Actual HTTPS transport is verified only by the deployment
+            slice under ADR-0007.
+        sessionCookie:
+          type: object
+          additionalProperties: false
+          required: [secure, httpOnly, sameSite]
+          properties:
+            secure:
+              type: boolean
+              enum: [false]
+            httpOnly:
+              type: boolean
+              enum: [true]
+            sameSite:
+              type: string
+              enum: [Lax, Strict]
+        csrfProtectedOperations:
+          type: array
+          uniqueItems: true
+          minItems: 4
+          items:
+            type: string
+            enum: [SIGN_IN, SIGN_OUT, CHANGE_PASSWORD, CANDIDATE_PROPOSAL]
+        credentialedArbitraryOriginCorsAllowed:
+          type: boolean
+          enum: [false]
+        browserLocalStorageBearerTokenUsed:
+          type: boolean
+          enum: [false]
