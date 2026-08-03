@@ -1,7 +1,8 @@
 # Toyama Dining Radar test-support API — acceptance-test Given seams
 #
 # This is test infrastructure, not a browser-facing business API.  It is the
-# machine-readable SSoT for the acceptance-only seams required by TDR-AUTH.
+# machine-readable SSoT for the acceptance-only seams required by TDR-AUTH and
+# TDR-CS.
 # Per meta/adr/0008, developer and tester must read this file verbatim rather
 # than receiving a paraphrase in a task prompt.
 #
@@ -12,14 +13,52 @@
 # credentials, runtime secrets, or any real account.
 openapi: 3.0.3
 info:
-  title: Toyama Dining Radar authentication test-support API
-  version: 0.1.0
+  title: Toyama Dining Radar acceptance test-support API
+  version: 0.2.0
   description: >-
-    Acceptance-only setup and reset seams for TDR-AUTH-01 through TDR-AUTH-07.
+    Acceptance-only setup and reset seams for TDR-AUTH-01 through TDR-AUTH-07
+    and TDR-CS-00 through TDR-CS-08.
     Browser actions and outcomes under test must use the public same-origin
     authentication and candidate-search boundaries; these operations are only
     for deterministic Given state and scenario isolation.
 paths:
+  /test-support/candidate-proposals/state:
+    put:
+      operationId: setCandidateProposalAcceptanceState
+      summary: Select one deterministic synthetic candidate-proposal state
+      description: >-
+        Selects the candidate-proposal state that the next public
+        /candidate-proposals operation observes. It supplies no provider-format
+        payload and accepts no location, coordinate, provider identifier,
+        credential, real URL, or browser-visible candidate data. The selected
+        state lasts only for the current isolated acceptance scenario and is
+        reset by resetCandidateProposalAcceptanceState.
+      x-acceptance-scenarios:
+        [TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05, TDR-CS-06,
+         TDR-CS-07, TDR-CS-08]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CandidateProposalAcceptanceState'
+      responses:
+        '204':
+          description: The requested synthetic candidate-proposal state is active.
+    delete:
+      operationId: resetCandidateProposalAcceptanceState
+      summary: Reset candidate-proposal state owned by the acceptance harness
+      description: >-
+        Removes only the selected synthetic candidate-proposal state and any
+        scenario-local request counter. It does not read, write, or reset a
+        provider, configured search origin, credential, runtime secret, browser
+        storage, real account, or production/deployment setting.
+      x-acceptance-scenarios:
+        [TDR-CS-00, TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05,
+         TDR-CS-06, TDR-CS-07, TDR-CS-08]
+      responses:
+        '204':
+          description: Candidate-proposal acceptance state is reset.
   /test-support/authentication-state:
     delete:
       operationId: resetAuthenticationAcceptanceState
@@ -130,6 +169,28 @@ paths:
                 browserLocalStorageBearerTokenUsed: false
 components:
   schemas:
+    CandidateProposalAcceptanceState:
+      type: object
+      additionalProperties: false
+      required: [mode]
+      properties:
+        mode:
+          type: string
+          enum:
+            [NORMAL_WITH_REPEAT, NO_RESULTS, PROVIDER_UNAVAILABLE,
+             INVALID_REPROPOSAL_KIND, RATE_LIMITED]
+          description: >-
+            A closed synthetic state selection. NORMAL_WITH_REPEAT supplies
+            only lunch-eligible synthetic candidates, an initial proposal, and
+            a selected next-lens replacement containing at least one new
+            candidate and one earlier candidate with the same providerPageUrl
+            href. It excludes AMENITY_REFERENCE from the initial response's
+            reProposalOptions so a public, CSRF-protected request for that
+            valid enum is deterministically unavailable. NO_RESULTS supplies a
+            successful null proposal. The remaining states produce the
+            corresponding public problem response. Synthetic display data is
+            implementation-owned, deterministic, and must satisfy the
+            candidate-search API schema without using real provider data.
     AcceptanceAccountState:
       type: object
       additionalProperties: false

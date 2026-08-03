@@ -1,8 +1,9 @@
 # Toyama Dining Radar acceptance contract — TDR-CS candidate proposals
 #
-# Status: human content-approved in chat (2026-08-01); this revision becomes
-# durable when the active design PR merges. This contract projects the
-# human-approved Product Brief and ADR-0005.
+# Status: human content-approved in chat (2026-08-03 amendment; original
+# approval 2026-08-01); this revision becomes durable when the active
+# candidate-search PR merges. This contract projects the human-approved
+# Product Brief, ADR-0005, and ADR-0008.
 
 Feature: 幹事がランチ候補を見て別の切り口で比べ直す
   幹事は非公開の検索地点の周辺にあるランチ候補を、選ぶ理由の異なる
@@ -54,6 +55,8 @@ Feature: 幹事がランチ候補を見て別の切り口で比べ直す
     And 幹事が一つの切り口を選ぶと新しい候補提案が依頼される
     And 新しい提案は選んだ切り口の候補と地図を示す
     And 以前の提案に候補を追加しない
+    And 同じ画面で既に表示した店舗は未表示の店舗より後ろに表示される
+    And 既に表示した店舗も候補から除外されない
     And 新しい提案が以前とすべて異なる店舗になるとは限らない
 
   # TDR-CS-04
