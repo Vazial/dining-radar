@@ -1,5 +1,6 @@
-# Status: human content-approved in chat (2026-08-01); this revision becomes
-# durable when the active design PR merges.
+# Status: human content-approved in chat (2026-08-03 amendment; original
+# approval 2026-08-01); this revision becomes durable when the active
+# candidate-search PR merges.
 openapi: 3.0.3
 info:
   title: Toyama Dining Radar Candidate Proposal API
@@ -9,7 +10,10 @@ info:
     runtime-configured location. The location, configured radius, credentials,
     provider identifiers, and provider images are never accepted or returned by
     this browser-facing API. A response is held in current browser memory only;
-    it is not a provider-response cache or a durable search session.
+    it is not a provider-response cache or a durable search session. During one
+    screen lifetime, the browser may retain a non-persistent shown-candidate
+    comparison state solely to lower the display priority of repeats after a
+    fresh re-proposal; it never sends that state back to the server.
 servers:
   - url: https://app.example.invalid
     description: >-
@@ -27,7 +31,9 @@ paths:
         the returned proposal immediately. Re-proposal is a separate fresh request
         after the browser presents the response's available lenses in a modal and
         the organizer selects one. The configured search origin and its exact radius
-        are server-only and are not request parameters.
+        are server-only and are not request parameters. The server does not receive
+        previously shown candidates; after a successful re-proposal, the browser
+        applies its current-screen-only repeat demotion to the replacement display.
       security:
         - organizerSession: []
       parameters:
@@ -153,8 +159,10 @@ components:
           description: >-
             The one concept and candidate set to display immediately. It is null
             when the selected lens has no matching lunch candidates. The browser
-            holds it only in current-screen memory and replaces it on every
-            successful response.
+            replaces the displayed cards and map on every successful response. It
+            may retain only a current-screen shown-candidate comparison state to
+            demote repeated candidates after a later successful re-proposal; this
+            state is not persisted or returned to the server.
         reProposalOptions:
           type: array
           maxItems: 3
@@ -262,7 +270,12 @@ components:
         providerPageUrl:
           type: string
           format: uri
-          description: Provider page for the organizer's final menu, hours, and reservation confirmation.
+          description: >-
+            Provider page for the organizer's final menu, hours, and reservation
+            confirmation. During one screen lifetime only, the browser may compare
+            this returned value with a prior displayed value to lower repeat display
+            priority after a fresh re-proposal. It must not persist or post this
+            value, or use it as a durable candidate identity.
     ShopLocation:
       type: object
       required: [latitude, longitude]

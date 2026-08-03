@@ -1,0 +1,234 @@
+# Toyama Dining Radar candidate-search browser acceptance interface
+#
+# Test infrastructure only. This is the machine-readable control-surface and
+# observation SSoT for TDR-CS acceptance work. It neither creates a public API
+# nor changes the browser-facing candidate-proposal API.
+contractVersion: '0.1'
+kind: acceptance-browser-interface
+scope: candidate-search
+profiles:
+  localAcceptance:
+    transport: HTTP
+    publicDeployment: false
+    verifiesScenarios:
+      [TDR-CS-00, TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05,
+       TDR-CS-06, TDR-CS-07, TDR-CS-08]
+    invariant:
+      - The profile is isolated and must never be selected by a public deployment.
+      - Candidate state is supplied only through contracts/test-support-api.yaml.
+      - Browser actions use only the public same-origin authentication and candidate-proposal boundaries.
+      - No real provider, configured search origin, credential, provider identifier, or provider response is used.
+    syntheticDisclosureCanaries:
+      privateSearchOrigin: synthetic-private-origin-never-disclose.invalid
+      providerInternals: synthetic-provider-internals-never-disclose
+
+browserEntry:
+  localAcceptanceRunner:
+    baseUrl:
+      environmentVariable: TDR_ACCEPTANCE_BASE_URL
+      requiredScheme: http
+    startPath: /
+    startUrlTemplate: '${TDR_ACCEPTANCE_BASE_URL}/'
+  unauthenticatedOutcome:
+    present: [auth-sign-in-form]
+    absent:
+      [candidate-proposal-content, candidate-map, candidate-reproposal-open,
+       candidate-reproposal-dialog, candidate-secondary-conditions,
+       candidate-manual-ordering, private-search-origin]
+  authenticatedInitialOutcome:
+    present: [candidate-proposal-content, candidate-proposal-cards, candidate-map,
+              candidate-provider-credit, candidate-reproposal-open]
+    absent: [candidate-secondary-conditions, candidate-manual-ordering]
+
+browserControlSurface:
+  proposal:
+    requiredTestIds:
+      content: candidate-proposal-content
+      conceptTitle: candidate-concept-title
+      conceptRationale: candidate-concept-rationale
+      cards: candidate-proposal-cards
+      card: candidate-card
+      map: candidate-map
+      mapMarker: candidate-map-marker
+      providerCredit: candidate-provider-credit
+      reProposalOpen: candidate-reproposal-open
+    cardDataAttributes:
+      candidateRef: data-candidate-ref
+      repeatComparisonHref: data-provider-page-href
+      repeatStatus: data-repeat-status
+      requiredFields:
+        name: {testId: candidate-card-name}
+        genre: {testId: candidate-card-genre}
+        description: {testId: candidate-card-description}
+        businessHours: {testId: candidate-card-business-hours}
+        regularHoliday: {testId: candidate-card-regular-holiday}
+        totalSeats: {testId: candidate-card-total-seats}
+        access: {testId: candidate-card-access}
+        providerPageLink: {testId: candidate-card-provider-page-link}
+      labelObservation:
+        semanticAttribute: data-field-label
+        requirement: non-empty-accessible-or-visible-label-for-every-required-field
+      valueStateAttribute: data-value-state
+      valueStates: [provided, unavailable]
+      nullBehavior: >-
+        Every required field has its stated label. A nullable API value uses
+        data-value-state=unavailable and an implementation-neutral visible
+        unavailable value; a non-null API value uses data-value-state=provided
+        and its visible value equals the returned value. providerPageLink is
+        always provided and its href equals providerPageUrl.
+    markerDataAttributes:
+      candidateRef: data-candidate-ref
+      selectionState: data-selection-state
+    selectionStates: [selected, unselected]
+    mapObservations:
+      fitStateAttribute: {testId: candidate-map, attribute: data-map-fit-state, value: displayed-candidates}
+      tileProviderAttribute: {testId: candidate-map, attribute: data-map-tile-provider, value: openstreetmap-standard}
+      attribution:
+        testId: candidate-map-attribution
+        href: https://www.openstreetmap.org/copyright
+        text: '© OpenStreetMap contributors'
+      markerSet: every-candidate-card-has-exactly-one-marker-with-same-data-candidate-ref
+      candidateRefUniqueness: every-current-card-has-a-unique-non-empty-data-candidate-ref
+      forbiddenTestIds:
+        [candidate-origin-marker, candidate-route, candidate-current-location,
+         candidate-walking-time, private-search-origin]
+    providerCreditObservation:
+      testId: candidate-provider-credit
+      element: anchor
+      text: response.providerCredit.text
+      href: response.providerCredit.url
+  reProposal:
+    requiredTestIds:
+      dialog: candidate-reproposal-dialog
+      option: candidate-reproposal-option
+      submit: candidate-reproposal-submit
+      cancel: candidate-reproposal-cancel
+    optionDataAttributes:
+      kind: data-reproposal-kind
+    constraints:
+      - The dialog is absent until candidate-reproposal-open is activated and opens without document navigation or URL change.
+      - It presents at most three options and excludes the currently displayed concept kind.
+      - No secondary-condition or manual-ordering control is present.
+  unavailableControls:
+    forbiddenFormControlCategories:
+      [select, input, textarea, checkbox, radio, range, combobox, listbox,
+       slider, spinbutton, button]
+    semanticAttributes:
+      controlCategory: data-candidate-control-category
+      controlPurpose: data-candidate-control-purpose
+    allCandidateScreenFormControlsMustDeclarePurpose: true
+    allowedPurposes:
+      [candidate-card-selection, candidate-map-marker-selection, reproposal-open,
+       reproposal-selection, reproposal-submit, reproposal-cancel, auth-sign-out,
+       auth-password-change-open]
+    forbiddenPurposes:
+      [secondary-condition, filter, sort, manual-ordering]
+    invariant: >-
+      No form control may provide a secondary condition, filter, sort, or
+      manual ordering capability, whether or not it has a test id.
+  empty:
+    requiredTestIds: [candidate-no-results]
+    absent: [candidate-proposal-cards, candidate-map]
+  problem:
+    requiredTestIds: [candidate-proposal-problem, candidate-proposal-problem-guidance]
+    codeAttribute: data-problem-code
+    guidance:
+      testId: candidate-proposal-problem-guidance
+      text: response.message
+      minimumLength: 1
+    forbiddenTestIds: [private-search-origin, candidate-provider-internals]
+
+browserActions:
+  initialProposal:
+    trigger: open-authenticated-browserEntry
+    publicOperation:
+      method: POST
+      path: /candidate-proposals
+      requestBody: {}
+    success:
+      present: [candidate-proposal-content, candidate-proposal-cards, candidate-map,
+                candidate-provider-credit, candidate-reproposal-open]
+      absent: [candidate-reproposal-dialog, candidate-secondary-conditions,
+               candidate-manual-ordering]
+  selectCard:
+    input: candidate-card
+    requiredOutcome:
+      selectedCardAttribute: {attribute: data-selection-state, value: selected}
+      matchingMarkerAttribute: {attribute: data-selection-state, value: selected}
+      allOtherCardsAndMarkers: {attribute: data-selection-state, value: unselected}
+  selectMarker:
+    input: candidate-map-marker
+    requiredOutcome:
+      selectedMarkerAttribute: {attribute: data-selection-state, value: selected}
+      matchingCardAttribute: {attribute: data-selection-state, value: selected}
+      allOtherCardsAndMarkers: {attribute: data-selection-state, value: unselected}
+  openReProposal:
+    input: candidate-reproposal-open
+    success:
+      present: [candidate-reproposal-dialog, candidate-reproposal-option,
+                candidate-reproposal-submit, candidate-reproposal-cancel]
+      navigation: {document: unchanged, url: unchanged}
+  submitReProposal:
+    inputs: [candidate-reproposal-option, candidate-reproposal-submit]
+    publicOperation:
+      method: POST
+      path: /candidate-proposals
+      requestBody: selected-data-reproposal-kind
+    success:
+      requiredOutcome:
+        cards: exactly-current-success-response-candidates
+        markers: exactly-one-per-current-success-response-candidate
+        removed: all-prior-card-and-marker-candidateRefs-not-in-current-response
+        dialog: absent
+      repeatPriority:
+        comparisonKey: candidate-card.data-provider-page-href
+        repeatedState: {attribute: data-repeat-status, value: repeated}
+        newState: {attribute: data-repeat-status, value: new}
+        ordering: every-new-card-precedes-every-repeated-card
+        invariant:
+          - A repeated candidate is not excluded.
+          - candidate-card.data-provider-page-href equals its response providerPageUrl href.
+          - The browser does not post its shown-candidate comparison state.
+      reset:
+        - Reloading the screen, closing its tab, or signing out clears comparison state.
+    invalidLens:
+      present: [candidate-proposal-problem]
+      apiResponse: {status: 400, code: PROPOSAL_REPROPOSAL_KIND_INVALID}
+    rateLimited:
+      present: [candidate-proposal-problem]
+      apiResponse: {status: 429, code: PROPOSAL_RATE_LIMITED}
+  requestUnavailableEnumLens:
+    purpose: deterministic-CS-07-observation-without-requiring-a-UI-option
+    publicOperation:
+      method: POST
+      path: /candidate-proposals
+      session: authenticated-browser-cookie-jar
+      csrf: same-origin-browser-CSRF-token
+      requestBody: {reproposalKind: AMENITY_REFERENCE}
+    requiredOutcome:
+      present: [candidate-proposal-problem, candidate-proposal-problem-guidance]
+      apiResponse: {status: 400, code: PROPOSAL_REPROPOSAL_KIND_INVALID}
+
+disclosureObservations:
+  responseSurfaces:
+    [unauthenticated-browser-entry, initial-proposal, re-proposal, no-results,
+     provider-unavailable, invalid-lens, rate-limited]
+  bodyMustNotContain:
+    - source: profiles.localAcceptance.syntheticDisclosureCanaries.privateSearchOrigin
+    - source: profiles.localAcceptance.syntheticDisclosureCanaries.providerInternals
+  bodyMustNotExposeTestIds:
+    [private-search-origin, candidate-provider-internals, candidate-origin-marker,
+     candidate-route, candidate-current-location]
+
+apiObservations:
+  publicContract: contracts/candidate-search-api.yaml
+  unauthenticated:
+    response: {status: 401, code: AUTHENTICATION_REQUIRED}
+  noResults:
+    response: {status: 200, proposal: null}
+  providerUnavailable:
+    response: {status: 503, code: PROVIDER_UNAVAILABLE, guidance: non-empty-safe-message}
+  invalidLens:
+    response: {status: 400, code: PROPOSAL_REPROPOSAL_KIND_INVALID, guidance: non-empty-safe-message}
+  rateLimited:
+    response: {status: 429, code: PROPOSAL_RATE_LIMITED, guidance: non-empty-safe-message}
