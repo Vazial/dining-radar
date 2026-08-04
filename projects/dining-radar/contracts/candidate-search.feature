@@ -1,9 +1,11 @@
 # Toyama Dining Radar acceptance contract — TDR-CS candidate proposals
+# ステータス: 承認済み(2026-08-03) — 人間がチャットで内容承認し（原案 2026-08-01、改訂 2026-08-03）、
+#   PR #76 のマージをもって確定した。変更には再承認が必要。この行の形式は meta/adr/0043 の
+#   機械検証が要求する
 #
 # Status: human content-approved in chat (2026-08-03 amendment; original
-# approval 2026-08-01); this revision becomes durable when the active
-# candidate-search PR merges. This contract projects the human-approved
-# Product Brief, ADR-0005, and ADR-0008.
+# approval 2026-08-01) and made durable by merged PR #76. This contract
+# projects the human-approved Product Brief, ADR-0005, and ADR-0008.
 
 Feature: 幹事がランチ候補を見て別の切り口で比べ直す
   幹事は非公開の検索地点の周辺にあるランチ候補を、選ぶ理由の異なる
