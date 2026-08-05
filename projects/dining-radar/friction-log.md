@@ -192,3 +192,24 @@ principles: [P-02, P-06, P-08, P-10]
 - Result: 今後、architectは契約が可視値の厳密等価を要求する箇所を起草する際、その表示を担う
   既承認の画面設計（design-preview配下、または実装済み画面）や既存の突き合わせ文書に、単位・整形
   などの表示上の差異が既に記録されていないかを確認する。
+
+## FR-006: activeContextの承認記録を「マージ後に偽になる文面」で書き、マージ直後に2本目のPRが要る状態を作った
+
+```yaml
+id: FR-006
+date: 2026-08-05
+found_at: L5
+slice: TDR-CS
+agents: [orchestrator]
+cause_category: 記録の書き方が承認行為の時点に依存している
+cause_key: record-update-needs-second-pr
+pushed_to:
+  - projects/toyama-dining-radar/activeContext.md
+status: 対応済み
+principles: [P-04, P-11]
+```
+
+- Situation: TDR-CS実装PR（#82）に載せた `activeContext.md` の承認記録を、orchestratorが「**Awaiting approval in the open pull request**」「Next work: 人間承認とマージを得ること」と書いた。ADR-0035 方式(i)では承認行為の実体がそのPRのマージであるため、マージが成立した瞬間にこの2文は事実でなくなり、記録を直すためだけの2本目のPRが必要になった。
+- AI contribution: orchestratorが、記録の文面を**書いている時点の状態**（まだ承認されていない）で固定した。方式(i)を採る以上、記録は**マージ前後のどちらでも真である**書き方——「本PRのマージをもって確定する」——にできたし、契約・ADR側では実際にその書き方をしていた（`.feature` のステータス行、ADRの `approved_by`）。activeContextにだけ同じ配慮が及ばなかった。
+- Downward push: `activeContext.md` の承認記録を、マージ済みの事実として述べる形に直した。cause_key は reservation-system の FR-015・FR-021 と**意図して揃えた**。対象文書は違う（あちらはADR・契約の承認記録、こちらはactiveContext）が、機構は同一である——「承認行為はマージであり、記録を書けるのはマージ前」という時間差を、文面の書き方で吸収しそこねると2本目のPRが要る。
+- Result: リポジトリ全体でこのcause_keyは3回目である。ただし**govlintのcause_key再出現検出はfriction-logファイル単位**であり、プロジェクトを跨いだ再出現を数えられない（ルート `activeContext.md` に既知の穴として記録済み）。したがってこの3回目は機械には見えず、人間が突き合わせない限り「toyama-dining-radarでの1回目」としか映らない。
