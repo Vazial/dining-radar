@@ -13,9 +13,11 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from dining_radar.authentication.throttle import LoginThrottle
+from dining_radar.suggestions import acceptance_state
 
 SYNTHETIC_ACCOUNT_GROUP = "tdr-acceptance-synthetic-accounts"
 ACCOUNT_REF_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
+CANDIDATE_PROPOSAL_MODES = {mode.value for mode in acceptance_state.AcceptanceCandidateProposalMode}
 
 
 def _acceptance_only() -> None:
@@ -148,3 +150,30 @@ def authentication_security_boundary(request):
             "browserLocalStorageBearerTokenUsed": False,
         }
     )
+
+
+@csrf_exempt
+@require_http_methods(["PUT", "DELETE"])
+def candidate_proposal_state(request):
+    """Selects or resets the synthetic state the next public API call observes.
+
+    Implements ``CandidateProposalAcceptanceState`` from
+    ``contracts/test-support-api.yaml``.
+    """
+    _acceptance_only()
+
+    if request.method == "DELETE":
+        acceptance_state.reset_mode()
+        return HttpResponse(status=204)
+
+    try:
+        body = _body(request)
+        mode = body["mode"]
+    except (KeyError, ValueError):
+        return HttpResponse(status=400)
+
+    if set(body) != {"mode"} or mode not in CANDIDATE_PROPOSAL_MODES:
+        return HttpResponse(status=400)
+
+    acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode(mode))
+    return HttpResponse(status=204)

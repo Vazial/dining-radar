@@ -116,3 +116,79 @@ principles: [P-01, P-03, P-04, P-10]
   `not-requested` credential sharing. The assertion uses `data-*` attributes
   so it does not prescribe visible copy, layout, or a new browser operation.
   No business scenario, public API, or authentication policy changed.
+
+## FR-004: browser-interface契約が実行モデル（サーバ描画かクライアントJS描画か）を明示せず、L4が8/9シナリオで観測不能になった
+
+```yaml
+id: FR-004
+date: 2026-08-04
+found_at: L4
+slice: TDR-CS
+agents: [architect, developer, tester]
+cause_category: L4 test infrastructure contract incomplete (execution model)
+cause_key: l4-render-model-not-contracted
+pushed_to:
+  - projects/toyama-dining-radar/adr/0009-adopt-js-capable-browser-automation-for-candidate-search-l4.md
+  - projects/toyama-dining-radar/ARCHITECTURE.md
+status: 対応済み
+principles: [P-02, P-05, P-10]
+```
+
+- Situation: `candidate-search-browser-interface.yaml`（PR #76）は control surface の語彙（test id・
+  属性・状態遷移）を定義したが、その語彙をどの実行モデル——サーバ応答時点のHTMLか、クライアントJS
+  実行後のDOMか——で観測するかを明示しなかった。tester はTDR-AUTHの先例（プレーンHTTP＋HTMLパースで
+  足りた）をそのまま踏襲してstep定義を書き、developer は tester と共有コンテキストを持たずに並行して
+  候補提案画面全体をクライアントレンダリングで実装した。両者は独立に別々の前提を選び、L4実行で
+  17件中8件fail・2件skipという形で食い違いが露見した。
+- AI contribution: 契約起草時（architect、PR #76）、ADR-0005（モーダル置換はdocument navigationを
+  伴わない）とADR-0008（比較状態はブラウザのJS実行コンテキストだけに存在しサーバへ送らない）は既に、
+  少なくとも再提案の置換と再表示降格がクライアント側JavaScriptなしに実現できないことを含意していた。
+  それにも関わらず、browser-interface契約はこの実行モデル前提を機械可読な形で固定しなかった。
+  tester側もTDR-AUTHの先例をこのスライスの契約に対して再検証しなかった。
+- Downward push: ADR-0009が実行モデル（JS実行可能なブラウザ自動化）を確定し、既存契約の語彙が
+  そのまま十分であることを確認した。今後、browser-interface契約の control surface が
+  `publicOperation` を伴わない状態変化（クライアントJSだけで完結する操作）を含む場合、architectは
+  起草時点でその実行モデル前提（サーバ描画で足りるか、JS実行可能なツールを要するか）を契約本文に
+  明示する。
+- Result: TDR-CS-00〜08 はADR-0009の執行モデルのもとで観測可能になる。承認済み契約の再起草は不要
+  だった。
+
+## FR-005: browser-interface契約のnullBehaviorが、既に承認済みだった画面設計の表示整形（総席数の単位付与）を確認せず、可視値の厳密等価を全フィールドに一律要求した
+
+```yaml
+id: FR-005
+date: 2026-08-05
+found_at: L4
+slice: TDR-CS
+agents: [architect]
+cause_category: contract drafted without checking an already-approved conflicting artifact
+cause_key: card-field-equality-rule-vs-approved-display-formatting
+pushed_to:
+  - projects/toyama-dining-radar/contracts/candidate-search-browser-interface.yaml
+  - projects/toyama-dining-radar/adr/0011-separate-visible-formatting-from-raw-value-equality-for-total-seats.md
+status: 対応済み
+principles: [P-02, P-06, P-08, P-10]
+```
+
+- Situation: `candidate-search-browser-interface.yaml`（PR #76、2026-08-03起草）の
+  `cardDataAttributes.nullBehavior` は、必須の8フィールド全てに一律で「非nullの値は可視値が返却値と
+  厳密に等しい」と定めた。しかし承認済みの画面設計（`CandidateSearchPreview.tsx`、PR #66、
+  2026-08-01承認）は既に350行目で `totalSeats` を `` `${candidate.totalSeats}席` `` と単位付きで
+  描画していた——これはPR #76の起草より前に人間承認済みの成果物だった。加えて、
+  `design/reconciliation/candidate-search.md`（2026-08-01、本ADRのさらに前）は round-1の突き合わせで
+  既に「APIは `integer | null` であり、表示時にのみ『席』を付けるべきfieldである」と記録しており、
+  totalSeatsが表示時だけ単位を持つ特殊フィールドであることは文書化済みだった。architectは契約起草時
+  にこの2つの既存成果物を突き合わせず、8フィールド一律の厳密等価ルールを書いた。L4
+  （ADR-0009で有効化したJS実行可能なブラウザ自動化）が実画面に対して実行して初めてこの矛盾
+  （画面は`38席`、契約は`38`との厳密一致を要求）が発覚した。
+- AI contribution: 既に承認済みだった2つの成果物（画面設計、突き合わせ文書）を、新しい契約
+  （browser-interface.yaml）のnullBehavior起草時に確認しなかった。developerは承認済み画面設計に
+  忠実に実装し、testerは契約に忠実にassertしており、どちらの誤りでもない——見落としは契約起草の
+  時点にある。
+- Downward push: ADR-0011が人間裁定（可視テキストとは別の機械可読属性 `data-raw-value` で
+  厳密等価を検査し、可視値には表示整形を許す。案A採用、案B・Cは却下）を記録する。
+  `candidate-search-browser-interface.yaml` の `totalSeats` フィールドが
+  `rawValueAttribute: data-raw-value` を宣言し、nullBehaviorがこの例外を明示する。
+- Result: 今後、architectは契約が可視値の厳密等価を要求する箇所を起草する際、その表示を担う
+  既承認の画面設計（design-preview配下、または実装済み画面）や既存の突き合わせ文書に、単位・整形
+  などの表示上の差異が既に記録されていないかを確認する。

@@ -42,16 +42,30 @@ jobs:
           python -m coverage run --branch -m pytest \
             tests/test_authentication.py \
             tests/test_bootstrap.py \
+            tests/test_candidate_search.py \
+            tests/test_hotpepper_adapter.py \
             tests/test_quality_gate.py \
+            tests/test_recommendation.py \
+            tests/test_serializers.py \
+            tests/test_static_assets.py \
             tests/test_structure.py \
+            tests/test_suggestions.py \
             tests/test_test_support.py
           python -m coverage report --fail-under=90
+      # test_quality_gate.py only exercises the mutation gate itself, so it cannot
+      # kill mutants in application source and stays out of this step.
       - name: Mutation testing
         run: |
           python -X utf8 -m pytest --gremlins \
             tests/test_authentication.py \
             tests/test_bootstrap.py \
+            tests/test_candidate_search.py \
+            tests/test_hotpepper_adapter.py \
+            tests/test_recommendation.py \
+            tests/test_serializers.py \
+            tests/test_static_assets.py \
             tests/test_structure.py \
+            tests/test_suggestions.py \
             tests/test_test_support.py
           python tools/check_mutation_score.py
 
@@ -71,7 +85,7 @@ jobs:
         run: python -m pytest tests/test_structure.py
 
   l3-boundary:
-    name: "L3: authentication and configuration boundaries"
+    name: "L3: authentication, provider, and configuration boundaries"
     runs-on: ubuntu-latest
     needs: l2-structure
     steps:
@@ -87,6 +101,9 @@ jobs:
           python -m pytest
           tests/test_authentication.py
           tests/test_bootstrap.py
+          tests/test_candidate_search.py
+          tests/test_hotpepper_adapter.py
+          tests/test_static_assets.py
           tests/test_test_support.py
       - name: Django production and acceptance checks
         run: |
@@ -97,7 +114,7 @@ jobs:
           DJANGO_ALLOWED_HOSTS: example.invalid
 
   l4-acceptance:
-    name: "L4: authentication acceptance scenarios"
+    name: "L4: acceptance scenarios (TDR-AUTH, TDR-CS)"
     runs-on: ubuntu-latest
     needs: l3-boundary
     steps:
@@ -108,5 +125,11 @@ jobs:
           cache: pip
           cache-dependency-path: projects/toyama-dining-radar/pyproject.toml
       - run: python -m pip install -e ".[dev]"
-      - name: TDR-AUTH local browser acceptance
+      # TDR-CS renders its candidate surface client-side, so L4 executes the real
+      # screen through a JS-capable browser (meta/verification.md L4, ADR-0009).
+      # TDR-AUTH keeps the plain-HTTP DSL (ADR-0009 decision 4) and needs no browser.
+      - name: Install the JS-capable browser used by TDR-CS acceptance
+        run: python -m playwright install --with-deps chromium
+      - name: TDR-AUTH and TDR-CS local browser acceptance
         run: python manage.py test tests.acceptance --verbosity 1
+        timeout-minutes: 15

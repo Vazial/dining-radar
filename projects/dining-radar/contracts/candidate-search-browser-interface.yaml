@@ -3,7 +3,15 @@
 # Test infrastructure only. This is the machine-readable control-surface and
 # observation SSoT for TDR-CS acceptance work. It neither creates a public API
 # nor changes the browser-facing candidate-proposal API.
-contractVersion: '0.1'
+#
+# Status: human content-approved in chat (2026-08-03 original approval, PR
+# #76). 2026-08-05 amendment: human ruling resolved a conflict between this
+# file's totalSeats equality rule and the already-approved screen design
+# (PR #66) by adding a machine-readable raw-value attribute for totalSeats;
+# see projects/toyama-dining-radar/adr/0011. All other content is unchanged
+# from the 2026-08-03 approval. This amendment becomes durable when its PR
+# merges (meta/adr/0035 method (i)).
+contractVersion: '0.2'
 kind: acceptance-browser-interface
 scope: candidate-search
 profiles:
@@ -62,7 +70,7 @@ browserControlSurface:
         description: {testId: candidate-card-description}
         businessHours: {testId: candidate-card-business-hours}
         regularHoliday: {testId: candidate-card-regular-holiday}
-        totalSeats: {testId: candidate-card-total-seats}
+        totalSeats: {testId: candidate-card-total-seats, rawValueAttribute: data-raw-value}
         access: {testId: candidate-card-access}
         providerPageLink: {testId: candidate-card-provider-page-link}
       labelObservation:
@@ -73,9 +81,22 @@ browserControlSurface:
       nullBehavior: >-
         Every required field has its stated label. A nullable API value uses
         data-value-state=unavailable and an implementation-neutral visible
-        unavailable value; a non-null API value uses data-value-state=provided
-        and its visible value equals the returned value. providerPageLink is
-        always provided and its href equals providerPageUrl.
+        unavailable value. A non-null API value uses data-value-state=provided.
+        A required field whose requiredFields entry declares
+        rawValueAttribute (currently only totalSeats) additionally carries
+        that attribute on the same element when provided, equal as an exact
+        string to the returned value (numbers use their canonical decimal
+        string, e.g. 38 -> "38"); the acceptance test asserts this attribute
+        for exact equality, and the field's visible value may add
+        implementation-chosen display formatting around the same value (for
+        example totalSeats's unit suffix "38席", per the approved screen
+        design) without itself being checked for exact equality against the
+        returned value. The attribute is absent when that field is
+        unavailable, since data-value-state=unavailable already expresses its
+        state. Every other required field's visible value equals the
+        returned value exactly. providerPageLink is always provided, is
+        exempt from rawValueAttribute because its href is already the exact
+        machine-readable value, and its href equals providerPageUrl.
     markerDataAttributes:
       candidateRef: data-candidate-ref
       selectionState: data-selection-state

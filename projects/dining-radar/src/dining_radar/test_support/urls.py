@@ -11,4 +11,9 @@ urlpatterns = [
         views.authentication_security_boundary,
         name="security-boundary",
     ),
+    path(
+        "candidate-proposals/state",
+        views.candidate_proposal_state,
+        name="candidate-proposal-state",
+    ),
 ]

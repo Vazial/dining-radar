@@ -2,8 +2,11 @@ import json
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import Client, TestCase, override_settings
 from django.urls import clear_url_caches
+
+from dining_radar.suggestions import acceptance_state
 
 ACCEPTANCE_SETTINGS = {
     "ROOT_URLCONF": "dining_radar.acceptance_urls",
@@ -123,6 +126,70 @@ class AcceptanceTestSupportTests(TestCase):
         self.assertEqual(browser.get("/").status_code, 302)
 
 
+@override_settings(**ACCEPTANCE_SETTINGS)
+class CandidateProposalAcceptanceStateTests(TestCase):
+    def setUp(self):
+        clear_url_caches()
+        cache.clear()
+        self.addCleanup(acceptance_state.reset_mode)
+
+    def tearDown(self):
+        clear_url_caches()
+
+    def test_put_selects_a_synthetic_mode_the_public_api_then_observes(self):
+        response = self.client.put(
+            "/test-support/candidate-proposals/state",
+            data=json.dumps({"mode": "NO_RESULTS"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response.content, b"")
+        self.assertEqual(
+            acceptance_state.active_mode(),
+            acceptance_state.AcceptanceCandidateProposalMode.NO_RESULTS,
+        )
+
+    def test_put_accepts_every_documented_mode(self):
+        for mode in acceptance_state.AcceptanceCandidateProposalMode:
+            with self.subTest(mode=mode.value):
+                response = self.client.put(
+                    "/test-support/candidate-proposals/state",
+                    data=json.dumps({"mode": mode.value}),
+                    content_type="application/json",
+                )
+                self.assertEqual(response.status_code, 204)
+                self.assertEqual(acceptance_state.active_mode(), mode)
+
+    def test_put_rejects_an_unknown_mode(self):
+        response = self.client.put(
+            "/test-support/candidate-proposals/state",
+            data=json.dumps({"mode": "NOT_A_REAL_MODE"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNone(acceptance_state.active_mode())
+
+    def test_put_rejects_an_unexpected_extra_key(self):
+        response = self.client.put(
+            "/test-support/candidate-proposals/state",
+            data=json.dumps({"mode": "NO_RESULTS", "extra": "value"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_delete_resets_the_selected_mode(self):
+        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.RATE_LIMITED)
+
+        response = self.client.delete("/test-support/candidate-proposals/state")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response.content, b"")
+        self.assertIsNone(acceptance_state.active_mode())
+
+
 @override_settings(
     ROOT_URLCONF="dining_radar.urls",
     ACCEPTANCE_TEST_SUPPORT=False,
@@ -134,3 +201,12 @@ class PublicApplicationTestSupportIsolationTests(TestCase):
 
         self.assertEqual(response.status_code, 404)
         self.assertFalse(getattr(settings, "ACCEPTANCE_TEST_SUPPORT", False))
+
+    def test_candidate_proposal_state_route_is_not_registered_in_the_standard_test_profile(self):
+        response = self.client.put(
+            "/test-support/candidate-proposals/state",
+            data=json.dumps({"mode": "NO_RESULTS"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 404)
