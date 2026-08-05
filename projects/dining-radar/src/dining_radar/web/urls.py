@@ -6,5 +6,5 @@ app_name = "web"
 
 urlpatterns = [
     path("", views.home, name="home"),
-    path("candidate-proposals", views.candidate_proposals_placeholder, name="candidate-proposals"),
+    path("candidate-proposals", views.candidate_proposals, name="candidate-proposals"),
 ]

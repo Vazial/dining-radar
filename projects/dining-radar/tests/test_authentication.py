@@ -77,7 +77,7 @@ class AuthenticationFlowTests(TestCase):
         self.assertEqual(response.cookies[settings.SESSION_COOKIE_NAME]["samesite"], "Lax")
 
         shell = self.client.get(reverse("web:home"))
-        self.assertContains(shell, "候補探索を準備しています。")
+        self.assertContains(shell, 'id="candidate-app"')
         self.assertContains(shell, 'data-testid="auth-individual-account-guidance"')
         self.assertContains(shell, 'data-auth-account-use="individual-only"')
         self.assertContains(shell, 'data-auth-credential-sharing="not-requested"')

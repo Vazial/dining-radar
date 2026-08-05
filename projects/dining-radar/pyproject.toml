@@ -15,6 +15,7 @@ dependencies = [
 dev = [
     "coverage[toml]>=7.15,<8",
     "jsonschema>=4.25,<5",
+    "playwright>=1.48,<2",
     "pytest>=9.1,<10",
     "pytest-django>=4.12,<5",
     "pytest-gremlins>=1.9,<2",
@@ -57,6 +58,15 @@ paths = [
     "src/dining_radar/authentication/throttle.py",
     "src/dining_radar/test_support/views.py",
     "src/dining_radar/web/views.py",
+    "src/dining_radar/web/serializers.py",
+    "src/dining_radar/recommendation/pipeline.py",
+    "src/dining_radar/integrations/hotpepper/config.py",
+    "src/dining_radar/integrations/hotpepper/client.py",
+    "src/dining_radar/integrations/hotpepper/normalize.py",
+    "src/dining_radar/suggestions/service.py",
+    "src/dining_radar/suggestions/rate_limit.py",
+    "src/dining_radar/suggestions/acceptance_state.py",
+    "src/dining_radar/suggestions/hotpepper_source.py",
 ]
 exclude = ["**/__pycache__/*"]
 report = ["json"]

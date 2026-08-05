@@ -51,6 +51,11 @@ moduleやfilter taxonomyはこの流れに含まれない。別の切り口は�
 一つ選んだ後の新規proposalが置き換える。ブラウザへ渡る地図位置は候補店舗だけであり、検索基点、経路、
 現在地、徒歩時間はこの流れのどこにも置かない。
 
+候補提案画面はサーバから空のマウント点だけを受け取り、候補カード・地図・再提案モーダル・エラー表示は
+すべてクライアント側JavaScriptが生成する（ADR-0009）。この画面のL4検証は、サーバ応答時点のHTMLではなく
+実行後のDOMを対象にするため、JS実行可能なブラウザ自動化を用いる。TDR-AUTHの画面（プレーンHTTP＋HTML
+パースで検証可能）とはこの点で執行モデルが異なる。
+
 ## モジュール境界
 
 | モジュール | 責務 | 禁止・境界 |
@@ -67,7 +72,7 @@ moduleやfilter taxonomyはこの流れに含まれない。別の切り口は�
 
 正確な検索基点を browser、公開 URL、ログ、エラー、trace、Git へ出さないことは Must である。候補店舗と地図から地域をおおまかに推測できることの防止は Want であり、初期版では保証しない。
 
-Leaflet/OSM の公開運用は `Referrer-Policy: strict-origin-when-cross-origin` とし、タイル提供者へ公開 origin だけを送る。provider 通信は HTTPS のみとする。
+Leaflet/OSM の公開運用は `Referrer-Policy: strict-origin-when-cross-origin` とし、タイル提供者へ公開 origin だけを送る。provider 通信は HTTPS のみとする。Leaflet 本体（JS/CSS/マーカーアイコン）は `static/` に同梱し自オリジンから配信する（ADR-0010）。認証済み画面が地図UIのために接触する外部オリジンは OSM 標準タイルサーバだけであり、第三者CDNへは接続しない。
 
 - 検索基点・探索範囲はruntimeの非公開設定であり、公開リポジトリやデプロイ既定値へ実在の名称・座標・距離を置かない。
 - credentialはserverのruntime secretにだけ置く。provider仕様で必要なクエリパラメータはadapterからのみ送り、キー入りURLを観測可能な出力に残さない。
@@ -84,4 +89,4 @@ Leaflet/OSM の公開運用は `Referrer-Policy: strict-origin-when-cross-origin
 - L2: provider固有依存のadapter外流出、`web`からadapter/ORMへの直接アクセス、`recommendation`へのframework依存を検出する。
 - L3: 合成fixtureでadapterの正規化・redactionを検証する。資格情報を用いるlive APIテストはしない。
 - L3: TDR-AUTH-06 の deployment 向け cookie/CSRF/CORS/token 非使用は設定・security-boundary 検証で確認する。ローカル acceptance profile の HTTP は public HTTPS の代替ではなく、実 transport は deployment slice が確認する。
-- L4: TDR-AUTH-01〜05・07 の利用者操作・観測は `contracts/authentication-browser-interface.yaml`、TDR-CS-00〜08 は `contracts/candidate-search-browser-interface.yaml` の browser control surface と既存 browser-facing 境界だけを通す。公開境界だけでは作れない認証の Given、candidate の合成状態選択、security-boundary 観測、シナリオ間の初期化は、acceptance-test 構成にだけ存在する `contracts/test-support-api.yaml` の機械可読 seam を使う。この seam は合成 account・session・login throttle state・閉じた candidate 状態と有効な acceptance 設定に限定し、実 account、非公開検索基点、provider data、secret、production 設定には触れない。
+- L4: TDR-AUTH-01〜05・07 の利用者操作・観測は `contracts/authentication-browser-interface.yaml`、TDR-CS-00〜08 は `contracts/candidate-search-browser-interface.yaml` の browser control surface と既存 browser-facing 境界だけを通す。公開境界だけでは作れない認証の Given、candidate の合成状態選択、security-boundary 観測、シナリオ間の初期化は、acceptance-test 構成にだけ存在する `contracts/test-support-api.yaml` の機械可読 seam を使う。この seam は合成 account・session・login throttle state・閉じた candidate 状態と有効な acceptance 設定に限定し、実 account、非公開検索基点、provider data、secret、production 設定には触れない。TDR-AUTHの画面はサーバ応答時点のHTMLで観測できるが、TDR-CSの候補提案画面はクライアント側JavaScriptが描画するため、TDR-CSのL4はJS実行可能なブラウザ自動化を用いて実行後のDOMに対して行う（ADR-0009）。
