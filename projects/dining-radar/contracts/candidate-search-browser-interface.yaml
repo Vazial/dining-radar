@@ -9,9 +9,22 @@
 # file's totalSeats equality rule and the already-approved screen design
 # (PR #66) by adding a machine-readable raw-value attribute for totalSeats;
 # see projects/toyama-dining-radar/adr/0011. All other content is unchanged
-# from the 2026-08-03 approval. This amendment becomes durable when its PR
-# merges (meta/adr/0035 method (i)).
-contractVersion: '0.2'
+# from the 2026-08-03 approval.
+# 2026-08-06 amendment: human real-device review of the authenticated
+# header (the individual-account guidance banner, the password-change/
+# sign-out arrangement, and the re-proposal button's position) directed
+# developer to fix all three, and the human stated a standing policy for
+# this project -- an approved screen direction may drive this file's
+# control-surface allowlist rather than the reverse; see
+# projects/toyama-dining-radar/adr/0013. This amendment adds one new allowed
+# purpose, auth-account-menu-toggle, so an implementation may group
+# auth-sign-out and auth-password-change-open behind a single disclosure
+# control (a menu bar entry, a dropdown, a hamburger toggle, or equivalent).
+# It neither mandates nor forbids that specific UI shape, and no other
+# control, scenario, or business API changed. All prior content is
+# unchanged. Every amendment to this file becomes durable when its PR merges
+# (meta/adr/0035 method (i)).
+contractVersion: '0.3'
 kind: acceptance-browser-interface
 scope: candidate-search
 profiles:
@@ -141,7 +154,21 @@ browserControlSurface:
     allowedPurposes:
       [candidate-card-selection, candidate-map-marker-selection, reproposal-open,
        reproposal-selection, reproposal-submit, reproposal-cancel, auth-sign-out,
-       auth-password-change-open]
+       auth-password-change-open, auth-account-menu-toggle]
+    accountMenuToggleNotes: >-
+      auth-account-menu-toggle is a pure disclosure control (added
+      2026-08-06, projects/toyama-dining-radar/adr/0013): activating it may
+      show or hide a group of controls that already declare their own
+      allowed purpose (for example auth-sign-out and
+      auth-password-change-open). It triggers no publicOperation of its own
+      and grants no new business capability -- forbiddenPurposes below still
+      applies to every control inside the group it discloses. No TDR-CS or
+      TDR-AUTH scenario currently asserts this control's open or closed
+      state directly, so no browserActions entry is required for it. An
+      implementation is free to use it, or to leave auth-sign-out and
+      auth-password-change-open always visible instead without this
+      control; whether it appears at all is a layout choice, not an outcome
+      this file requires.
     forbiddenPurposes:
       [secondary-condition, filter, sort, manual-ordering]
     invariant: >-

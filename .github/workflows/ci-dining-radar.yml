@@ -50,6 +50,7 @@ jobs:
             tests/test_static_assets.py \
             tests/test_structure.py \
             tests/test_suggestions.py \
+            tests/test_template_syntax.py \
             tests/test_test_support.py
           python -m coverage report --fail-under=90
       # test_quality_gate.py only exercises the mutation gate itself, so it cannot
@@ -66,6 +67,7 @@ jobs:
             tests/test_static_assets.py \
             tests/test_structure.py \
             tests/test_suggestions.py \
+            tests/test_template_syntax.py \
             tests/test_test_support.py
           python tools/check_mutation_score.py
 
@@ -104,6 +106,7 @@ jobs:
           tests/test_candidate_search.py
           tests/test_hotpepper_adapter.py
           tests/test_static_assets.py
+          tests/test_template_syntax.py
           tests/test_test_support.py
       - name: Django production and acceptance checks
         run: |
