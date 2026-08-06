@@ -259,3 +259,24 @@ principles: [P-01, P-10]
   reading rendered bytes for stray delimiters instead of only checking for expected substrings).
   The gap is now closed for this specific defect shape at L1 (source- and rendered-output checks),
   pushed below the layer (L5, real-device review) that first found it, per P-10.
+
+## FR-008: FR-006で「記録の書き方を直す」と押し下げた直後の次スライスで、同じ失敗を繰り返した
+
+```yaml
+id: FR-008
+date: 2026-08-06
+found_at: L5
+slice: TDR-CS-refinement
+agents: [orchestrator]
+cause_category: 記録の書き方が承認行為の時点に依存している
+cause_key: record-update-needs-second-pr
+pushed_to:
+  - projects/toyama-dining-radar/activeContext.md
+status: 対応済み
+principles: [P-04, P-10, P-11]
+```
+
+- Situation: FR-006（PR #83）で、orchestratorは「activeContextの承認記録をマージ後に偽になる文面で書いた」ことを記録し、押し下げ先を「マージ前後のどちらでも真である書き方にする」とした。**その次のスライス（PR #84）で、同じorchestratorが再び「The candidate-card refinement slice is complete and **awaits approval**」「候補カードの洗練スライスが**PR中**」と書き、マージ成立と同時に3箇所が偽になった。**
+- AI contribution: FR-006の押し下げが**書き手の注意に依存する規約**だったこと。規約は同じ書き手が同じ文脈で1スライス後に破っており、注意による是正が機能しないことを実測した。cause_keyはリポジトリ全体で**4回目**（reservation-system FR-015・FR-021、当プロジェクトFR-006、本件）。
+- Downward push: 規約を「真になる書き方をする」から**「そもそも書かない」**へ変えた。`activeContext.md` に**進行中PRの承認ステータスを書かない**——その事実はPR・ADRのfrontmatter・gitが既に所有しており、複製は必ずドリフトする（P-04）。activeContextは「何が存在するか」を書き、承認記録は承認行為が起きる場所に置く。この規約を activeContext 自身の中に明記した（規約を守る場所と規約を書く場所を一致させ、次の書き手が読まずに済ませられないようにした）。
+- Result: 「書き方に気をつける」から「書く対象を減らす」へ移した。ただし**これも機械検証ではない**——govlintはGitHubのPR状態を知らないため、この種の陳腐化を機械的に検出できない。4回目にして初めて「注意では直らない」ことが実測できたので、5回目が起きたら規約ではなく機構（例: activeContextから承認ステータス節そのものを廃し、承認記録をADRのfrontmatterに一本化する）を検討すべきである。
