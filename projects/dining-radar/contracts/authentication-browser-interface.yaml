@@ -4,7 +4,18 @@
 # control-surface and observation SSoT for local authentication acceptance work.
 # Developer and tester must read it verbatim (meta/adr/0008). It projects the
 # human resolution recorded by ADR-0007 and does not change TDR-AUTH outcomes.
-contractVersion: '0.1'
+#
+# 2026-08-06 amendment: adds browserControlSurface.authenticated.renderModel,
+# which makes explicit that TDR-AUTH's plain-HTTP DSL (ADR-0009 decision 4)
+# observes server-rendered HTML only. This was needed because
+# candidate-search-browser-interface.yaml now allows grouping auth-sign-out
+# and auth-password-change-open behind a menu-style disclosure control
+# (projects/toyama-dining-radar/adr/0013), and an implementation that
+# inserted those controls purely via client-side JavaScript would silently
+# break this file's existing plain-HTTP observation. No scenario, test id,
+# or security observation changed. This amendment becomes durable when its
+# PR merges (meta/adr/0035 method (i)).
+contractVersion: '0.2'
 kind: acceptance-browser-interface
 scope: authentication
 profiles:
@@ -83,6 +94,24 @@ browserControlSurface:
       signOut: auth-sign-out
       passwordChangeOpen: auth-password-change-open
       individualAccountGuidance: auth-individual-account-guidance
+    renderModel: >-
+      TDR-AUTH is verified by the plain-HTTP DSL (ADR-0009 decision 4): it
+      parses the server's HTTP response body and does not execute
+      client-side JavaScript. Every control this file requires present --
+      including auth-sign-out and auth-password-change-open when an
+      implementation groups them behind a disclosure control (for example
+      candidate-search-browser-interface.yaml's auth-account-menu-toggle
+      purpose, added by projects/toyama-dining-radar/adr/0013) -- must exist
+      in the server-rendered HTML markup returned by that response. A
+      control that only client-side JavaScript inserts into the DOM after
+      load is absent for this profile's purposes, even though a JS-capable
+      browser would later render it. Hiding an already-present control with
+      the HTML hidden attribute, a CSS class, or an equivalent markup-level
+      technique is permitted -- presence means DOM existence, not
+      visibility, exactly as semanticObservations.individualAccountGuidance
+      below already establishes for that control. Only client-JS-only
+      insertion (the control does not exist in the raw HTTP response at
+      all) is forbidden by this profile.
     semanticObservations:
       individualAccountGuidance:
         testId: auth-individual-account-guidance

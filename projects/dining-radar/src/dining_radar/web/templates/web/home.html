@@ -7,22 +7,260 @@
   <link rel="stylesheet" href="{% static 'dining_radar/web/vendor/leaflet/leaflet.css' %}">
   <style>
     /* The candidate screen compares a map and cards side by side, so it uses
-       a wider working area than the narrow authentication forms. */
-    .app-shell { width: min(100% - 2rem, 72rem); }
+       a wider working area than the narrow authentication forms. Width
+       matches the approved PC layout's own working area (round 2 design;
+       see design/reconciliation/candidate-card-refinement.md). These
+       selectors (.app-shell, .app-card) are base.html's shared classes, but
+       this override only takes effect on this template -- the other pages
+       that use those same class names (login, password change) load their
+       own <style> block, not this one, so they are unaffected. */
+    .app-shell { width: min(100% - 2rem, 80rem); padding-top: 1.25rem; }
+    .app-card { padding-top: 1rem; }
     #candidate-app { display: flex; flex-direction: column; gap: 1rem; }
-    [data-testid="candidate-map"] { height: 22rem; border-radius: 0.5rem; overflow: hidden; }
-    [data-testid="candidate-proposal-cards"] { display: grid; gap: 0.75rem; }
-    [data-testid="candidate-card"] { border: 1px solid #dce3da; border-radius: 0.5rem; padding: 0.85rem 1rem; cursor: pointer; }
+
+    /* Above-the-map elements on narrow widths (human 2026-08-06 real-device
+       review, first round: header 349px -> 279px after an earlier pass;
+       second round, ADR-0013, real-device-approved 2026-08-06: three
+       further points -- (1) the account-use notice was too prominent,
+       (2) password-change/sign-out looked "unarranged", (3) the re-proposal
+       button sat left-aligned, hard against the map). This block and the
+       account-menu block below implement those three under ADR-0013 (human
+       approved a skeleton change here explicitly; see the ADR for the
+       contract amendments this required). This only targets this page (see
+       the .app-shell/.app-card note above): `.app-header`/`.account-nav`
+       are also base.html classes, but header[data-testid=
+       "authenticated-application-shell"] and the test ids below are unique
+       to this template, so login/password-change pages keep their own
+       spacing. Exact resulting pixel values are not verified here (no
+       browser access from this role). */
+    header[data-testid="authenticated-application-shell"] {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.4rem 1rem;
+    }
+    header[data-testid="authenticated-application-shell"] .app-header {
+      margin-bottom: 0;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    header[data-testid="authenticated-application-shell"] .app-header h1 { margin: 0; font-size: 1.35rem; }
+    header[data-testid="authenticated-application-shell"] .account-nav { margin-top: 0; }
+
+    /* Point 1: a small native-tooltip marker instead of a full paragraph
+       (ADR-0013 decision 8: no contract change, since it has no click
+       handler/purpose -- see the HTML comment above it). */
+    .candidate-account-note {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 1.5rem; height: 1.5rem; border-radius: 50%;
+      background: #eef2ee; color: #43524a; font-size: 0.85rem; font-weight: 700;
+      cursor: help;
+    }
+    .candidate-account-note:focus-visible { outline: 2px solid #155c42; outline-offset: 2px; }
+
+    /* Point 2: password-change/sign-out behind a native <details> menu
+       (ADR-0013 decision 6/7, auth-account-menu-toggle purpose; see the
+       HTML comment above it for the renderModel reasoning). */
+    .candidate-account-menu { position: relative; }
+    .candidate-account-menu summary {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      list-style: none; cursor: pointer; user-select: none;
+      min-height: 2.75rem; padding: 0 0.9rem;
+      border: 1px solid #dce3da; border-radius: 0.5rem;
+      background: #fff; font-weight: 650;
+    }
+    .candidate-account-menu summary::-webkit-details-marker { display: none; }
+    .candidate-account-menu summary:hover { background: #f4f5f1; }
+    .candidate-account-menu summary:focus-visible { outline: 2px solid #155c42; outline-offset: 2px; }
+    .candidate-account-menu[open] summary { border-color: #155c42; }
+    .candidate-account-menu-panel {
+      position: absolute; right: 0; top: calc(100% + 0.4rem); z-index: 20;
+      display: flex; flex-direction: column; gap: 0.3rem;
+      min-width: 11rem; background: #fff; border: 1px solid #dce3da;
+      border-radius: 0.5rem; padding: 0.4rem; box-shadow: 0 0.5rem 1.5rem rgb(23 49 36 / 14%);
+    }
+    .candidate-account-menu-panel a,
+    .candidate-account-menu-panel button {
+      display: flex; align-items: center; width: 100%;
+      min-height: 2.75rem; padding: 0 0.75rem; border-radius: 0.4rem;
+      background: transparent; color: #1c2420; font: inherit; font-weight: 600; text-align: left;
+    }
+    .candidate-account-menu-panel a:hover,
+    .candidate-account-menu-panel button:hover { background: #f4f5f1; }
+    .candidate-account-menu-panel form { margin: 0; width: 100%; }
+
+    /* Concept banner: current lens heading + re-proposal starting point
+       (ADR-0012 skeleton block 2). Point 3: the re-proposal button is
+       always pushed to the row's end (margin-left: auto) instead of
+       relying on justify-content: space-between, which left-aligned it
+       once it wrapped onto its own line under the rationale text -- that
+       was the reported "左詰め" defect. candidate-proposal-content also
+       gets its own vertical rhythm (see below) so this banner no longer
+       sits flush against the map/cards below it ("地図と接近"). */
+    .candidate-concept-banner {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      gap: 0.6rem;
+    }
+    .candidate-concept-copy { min-width: 0; }
+    [data-testid="candidate-concept-title"] { margin: 0 0 0.35rem; font-size: 1.2rem; line-height: 1.3; }
+    [data-testid="candidate-concept-rationale"] { margin: 0; color: #536057; font-size: 0.9rem; }
+    [data-testid="candidate-reproposal-open"] {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-height: 2.75rem; padding: 0.55rem 1.1rem; border: 0; border-radius: 0.5rem;
+      background: #155c42; color: #fff; font: inherit; font-weight: 650; cursor: pointer;
+      white-space: nowrap; margin-left: auto;
+    }
+    [data-testid="candidate-reproposal-open"]:hover { background: #0e4933; }
+    [data-testid="candidate-proposal-content"] { display: flex; flex-direction: column; gap: 1.25rem; }
+
+    /* Candidate map + card list (ADR-0012 skeleton block 3). PC (human-
+       approved 2026-08-06): cards are the primary column, the map is a
+       narrower sticky column on the right. Narrow width (developer
+       judgment under the same ruling -- "スマホ表示だけ工夫したいね" --
+       and ADR-0021's "骨格を保つ限り自由に洗練してよい"): a single column
+       with the map placed first via grid-template-areas, so it is visible
+       without the multi-screen scroll the reconciliation doc measured on
+       the design mock at narrow widths. This uses named grid areas, not
+       the "order" property, so it changes paint order only, not DOM/
+       keyboard-focus order (see candidate.js). No new interactive control
+       is introduced -- N-7's allowedPurposes has no "toggle the map"
+       purpose -- so this stays a presentational change, not a contract
+       amendment. */
+    .candidate-main-layout {
+      display: grid;
+      grid-template-columns: 1fr;
+      grid-template-areas: "map" "cards";
+      gap: 1rem;
+    }
+    [data-testid="candidate-proposal-cards"] {
+      grid-area: cards;
+      display: grid;
+      gap: 0.75rem;
+    }
+    .candidate-map-wrapper {
+      grid-area: map;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      min-width: 0;
+    }
+    [data-testid="candidate-map"] { height: 16rem; border-radius: 0.5rem; overflow: hidden; }
+    [data-testid="candidate-map-attribution"] { font-size: 0.8rem; color: #536057; align-self: flex-start; padding: 0.15rem 0; }
+
+    @media (min-width: 64rem) {
+      .candidate-main-layout {
+        grid-template-columns: minmax(0, 1fr) 26rem;
+        grid-template-areas: "cards map";
+        align-items: start;
+        gap: 1.5rem;
+      }
+      .candidate-map-wrapper { position: sticky; top: 1.5rem; }
+      [data-testid="candidate-map"] { height: max(24rem, calc(100vh - 10rem)); }
+    }
+
+    /* Candidate card (ADR-0012 skeleton block 3, inner hierarchy per the
+       approved round 2 design): identification row, name, facts box,
+       external link. Every interactive element keeps at least a 44px
+       tap target -- the round-2 design mock's narrow-width review found
+       18 of 18 interactive elements under that size, a pitfall this CSS
+       deliberately avoids. */
+    [data-testid="candidate-card"] {
+      background: #fff;
+      border: 1px solid #dce3da;
+      border-radius: 0.65rem;
+      padding: 1rem 1.1rem;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
     [data-testid="candidate-card"][data-selection-state="selected"] { border-color: #155c42; box-shadow: 0 0 0 1px #155c42; }
-    [data-testid="candidate-card"] dl { margin: 0.5rem 0; display: grid; gap: 0.25rem; }
-    [data-testid="candidate-card"] dt { font-weight: 650; font-size: 0.85rem; color: #536057; }
+    [data-testid="candidate-card"]:focus-visible { outline: 2px solid #155c42; outline-offset: 2px; }
+
+    .candidate-card-id-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+    .candidate-marker-badge {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 1.6rem; height: 1.6rem; border-radius: 0.35rem;
+      background: #1c2420; color: #fff; font-size: 0.8rem; font-weight: 700;
+    }
+    [data-testid="candidate-card-genre"] {
+      margin: 0; background: #eef2ee; color: #43524a;
+      font-size: 0.8125rem; font-weight: 650; padding: 0.15rem 0.55rem; border-radius: 999px;
+    }
+    .candidate-chip { font-size: 0.75rem; font-weight: 650; padding: 0.1rem 0.5rem; border-radius: 999px; }
+    .candidate-chip-new { background: #eaf5ee; color: #1a6b45; border: 1px solid #bfe3cc; }
+    .candidate-chip-repeated { background: #f4f5f1; color: #62716a; border: 1px solid #dce3da; }
+
+    [data-testid="candidate-card-name"] { margin: 0; font-size: 1.05rem; line-height: 1.35; }
+
+    [data-testid="candidate-card"] dl.candidate-facts {
+      margin: 0; display: grid; gap: 0.4rem;
+      background: #f7f8f5; border: 1px solid #eceee9; border-radius: 0.5rem; padding: 0.65rem 0.75rem;
+    }
+    [data-testid="candidate-card"] dl.candidate-facts dt { font-weight: 650; font-size: 0.8125rem; color: #536057; }
+    [data-testid="candidate-card"] dl.candidate-facts dd { margin: 0; font-size: 0.9rem; }
+
+    [data-testid="candidate-card-provider-page-link"] {
+      display: inline-flex; align-items: center; justify-content: center;
+      align-self: flex-start; min-height: 2.75rem; padding: 0 1rem;
+      border: 1px solid #155c42; border-radius: 0.5rem; font-weight: 650;
+    }
+    [data-testid="candidate-card-provider-page-link"]:hover { background: #eaf3ee; }
+
+    /* candidate-map-attribution / candidate-provider-credit are inline
+       text links whose exact wording the contract fixes (OSM copyright
+       text, the Hot Pepper credit literal); they read as small print, not
+       as buttons. This is the WCAG 2.5.8-recognized "target is in a
+       sentence/block of text" case, so they are intentionally not resized
+       to a 44px box (doing so would visually overstate them as buttons and
+       would not match their contractual role). The small padding on each
+       (declared alongside its other rules above/below) still gives their
+       actual tap area a little more room than the bare text glyphs alone. */
+    [data-testid="candidate-provider-credit"] { display: inline-block; margin-top: 0.25rem; padding: 0.15rem 0; }
+
+    /* Map markers: iconSize (candidate.js) makes the interactive box a
+       44px hit area -- Leaflet binds click/keyboard handling to that whole
+       box -- while .candidate-map-marker-visual is the smaller (36px)
+       painted circle centered inside it, so close-together candidates
+       don't visually crowd each other even though each keeps a full-size
+       tap target (see candidate.js's iconSize comment for the rationale). */
+    .candidate-map-marker-icon { display: flex; align-items: center; justify-content: center; }
+    .candidate-map-marker-visual {
+      display: flex; align-items: center; justify-content: center;
+      width: 2.25rem; height: 2.25rem; border-radius: 50%;
+      background: #1c2420; color: #fff;
+      font-size: 0.85rem; font-weight: 700; border: 2px solid #fff;
+      box-shadow: 0 1px 4px rgb(28 36 32 / 35%);
+    }
+    .candidate-map-marker-icon[data-selection-state="selected"] .candidate-map-marker-visual { background: #155c42; }
+
+    /* Leaflet's own zoom control (+/-), not app-authored content but still
+       an interactive element on this screen; bumped to the same 44px floor
+       as the app's own controls for consistency. */
+    .leaflet-control-zoom-in,
+    .leaflet-control-zoom-out {
+      width: 2.75rem !important;
+      height: 2.75rem !important;
+      line-height: 2.75rem !important;
+    }
+
+    /* Re-proposal modal (ADR-0012 skeleton block 4). */
     #candidate-reproposal-overlay:not([hidden]) {
       position: fixed; inset: 0; background: rgb(28 36 32 / 45%);
       display: flex; align-items: center; justify-content: center; padding: 1rem;
     }
     [data-testid="candidate-reproposal-dialog"] { background: #fff; border-radius: 0.75rem; padding: 1.25rem; max-width: 32rem; width: 100%; }
-    [data-testid="candidate-reproposal-option"] { display: block; width: 100%; text-align: left; margin-bottom: 0.5rem; background: #f4f5f1; color: #1c2420; }
+    [data-testid="candidate-reproposal-option"] {
+      display: block; width: 100%; min-height: 2.75rem; text-align: left;
+      margin-bottom: 0.5rem; padding: 0.6rem 0.75rem; background: #f4f5f1; color: #1c2420; border-radius: 0.4rem;
+    }
     [data-testid="candidate-reproposal-option"][aria-pressed="true"] { background: #d7e9df; }
+    [data-testid="candidate-reproposal-submit"],
+    [data-testid="candidate-reproposal-cancel"] { min-height: 2.75rem; padding: 0.55rem 1.1rem; }
   </style>
 {% endblock %}
 
@@ -30,32 +268,83 @@
     <header data-testid="authenticated-application-shell">
       <div class="app-header">
         <h1>ランチ候補</h1>
+        {% comment %}
+          ADR-0013 point 1: shrunk from a full-width paragraph to a small,
+          native-tooltip info marker. The element itself, its test id, and
+          its two data-* attributes are unchanged (authentication-browser-
+          interface.yaml's individualAccountGuidance requires exactly
+          those, "deliberately [without prescribing] visible wording,
+          layout, or a new public operation"). It carries no click handler
+          and no button role, so it needs no new
+          data-candidate-control-purpose -- hover/focus reveal only, per
+          ADR-0013 decision 8's no-operable-trigger path (no contract
+          change required). aria-label carries the full text to assistive
+          technology; title is the native mouse-hover tooltip.
+        {% endcomment %}
+        <span
+          data-testid="auth-individual-account-guidance"
+          data-auth-account-use="individual-only"
+          data-auth-credential-sharing="not-requested"
+          class="candidate-account-note"
+          tabindex="0"
+          title="管理者から案内された個別アカウントで利用してください。認証情報は共有しないでください。"
+          aria-label="管理者から案内された個別アカウントで利用してください。認証情報は共有しないでください。"
+        >ⓘ</span>
       </div>
+      {% comment %}
+        ADR-0013 point 2: password-change/sign-out grouped behind a native
+        <details>/<summary> disclosure ("メニューバーとかハンバーガー
+        メニューとか"), using the new auth-account-menu-toggle purpose
+        (candidate-search-browser-interface.yaml v0.3). This is plain
+        server-rendered HTML with no JavaScript involved -- <details>'s
+        open/closed state is a browser-native, CSS-only mechanism -- so
+        both grouped controls exist in the server response from the first
+        response onward, satisfying authentication-browser-interface.yaml's
+        renderModel (controls must exist in server-rendered markup, not be
+        inserted only by client-side JS; closed <details> content still
+        satisfies "present" -- DOM existence, not visibility -- exactly as
+        the contract's own individualAccountGuidance note already
+        establishes for the element above). Known trade-off: the native
+        pattern does not auto-close on an outside click (no JS is used
+        here); it does close via the summary's own toggle and is fully
+        keyboard-operable (Enter/Space).
+      {% endcomment %}
       <nav class="account-nav" aria-label="アカウント">
-        <a
-          href="{% url 'authentication:password_change' %}"
-          data-testid="auth-password-change-open"
-          data-candidate-control-category="button"
-          data-candidate-control-purpose="auth-password-change-open"
-        >パスワード変更</a>
-        <form method="post" action="{% url 'authentication:logout' %}" data-testid="auth-sign-out-form">
-          {% csrf_token %}
-          <button
-            type="submit"
-            data-testid="auth-sign-out"
+        {% comment %}
+          Deliberately plain native semantics (no role="menu"/"menuitem"):
+          those ARIA widget roles imply arrow-key navigation this markup
+          does not implement (no JS here), which would advertise behavior
+          to assistive technology that does not exist. <details>/<summary>
+          is already a recognized, fully keyboard-operable native
+          disclosure pattern on its own.
+        {% endcomment %}
+        <details class="candidate-account-menu">
+          <summary
+            data-testid="auth-account-menu-toggle"
             data-candidate-control-category="button"
-            data-candidate-control-purpose="auth-sign-out"
-          >サインアウト</button>
-        </form>
+            data-candidate-control-purpose="auth-account-menu-toggle"
+          ><span aria-hidden="true">☰</span> アカウント</summary>
+          <div class="candidate-account-menu-panel">
+            <a
+              href="{% url 'authentication:password_change' %}"
+              data-testid="auth-password-change-open"
+              data-candidate-control-category="button"
+              data-candidate-control-purpose="auth-password-change-open"
+            >パスワード変更</a>
+            <form method="post" action="{% url 'authentication:logout' %}" data-testid="auth-sign-out-form">
+              {% csrf_token %}
+              <button
+                type="submit"
+                data-testid="auth-sign-out"
+                data-candidate-control-category="button"
+                data-candidate-control-purpose="auth-sign-out"
+              >サインアウト</button>
+            </form>
+          </div>
+        </details>
       </nav>
     </header>
     <main>
-      <p
-        data-testid="auth-individual-account-guidance"
-        data-auth-account-use="individual-only"
-        data-auth-credential-sharing="not-requested"
-      >管理者から案内された個別アカウントで利用してください。認証情報は共有しないでください。</p>
-
       <div hidden>{% csrf_token %}</div>
       <div id="candidate-app"></div>
       <div id="candidate-reproposal-overlay" hidden></div>

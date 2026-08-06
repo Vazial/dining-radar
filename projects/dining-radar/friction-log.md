@@ -213,3 +213,49 @@ principles: [P-04, P-11]
 - AI contribution: orchestratorが、記録の文面を**書いている時点の状態**（まだ承認されていない）で固定した。方式(i)を採る以上、記録は**マージ前後のどちらでも真である**書き方——「本PRのマージをもって確定する」——にできたし、契約・ADR側では実際にその書き方をしていた（`.feature` のステータス行、ADRの `approved_by`）。activeContextにだけ同じ配慮が及ばなかった。
 - Downward push: `activeContext.md` の承認記録を、マージ済みの事実として述べる形に直した。cause_key は reservation-system の FR-015・FR-021 と**意図して揃えた**。対象文書は違う（あちらはADR・契約の承認記録、こちらはactiveContext）が、機構は同一である——「承認行為はマージであり、記録を書けるのはマージ前」という時間差を、文面の書き方で吸収しそこねると2本目のPRが要る。
 - Result: リポジトリ全体でこのcause_keyは3回目である。ただし**govlintのcause_key再出現検出はfriction-logファイル単位**であり、プロジェクトを跨いだ再出現を数えられない（ルート `activeContext.md` に既知の穴として記録済み）。したがってこの3回目は機械には見えず、人間が突き合わせない限り「toyama-dining-radarでの1回目」としか映らない。
+
+## FR-007: Django's single-line-only `{# #}` comment syntax was used across multiple lines, and no machine check read rendered output for stray template delimiters
+
+```yaml
+id: FR-007
+date: 2026-08-06
+found_at: L5
+slice: TDR-CS
+agents: [developer]
+cause_category: implementation defect invisible to existing test assertions
+cause_key: template-comment-syntax-not-multiline
+pushed_to:
+  - projects/toyama-dining-radar/tests/test_template_syntax.py
+status: 対応済み
+principles: [P-01, P-10]
+```
+
+- Situation: While implementing ADR-0013's authenticated-header changes, developer wrote three
+  explanatory comments in `web/templates/web/home.html` using Django's `{# ... #}` syntax spread
+  across multiple lines. Django's template tokenizer matches `{#...#}` with a regex that has no
+  `DOTALL` flag, so `.` never matches a newline; a `{#` left unclosed on its own line is therefore
+  not recognized as a comment tag at all. The literal `{#`, the intended comment body, and the
+  eventual `#}` all rendered as ordinary page text. This inflated the authenticated header from
+  78px to 755px and pushed the map from 279px down to 919px (measured by orchestrator on a real
+  device at 390×844, after ruling out dev-server template caching as the cause).
+- AI contribution: developer used the single-line-only comment form for genuinely multi-line
+  explanatory text, instead of `{% comment %}...{% endcomment %}` (which Django does support across
+  lines). No existing test caught it: unit/L4 assertions check for the *presence* of specific
+  substrings and test ids (`assertContains`, acceptance `present`/`absent` observations), which
+  still hold when unrelated extra text also renders, and nothing read rendered output for stray
+  template delimiters. Developer's own verification reports across this refinement had repeatedly
+  and correctly flagged visual layout/pixel results as "unverified, no browser access from this
+  role" -- that caveat is exactly what let a defect of this shape through every layer developer
+  could self-check.
+- Downward push: `tests/test_template_syntax.py` adds two guards. A source-level check
+  (`SingleLineCommentSyntaxSourceTests`) reads every `.html` template's raw text and fails if a
+  `{#` is not closed by `#}` on the same line, independent of whether any current view test
+  happens to render that template. A rendered-output check (`RenderedTemplateSyntaxLeakTests`,
+  defense in depth) fetches the login, authenticated-home, and password-change pages and asserts
+  the response body never contains a raw `{#`, `#}`, `{% comment %}`, or `{% endcomment %}`. Both
+  were verified to actually catch the original defect shape before being relied on.
+- Result: this is the same class of failure FR-004 named -- a defect that is silent until an
+  execution model machine verification does not cover is exercised (there, JS execution; here,
+  reading rendered bytes for stray delimiters instead of only checking for expected substrings).
+  The gap is now closed for this specific defect shape at L1 (source- and rendered-output checks),
+  pushed below the layer (L5, real-device review) that first found it, per P-10.

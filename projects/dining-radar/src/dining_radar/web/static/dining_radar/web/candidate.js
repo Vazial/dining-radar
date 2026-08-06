@@ -64,7 +64,7 @@
     });
   }
 
-  function fieldRow(label, testId, value, formatted, rawValueAttribute) {
+  function fieldRow(label, testId, value, formatted, rawValueAttribute, unavailableText) {
     var provided = value !== null && value !== undefined && value !== "";
     var attrs = {
       "data-testid": testId,
@@ -86,7 +86,15 @@
       el(
         "dd",
         attrs,
-        [provided ? (formatted !== undefined ? formatted : String(value)) : "情報なし"]
+        [
+          provided
+            ? formatted !== undefined
+              ? formatted
+              : String(value)
+            : unavailableText !== undefined
+              ? unavailableText
+              : "情報なし",
+        ]
       ),
     ]);
   }
@@ -101,7 +109,7 @@
     });
   }
 
-  function renderCard(candidate, repeated, selected) {
+  function renderCard(candidate, repeated, selected, index, isReproposalRound) {
     var card = el("article", {
       "data-testid": "candidate-card",
       "data-candidate-ref": candidate.candidateRef,
@@ -123,23 +131,64 @@
       }
     });
 
-    card.appendChild(
-      el(
-        "h3",
-        { "data-testid": "candidate-card-name", "data-field-label": "店名", "data-value-state": "provided" },
-        [candidate.name]
-      )
-    );
-    card.appendChild(
+    // Identification row: the same number the map marker shows (so a card
+    // and its marker are visually tied together), the genre as a small
+    // chip, and -- only once a re-proposal has actually happened, since the
+    // very first proposal has nothing to compare against -- whether this
+    // shop is newly offered or was already shown this screen lifetime
+    // (ADR-0008 decision 2, contract repeatPriority).
+    var idRow = el("div", { "class": "candidate-card-id-row" }, [
+      el("span", { "class": "candidate-marker-badge", "aria-hidden": "true" }, [String(index + 1)]),
+    ]);
+    idRow.appendChild(
       el(
         "p",
-        { "data-testid": "candidate-card-genre", "data-field-label": "ジャンル", "data-value-state": "provided" },
+        {
+          "data-testid": "candidate-card-genre",
+          "data-field-label": "ジャンル",
+          "data-value-state": "provided",
+          "class": "candidate-genre-chip",
+        },
         [candidate.genre]
       )
     );
+    if (isReproposalRound) {
+      idRow.appendChild(
+        el(
+          "span",
+          {
+            "class": repeated ? "candidate-chip candidate-chip-repeated" : "candidate-chip candidate-chip-new",
+          },
+          [repeated ? "前回も候補でした" : "今回はじめて"]
+        )
+      );
+    }
+    card.appendChild(idRow);
 
-    var facts = el("dl", {}, []);
-    facts.appendChild(fieldRow("紹介", "candidate-card-description", candidate.description));
+    card.appendChild(
+      el(
+        "h3",
+        {
+          "data-testid": "candidate-card-name",
+          "data-field-label": "店名",
+          "data-value-state": "provided",
+          "class": "candidate-shop-name",
+        },
+        [candidate.name]
+      )
+    );
+
+    var facts = el("dl", { "class": "candidate-facts" }, []);
+    facts.appendChild(
+      fieldRow(
+        "紹介",
+        "candidate-card-description",
+        candidate.description,
+        undefined,
+        undefined,
+        "紹介文の登録はありません"
+      )
+    );
     facts.appendChild(fieldRow("営業時間", "candidate-card-business-hours", candidate.businessHours));
     facts.appendChild(fieldRow("定休日", "candidate-card-regular-holiday", candidate.regularHoliday));
     facts.appendChild(
@@ -162,6 +211,7 @@
         "data-testid": "candidate-card-provider-page-link",
         "data-field-label": "詳細",
         "data-value-state": "provided",
+        "class": "candidate-detail-link",
         href: candidate.providerPageUrl,
         target: "_blank",
         rel: "noopener noreferrer",
@@ -212,7 +262,28 @@
     }
 
     candidates.forEach(function (candidate, index) {
-      var icon = window.L.divIcon({ className: "candidate-map-marker-icon", html: "" });
+      // The interactive box (iconSize) is a 44px hit area -- Leaflet binds
+      // its click/keyboard handling to this whole box, per
+      // https://leafletjs.com/reference.html#icon-iconsize, so this is what
+      // actually satisfies a >=44px touch target, not the visual size.
+      // A visually smaller circle (.candidate-map-marker-visual, 36px, see
+      // home.html) is centered inside it: on a map with several close
+      // candidates, keeping the painted badge compact avoids the pins
+      // themselves overlapping/obscuring each other, while the invisible
+      // 44px box around each one still gives a comfortable tap/click
+      // target (a common map-pin pattern; Leaflet's own 12px unstyled
+      // default had neither property).
+      // The number is not aria-hidden here (unlike the card's own repeat of
+      // it, .candidate-marker-badge): the map marker button carries no
+      // other text, so hiding it would leave the button's accessible name
+      // empty for assistive technology, even though the visual circle is
+      // deliberately smaller than the 44px hit box around it.
+      var icon = window.L.divIcon({
+        className: "candidate-map-marker-icon",
+        html: '<span class="candidate-map-marker-visual"></span>',
+        iconSize: [44, 44],
+        iconAnchor: [22, 22],
+      });
       var marker = window.L.marker(latLngs[index], { icon: icon, keyboard: true });
       marker.addTo(map);
       var markerEl = marker.getElement();
@@ -226,7 +297,10 @@
       markerEl.setAttribute("tabindex", "0");
       markerEl.setAttribute("data-candidate-control-category", "button");
       markerEl.setAttribute("data-candidate-control-purpose", "candidate-map-marker-selection");
-      markerEl.textContent = String(index + 1);
+      var markerVisual = markerEl.querySelector(".candidate-map-marker-visual");
+      if (markerVisual) {
+        markerVisual.textContent = String(index + 1);
+      }
       markerEl.addEventListener("click", function () {
         selectCandidate(candidate.candidateRef);
       });
@@ -254,7 +328,7 @@
         "data-candidate-control-purpose": "reproposal-submit",
         disabled: true,
       },
-      ["この切り口で再提案"]
+      ["この選び方で探す"]
     );
     submitButton.addEventListener("click", function () {
       if (!selectedReproposalKind) {
@@ -327,7 +401,7 @@
     root.innerHTML = "";
     root.appendChild(
       el("section", { "data-testid": "candidate-no-results" }, [
-        "この切り口に合うランチ候補が見つかりませんでした。",
+        "この選び方に合うランチ候補が見つかりませんでした。",
       ])
     );
   }
@@ -338,12 +412,15 @@
 
     var content = el("section", { "data-testid": "candidate-proposal-content" }, []);
 
-    content.appendChild(
-      el("div", {}, [
+    // Concept banner: the current lens's heading and the re-proposal
+    // starting point, kept together as one visual block (ADR-0012 skeleton
+    // block 2: "現在の切り口の見出し＋再提案の起点").
+    var conceptBanner = el("div", { "class": "candidate-concept-banner" }, [
+      el("div", { "class": "candidate-concept-copy" }, [
         el("h2", { "data-testid": "candidate-concept-title" }, [proposal.title]),
         el("p", { "data-testid": "candidate-concept-rationale" }, [proposal.rationale]),
-      ])
-    );
+      ]),
+    ]);
 
     var reproposalButton = el(
       "button",
@@ -353,18 +430,27 @@
         "data-candidate-control-category": "button",
         "data-candidate-control-purpose": "reproposal-open",
       },
-      ["別の切り口で再提案"]
+      ["別の選び方でもう一度探す"]
     );
     reproposalButton.addEventListener("click", renderReproposalDialog);
-    content.appendChild(reproposalButton);
+    conceptBanner.appendChild(reproposalButton);
+    content.appendChild(conceptBanner);
+
+    // Candidate map + card list, one visual block (ADR-0012 skeleton block
+    // 3). PC: cards are the primary column, the map is a narrower sticky
+    // column on the right (human-approved 2026-08-06). Narrow width: a
+    // single column with the map placed above the cards via CSS
+    // grid-template-areas only (see home.html) -- not the "order" property
+    // and not a DOM reorder -- so this is a presentational change only and
+    // does not alter keyboard/reader traversal order.
+    var mainLayout = el("div", { "class": "candidate-main-layout" }, []);
 
     var mapContainer = el("div", {
       "data-testid": "candidate-map",
       "data-map-tile-provider": "openstreetmap-standard",
     }, []);
-    content.appendChild(mapContainer);
-
-    content.appendChild(
+    var mapWrapper = el("div", { "class": "candidate-map-wrapper" }, [
+      mapContainer,
       el(
         "a",
         {
@@ -374,8 +460,8 @@
           rel: "noopener noreferrer",
         },
         ["© OpenStreetMap contributors"]
-      )
-    );
+      ),
+    ]);
 
     var decorated = proposal.candidates.map(function (candidate) {
       return { candidate: candidate, repeated: shownProviderPageUrls.has(candidate.providerPageUrl) };
@@ -388,15 +474,28 @@
       }
       return a.repeated ? 1 : -1;
     });
+    // A repeat/new badge is only meaningful once at least one earlier
+    // proposal has been shown this screen lifetime; the very first
+    // proposal has nothing to compare against.
+    var isReproposalRound = shownProviderPageUrls.size > 0;
     decorated.forEach(function (entry) {
       shownProviderPageUrls.add(entry.candidate.providerPageUrl);
     });
 
     var cardsContainer = el("div", { "data-testid": "candidate-proposal-cards" }, []);
     decorated.forEach(function (entry, index) {
-      cardsContainer.appendChild(renderCard(entry.candidate, entry.repeated, index === 0));
+      cardsContainer.appendChild(
+        renderCard(entry.candidate, entry.repeated, index === 0, index, isReproposalRound)
+      );
     });
-    content.appendChild(cardsContainer);
+    // DOM order is cards-then-map (matching the PC reading order, where
+    // cards are primary) on purpose: CSS grid-template-areas is what moves
+    // the map above the cards at narrow widths, so this DOM order is what
+    // keyboard/reader users encounter at every width, regardless of which
+    // block is painted first.
+    mainLayout.appendChild(cardsContainer);
+    mainLayout.appendChild(mapWrapper);
+    content.appendChild(mainLayout);
 
     content.appendChild(
       el(
