@@ -280,3 +280,41 @@ principles: [P-04, P-10, P-11]
 - AI contribution: FR-006の押し下げが**書き手の注意に依存する規約**だったこと。規約は同じ書き手が同じ文脈で1スライス後に破っており、注意による是正が機能しないことを実測した。cause_keyはリポジトリ全体で**4回目**（reservation-system FR-015・FR-021、当プロジェクトFR-006、本件）。
 - Downward push: 規約を「真になる書き方をする」から**「そもそも書かない」**へ変えた。`activeContext.md` に**進行中PRの承認ステータスを書かない**——その事実はPR・ADRのfrontmatter・gitが既に所有しており、複製は必ずドリフトする（P-04）。activeContextは「何が存在するか」を書き、承認記録は承認行為が起きる場所に置く。この規約を activeContext 自身の中に明記した（規約を守る場所と規約を書く場所を一致させ、次の書き手が読まずに済ませられないようにした）。
 - Result: 「書き方に気をつける」から「書く対象を減らす」へ移した。ただし**これも機械検証ではない**——govlintはGitHubのPR状態を知らないため、この種の陳腐化を機械的に検出できない。4回目にして初めて「注意では直らない」ことが実測できたので、5回目が起きたら規約ではなく機構（例: activeContextから承認ステータス節そのものを廃し、承認記録をADRのfrontmatterに一本化する）を検討すべきである。
+
+## FR-009: `candidate.js`がクライアント描画の唯一の担い手として3スライス育つ間、既に一般定義済みだったフロントエンドL1（単体テスト・lint）が一度も適用・指摘されなかった
+
+```yaml
+id: FR-009
+date: 2026-08-06
+found_at: L5
+slice: TDR-CS
+agents: [architect, developer]
+cause_category: existing general verification rule not applied when a client-rendering satellite was introduced
+cause_key: client-js-l1-not-provisioned
+pushed_to:
+  - projects/toyama-dining-radar/adr/0014-establish-client-js-unit-verification-layer.md
+  - projects/toyama-dining-radar/ARCHITECTURE.md
+status: 対応済み
+principles: [P-01, P-02, P-05, P-10]
+```
+
+- Situation: `meta/verification.md` §4は、フロントエンドのL1手段を「単体テスト、lint」と既に一般的に
+  定義していた。`candidate.js`はADR-0009（TDR-CS本体スライス）で候補提案画面の唯一の描画手段として
+  生まれ、以後ADR-0012・ADR-0013の2回の洗練スライスを経て543行（13関数の単一IIFE）まで育ったが、
+  この間L1に相当する機械検証（単体テスト・lint）は一度も導入されなかった。`reviews/audit-tdr-cs.md`・
+  `reviews/audit-pre-live-data.md`を含む複数回の監査でもこの欠落は一度も指摘されず、orchestratorが
+  Python側との定量比較（単体テスト0件・mutation対象外・行数543行）を行って初めて可視化された。
+- AI contribution: architectはADR-0009起草時、L4（JS実行可能なブラウザ自動化）の欠落だけを問題として
+  扱い、`meta/verification.md`が既に一般的に要求していたL1（フロントエンド単体テスト）をこのファイルに
+  適用する決定を同時に起こさなかった。developerは以後2回の実装スライス（ADR-0012・ADR-0013）でこの
+  ファイルを合計数百行分成長させたが、いずれのスライスの検証申告（`meta/adr/0039`）も、Python側と
+  同様の単体テストをJS側に求めなかった。どちらの役割も個別には既存規律に反していない（L1はdeveloperの
+  領分だが、契約・検証要件の起草時にその適用漏れを最初に指摘すべき立場はarchitectでもある）が、
+  結果として3スライスにわたり誰も指摘しなかった。
+- Downward push: `adr/0014`がこのプロジェクトにL1（JS単体検証層）を確立し、`ARCHITECTURE.md`の
+  検証境界節に反映した。カバレッジ・mutationの数値基準はPython側と同じ床（branch coverage 90%・
+  mutation score 80%）とし、実ブラウザ依存で原理的に検証不能な範囲は名指しで除外できる。
+- Result: `candidate.js`のL1ゲート自体（実際のテストスイート・CIジョブの追加）は本FRの時点では
+  未着手であり、developerの次の実装スライスに委ねられる——本FRが閉じるのは「この欠落を認識し、
+  是正の方針を確定した」という統治面までである（`reservation-frontend`のFR-002〜005が同種の順序
+  ——ADR・契約の確定を「対応済み」とし、実装の着地は後続スライスに委ねる——を採っている先例に倣う）。

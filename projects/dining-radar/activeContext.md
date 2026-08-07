@@ -35,6 +35,10 @@ The product still has no deployment, no public origin, and no real accounts, sec
 - The approved candidate-search boundary uses `strict-origin-when-cross-origin` for public map operation so standard OSM tiles receive only the public origin as Referer. It does not weaken same-origin session or CSRF controls.
 - Controls on the authenticated candidate screen must appear in the server-rendered HTML, not be inserted by client JavaScript, wherever TDR-AUTH's plain-HTTP DSL observes them (`authentication-browser-interface.yaml` v0.2 `renderModel`).
 
+`manage.py` loads `projects/toyama-dining-radar/.env.local` when it exists, using a stdlib-only parser and `os.environ.setdefault`, so a real process environment always wins and a missing file is a no-op. That path is developer convenience only — deployment runs through `wsgi.py` and never depends on it. This closed a gap where `env.example` told the reader to copy itself to `.env.local` while nothing read that file.
+
+ADR-0014 establishes a client-side JavaScript unit-verification layer for `candidate.js` (543 lines, previously exercised only by L4). It is not yet implemented. The ADR is explicit that none of the three defects found so far in that layer would reliably have been caught by it — its value is forward-looking regression capture.
+
 ## Next work
 
 1. Reconfirm current Hot Pepper and map-provider terms before public operation, especially credit, schema, and caching, and reconfirm the assumed Hot Pepper raw JSON field names against current official documentation. A change to the no-history/no-durable-identifier product policy requires a new human decision before work starts.
