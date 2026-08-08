@@ -24,6 +24,14 @@ Two implementation choices remain verified only against synthetic fixtures: the 
 
 The product still has no deployment, no public origin, and no real accounts, secrets, or locations. `TDR-AUTH-06` passes L3 configuration and security checks only; actual HTTPS transport verification remains deferred to a deployment slice (ADR-0007).
 
+The product was first run against live provider data on 2026-08-06 with the human's own key and private origin, and that run drove two rounds of correction that synthetic fixtures had never surfaced.
+
+The Hot Pepper field-name assumptions are no longer unverified: all 64 live candidates populated `name`, `genre.name`, `open`, `close`, `capacity`, `access`, `lat`/`lng` and `urls.pc`, and the same names were confirmed against the provider's official reference. `normalize.py`'s tolerant null handling never had to absorb a wrong name.
+
+The live run also showed the product did not work as intended. All 64 candidates were displayed at once, 24 of them izakaya; ADR-0015 caps the display at 5 after ranking the full population and excludes izakaya/bar genres by default, reachable again through the `IZAKAYA_BAR_INCLUDED` lens. The exclusion is recorded as uncertainty-driven, not as a claim these shops lack lunch service: the provider's `lunch` response value is only ever "あり", and `open` is free text that resists machine parsing. `GENRE_VARIETY` then proved degenerate — it returned the identical five shops in identical order as `PROXIMITY` whenever the nearest candidates were already genre-diverse — so ADR-0016 retires it and replaces it with an always-available "try again" control that re-sends the displayed lens and relies on the existing repeat-demotion (ADR-0008 decision 2). No randomness was introduced; determinism remains a requirement of `product-brief.md`, ADR-0004, ADR-0005, ADR-0008 and the API schema. Retiring `GENRE_VARIETY` also fixed, structurally, a defect where `IZAKAYA_BAR_INCLUDED` was always truncated by `reProposalOptions.maxItems: 3` (FR-010): with four `ConceptKind` values, displayed-minus-one can never exceed three.
+
+Selecting a lens now performs the re-proposal directly. `TDR-CS-03` had always said so; only `candidate-search-browser-interface.yaml` disagreed, and it was the contract that was wrong (ADR-0013's pattern). On narrow widths the card's label/value pairs collapse to a two-column grid with tightened spacing and a clamped description, and the re-proposal modal now declares `z-index: 1000` rather than relying on DOM order against Leaflet's own panes.
+
 ## Confirmed policies
 
 - Do not commit real life-area names, coordinates, configured ranges, API keys, secrets, provider request URLs/responses, shop IDs, images, shop data, real-data migrations, fixtures, or database dumps. Use only synthetic test/design data.

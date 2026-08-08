@@ -47,7 +47,7 @@ class SerializeResultTests(SimpleTestCase):
         candidate = _candidate(description=None, total_seats=None)
         concept = Concept(ConceptKind.PROXIMITY, "近さを優先する", "理由", (candidate,))
         result = ProposalResult(
-            concept, [ReproposalOption(ConceptKind.GENRE_VARIETY, "変化", "理由2")]
+            concept, [ReproposalOption(ConceptKind.CAPACITY_REFERENCE, "変化", "理由2")]
         )
 
         payload = serialize_result(result)
@@ -60,7 +60,7 @@ class SerializeResultTests(SimpleTestCase):
         self.assertEqual(payload["proposal"]["kind"], "PROXIMITY")
         self.assertEqual(
             payload["reProposalOptions"],
-            [{"kind": "GENRE_VARIETY", "title": "変化", "rationale": "理由2"}],
+            [{"kind": "CAPACITY_REFERENCE", "title": "変化", "rationale": "理由2"}],
         )
 
     def test_candidate_refs_are_unique_within_one_response(self):

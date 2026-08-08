@@ -150,6 +150,50 @@ class CandidateProposalsApiTests(TestCase):
         self.assertTrue(reproposed_urls & initial_urls, "expected at least one repeated shop")
         self.assertTrue(reproposed_urls - initial_urls, "expected at least one new shop")
 
+    # adr/0015: default genre exclusion and IZAKAYA_BAR_INCLUDED ----------
+
+    def test_normal_with_repeat_initial_proposal_excludes_the_default_excluded_genre(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT
+        )
+
+        response = self.post_proposal()
+
+        payload = response.json()
+        self.assertEqual(payload["proposal"]["kind"], "PROXIMITY")
+        self.assertNotIn("居酒屋", [c["genre"] for c in payload["proposal"]["candidates"]])
+        offered_kinds = [option["kind"] for option in payload["reProposalOptions"]]
+        self.assertIn("IZAKAYA_BAR_INCLUDED", offered_kinds)
+
+    def test_selecting_izakaya_bar_included_lens_includes_the_default_excluded_genre(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT
+        )
+        self.post_proposal()
+
+        response = self.post_proposal({"reproposalKind": "IZAKAYA_BAR_INCLUDED"})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["proposal"]["kind"], "IZAKAYA_BAR_INCLUDED")
+        self.assertIn("居酒屋", [c["genre"] for c in payload["proposal"]["candidates"]])
+        self.assertNotIn("ランチ営業しています", payload["proposal"]["rationale"])
+
+    def test_izakaya_bar_only_mode_falls_through_instead_of_a_null_proposal(self):
+        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.IZAKAYA_BAR_ONLY)
+
+        response = self.post_proposal()
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIsNotNone(payload["proposal"])
+        self.assertEqual(payload["proposal"]["kind"], "IZAKAYA_BAR_INCLUDED")
+        self.assertEqual(payload["reProposalOptions"], [])
+        self.assertTrue(payload["proposal"]["candidates"])
+        self.assertTrue(
+            all(c["genre"] == "居酒屋" for c in payload["proposal"]["candidates"]),
+        )
+
     def test_no_results_mode_returns_a_successful_null_proposal(self):
         acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NO_RESULTS)
 

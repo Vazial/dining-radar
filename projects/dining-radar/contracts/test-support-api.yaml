@@ -11,13 +11,22 @@
 # any internet-facing deployment.  They operate only on synthetic test data.
 # They never reveal or alter a private search origin, provider data or
 # credentials, runtime secrets, or any real account.
+#
+# 2026-08-07 amendment (adr/0015): added the IZAKAYA_BAR_ONLY synthetic mode
+# and extended NORMAL_WITH_REPEAT's guarantee, so TDR-CS-09 and TDR-CS-10 are
+# deterministically reachable. No existing mode's prior guarantee changed.
+# 2026-08-08 amendment (adr/0016): extended NORMAL_WITH_REPEAT's guarantee so
+# a same-lens "try again" request (resending the displayed proposal's own
+# kind, not a different offered kind) also deterministically yields at least
+# one new candidate and one repeated candidate, for TDR-CS-11. No existing
+# mode's prior guarantee changed.
 openapi: 3.0.3
 info:
   title: Toyama Dining Radar acceptance test-support API
-  version: 0.2.0
+  version: 0.4.0
   description: >-
     Acceptance-only setup and reset seams for TDR-AUTH-01 through TDR-AUTH-07
-    and TDR-CS-00 through TDR-CS-08.
+    and TDR-CS-00 through TDR-CS-11.
     Browser actions and outcomes under test must use the public same-origin
     authentication and candidate-search boundaries; these operations are only
     for deterministic Given state and scenario isolation.
@@ -35,7 +44,7 @@ paths:
         reset by resetCandidateProposalAcceptanceState.
       x-acceptance-scenarios:
         [TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05, TDR-CS-06,
-         TDR-CS-07, TDR-CS-08]
+         TDR-CS-07, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11]
       requestBody:
         required: true
         content:
@@ -55,7 +64,7 @@ paths:
         storage, real account, or production/deployment setting.
       x-acceptance-scenarios:
         [TDR-CS-00, TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05,
-         TDR-CS-06, TDR-CS-07, TDR-CS-08]
+         TDR-CS-06, TDR-CS-07, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11]
       responses:
         '204':
           description: Candidate-proposal acceptance state is reset.
@@ -177,20 +186,35 @@ components:
         mode:
           type: string
           enum:
-            [NORMAL_WITH_REPEAT, NO_RESULTS, PROVIDER_UNAVAILABLE,
-             INVALID_REPROPOSAL_KIND, RATE_LIMITED]
+            [NORMAL_WITH_REPEAT, IZAKAYA_BAR_ONLY, NO_RESULTS,
+             PROVIDER_UNAVAILABLE, INVALID_REPROPOSAL_KIND, RATE_LIMITED]
           description: >-
             A closed synthetic state selection. NORMAL_WITH_REPEAT supplies
             only lunch-eligible synthetic candidates, an initial proposal, and
             a selected next-lens replacement containing at least one new
             candidate and one earlier candidate with the same providerPageUrl
-            href. It excludes AMENITY_REFERENCE from the initial response's
-            reProposalOptions so a public, CSRF-protected request for that
-            valid enum is deterministically unavailable. NO_RESULTS supplies a
+            href; this same new-plus-repeated guarantee also holds when the
+            request instead resends the displayed proposal's own kind (a
+            same-lens "try again" request, adr/0016), so TDR-CS-11 is
+            deterministically reachable from this one mode. It excludes
+            AMENITY_REFERENCE from the initial response's reProposalOptions
+            so a public, CSRF-protected request for that valid enum is
+            deterministically unavailable. Per adr/0015, it also includes at
+            least one synthetic candidate in the default-excluded genre
+            category and at least one outside it, so an acceptance test can
+            observe from this one mode that the default proposal excludes the
+            former, that IZAKAYA_BAR_INCLUDED is offered as a re-proposal
+            option, and that selecting it includes the former (TDR-CS-09).
+            IZAKAYA_BAR_ONLY supplies only synthetic candidates in that
+            default-excluded genre category, so the initial proposal falls
+            through to IZAKAYA_BAR_INCLUDED instead of a successful null
+            proposal (TDR-CS-10); this is distinct from NO_RESULTS, which
+            supplies no lunch-eligible candidate at all. NO_RESULTS supplies a
             successful null proposal. The remaining states produce the
             corresponding public problem response. Synthetic display data is
             implementation-owned, deterministic, and must satisfy the
-            candidate-search API schema without using real provider data.
+            candidate-search API schema (including its 5-candidate display
+            cap) without using real provider data.
     AcceptanceAccountState:
       type: object
       additionalProperties: false

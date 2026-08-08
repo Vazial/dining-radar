@@ -318,3 +318,45 @@ principles: [P-01, P-02, P-05, P-10]
   未着手であり、developerの次の実装スライスに委ねられる——本FRが閉じるのは「この欠落を認識し、
   是正の方針を確定した」という統治面までである（`reservation-frontend`のFR-002〜005が同種の順序
   ——ADR・契約の確定を「対応済み」とし、実装の着地は後続スライスに委ねる——を採っている先例に倣う）。
+
+## FR-010: ADR-0015が`IZAKAYA_BAR_INCLUDED`を追加した際、`reProposalOptions.maxItems: 3`との容量衝突を確認しなかった
+
+```yaml
+id: FR-010
+date: 2026-08-08
+found_at: L5
+slice: TDR-CS
+agents: [architect]
+cause_category: new contract enum member added without checking interaction with an existing fixed-size array constraint
+cause_key: concept-kind-addition-vs-reproposal-cap-unchecked
+pushed_to:
+  - projects/toyama-dining-radar/adr/0016-retire-genre-variety-for-try-again-and-fix-reproposal-capacity.md
+  - projects/toyama-dining-radar/contracts/candidate-search-api.yaml
+status: 対応済み
+principles: [P-02, P-08, P-10]
+```
+
+- Situation: ADR-0015（2026-08-07）は実データレビューを受けて`ConceptKind`へ5番目の値
+  `IZAKAYA_BAR_INCLUDED`を追加し、「非拘束の見解として…他の4切り口より低い優先順位に置くことを
+  推奨する」とした。しかし`candidate-search-api.yaml`の`reProposalOptions`は既に`maxItems: 3`
+  という固定容量制約を持っており、`ConceptKind`が5種類、表示中の1つを除いた残りが最大4つになる
+  以上、優先順位を最後に置いたことと`maxItems: 3`の組み合わせは、5つ全てがビルド可能な母集団では
+  `IZAKAYA_BAR_INCLUDED`が常に切り捨てられることを**単純な計数だけで**含意していた。これは実データを
+  必要としない論理的な帰結だったが、ADR-0015はこの容量衝突を一度も検討・言及しなかった。orchestratorが
+  2度目の実機レビューで、実際に`IZAKAYA_BAR_INCLUDED`が一度もAPI応答に現れないことを計測して初めて
+  発覚した（`adr/0016`文脈節）。
+- AI contribution: architect（ADR-0015起草時）は、`ConceptKind`へ新しい値を追加する決定と、
+  `reProposalOptions.maxItems: 3`という既存の固定容量制約が同じ契約内に共存することの相互作用を
+  確認しなかった。「優先順位はpipeline実装の詳細であり本ADRは拘束しない」という留保はあったが、
+  その留保自体が容量超過という契約レベルの帰結を隠す形になった——優先順位をどこに置いても、
+  5種類中4つを提示しようとする限り必ず1つが切り捨てられるという事実は、優先順位の値によらず
+  常に成立する契約構造上の問題であり、pipeline実装の詳細ではなかった。
+- Downward push: `adr/0016`が`GENRE_VARIETY`の削除により`ConceptKind`を4種類へ戻し、表示中の1つを
+  除いた残りが常に`maxItems: 3`に収まる構造にした。将来`ConceptKind`に新しい値を追加するarchitectは、
+  追加後の総数から表示中の1つを引いた値が`reProposalOptions.maxItems`に収まるかを明示的に確認する
+  ことを`adr/0016`決定4に申し送りとして記録した。
+- Result: 本件は「新しいenum値の追加」と「既存の固定容量スキーマ制約」という、今後も繰り返しうる
+  組み合わせの一般的な見落としパターンである。次に同じ形の追加が起きた場合、この確認を怠らないことが
+  再発防止の実体であり、今回は機械的な検査（例えばenum数と`maxItems`の関係を検証するgovlintルール）
+  までは導入しない——単一契約ファイル内の2つの数値の関係をチェックする汎用ルールの費用対効果は、
+  再発時に判断する（P-05）。

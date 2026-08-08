@@ -1,4 +1,4 @@
-"""JS-capable browser L4 runner for TDR-CS-00 through TDR-CS-08.
+"""JS-capable browser L4 runner for TDR-CS-00 through TDR-CS-11.
 
 Per ADR-0009, the authenticated candidate-proposal screen renders candidate
 cards, the map, the re-proposal modal, and error surfaces with client-side
@@ -6,20 +6,18 @@ JavaScript after the server returns only an empty mount point. Every scenario
 in this file therefore runs against a real Chromium instance (Playwright)
 that executes that script, rather than against server-rendered HTML.
 
-Every scenario below executes for real -- none is skipped. As of this
-writing, ``test_tdr_cs_02_compare_candidates_on_cards_and_map`` and
-``test_tdr_cs_03_reproposal_via_popup_replaces_the_display`` fail against the
-current implementation: enumerating every ``[data-testid]`` element on the
-fully-rendered authenticated screen (with the ``NORMAL_WITH_REPEAT``
-synthetic Given state) finds ``candidate-card``, ``candidate-map``, and every
-other test id ``candidate-search-browser-interface.yaml`` requires, but no
-``candidate-map-marker`` anywhere -- Leaflet's own marker DOM element carries
-only a plain CSS class (``candidate-map-marker-icon``), not the contract's
-``data-testid``/``data-candidate-ref``/``data-selection-state`` attributes.
-This is a red, not a skip: per this project's step-definition rules, testers
-do not read or adapt to implementation source, so this file asserts exactly
-what the contract requires and reports the resulting failure rather than
-working around it.
+Every scenario below executes for real -- none is skipped. TDR-CS-09 and
+TDR-CS-10 (adr/0015, candidate-search-api.yaml v0.5.0, test-support-api.yaml
+v0.3.0) exercise the default exclusion of the genre category whose lunch
+service cannot be confirmed and its dedicated IZAKAYA_BAR_INCLUDED
+re-proposal lens; see ``dsl/candidate_search_browser.py`` for why their
+assertions compare responses rather than a genre-string literal. TDR-CS-11
+(adr/0016, candidate-search-api.yaml v0.6.0,
+candidate-search-browser-interface.yaml v0.4, test-support-api.yaml v0.4.0)
+exercises the always-available same-lens "try again" control that replaced
+the removed GENRE_VARIETY concept; the same amendment also made selecting a
+re-proposal option perform the re-proposal directly (no separate submit
+control), which TDR-CS-03, TDR-CS-07, and TDR-CS-09 below now rely on.
 """
 
 from __future__ import annotations
@@ -180,3 +178,38 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.organizer_opens_candidate_proposal_screen()
         self.steps.organizer_is_guided_to_wait_and_retry()
         self.steps.organizer_is_guided_to_wait_and_retry_by_api()
+
+    def test_tdr_cs_09_default_excludes_hard_to_confirm_lunch_genre_until_selected(
+        self,
+    ) -> None:
+        self.steps.organizer_is_signed_in(
+            "organizer-a", "synthetic-organizer-a", "synthetic-secret-a"
+        )
+        self.steps.candidates_include_a_hard_to_confirm_lunch_genre()
+        self.steps.organizer_opens_candidate_proposal_screen()
+        self.steps.organizer_opens_reproposal_popup()
+        self.steps.izakaya_bar_included_lens_is_offered_as_reproposal_option()
+        self.steps.organizer_selects_the_izakaya_bar_included_lens()
+        self.steps.initial_candidates_exclude_the_hard_to_confirm_lunch_genre()
+        self.steps.chosen_lens_candidates_include_the_hard_to_confirm_lunch_genre()
+        self.steps.chosen_lens_rationale_does_not_assert_confirmed_lunch_service()
+
+    def test_tdr_cs_10_excluded_genre_fallback_when_it_is_the_only_population(self) -> None:
+        self.steps.organizer_is_signed_in(
+            "organizer-a", "synthetic-organizer-a", "synthetic-secret-a"
+        )
+        self.steps.excluding_the_genre_leaves_no_candidates_but_including_it_does()
+        self.steps.organizer_opens_candidate_proposal_screen()
+        self.steps.candidates_are_shown_including_the_excluded_genre()
+        self.steps.no_results_guidance_is_not_shown()
+
+    def test_tdr_cs_11_try_again_repeats_the_same_lens(self) -> None:
+        self.steps.organizer_is_signed_in(
+            "organizer-a", "synthetic-organizer-a", "synthetic-secret-a"
+        )
+        self.steps.lunch_candidates_can_be_proposed()
+        self.steps.organizer_has_one_lens_of_candidates()
+        self.steps.organizer_selects_try_again()
+        self.steps.new_proposal_uses_same_lens_and_replaces_display()
+        self.steps.repeat_priority_orders_new_before_repeated()
+        self.steps.repeated_candidate_is_not_excluded()

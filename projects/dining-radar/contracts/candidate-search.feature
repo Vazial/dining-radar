@@ -1,11 +1,17 @@
 # Toyama Dining Radar acceptance contract — TDR-CS candidate proposals
-# ステータス: 承認済み(2026-08-03) — 人間がチャットで内容承認し（原案 2026-08-01、改訂 2026-08-03）、
-#   PR #76 のマージをもって確定した。変更には再承認が必要。この行の形式は meta/adr/0043 の
-#   機械検証が要求する
+# ステータス: 承認済み(2026-08-08) — 人間が2026-08-08のチャットで本番データ確認後の実機レビューを行い、
+#   GENRE_VARIETYの廃止と「もう一度探す」への置き換えを裁定した。architectがTDR-CS-11としてこの契約に
+#   翻訳した（adr/0016）。他のシナリオは2026-08-07改訂（原案2026-08-03改訂、さらに原案2026-08-01）
+#   からの変更なし。承認の実体は本PRのマージである。変更には再承認が必要。この行の形式は
+#   meta/adr/0043 の機械検証が要求する
 #
 # Status: human content-approved in chat (2026-08-03 amendment; original
-# approval 2026-08-01) and made durable by merged PR #76. This contract
-# projects the human-approved Product Brief, ADR-0005, and ADR-0008.
+# approval 2026-08-01) and made durable by merged PR #76. TDR-CS-09 and
+# TDR-CS-10 are a 2026-08-07 addition (adr/0015). TDR-CS-11 is a 2026-08-08
+# addition (adr/0016) reflecting a real-device review that found one
+# comparison lens (removed from the underlying contract) produced no
+# observable difference from the initial one, and replaced it with a
+# same-lens "try again" action.
 
 Feature: 幹事がランチ候補を見て別の切り口で比べ直す
   幹事は非公開の検索地点の周辺にあるランチ候補を、選ぶ理由の異なる
@@ -96,3 +102,31 @@ Feature: 幹事がランチ候補を見て別の切り口で比べ直す
     When 幹事が候補提案画面を開く、または再提案の切り口を選ぶ
     Then 幹事には少し待ってから試すよう案内される
     And 非公開の検索地点や内部の事情は示されない
+
+  # TDR-CS-09
+  Scenario: 居酒屋やバーなどランチ営業が確認しづらい候補は、既定では外し、選べば含める
+    Given 提案できる候補に、ランチ営業の実施が確認しづらいジャンルの店舗が含まれている
+    When 幹事が候補提案画面を開く
+    Then 初期の候補にはランチ営業の実施が確認しづらいジャンルの店舗を含めない
+    And 幹事は「居酒屋・バーを含めて探す」といった切り口を再提案の選択肢として選べる
+    And 幹事がその切り口を選ぶと、選んだ切り口の候補にはランチ営業の実施が確認しづらいジャンルの店舗も含まれる
+    And その切り口の説明は、含めた店舗が実際にランチ営業していると断定しない
+
+  # TDR-CS-10
+  Scenario: 除外すると候補が一つもなくなる場合は、除いていた店舗も含めて示す
+    Given ランチ営業の実施が確認しづらいジャンルを除くと提案できる候補が一つもない
+    And そのジャンルを含めれば提案できる候補がある
+    When 幹事が候補提案画面を開く
+    Then 除いていたジャンルの店舗も含めた候補が示される
+    And 「条件に合う候補がない」という案内は、そのジャンルを含めても候補が一つもないときだけ示される
+
+  # TDR-CS-11
+  Scenario: 同じ切り口のまま「もう一度探す」を選ぶ
+    Given 幹事に一つの切り口による候補が示されている
+    When 幹事が「もう一度探す」を選ぶ
+    Then 同じ切り口で新しい候補提案が依頼される
+    And 新しい提案は同じ切り口の候補と地図を示す
+    And 以前の提案に候補を追加しない
+    And 同じ画面で既に表示した店舗は未表示の店舗より後ろに表示される
+    And 既に表示した店舗も候補から除外されない
+    And 新しい提案が以前とすべて異なる店舗になるとは限らない

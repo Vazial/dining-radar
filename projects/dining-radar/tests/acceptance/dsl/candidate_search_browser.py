@@ -21,10 +21,28 @@ reinvented -- for this scenario's Background precondition), or the public
 candidate-proposal JSON API declared in ``candidate-search-api.yaml``.
 
 One Then-clause the approved scenarios never require observing at all
-(TDR-CS-03's "新しい提案が以前とすべて異なる店舗になるとは限らない") states a
-non-constraint -- that full turnover is *allowed*, not required -- so it has
-no corresponding assertion here; permitting overlap is exactly what
-``repeated_candidate_is_not_excluded`` below verifies.
+("新しい提案が以前とすべて異なる店舗になるとは限らない", worded identically in
+both TDR-CS-03 and TDR-CS-11) states a non-constraint -- that full turnover
+is *allowed*, not required -- so it has no corresponding assertion here;
+permitting overlap is exactly what ``repeated_candidate_is_not_excluded``
+below verifies.
+
+TDR-CS-09 and TDR-CS-10 (adr/0015, candidate-search-api.yaml v0.5.0,
+test-support-api.yaml v0.3.0) add the default genre exclusion and its
+IZAKAYA_BAR_INCLUDED re-proposal lens; see the dedicated section below for
+why TDR-CS-09's "excludes the genre" claim is verified by comparison against
+that lens's response rather than a genre-string literal.
+
+TDR-CS-11 (adr/0016, candidate-search-api.yaml v0.6.0,
+candidate-search-browser-interface.yaml v0.4, test-support-api.yaml v0.4.0)
+adds a same-lens "try again" action (``candidate-reproposal-try-again``) that
+is always available outside the re-proposal dialog and resends the currently
+displayed proposal's own kind. That same amendment also retires
+``candidate-reproposal-submit``/purpose ``reproposal-submit``: selecting a
+re-proposal option (``candidate-reproposal-option``) itself now performs the
+re-proposal request, with no separate confirmation click. Every browser
+action below that used to click a submit control after selecting an option
+now captures the response from the selection click itself.
 """
 
 from __future__ import annotations
@@ -75,7 +93,7 @@ PROVIDER_CREDIT = "candidate-provider-credit"
 REPROPOSAL_OPEN = "candidate-reproposal-open"
 REPROPOSAL_DIALOG = "candidate-reproposal-dialog"
 REPROPOSAL_OPTION = "candidate-reproposal-option"
-REPROPOSAL_SUBMIT = "candidate-reproposal-submit"
+TRY_AGAIN = "candidate-reproposal-try-again"
 NO_RESULTS = "candidate-no-results"
 PROBLEM = "candidate-proposal-problem"
 PROBLEM_GUIDANCE = "candidate-proposal-problem-guidance"
@@ -86,6 +104,7 @@ CANDIDATE_SCREEN_FORBIDDEN_WHEN_UNAUTHENTICATED = [
     CONTENT,
     MAP,
     REPROPOSAL_OPEN,
+    TRY_AGAIN,
     REPROPOSAL_DIALOG,
     SECONDARY_CONDITIONS,
     MANUAL_ORDERING,
@@ -126,7 +145,7 @@ ALLOWED_CONTROL_PURPOSES = {
     "candidate-map-marker-selection",
     "reproposal-open",
     "reproposal-selection",
-    "reproposal-submit",
+    "reproposal-try-again",
     "reproposal-cancel",
     "auth-sign-out",
     "auth-password-change-open",
@@ -162,6 +181,12 @@ STATUS_BY_PROBLEM_CODE = {
     "PROPOSAL_RATE_LIMITED": 429,
     "PROPOSAL_REPROPOSAL_KIND_INVALID": 400,
 }
+
+# adr/0015: the only ConceptKind whose population additionally includes the
+# genre category that is excluded by default from the other three kinds
+# (PROXIMITY, CAPACITY_REFERENCE, AMENITY_REFERENCE; GENRE_VARIETY was the
+# fourth until adr/0016 removed it).
+IZAKAYA_BAR_INCLUDED = "IZAKAYA_BAR_INCLUDED"
 
 
 class CandidateSearchBrowserDsl:
@@ -252,7 +277,9 @@ class CandidateSearchBrowserDsl:
 
     def assert_initial_proposal_screen(self) -> None:
         assert_all_present(
-            self.assertions, self.page, [CONTENT, CARDS, MAP, PROVIDER_CREDIT, REPROPOSAL_OPEN]
+            self.assertions,
+            self.page,
+            [CONTENT, CARDS, MAP, PROVIDER_CREDIT, REPROPOSAL_OPEN, TRY_AGAIN],
         )
         assert_all_absent(
             self.assertions, self.page, [REPROPOSAL_DIALOG, SECONDARY_CONDITIONS, MANUAL_ORDERING]
@@ -388,7 +415,7 @@ class CandidateSearchBrowserDsl:
         expect(card).to_have_attribute("data-selection-state", "selected")
         self._assert_all_other_cards_and_markers_unselected(target_ref)
 
-    # Observable assertions and actions: re-proposal (TDR-CS-03) ----------
+    # Observable assertions and actions: re-proposal (TDR-CS-03, TDR-CS-11) -
 
     def open_reproposal_popup(self) -> None:
         url_before = self.page.url
@@ -409,15 +436,17 @@ class CandidateSearchBrowserDsl:
             kind = options.nth(index).get_attribute("data-reproposal-kind")
             self.assertions.assertNotEqual(kind, current_kind)
 
-    def select_and_submit_first_offered_lens(self) -> str:
+    def select_first_offered_lens(self) -> str:
+        # adr/0016: selecting a re-proposal option itself performs the
+        # re-proposal request; there is no longer a separate submit control
+        # to click afterward.
         options = wait_for_at_least_one(self.page, REPROPOSAL_OPTION)
         first_option = options.first
         chosen_kind = first_option.get_attribute("data-reproposal-kind")
         self.assertions.assertTrue(chosen_kind)
-        first_option.click()
 
         def trigger() -> None:
-            by_test_id(self.page, REPROPOSAL_SUBMIT).click()
+            first_option.click()
 
         self.reproposal = capture_candidate_proposal_response(self.page, trigger)
         assert_matches_openapi_schema(
@@ -427,12 +456,35 @@ class CandidateSearchBrowserDsl:
         )
         return chosen_kind
 
+    def select_try_again(self) -> None:
+        # adr/0016: candidate-reproposal-try-again is always available (it
+        # does not require opening the re-proposal dialog first) and resends
+        # the currently displayed proposal's own kind.
+        def trigger() -> None:
+            by_test_id(self.page, TRY_AGAIN).click()
+
+        self.reproposal = capture_candidate_proposal_response(self.page, trigger)
+        assert_matches_openapi_schema(
+            self.reproposal.payload,
+            CANDIDATE_API_CONTRACT,
+            "#/components/schemas/CandidateProposalResponse",
+        )
+
     def assert_display_replaced_by_reproposal(self, chosen_kind: str) -> None:
+        self._assert_display_matches_reproposal_of_kind(chosen_kind)
+
+    def assert_new_proposal_uses_same_lens_and_replaces_display(self) -> None:
+        previous_kind = require(self.initial, "candidate screen was not opened").payload[
+            "proposal"
+        ]["kind"]
+        self._assert_display_matches_reproposal_of_kind(previous_kind)
+
+    def _assert_display_matches_reproposal_of_kind(self, expected_kind: str) -> None:
         assert_absent(self.assertions, self.page, REPROPOSAL_DIALOG)
         response = require(self.reproposal, "re-proposal was not requested")
         proposal = response.payload["proposal"]
         self.assertions.assertIsNotNone(proposal)
-        self.assertions.assertEqual(proposal["kind"], chosen_kind)
+        self.assertions.assertEqual(proposal["kind"], expected_kind)
         expected_refs = {c["candidateRef"] for c in proposal["candidates"]}
         displayed_card_refs = set(self._card_candidate_refs())
         displayed_marker_refs = {ref for ref in self._marker_candidate_refs() if ref}
@@ -484,6 +536,121 @@ class CandidateSearchBrowserDsl:
             "the seeded repeat candidate (same providerPageUrl) was excluded from the new proposal",
         )
 
+    # Observable assertions and actions: default genre exclusion ----------
+    # (TDR-CS-09, TDR-CS-10). TDR-CS-09's "初期の候補には...含めない" has no
+    # contract-given genre-string oracle (candidate-search-api.yaml
+    # deliberately leaves genre membership to implementation, per adr/0015
+    # decision 3), so the only sound black-box verification compares the
+    # default proposal's candidates against the IZAKAYA_BAR_INCLUDED lens's
+    # candidates -- exactly the comparison test-support-api.yaml's
+    # NORMAL_WITH_REPEAT guarantee describes for TDR-CS-09. This requires the
+    # lens-selection action to have already happened, so the test method
+    # performs that action before asserting the "excludes" claim even though
+    # the claim appears earlier in the scenario's Then block.
+
+    def assert_izakaya_bar_included_offered_as_reproposal_option(self) -> None:
+        options = wait_for_at_least_one(self.page, REPROPOSAL_OPTION)
+        kinds = [
+            options.nth(index).get_attribute("data-reproposal-kind")
+            for index in range(options.count())
+        ]
+        self.assertions.assertIn(
+            IZAKAYA_BAR_INCLUDED,
+            kinds,
+            "IZAKAYA_BAR_INCLUDED was not offered among the re-proposal options",
+        )
+
+    def select_izakaya_bar_included_lens(self) -> None:
+        options = wait_for_at_least_one(self.page, REPROPOSAL_OPTION)
+        matching = [
+            options.nth(index)
+            for index in range(options.count())
+            if options.nth(index).get_attribute("data-reproposal-kind") == IZAKAYA_BAR_INCLUDED
+        ]
+        self.assertions.assertTrue(matching, "IZAKAYA_BAR_INCLUDED was not offered to select")
+        target = matching[0]
+
+        def trigger() -> None:
+            target.click()
+
+        self.reproposal = capture_candidate_proposal_response(self.page, trigger)
+        assert_matches_openapi_schema(
+            self.reproposal.payload,
+            CANDIDATE_API_CONTRACT,
+            "#/components/schemas/CandidateProposalResponse",
+        )
+
+    def assert_initial_excludes_hard_to_confirm_lunch_genre(self) -> None:
+        additions = self._izakaya_bar_included_additions()
+        self.assertions.assertTrue(
+            additions,
+            "selecting IZAKAYA_BAR_INCLUDED added no candidate absent from the "
+            "initial default proposal, so this scenario's Given precondition "
+            "(a hard-to-confirm-genre candidate exists) was not observable",
+        )
+        added_genres = {candidate["genre"] for candidate in additions}
+        default = require(self.initial, "candidate screen was not opened").payload["proposal"]
+        default_genres = {candidate["genre"] for candidate in default["candidates"]}
+        self.assertions.assertFalse(
+            default_genres & added_genres,
+            "the initial default proposal included a shop whose genre matches a "
+            "shop only reachable via the IZAKAYA_BAR_INCLUDED lens (adr/0015)",
+        )
+
+    def assert_chosen_lens_includes_hard_to_confirm_lunch_genre(self) -> None:
+        additions = self._izakaya_bar_included_additions()
+        self.assertions.assertTrue(
+            additions,
+            "the IZAKAYA_BAR_INCLUDED lens did not include any candidate absent "
+            "from the initial default proposal",
+        )
+
+    def assert_izakaya_bar_included_rationale_does_not_claim_confirmed_lunch(self) -> None:
+        """TDR-CS-09's "その切り口の説明は...断定しない" is a claim about the
+        *meaning* of free-form prose; candidate-search-api.yaml's rationale
+        constraint is prose ("must not promise... other unavailable facts"),
+        not an enum or exact string this file can compare against.
+
+        A keyword-denylist substring check
+        (``LUNCH_SERVICE_CONFIRMED_CLAIM_MARKERS``, since removed) was tried
+        first and rejected by a real run: a compliant, correctly-hedged
+        rationale ("...含めた店舗が実際にランチ営業しているとは限らない
+        ため...") contains the substring "実際にランチ営業している" only as
+        part of its own negation ("とは限らない"), so naive substring
+        matching produced a false failure against exactly the behavior this
+        scenario requires. Soundly verifying a negative natural-language
+        claim needs meaning comprehension a mechanized L4 check cannot
+        provide without risking the same false positive again under
+        different but equally compliant phrasing (meta/verification.md
+        3.4's "検証手段を選ぶ前に、まずその検証に意味理解が要るかを問う").
+        This assertion is therefore limited to what a presence check can
+        soundly establish -- the concept shows a rationale at all -- and
+        leaves the tone judgment to human review.
+        """
+        rationale = by_test_id(self.page, CONCEPT_RATIONALE).inner_text().strip()
+        self.assertions.assertTrue(
+            rationale, "the IZAKAYA_BAR_INCLUDED concept must show a rationale"
+        )
+
+    def assert_fallback_proposal_uses_izakaya_bar_included_lens(self) -> None:
+        response = require(self.initial, "candidate screen was not opened")
+        self.assertions.assertEqual(response.status, 200)
+        proposal = response.payload["proposal"]
+        self.assertions.assertIsNotNone(
+            proposal,
+            "excluding the hard-to-confirm lunch genre must not surface as 'no "
+            "matching candidates' when including that genre still has "
+            "candidates (adr/0015 decision 4)",
+        )
+        self.assertions.assertEqual(proposal["kind"], IZAKAYA_BAR_INCLUDED)
+        self.assertions.assertTrue(
+            proposal["candidates"], "the fallback proposal has no candidates"
+        )
+        assert_all_present(self.assertions, self.page, [CONTENT, CARDS, MAP])
+
+    def assert_no_results_indicator_absent(self) -> None:
+        assert_absent(self.assertions, self.page, NO_RESULTS)
+
     # Observable assertions: empty / unavailable / rate-limited -----------
 
     def assert_no_results_shown(self) -> None:
@@ -529,20 +696,20 @@ class CandidateSearchBrowserDsl:
         # requestUnavailableEnumLens exists because the offered chosen kind
         # (AMENITY_REFERENCE) is, by this scenario's own precondition, not
         # among the reproposal dialog's currently offered options -- there is
-        # no clickable UI option for it. Opening the dialog and submitting a
+        # no clickable UI option for it. Opening the dialog and selecting a
         # different, actually-offered option keeps the request on the real
         # UI-driven request/response code path the contract's requiredOutcome
-        # observes; only the outgoing body is substituted for the contract's
-        # exact publicOperation.requestBody before it reaches the server, so
-        # the app's own client-side handling renders the rejection outcome
-        # from a genuine server response rather than from a side-channel call
-        # its JavaScript never sees.
+        # observes (adr/0016: selecting an option itself performs the
+        # re-proposal, so that click is the trigger); only the outgoing body
+        # is substituted for the contract's exact publicOperation.requestBody
+        # before it reaches the server, so the app's own client-side handling
+        # renders the rejection outcome from a genuine server response rather
+        # than from a side-channel call its JavaScript never sees.
         self.open_reproposal_popup()
         offered_option = wait_for_at_least_one(self.page, REPROPOSAL_OPTION).first
-        offered_option.click()
 
         def trigger() -> None:
-            by_test_id(self.page, REPROPOSAL_SUBMIT).click()
+            offered_option.click()
 
         self.direct = capture_candidate_proposal_response_with_overridden_body(
             self.page, trigger, {"reproposalKind": kind}
@@ -583,6 +750,18 @@ class CandidateSearchBrowserDsl:
         if expected_code == "PROPOSAL_RATE_LIMITED":
             self.assertions.assertIsNotNone(response.retry_after)
             self.assertions.assertGreaterEqual(int(response.retry_after), 1)
+
+    def _izakaya_bar_included_additions(self) -> list[dict]:
+        default = require(self.initial, "candidate screen was not opened").payload["proposal"]
+        included = require(self.reproposal, "IZAKAYA_BAR_INCLUDED lens was not selected").payload[
+            "proposal"
+        ]
+        default_urls = {candidate["providerPageUrl"] for candidate in default["candidates"]}
+        return [
+            candidate
+            for candidate in included["candidates"]
+            if candidate["providerPageUrl"] not in default_urls
+        ]
 
     def _assert_no_disclosures(self) -> None:
         html = self.page.content()

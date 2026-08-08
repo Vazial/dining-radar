@@ -20,7 +20,7 @@
   var overlay = document.getElementById("candidate-reproposal-overlay");
   var shownProviderPageUrls = new Set();
   var currentOptions = [];
-  var selectedReproposalKind = null;
+  var currentProposalKind = null;
   var cardElementsByRef = {};
   var markerElementsByRef = {};
   var leafletMap = null;
@@ -317,29 +317,9 @@
   }
 
   function renderReproposalDialog() {
-    selectedReproposalKind = null;
-
-    var submitButton = el(
-      "button",
-      {
-        type: "button",
-        "data-testid": "candidate-reproposal-submit",
-        "data-candidate-control-category": "button",
-        "data-candidate-control-purpose": "reproposal-submit",
-        disabled: true,
-      },
-      ["この選び方で探す"]
-    );
-    submitButton.addEventListener("click", function () {
-      if (!selectedReproposalKind) {
-        return;
-      }
-      requestProposal(selectedReproposalKind).then(function (result) {
-        closeReproposalDialog();
-        handleProposalResponse(result.status, result.body);
-      });
-    });
-
+    // adr/0016 decision 5: selecting an option itself performs the
+    // re-proposal; there is no separate confirmation control (the removed
+    // candidate-reproposal-submit / reproposal-submit purpose).
     var optionButtons = currentOptions.map(function (option) {
       var button = el(
         "button",
@@ -349,16 +329,14 @@
           "data-reproposal-kind": option.kind,
           "data-candidate-control-category": "button",
           "data-candidate-control-purpose": "reproposal-selection",
-          "aria-pressed": "false",
         },
         [el("strong", {}, [option.title]), el("p", {}, [option.rationale])]
       );
       button.addEventListener("click", function () {
-        selectedReproposalKind = option.kind;
-        optionButtons.forEach(function (candidateButton) {
-          candidateButton.setAttribute("aria-pressed", candidateButton === button ? "true" : "false");
+        requestProposal(option.kind).then(function (result) {
+          closeReproposalDialog();
+          handleProposalResponse(result.status, result.body);
         });
-        submitButton.removeAttribute("disabled");
       });
       return button;
     });
@@ -378,7 +356,7 @@
     var dialog = el(
       "section",
       { "data-testid": "candidate-reproposal-dialog", role: "dialog", "aria-modal": "true" },
-      [el("div", {}, optionButtons), submitButton, cancelButton]
+      [el("div", {}, optionButtons), cancelButton]
     );
 
     overlay.innerHTML = "";
@@ -408,6 +386,7 @@
 
   function renderProposal(proposal, providerCredit) {
     cardElementsByRef = {};
+    currentProposalKind = proposal.kind;
     root.innerHTML = "";
 
     var content = el("section", { "data-testid": "candidate-proposal-content" }, []);
@@ -422,6 +401,27 @@
       ]),
     ]);
 
+    // adr/0016 decision 2: a single always-available "try again" control
+    // that resends the currently displayed proposal's own kind, relying
+    // only on the existing current-screen repeat demotion (ADR-0008
+    // decision 2). It is not one of the labeled reProposalOptions lenses
+    // and does not open the re-proposal dialog.
+    var tryAgainButton = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "candidate-reproposal-try-again",
+        "data-candidate-control-category": "button",
+        "data-candidate-control-purpose": "reproposal-try-again",
+      },
+      ["もう一度探す"]
+    );
+    tryAgainButton.addEventListener("click", function () {
+      requestProposal(currentProposalKind).then(function (result) {
+        handleProposalResponse(result.status, result.body);
+      });
+    });
+
     var reproposalButton = el(
       "button",
       {
@@ -433,7 +433,12 @@
       ["別の選び方でもう一度探す"]
     );
     reproposalButton.addEventListener("click", renderReproposalDialog);
-    conceptBanner.appendChild(reproposalButton);
+
+    var conceptActions = el("div", { "class": "candidate-concept-actions" }, [
+      tryAgainButton,
+      reproposalButton,
+    ]);
+    conceptBanner.appendChild(conceptActions);
     content.appendChild(conceptBanner);
 
     // Candidate map + card list, one visual block (ADR-0012 skeleton block

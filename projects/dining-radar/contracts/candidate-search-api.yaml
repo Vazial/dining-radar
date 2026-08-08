@@ -1,10 +1,29 @@
 # Status: human content-approved in chat (2026-08-03 amendment; original
-# approval 2026-08-01); this revision becomes durable when the active
-# candidate-search PR merges.
+# approval 2026-08-01), made durable by merged PR #76.
+# 2026-08-07 amendment: human review of a real Hot Pepper production run
+# produced two product rules -- cap displayed candidates per concept at 5
+# (a display cap over the ranked population, not a population-fetch limit),
+# and exclude genres whose lunch service cannot be confirmed from returned
+# provider fields (e.g. izakaya/bar) from the default candidate population
+# unless the organizer selects a dedicated re-proposal lens for them. See
+# adr/0015. This revision becomes durable when its PR merges.
+# 2026-08-08 amendment (adr/0016): a second real-data review found
+# GENRE_VARIETY converged to the same candidate set and order as PROXIMITY
+# (genre-diverse ranking has no effect once the nearest candidates already
+# span distinct genres), so it is removed from ConceptKind. reproposalKind
+# may now also repeat the currently displayed proposal's own kind, to
+# support a same-lens "try again" action that relies only on the existing
+# current-screen repeat demotion (adr/0008 decision 2) rather than any new
+# ranking criterion or randomness. Removing GENRE_VARIETY also resolves a
+# capacity defect from adr/0015: with GENRE_VARIETY, five ConceptKind values
+# minus the one displayed could exceed reProposalOptions.maxItems: 3,
+# silently dropping IZAKAYA_BAR_INCLUDED; with four remaining kinds, at most
+# three are ever offered, so no kind is ever dropped by this cap. This
+# revision becomes durable when its PR merges.
 openapi: 3.0.3
 info:
   title: Toyama Dining Radar Candidate Proposal API
-  version: 0.4.0
+  version: 0.6.0
   description: >-
     Produces deterministic lunch-candidate concepts around one private
     runtime-configured location. The location, configured radius, credentials,
@@ -143,10 +162,16 @@ components:
         reproposalKind:
           $ref: '#/components/schemas/ConceptKind'
           description: >-
-            Omit when the authenticated screen first opens. For re-proposal, send
-            exactly one kind selected from the current response's reProposalOptions.
-            It is an application-owned comparison lens, not a provider identifier,
-            candidate reference, or durable history.
+            Omit when the authenticated screen first opens. For re-proposal,
+            send exactly one kind: either one selected from the current
+            response's reProposalOptions (a different comparison lens), or
+            the current response's own proposal.kind unchanged (a same-lens
+            "try again" request; adr/0016). A same-lens request relies only
+            on the browser's existing current-screen repeat demotion, not a
+            new ranking criterion or randomness, and is not guaranteed to
+            return a different candidate set. It is an application-owned
+            comparison lens, not a provider identifier, candidate reference,
+            or durable history.
     CandidateProposalResponse:
       type: object
       required: [proposal, reProposalOptions, providerCredit]
@@ -214,19 +239,35 @@ components:
             other unavailable facts.
         candidates:
           type: array
-          maxItems: 100
+          maxItems: 5
           description: >-
-            Distinct normalized display fields for this concept. The browser may
-            keep them only in current-screen memory while the response is being
-            compared; it must not persist them or return them to the server.
+            The top-ranked candidates for this concept after ranking the full
+            retrieved eligible population; 5 is a display cap on this array, not
+            a limit on the population that was fetched or ranked (adr/0015). The
+            browser may keep them only in current-screen memory while the
+            response is being compared; it must not persist them or return them
+            to the server.
           items:
             $ref: '#/components/schemas/Candidate'
     ConceptKind:
       type: string
-      enum: [PROXIMITY, CAPACITY_REFERENCE, GENRE_VARIETY, AMENITY_REFERENCE]
+      enum: [PROXIMITY, CAPACITY_REFERENCE, AMENITY_REFERENCE, IZAKAYA_BAR_INCLUDED]
       description: >-
         The deterministic selection lens. The server returns only kinds it can
-        explain from the current normalized provider data.
+        explain from the current normalized provider data. PROXIMITY,
+        CAPACITY_REFERENCE, and AMENITY_REFERENCE rank only candidates outside
+        a default-excluded genre category whose lunch service cannot be
+        confirmed from returned provider fields (adr/0015). That default
+        exclusion reflects unconfirmed lunch status, not a confirmed absence
+        of lunch service, and no rationale may claim otherwise.
+        IZAKAYA_BAR_INCLUDED is the only kind whose candidate population
+        additionally includes that category; the organizer reaches it only by
+        selecting it as a re-proposal lens, the same way as any other kind,
+        never as an upfront filter or secondary condition. GENRE_VARIETY was
+        removed (adr/0016): under real data it produced the same candidate
+        set and order as PROXIMITY whenever the nearest candidates already
+        spanned distinct genres, so it no longer described a distinct,
+        explainable lens.
     Candidate:
       type: object
       required:
