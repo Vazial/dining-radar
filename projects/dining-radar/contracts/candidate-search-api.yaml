@@ -20,10 +20,33 @@
 # silently dropping IZAKAYA_BAR_INCLUDED; with four remaining kinds, at most
 # three are ever offered, so no kind is ever dropped by this cap. This
 # revision becomes durable when its PR merges.
+# 2026-08-08 amendment #2 (adr/0017): a third real-data review found the
+# "try again" action structurally unable to surface a new candidate --
+# because adr/0015 already caps every response at exactly 5 candidates, the
+# browser-only repeat demotion adr/0008 decision 2 established never had an
+# unseen candidate to promote (the browser can only ever hold what it was
+# just given, and it was never given more than the display cap). The
+# browser may now echo back, on a re-proposal request, the providerPageUrl
+# values of candidates it has already been shown in this screen's lifetime
+# (a new optional previouslyShownProviderPageUrls request field); the server
+# uses them only to demote matching candidates, in ranked order, before
+# applying the existing 5-item display cap, and does not persist them. This
+# amends adr/0008 decision 2 and the "never sends state back to the server"
+# clause of decision 3; adr/0008's other decisions are unchanged (see
+# adr/0017 for the full boundary and why this is not durable history). The
+# same review also found business hours the single largest contributor to
+# mobile card height (measured 55px of 345px, 50 characters); the organizer
+# already cannot rely on it to infer real-time lunch availability (the
+# provider's `open` field is unparseable free text and its `lunch` field
+# only ever reports "available" once already lunch-filtered, per adr/0015),
+# so it is removed from the candidate card and from this API's Candidate
+# schema -- the server no longer returns it. The provider page link remains
+# the authoritative source for hours. This revision becomes durable when its
+# PR merges.
 openapi: 3.0.3
 info:
   title: Toyama Dining Radar Candidate Proposal API
-  version: 0.6.0
+  version: 0.7.0
   description: >-
     Produces deterministic lunch-candidate concepts around one private
     runtime-configured location. The location, configured radius, credentials,
@@ -31,8 +54,11 @@ info:
     this browser-facing API. A response is held in current browser memory only;
     it is not a provider-response cache or a durable search session. During one
     screen lifetime, the browser may retain a non-persistent shown-candidate
-    comparison state solely to lower the display priority of repeats after a
-    fresh re-proposal; it never sends that state back to the server.
+    comparison state (the providerPageUrl values of candidates it has been
+    shown) and send it back on a re-proposal request so the server can lower
+    the display priority of repeats in that one response (adr/0017); neither
+    side persists this state beyond, respectively, current-screen memory and
+    the single request being handled.
 servers:
   - url: https://app.example.invalid
     description: >-
@@ -49,10 +75,14 @@ paths:
         set. Opening the authenticated screen sends an empty request and displays
         the returned proposal immediately. Re-proposal is a separate fresh request
         after the browser presents the response's available lenses in a modal and
-        the organizer selects one. The configured search origin and its exact radius
-        are server-only and are not request parameters. The server does not receive
-        previously shown candidates; after a successful re-proposal, the browser
-        applies its current-screen-only repeat demotion to the replacement display.
+        the organizer selects one, or after the organizer asks to try the
+        currently displayed lens again. The configured search origin and its
+        exact radius are server-only and are not request parameters. For a
+        re-proposal request, the browser may include the providerPageUrl values
+        of candidates already shown in this screen's lifetime; the server uses
+        them only to lower those candidates' selection priority in this one
+        response's ranking, before its 5-item display cap, and does not persist
+        them (adr/0017).
       security:
         - organizerSession: []
       parameters:
@@ -167,11 +197,27 @@ components:
             response's reProposalOptions (a different comparison lens), or
             the current response's own proposal.kind unchanged (a same-lens
             "try again" request; adr/0016). A same-lens request relies only
-            on the browser's existing current-screen repeat demotion, not a
-            new ranking criterion or randomness, and is not guaranteed to
-            return a different candidate set. It is an application-owned
-            comparison lens, not a provider identifier, candidate reference,
-            or durable history.
+            on repeat demotion (adr/0017), not a new ranking criterion or
+            randomness, and is not guaranteed to return a different candidate
+            set. It is an application-owned comparison lens, not a provider
+            identifier, candidate reference, or durable history.
+        previouslyShownProviderPageUrls:
+          type: array
+          items:
+            type: string
+            format: uri
+          description: >-
+            Present only on a re-proposal request. The exact providerPageUrl
+            values of candidates the server has already returned to this same
+            browser earlier in this screen's lifetime (adr/0017), echoed back
+            unchanged; the browser must not invent these values or source
+            them from storage, a cookie, or the URL. The server uses this
+            list only to lower the selection priority of matching candidates
+            in this one response's ranking, before the existing 5-candidate
+            display cap is applied (adr/0015); it does not exclude them, and
+            it is not stored, logged, or reused beyond computing this one
+            response. Omit or send an empty array when opening the screen for
+            the first time or when no candidate has been shown yet.
     CandidateProposalResponse:
       type: object
       required: [proposal, reProposalOptions, providerCredit]
@@ -185,9 +231,12 @@ components:
             The one concept and candidate set to display immediately. It is null
             when the selected lens has no matching lunch candidates. The browser
             replaces the displayed cards and map on every successful response. It
-            may retain only a current-screen shown-candidate comparison state to
-            demote repeated candidates after a later successful re-proposal; this
-            state is not persisted or returned to the server.
+            may retain the shown candidates' providerPageUrl values in
+            current-screen memory and echo them back in a later re-proposal
+            request so the server can demote repeats there (adr/0017); the
+            browser does not persist this state outside current-screen memory,
+            and the server does not persist it beyond computing that one
+            response.
         reProposalOptions:
           type: array
           maxItems: 3
@@ -242,10 +291,16 @@ components:
           maxItems: 5
           description: >-
             The top-ranked candidates for this concept after ranking the full
-            retrieved eligible population; 5 is a display cap on this array, not
-            a limit on the population that was fetched or ranked (adr/0015). The
-            browser may keep them only in current-screen memory while the
-            response is being compared; it must not persist them or return them
+            retrieved eligible population and, for a re-proposal request,
+            demoting any candidate named in the request's
+            previouslyShownProviderPageUrls to the end of that ranking
+            (adr/0017); 5 is a display cap applied last, not a limit on the
+            population that was fetched, ranked, or demoted (adr/0015). The
+            browser may keep these candidates only in current-screen memory
+            while the response is being compared; it must not persist them
+            beyond that memory. It may echo only their providerPageUrl values
+            back to the server on a later re-proposal request (adr/0017); it
+            must not otherwise return this array or any other candidate field
             to the server.
           items:
             $ref: '#/components/schemas/Candidate'
@@ -271,7 +326,7 @@ components:
     Candidate:
       type: object
       required:
-        [candidateRef, name, genre, description, businessHours, regularHoliday,
+        [candidateRef, name, genre, description, regularHoliday,
          totalSeats, access, location, providerPageUrl]
       additionalProperties: false
       properties:
@@ -289,10 +344,6 @@ components:
           type: string
           nullable: true
           description: Provider-supplied introduction text; null when not supplied.
-        businessHours:
-          type: string
-          nullable: true
-          description: Provider-supplied business-hours reference; null when not supplied.
         regularHoliday:
           type: string
           nullable: true
@@ -313,10 +364,13 @@ components:
           format: uri
           description: >-
             Provider page for the organizer's final menu, hours, and reservation
-            confirmation. During one screen lifetime only, the browser may compare
-            this returned value with a prior displayed value to lower repeat display
-            priority after a fresh re-proposal. It must not persist or post this
-            value, or use it as a durable candidate identity.
+            confirmation. During one screen lifetime only, the browser may
+            retain this value and echo it back in a later re-proposal request's
+            previouslyShownProviderPageUrls so the server can lower its repeat
+            display priority (adr/0017); the server uses it only for that one
+            request's candidate selection and does not persist it. The browser
+            must not persist this value outside current-screen memory or use it
+            as a durable candidate identity.
     ShopLocation:
       type: object
       required: [latitude, longitude]

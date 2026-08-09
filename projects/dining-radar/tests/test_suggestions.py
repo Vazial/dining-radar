@@ -22,7 +22,6 @@ def _candidate(provider_page_url="https://example.invalid/shop"):
         name="架空食堂",
         genre="和食",
         description=None,
-        business_hours=None,
         regular_holiday=None,
         total_seats=None,
         access=None,
@@ -63,6 +62,40 @@ class ProposeCandidatesTests(SimpleTestCase):
 
         self.assertIsNotNone(result.proposal)
         self.assertEqual(result.proposal.kind.value, "PROXIMITY")
+
+    def test_previously_shown_provider_page_urls_defaults_to_no_effect(self):
+        candidates = [
+            _candidate(provider_page_url="https://example.invalid/a"),
+            _candidate(provider_page_url="https://example.invalid/b"),
+        ]
+
+        result = propose_candidates(None, fetch_candidates=lambda: (candidates, ORIGIN))
+
+        self.assertEqual(
+            [c.provider_page_url for c in result.proposal.candidates],
+            ["https://example.invalid/a", "https://example.invalid/b"],
+        )
+
+    def test_previously_shown_provider_page_urls_demotes_the_named_candidate(self):
+        # adr/0017 decision 1-2: propose_candidates passes this argument
+        # straight through to build_concepts, whose own demotion behavior is
+        # covered in depth by tests/test_recommendation.py; this asserts
+        # only that the wiring here actually forwards it.
+        candidates = [
+            _candidate(provider_page_url="https://example.invalid/a"),
+            _candidate(provider_page_url="https://example.invalid/b"),
+        ]
+
+        result = propose_candidates(
+            "PROXIMITY",
+            fetch_candidates=lambda: (candidates, ORIGIN),
+            previously_shown_provider_page_urls=["https://example.invalid/a"],
+        )
+
+        self.assertEqual(
+            [c.provider_page_url for c in result.proposal.candidates],
+            ["https://example.invalid/b", "https://example.invalid/a"],
+        )
 
 
 class HotpepperSourceTests(SimpleTestCase):
@@ -131,7 +164,7 @@ class AcceptanceStateGuardTests(TestCase):
 
 
 class ProposeWithOverrideAdr0015Tests(SimpleTestCase):
-    """Direct unit coverage of the adr/0015 synthetic seams in acceptance_state.
+    """Direct unit coverage of the adr/0015 and adr/0017 synthetic seams.
 
     ``test_candidate_search.py`` covers the same behaviour through the public
     HTTP endpoint; these tests exercise ``propose_with_override`` itself so a
@@ -187,17 +220,23 @@ class ProposeWithOverrideAdr0015Tests(SimpleTestCase):
         self.assertEqual(result.proposal.kind.value, "IZAKAYA_BAR_INCLUDED")
         self.assertIn("居酒屋", [c.genre for c in result.proposal.candidates])
 
-    def test_normal_with_repeat_same_lens_try_again_still_yields_new_and_repeated_candidates(
-        self,
-    ):
-        # test-support-api.yaml v0.4.0 (adr/0016): NORMAL_WITH_REPEAT's
-        # new-plus-repeated guarantee must also hold for a same-lens "try
-        # again" request (resending the displayed proposal's own kind, not
-        # a different offered kind), for TDR-CS-11. The seam's source
-        # switches candidate sets on any non-None reproposal_kind, so this
-        # documents that resending the same kind as the initial display
-        # still lands on the second (repeat-plus-new) synthetic set rather
-        # than being treated as equivalent to the initial (no-kind) request.
+    def test_normal_with_repeat_population_exceeds_the_display_cap_for_at_least_one_concept(self):
+        # test-support-api.yaml v0.5.0 / adr/0017 decision 5: NORMAL_WITH_REPEAT
+        # must supply more than the adr/0015 5-item display cap for at least
+        # one concept, so a request naming every displayed candidate as
+        # previously shown always has an unseen candidate left to promote.
+        result = acceptance_state.propose_with_override(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT, None
+        )
+
+        self.assertEqual(len(result.proposal.candidates), 5)
+        self.assertGreater(len(acceptance_state._CANDIDATES), 5)
+
+    def test_normal_with_repeat_returns_the_same_population_regardless_of_reproposal_kind(self):
+        # adr/0017 decision 2: demotion is driven only by the request's
+        # previouslyShownProviderPageUrls, not by which kind was requested,
+        # so (unlike the pre-adr/0017 seam) resending the same kind with no
+        # previously-shown list yields the exact same candidates again.
         initial = acceptance_state.propose_with_override(
             acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT, None
         )
@@ -207,8 +246,52 @@ class ProposeWithOverrideAdr0015Tests(SimpleTestCase):
             acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT, displayed_kind
         )
 
+        self.assertEqual(
+            [c.provider_page_url for c in again.proposal.candidates],
+            [c.provider_page_url for c in initial.proposal.candidates],
+        )
+
+    def test_normal_with_repeat_same_lens_try_again_yields_new_and_repeated_candidates(self):
+        # TDR-CS-11 (adr/0017): a same-lens "try again" request only
+        # surfaces a new candidate once the browser echoes back the
+        # previously-displayed providerPageUrl values; sending them drives
+        # exactly the server-side demotion this ADR introduces.
+        initial = acceptance_state.propose_with_override(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT, None
+        )
+        displayed_kind = initial.proposal.kind.value
+        initial_urls = [c.provider_page_url for c in initial.proposal.candidates]
+
+        again = acceptance_state.propose_with_override(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT,
+            displayed_kind,
+            initial_urls,
+        )
+
         self.assertEqual(again.proposal.kind.value, displayed_kind)
-        initial_urls = {c.provider_page_url for c in initial.proposal.candidates}
         again_urls = {c.provider_page_url for c in again.proposal.candidates}
-        self.assertTrue(initial_urls & again_urls, "expected at least one repeated candidate")
-        self.assertTrue(again_urls - initial_urls, "expected at least one new candidate")
+        self.assertTrue(again_urls & set(initial_urls), "expected at least one repeated candidate")
+        self.assertTrue(again_urls - set(initial_urls), "expected at least one new candidate")
+
+    def test_normal_with_repeat_different_lens_reproposal_also_supports_demotion(self):
+        # TDR-CS-03 (adr/0017): the same demotion mechanism applies whether
+        # the re-proposal selects a different offered kind or the displayed
+        # one -- the server does not branch its selection logic by kind.
+        initial = acceptance_state.propose_with_override(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT, None
+        )
+        initial_urls = [c.provider_page_url for c in initial.proposal.candidates]
+        offered_kind = initial.reproposal_options[0].kind.value
+
+        reproposed = acceptance_state.propose_with_override(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT,
+            offered_kind,
+            initial_urls,
+        )
+
+        self.assertEqual(reproposed.proposal.kind.value, offered_kind)
+        reproposed_urls = {c.provider_page_url for c in reproposed.proposal.candidates}
+        self.assertTrue(
+            reproposed_urls - set(initial_urls),
+            "expected at least one candidate outside the previously-shown list",
+        )

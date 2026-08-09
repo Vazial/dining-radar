@@ -40,6 +40,33 @@ displayed proposal's own ``kind`` as ``reproposalKind``) is not a new
 up any requested kind, including the currently displayed one, from the
 concepts this module built for the fresh search, so no new ranking logic is
 needed for it.
+
+Per ADR-0017, a third real-data review found the display cap alone
+(ADR-0015) had structurally disabled the repeat-demotion mechanism ADR-0008
+decision 2 originally specified for the browser: once every response is
+truncated to exactly the display cap, the browser never holds an unseen
+candidate to promote on a later re-proposal. Repeat demotion therefore moves
+here, server-side: ``build_concepts`` now accepts
+``previously_shown_provider_page_urls`` -- the exact ``providerPageUrl``
+values a re-proposal request echoes back from what this server most
+recently returned to the same browser (ADR-0017 decision 1) -- and, for
+every concept, stably demotes matching candidates to the end of that
+concept's ranked order before applying the ``_DISPLAY_CAP`` (ADR-0017
+decision 2). This is a demotion, not an exclusion: a previously-shown
+candidate is never dropped by this step, only reordered, and it may still
+appear in the capped, displayed set once no unseen candidate remains ahead
+of it. The caller (``dining_radar.suggestions.service``) receives this list
+as a plain data argument and never stores, logs, or traces it (ADR-0017
+decision 3 Must).
+
+Per ADR-0017 decision 7, ``businessHours`` is no longer part of this
+application's candidate model: it was the single largest contributor to
+mobile card height and the browser never had a way to use it to confirm
+lunch service (the provider's ``open`` field is free text and its ``lunch``
+field only ever reports "available" for an already lunch-filtered search).
+``NormalizedCandidate`` therefore carries no ``business_hours`` field; the
+provider page link (``provider_page_url``) remains the authoritative source
+for hours.
 """
 
 from __future__ import annotations
@@ -101,7 +128,6 @@ class NormalizedCandidate:
     name: str
     genre: str
     description: str | None
-    business_hours: str | None
     regular_holiday: str | None
     total_seats: int | None
     access: str | None
@@ -290,6 +316,35 @@ def _build_izakaya_bar_included(
     )
 
 
+def _demote_repeated(
+    concept: Concept, previously_shown_provider_page_urls: frozenset[str]
+) -> Concept:
+    """Stably move already-shown candidates behind unseen ones (adr/0017 decision 2).
+
+    This is a demotion, not an exclusion: every candidate in ``concept``
+    stays in the returned candidates, only reordered. Unseen candidates keep
+    their relative ranked order and precede every demoted one, which also
+    keeps its relative ranked order among the other demoted candidates
+    (mirroring the browser-side algorithm ADR-0008 decision 2 specified
+    before ADR-0017 moved it server-side). Must run after ranking and before
+    ``_cap_display`` so demotion can only ever change which candidates the
+    cap keeps, never how they were ranked.
+    """
+    if not previously_shown_provider_page_urls:
+        return concept
+    unseen = [
+        candidate
+        for candidate in concept.candidates
+        if candidate.provider_page_url not in previously_shown_provider_page_urls
+    ]
+    seen = [
+        candidate
+        for candidate in concept.candidates
+        if candidate.provider_page_url in previously_shown_provider_page_urls
+    ]
+    return replace(concept, candidates=tuple(unseen + seen))
+
+
 def _cap_display(concept: Concept) -> Concept:
     """Top-``_DISPLAY_CAP`` candidates after ranking (adr/0015 decision 1).
 
@@ -301,8 +356,21 @@ def _cap_display(concept: Concept) -> Concept:
     return replace(concept, candidates=concept.candidates[:_DISPLAY_CAP])
 
 
-def build_concepts(candidates: Sequence[NormalizedCandidate], origin: Origin) -> list[Concept]:
-    """Every concept explainable from the current candidates, in priority order."""
+def build_concepts(
+    candidates: Sequence[NormalizedCandidate],
+    origin: Origin,
+    previously_shown_provider_page_urls: Sequence[str] = (),
+) -> list[Concept]:
+    """Every concept explainable from the current candidates, in priority order.
+
+    ``previously_shown_provider_page_urls`` (adr/0017 decision 1) is empty
+    for the initial request and, for a re-proposal, the exact
+    ``providerPageUrl`` values this server most recently returned to the
+    same browser. When non-empty, every concept's ranked candidates are
+    stably demoted (``_demote_repeated``) before the display cap is applied;
+    when empty, ranking and the cap are unaffected, matching the initial
+    request and the pre-adr/0017 behavior exactly.
+    """
     deduped = _dedupe(candidates)
     default_population, excluded_population = _split_default_population(deduped)
     builders = {
@@ -313,8 +381,13 @@ def build_concepts(candidates: Sequence[NormalizedCandidate], origin: Origin) ->
             deduped, excluded_population, origin
         ),
     }
+    previously_shown = frozenset(previously_shown_provider_page_urls)
     concepts = (builders[kind]() for kind in _PRIORITY_ORDER)
-    return [_cap_display(concept) for concept in concepts if concept is not None]
+    return [
+        _cap_display(_demote_repeated(concept, previously_shown))
+        for concept in concepts
+        if concept is not None
+    ]
 
 
 def select_initial(concepts: Sequence[Concept]) -> Concept | None:

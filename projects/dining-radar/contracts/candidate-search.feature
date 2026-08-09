@@ -1,9 +1,11 @@
 # Toyama Dining Radar acceptance contract — TDR-CS candidate proposals
-# ステータス: 承認済み(2026-08-08) — 人間が2026-08-08のチャットで本番データ確認後の実機レビューを行い、
-#   GENRE_VARIETYの廃止と「もう一度探す」への置き換えを裁定した。architectがTDR-CS-11としてこの契約に
-#   翻訳した（adr/0016）。他のシナリオは2026-08-07改訂（原案2026-08-03改訂、さらに原案2026-08-01）
-#   からの変更なし。承認の実体は本PRのマージである。変更には再承認が必要。この行の形式は
-#   meta/adr/0043 の機械検証が要求する
+# ステータス: 承認済み(2026-08-08) — 人間が2026-08-08のチャットで本番データ確認後の3度目の実機レビューを
+#   行い、「もう一度探す」の構造的な無効化の是正（実装場所の変更のみで業務文言は無変更）と、営業時間の
+#   カードからの削除を裁定した。architectがTDR-CS-02の改訂としてこの契約に翻訳した（adr/0017）。
+#   TDR-CS-03・TDR-CS-09・TDR-CS-10・TDR-CS-11は無変更——降格の実装場所（ブラウザかサーバか）を
+#   規定していない業務言語のままだからである。他のシナリオは2026-08-08改訂（adr/0016）からの変更なし。
+#   承認の実体は本PRのマージである。変更には再承認が必要。この行の形式は meta/adr/0043 の機械検証が
+#   要求する
 #
 # Status: human content-approved in chat (2026-08-03 amendment; original
 # approval 2026-08-01) and made durable by merged PR #76. TDR-CS-09 and
@@ -11,7 +13,9 @@
 # addition (adr/0016) reflecting a real-device review that found one
 # comparison lens (removed from the underlying contract) produced no
 # observable difference from the initial one, and replaced it with a
-# same-lens "try again" action.
+# same-lens "try again" action. TDR-CS-02 was amended again the same day
+# (adr/0017, a third real-device review) to drop business hours from the
+# required card fields; no other scenario text changed.
 
 Feature: 幹事がランチ候補を見て別の切り口で比べ直す
   幹事は非公開の検索地点の周辺にあるランチ候補を、選ぶ理由の異なる
@@ -50,7 +54,7 @@ Feature: 幹事がランチ候補を見て別の切り口で比べ直す
     And 店舗カードを選ぶと対応する地図上の店舗が強調される
     And 地図上の店舗を選ぶと対応する店舗カードが強調される
     And 地図は示されている店舗が見渡せる範囲になる
-    And 店舗カードには店名、ジャンル、紹介、営業時間、定休日、総席数、アクセス、詳細へのリンクが示される
+    And 店舗カードには店名、ジャンル、紹介、定休日、総席数、アクセス、詳細へのリンクが示される
     And 非公開の検索地点、経路、現在地、徒歩時間は示されない
     And 地図の出典表示が示される
 

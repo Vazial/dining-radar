@@ -11,9 +11,10 @@ screen's own JavaScript and lets tests read/drive the DOM it produces.
 This module holds only generic Playwright plumbing (test-id lookup by the
 project's existing ``data-testid`` convention -- Playwright's default test-id
 attribute is already ``data-testid``, so no project-specific configuration is
-needed -- and capturing the exact ``POST /candidate-proposals`` response a
-browser action triggered). It knows nothing about candidate-search business
-vocabulary; ``candidate_search_browser.py`` composes these primitives.
+needed -- and capturing the exact ``POST /candidate-proposals`` request and
+response a browser action triggered). It knows nothing about candidate-search
+business vocabulary; ``candidate_search_browser.py`` composes these
+primitives.
 """
 
 from __future__ import annotations
@@ -41,13 +42,20 @@ class CapturedApiResponse:
 
     Capturing the real network exchange (rather than issuing a second,
     separate call afterward) keeps the assertion faithful to what the
-    client-side JavaScript actually rendered from.
+    client-side JavaScript actually rendered from. ``request_body`` is the
+    exact JSON body the browser itself sent for this same exchange (``None``
+    when the underlying network object exposes no associated request, or when
+    that request carried no JSON body) -- captured the same way, from the real
+    exchange rather than a second call -- so a Then-clause can verify a
+    request-shape invariant (adr/0017's ``previouslyShownProviderPageUrls``
+    echo requirement) without re-deriving what was actually sent.
     """
 
     status: int
     body: str
     payload: Any | None
     retry_after: str | None
+    request_body: Any | None = None
 
 
 def _header(headers: dict[str, str], name: str) -> str | None:
@@ -64,8 +72,14 @@ def build_captured_response(response: Response | APIResponse) -> CapturedApiResp
         payload = response.json()
     except Exception:  # noqa: BLE001 - a non-JSON body is itself the observation
         payload = None
+    request = getattr(response, "request", None)
+    request_body = request.post_data_json if request is not None else None
     return CapturedApiResponse(
-        response.status, body, payload, _header(response.headers, "retry-after")
+        response.status,
+        body,
+        payload,
+        _header(response.headers, "retry-after"),
+        request_body,
     )
 
 

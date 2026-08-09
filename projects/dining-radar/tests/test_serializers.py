@@ -15,7 +15,6 @@ def _candidate(**overrides):
         name="架空食堂",
         genre="和食",
         description=None,
-        business_hours="11:00-14:00",
         regular_holiday="日曜",
         total_seats=None,
         access="架空アクセス",
@@ -57,6 +56,9 @@ class SerializeResultTests(SimpleTestCase):
         self.assertIsNone(serialized_candidate["description"])
         self.assertIsNone(serialized_candidate["totalSeats"])
         self.assertEqual(serialized_candidate["location"], {"latitude": 35.0, "longitude": 139.0})
+        # adr/0017 decision 7: businessHours is no longer part of the
+        # Candidate shape this serializer produces.
+        self.assertNotIn("businessHours", serialized_candidate)
         self.assertEqual(payload["proposal"]["kind"], "PROXIMITY")
         self.assertEqual(
             payload["reProposalOptions"],

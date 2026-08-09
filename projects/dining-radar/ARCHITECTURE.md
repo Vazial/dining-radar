@@ -23,7 +23,9 @@ ADR-0005の候補提案は、同じモノリスの中で次のように流れる
 [candidate-proposal web boundary]
     v
 [suggestions: one fresh proposal]
-    +-> [recommendation: deterministic displayed lens]
+    +-> [recommendation: deterministic displayed lens, ranked, then previously-shown
+    |    candidates named in the request (if any) demoted before the 5-item cap
+    |    (adr/0015, adr/0017)]
     |        |
     |        +-> one proposal + next-lens labels
     v
@@ -36,9 +38,10 @@ ADR-0005の候補提案は、同じモノリスの中で次のように流れる
     +-> re-proposal modal (next-lens labels only, up to 3, excludes the displayed lens)
     +-> same-lens "try again" control (adr/0016; not one of the labeled lenses, always
     |   available, resends the displayed lens's own kind, no new ranking criterion)
-    +-> non-persistent shown-candidate comparison state
-        -> lower repeated candidates in a replacement display only, whether the
-           replacement came from a different lens or the same lens (adr/0016)
+    +-> non-persistent shown-candidate comparison state (providerPageUrl values only)
+        -> echoed back as previouslyShownProviderPageUrls on the next re-proposal
+           request, whether it selects a different lens or the same lens (adr/0017);
+           never written to storage, a cookie, the URL, or a log
 ```
 
 `authentication` は管理者が作成・無効化する個別幹事 account と same-origin Django session を扱う。
@@ -55,11 +58,17 @@ moduleやfilter taxonomyはこの流れに含まれない。別の切り口は�
 検索基点、経路、現在地、徒歩時間はこの流れのどこにも置かない。
 
 各切り口の候補は、取得・正規化した母集団全体への順位付け後の上位5件である。5はUIの表示上限であり、
-取得・順位付け対象の上限ではない（ADR-0015）。ランチ営業の実施が確認しづらいジャンル（居酒屋・バー等）
-は既定の母集団から除き、それを含める専用の切り口（`IZAKAYA_BAR_INCLUDED`）を幹事が選んだときだけ
-母集団に含める。これは range/genre の補助条件入力とは別であり、あらかじめ用意された説明可能な切り口を
-選ぶという、他の切り口と同じ形の操作である。除外の結果どの切り口も説明不能になる場合は、除いていた
-ジャンルを含めた母集団へフォールスルーする。
+取得・順位付け対象の上限ではない（ADR-0015）。再提案リクエストでは、ブラウザが同一画面内で以前に
+見せられた候補のprovider page URLを送ってきた場合、順位付け後・5件への切り詰め前に、その候補を
+順位を保ったまま後方へ二次的に降格する（ADR-0017）。この一覧はサーバ側で保存されず、当該1リクエストの
+候補選定にだけ用いる。ブラウザ側の保持も同一画面のメモリだけであり、storage、cookie、URL、ログへは
+書かず、更新・タブを閉じる・サインアウトで破棄する。この機構は`ADR-0008決定2`（ブラウザだけで判定し
+サーバへ送らない）を置き換える——境界の判定根拠（「履歴」に当たらない理由、残るリスク）は`adr/0017`を
+参照する。ランチ営業の実施が確認しづらいジャンル（居酒屋・バー等）は既定の母集団から除き、それを
+含める専用の切り口（`IZAKAYA_BAR_INCLUDED`）を幹事が選んだときだけ母集団に含める。これは range/genre
+の補助条件入力とは別であり、あらかじめ用意された説明可能な切り口を選ぶという、他の切り口と同じ形の
+操作である。除外の結果どの切り口も説明不能になる場合は、除いていたジャンルを含めた母集団へ
+フォールスルーする。
 
 切り口（`ConceptKind`）は現在4種類（`PROXIMITY`・`CAPACITY_REFERENCE`・`AMENITY_REFERENCE`・
 `IZAKAYA_BAR_INCLUDED`）である。表示中の1つを除いた残りは常に再提案の選択肢の表示上限（3つ以下）に
@@ -77,15 +86,15 @@ moduleやfilter taxonomyはこの流れに含まれない。別の切り口は�
 |---|---|---|
 | `authentication` | 管理者作成の個別account、session、login/logout/password change、account有効性の保護境界 | 公開signup、メールreset、SSO、実account・session・secretをGitまたはbrowser出力へ置かない |
 | `web` | 利用時の検索条件入力、候補表示、credit表示 | providerキー・実URL・provider固有形式を扱わない |
-| `suggestions` | provider と recommendation pipeline を調停 | provider事実を保存・改変しない |
-| `recommendation` | 正規化済み候補の適格性判定、順位付け、代替候補選択 | Django、HTTP、ORM、provider形式へ依存しない |
+| `suggestions` | provider と recommendation pipeline を調停（再提案リクエストの既表示候補一覧をrecommendationへ中継する） | provider事実を保存・改変しない |
+| `recommendation` | 正規化済み候補の適格性判定、順位付け（再提案時の既表示候補の二次順位低下を含む。adr/0017）、代替候補選択 | Django、HTTP、ORM、provider形式へ依存しない |
 | `integrations/hotpepper` | server側通信、クエリキー送信、URL redaction、正規化 | 実レスポンスをfixture・cache・DBへ残さない |
 
 ## データと秘密の境界
 
-この製品は訪問履歴・ブラックリスト・長期候補照合を実装しない。provider ID と HMAC 由来トークンは保存しない。方針を再検討するには、新たな人の意思決定、provider 規約の再確認、新規 ADR を必要とする。
+この製品は訪問履歴・ブラックリスト・長期候補照合を実装しない。provider ID と HMAC 由来トークンは保存しない。方針を再検討するには、新たな人の意思決定、provider 規約の再確認、新規 ADR を必要とする。`previouslyShownProviderPageUrls`（再提案リクエストがサーバへ送る既表示候補のprovider page URL一覧。adr/0017）はこの「履歴」の対象外である——サーバ自身が直前の応答で返した値をそのまま echo し返すだけで、保存・長期識別子・跨リクエストの継続的な照合を一切必要とせず、当該1リクエストの処理が終われば破棄される。
 
-正確な検索基点を browser、公開 URL、ログ、エラー、trace、Git へ出さないことは Must である。候補店舗と地図から地域をおおまかに推測できることの防止は Want であり、初期版では保証しない。
+正確な検索基点を browser、公開 URL、ログ、エラー、trace、Git へ出さないことは Must である。候補店舗と地図から地域をおおまかに推測できることの防止は Want であり、初期版では保証しない。`previouslyShownProviderPageUrls`の値がログ・トレース・エラーレスポンスへ出力されないことも実装上のMustとする（adr/0017決定3）。
 
 Leaflet/OSM の公開運用は `Referrer-Policy: strict-origin-when-cross-origin` とし、タイル提供者へ公開 origin だけを送る。provider 通信は HTTPS のみとする。Leaflet 本体（JS/CSS/マーカーアイコン）は `static/` に同梱し自オリジンから配信する（ADR-0010）。認証済み画面が地図UIのために接触する外部オリジンは OSM 標準タイルサーバだけであり、第三者CDNへは接続しない。
 
@@ -111,4 +120,4 @@ Leaflet/OSM の公開運用は `Referrer-Policy: strict-origin-when-cross-origin
 - L2: provider固有依存のadapter外流出、`web`からadapter/ORMへの直接アクセス、`recommendation`へのframework依存を検出する。
 - L3: 合成fixtureでadapterの正規化・redactionを検証する。資格情報を用いるlive APIテストはしない。
 - L3: TDR-AUTH-06 の deployment 向け cookie/CSRF/CORS/token 非使用は設定・security-boundary 検証で確認する。ローカル acceptance profile の HTTP は public HTTPS の代替ではなく、実 transport は deployment slice が確認する。
-- L4: TDR-AUTH-01〜05・07 の利用者操作・観測は `contracts/authentication-browser-interface.yaml`、TDR-CS-00〜11 は `contracts/candidate-search-browser-interface.yaml` の browser control surface と既存 browser-facing 境界だけを通す。公開境界だけでは作れない認証の Given、candidate の合成状態選択、security-boundary 観測、シナリオ間の初期化は、acceptance-test 構成にだけ存在する `contracts/test-support-api.yaml` の機械可読 seam を使う。この seam は合成 account・session・login throttle state・閉じた candidate 状態と有効な acceptance 設定に限定し、実 account、非公開検索基点、provider data、secret、production 設定には触れない。TDR-AUTHの画面はサーバ応答時点のHTMLで観測できるが、TDR-CSの候補提案画面はクライアント側JavaScriptが描画するため、TDR-CSのL4はJS実行可能なブラウザ自動化を用いて実行後のDOMに対して行う（ADR-0009）。
+- L4: TDR-AUTH-01〜05・07 の利用者操作・観測は `contracts/authentication-browser-interface.yaml`、TDR-CS-00〜11 は `contracts/candidate-search-browser-interface.yaml` の browser control surface と既存 browser-facing 境界だけを通す。公開境界だけでは作れない認証の Given、candidate の合成状態選択、security-boundary 観測、シナリオ間の初期化は、acceptance-test 構成にだけ存在する `contracts/test-support-api.yaml` の機械可読 seam を使う。この seam は合成 account・session・login throttle state・閉じた candidate 状態と有効な acceptance 設定に限定し、実 account、非公開検索基点、provider data、secret、production 設定には触れない。TDR-AUTHの画面はサーバ応答時点のHTMLで観測できるが、TDR-CSの候補提案画面はクライアント側JavaScriptが描画するため、TDR-CSのL4はJS実行可能なブラウザ自動化を用いて実行後のDOMに対して行う（ADR-0009）。既表示候補の二次順位低下（adr/0017）を実際に検証できるよう、`test-support-api.yaml`の`NORMAL_WITH_REPEAT`合成候補は表示上限5件を上回る母集団を持つ。

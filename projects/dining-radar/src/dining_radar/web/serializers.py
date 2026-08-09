@@ -2,6 +2,7 @@
 
 Field names and nesting mirror ``contracts/candidate-search-api.yaml``
 exactly (``additionalProperties: false``): no extra key is ever added.
+Per ADR-0017 decision 7, ``Candidate`` no longer includes ``businessHours``.
 """
 
 from __future__ import annotations
@@ -21,7 +22,6 @@ def serialize_candidate(candidate: NormalizedCandidate, index: int) -> dict:
         "name": candidate.name,
         "genre": candidate.genre,
         "description": candidate.description,
-        "businessHours": candidate.business_hours,
         "regularHoliday": candidate.regular_holiday,
         "totalSeats": candidate.total_seats,
         "access": candidate.access,

@@ -20,10 +20,24 @@
 # kind, not a different offered kind) also deterministically yields at least
 # one new candidate and one repeated candidate, for TDR-CS-11. No existing
 # mode's prior guarantee changed.
+# 2026-08-08 amendment #2 (adr/0017): repeat demotion moved server-side and
+# is now driven by the re-proposal request's previouslyShownProviderPageUrls.
+# The prior NORMAL_WITH_REPEAT guarantee ("at least one new candidate and one
+# repeated candidate") held regardless of the request's contents, which could
+# not distinguish a working demotion mechanism from a canned response that
+# ignores the request. NORMAL_WITH_REPEAT now supplies, for at least one
+# concept, more than 5 lunch-eligible synthetic candidates (a population
+# larger than the adr/0015 display cap), so a request whose
+# previouslyShownProviderPageUrls names every candidate most recently
+# returned deterministically yields at least one candidate outside that list,
+# ranked before any candidate inside it; omitting or emptying that field
+# leaves ordering unaffected. This makes TDR-CS-03 and TDR-CS-11 genuine
+# tests of the server-side selection adr/0017 introduces, not just of a fixed
+# response shape.
 openapi: 3.0.3
 info:
   title: Toyama Dining Radar acceptance test-support API
-  version: 0.4.0
+  version: 0.5.0
   description: >-
     Acceptance-only setup and reset seams for TDR-AUTH-01 through TDR-AUTH-07
     and TDR-CS-00 through TDR-CS-11.
@@ -189,22 +203,29 @@ components:
             [NORMAL_WITH_REPEAT, IZAKAYA_BAR_ONLY, NO_RESULTS,
              PROVIDER_UNAVAILABLE, INVALID_REPROPOSAL_KIND, RATE_LIMITED]
           description: >-
-            A closed synthetic state selection. NORMAL_WITH_REPEAT supplies
-            only lunch-eligible synthetic candidates, an initial proposal, and
-            a selected next-lens replacement containing at least one new
-            candidate and one earlier candidate with the same providerPageUrl
-            href; this same new-plus-repeated guarantee also holds when the
-            request instead resends the displayed proposal's own kind (a
-            same-lens "try again" request, adr/0016), so TDR-CS-11 is
-            deterministically reachable from this one mode. It excludes
-            AMENITY_REFERENCE from the initial response's reProposalOptions
-            so a public, CSRF-protected request for that valid enum is
-            deterministically unavailable. Per adr/0015, it also includes at
-            least one synthetic candidate in the default-excluded genre
-            category and at least one outside it, so an acceptance test can
-            observe from this one mode that the default proposal excludes the
-            former, that IZAKAYA_BAR_INCLUDED is offered as a re-proposal
-            option, and that selecting it includes the former (TDR-CS-09).
+            A closed synthetic state selection. NORMAL_WITH_REPEAT supplies,
+            for at least one concept, more than 5 lunch-eligible synthetic
+            candidates (a population larger than the adr/0015 5-item display
+            cap), an initial proposal, and deterministic server-side repeat
+            demotion (adr/0017): when a subsequent request's
+            previouslyShownProviderPageUrls names every candidate most
+            recently returned, the response includes at least one candidate
+            whose providerPageUrl is not in that list, ranked before any
+            candidate that is in it; when that field is omitted or empty,
+            ordering is unaffected. This same behavior holds whether the
+            request selects a different offered kind (TDR-CS-03) or resends
+            the displayed proposal's own kind (a same-lens "try again"
+            request, adr/0016; TDR-CS-11), so both scenarios are
+            deterministically reachable from this one mode without depending
+            on a canned response shape. It excludes AMENITY_REFERENCE from
+            the initial response's reProposalOptions so a public,
+            CSRF-protected request for that valid enum is deterministically
+            unavailable. Per adr/0015, it also includes at least one
+            synthetic candidate in the default-excluded genre category and
+            at least one outside it, so an acceptance test can observe from
+            this one mode that the default proposal excludes the former,
+            that IZAKAYA_BAR_INCLUDED is offered as a re-proposal option, and
+            that selecting it includes the former (TDR-CS-09).
             IZAKAYA_BAR_ONLY supplies only synthetic candidates in that
             default-excluded genre category, so the initial proposal falls
             through to IZAKAYA_BAR_INCLUDED instead of a successful null

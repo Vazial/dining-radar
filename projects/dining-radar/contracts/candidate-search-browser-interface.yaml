@@ -33,9 +33,24 @@
 # a single input. A new always-available same-lens "try again" control
 # (candidate-reproposal-try-again, purpose reproposal-try-again) is added,
 # replacing the removed GENRE_VARIETY lens's slot in the comparison-choice
-# surface without occupying a reProposalOptions array slot. Every amendment
-# to this file becomes durable when its PR merges (meta/adr/0035 method (i)).
-contractVersion: '0.4'
+# surface without occupying a reProposalOptions array slot.
+# 2026-08-08 amendment #2 (adr/0017): a third real-device review found
+# repeat demotion structurally unable to surface a new candidate on
+# re-proposal, because adr/0015 already caps every response at exactly 5
+# candidates and the browser-only demotion in adr/0008 decision 2 never had
+# an unseen candidate to promote. Repeat demotion now happens server-side:
+# the browser echoes back, in the re-proposal request body, the
+# providerPageUrl values already rendered on this screen. selectReProposal
+# and tryAgain's publicOperation.requestBody now include that value, and
+# their repeatPriority.invariant no longer states the browser withholds it
+# -- it instead requires the echoed value to be exact and to never be
+# sourced from storage, a cookie, or the URL. The same review also found
+# business hours the largest single contributor to mobile card height, so
+# businessHours (candidate-card-business-hours) is removed from
+# requiredFields; candidate-search-api.yaml no longer returns this field.
+# Every amendment to this file becomes durable when its PR merges
+# (meta/adr/0035 method (i)).
+contractVersion: '0.5'
 kind: acceptance-browser-interface
 scope: candidate-search
 profiles:
@@ -95,7 +110,6 @@ browserControlSurface:
         name: {testId: candidate-card-name}
         genre: {testId: candidate-card-genre}
         description: {testId: candidate-card-description}
-        businessHours: {testId: candidate-card-business-hours}
         regularHoliday: {testId: candidate-card-regular-holiday}
         totalSeats: {testId: candidate-card-total-seats, rawValueAttribute: data-raw-value}
         access: {testId: candidate-card-access}
@@ -246,7 +260,7 @@ browserActions:
     publicOperation:
       method: POST
       path: /candidate-proposals
-      requestBody: selected-data-reproposal-kind
+      requestBody: selected-data-reproposal-kind-plus-previously-shown-provider-page-urls
     success:
       requiredOutcome:
         cards: exactly-current-success-response-candidates
@@ -261,7 +275,8 @@ browserActions:
         invariant:
           - A repeated candidate is not excluded.
           - candidate-card.data-provider-page-href equals its response providerPageUrl href.
-          - The browser does not post its shown-candidate comparison state.
+          - The request body's previouslyShownProviderPageUrls contains exactly the providerPageUrl values already rendered on this screen (every response shown so far in this screen's lifetime), and nothing else -- it is not invented by the browser and is not sourced from storage, a cookie, or the URL (adr/0017).
+          - The browser does not persist this state outside its own current-screen memory; it is never written to storage, a cookie, or the URL.
       reset:
         - Reloading the screen, closing its tab, or signing out clears comparison state.
     invalidLens:
@@ -275,7 +290,7 @@ browserActions:
     publicOperation:
       method: POST
       path: /candidate-proposals
-      requestBody: displayed-proposal-kind
+      requestBody: displayed-proposal-kind-plus-previously-shown-provider-page-urls
     success:
       requiredOutcome:
         cards: exactly-current-success-response-candidates
@@ -290,7 +305,8 @@ browserActions:
         invariant:
           - A repeated candidate is not excluded.
           - candidate-card.data-provider-page-href equals its response providerPageUrl href.
-          - The browser does not post its shown-candidate comparison state.
+          - The request body's previouslyShownProviderPageUrls contains exactly the providerPageUrl values already rendered on this screen (every response shown so far in this screen's lifetime), and nothing else -- it is not invented by the browser and is not sourced from storage, a cookie, or the URL (adr/0017).
+          - The browser does not persist this state outside its own current-screen memory; it is never written to storage, a cookie, or the URL.
       reset:
         - Reloading the screen, closing its tab, or signing out clears comparison state.
     invalidLens:

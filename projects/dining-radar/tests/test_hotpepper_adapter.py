@@ -176,7 +176,10 @@ class NormalizeShopsTests(SimpleTestCase):
         self.assertEqual(candidate.name, "架空食堂")
         self.assertEqual(candidate.genre, "和食")
         self.assertEqual(candidate.description, "季節の定食が中心です。")
-        self.assertEqual(candidate.business_hours, "11:00〜14:30")
+        # adr/0017 decision 7: business hours (the provider's `open` field)
+        # is no longer part of NormalizedCandidate; normalize_shops must not
+        # read it into anything this application still carries.
+        self.assertFalse(hasattr(candidate, "business_hours"))
         self.assertEqual(candidate.regular_holiday, "日曜")
         self.assertEqual(candidate.total_seats, 38)
         self.assertEqual(candidate.access, "架空駅から徒歩1分")
@@ -191,7 +194,6 @@ class NormalizeShopsTests(SimpleTestCase):
         [candidate] = normalize_shops({"results": {"shop": [raw]}})
 
         self.assertIsNone(candidate.description)
-        self.assertIsNone(candidate.business_hours)
         self.assertIsNone(candidate.regular_holiday)
         self.assertIsNone(candidate.total_seats)
         self.assertIsNone(candidate.access)

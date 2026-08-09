@@ -18,6 +18,21 @@ exercises the always-available same-lens "try again" control that replaced
 the removed GENRE_VARIETY concept; the same amendment also made selecting a
 re-proposal option perform the re-proposal directly (no separate submit
 control), which TDR-CS-03, TDR-CS-07, and TDR-CS-09 below now rely on.
+
+adr/0017 (candidate-search-api.yaml v0.7.0,
+candidate-search-browser-interface.yaml v0.5, test-support-api.yaml v0.5.0)
+moves repeat demotion server-side and removes ``businessHours`` from the
+Candidate schema and from the card's required fields (TDR-CS-02). TDR-CS-03
+and TDR-CS-11 now also exercise a genuinely working repeat-demotion
+mechanism: test-support-api.yaml's NORMAL_WITH_REPEAT synthetic population
+was extended past the 5-item display cap specifically so a repeat-demotion
+outcome depends on the request's ``previouslyShownProviderPageUrls`` rather
+than being satisfied by a fixed response shape regardless of what was sent
+(this closed a structural gap where TDR-CS-11's assertions could pass even
+though the mechanism they were meant to exercise had no unseen candidate left
+to promote). See ``dsl/candidate_search_browser.py``'s
+``assert_repeat_priority_orders_new_before_repeated`` for the added
+request-echo and non-persistence checks.
 """
 
 from __future__ import annotations

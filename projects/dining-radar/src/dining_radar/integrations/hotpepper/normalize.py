@@ -88,7 +88,6 @@ def _normalize_shop(shop: dict) -> NormalizedCandidate:
         name=name,
         genre=genre_name,
         description=_text_or_none(shop.get("catch")),
-        business_hours=_text_or_none(shop.get("open")),
         regular_holiday=_text_or_none(shop.get("close")),
         total_seats=_int_or_none(shop.get("capacity")),
         access=_text_or_none(shop.get("access")),

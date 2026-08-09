@@ -10,13 +10,15 @@ is enabled (mirrors the guard on
 production ``suggestions.service.propose_candidates`` pipeline with
 synthetic candidates, rather than a hand-written fake response, so those
 seams exercise real recommendation logic (including the adr/0015 default
-genre exclusion and 5-candidate display cap). ``NO_RESULTS``,
-``PROVIDER_UNAVAILABLE``, ``RATE_LIMITED``, and ``INVALID_REPROPOSAL_KIND``
-return a fixed synthetic outcome directly, without calling the pipeline.
+genre exclusion and 5-candidate display cap, and the adr/0017 server-side
+repeat demotion). ``NO_RESULTS``, ``PROVIDER_UNAVAILABLE``, ``RATE_LIMITED``,
+and ``INVALID_REPROPOSAL_KIND`` return a fixed synthetic outcome directly,
+without calling the pipeline.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from enum import StrEnum
 
 from django.conf import settings
@@ -109,13 +111,13 @@ def _synthetic_candidate(
     Amenity data is intentionally never supplied so ``AMENITY_REFERENCE``
     stays unbuildable, matching the contract's ``NORMAL_WITH_REPEAT``
     requirement that it is excluded from every response's
-    ``reProposalOptions``.
+    ``reProposalOptions``. Per adr/0017 decision 7, ``NormalizedCandidate``
+    no longer carries a business-hours field, so none is supplied here.
     """
     return NormalizedCandidate(
         name=name,
         genre=genre,
         description=f"{name}の紹介文（合成データ）です。",
-        business_hours="11:00-14:30",
         regular_holiday="日曜・祝日",
         total_seats=total_seats,
         access="合成アクセス情報",
@@ -128,50 +130,81 @@ def _synthetic_candidate(
 
 _ORIGIN = Origin(latitude=0.0, longitude=0.0)
 
-# A default-excluded-genre candidate (adr/0015), reused unchanged across the
-# initial and re-proposal candidate sets below -- unlike the plain "repeat"
-# candidate, which models fresh-search overlap (ADR-0008 decision 2), this
-# one only needs to be present in both fetches so that (a) the initial
-# default proposal excludes it, (b) IZAKAYA_BAR_INCLUDED is offered as a
-# re-proposal option from the initial response, and (c) selecting that lens
-# includes it (TDR-CS-09), all from this one NORMAL_WITH_REPEAT mode.
+# A default-excluded-genre candidate (adr/0015). Its latitude (0.0008) is the
+# nearest of every NORMAL_WITH_REPEAT candidate, so it always survives
+# IZAKAYA_BAR_INCLUDED's 5-item display cap: this is what lets (a) the
+# initial default proposal exclude it, (b) IZAKAYA_BAR_INCLUDED be offered as
+# a re-proposal option, and (c) selecting that lens include it (TDR-CS-09),
+# all from this one NORMAL_WITH_REPEAT mode.
 _DEFAULT_EXCLUDED_CANDIDATE = _synthetic_candidate(
     name="合成居酒屋 一号店",
     genre=_DEFAULT_EXCLUDED_SYNTHETIC_GENRE,
     provider_page_url="https://example.invalid/acceptance-shop-izakaya",
-    latitude=0.0025,
+    latitude=0.0008,
     total_seats=25,
 )
 
-_INITIAL_CANDIDATES: tuple[NormalizedCandidate, ...] = (
+# adr/0017 decision 5 / test-support-api.yaml v0.5.0: NORMAL_WITH_REPEAT must
+# supply, for at least one concept, more candidates than the adr/0015
+# 5-item display cap, so a request naming every candidate most recently
+# returned via previouslyShownProviderPageUrls deterministically has at
+# least one unseen candidate left to promote. The six default-population
+# (non-excluded-genre) candidates below give PROXIMITY exactly that: ranked
+# by latitude (this module's proximity approximation with longitude fixed at
+# 0.0, see pipeline._distance), the nearest five are the initial display and
+# the sixth is always the unseen "new" candidate once the initial five are
+# echoed back as previouslyShownProviderPageUrls.
+#
+# Unlike the pre-adr/0017 shape (two disjoint candidate sets switched by
+# whether the request carried a reproposalKind, modeling "each request is an
+# independent fresh search" per the now-superseded ADR-0008 decision 2),
+# this mode returns the exact same candidate population regardless of the
+# request's reproposalKind: demotion is now driven only by the request's
+# previouslyShownProviderPageUrls (adr/0017 decision 2), so an
+# unconditionally-different response would no longer distinguish a working
+# demotion mechanism from a canned one that ignores the request.
+_CANDIDATES: tuple[NormalizedCandidate, ...] = (
     _synthetic_candidate(
         name="合成食堂 一号店",
         genre="和食",
         provider_page_url="https://example.invalid/acceptance-shop-a",
-        latitude=0.001,
+        latitude=0.0010,
         total_seats=30,
     ),
     _synthetic_candidate(
         name="合成食堂 二号店",
         genre="洋食",
         provider_page_url="https://example.invalid/acceptance-shop-b",
-        latitude=0.002,
+        latitude=0.0012,
         total_seats=20,
     ),
-    _DEFAULT_EXCLUDED_CANDIDATE,
-)
-
-# One candidate repeats the initial response's providerPageUrl and one is new,
-# so a client can observe the repeat-priority display rule after re-proposal.
-# The default-excluded candidate is included unchanged (see its own comment).
-_REPROPOSAL_CANDIDATES: tuple[NormalizedCandidate, ...] = (
-    _INITIAL_CANDIDATES[0],
     _synthetic_candidate(
         name="合成食堂 三号店",
         genre="中華",
         provider_page_url="https://example.invalid/acceptance-shop-c",
-        latitude=0.003,
+        latitude=0.0014,
         total_seats=45,
+    ),
+    _synthetic_candidate(
+        name="合成食堂 四号店",
+        genre="韓国料理",
+        provider_page_url="https://example.invalid/acceptance-shop-d",
+        latitude=0.0016,
+        total_seats=15,
+    ),
+    _synthetic_candidate(
+        name="合成食堂 五号店",
+        genre="エスニック",
+        provider_page_url="https://example.invalid/acceptance-shop-e",
+        latitude=0.0018,
+        total_seats=50,
+    ),
+    _synthetic_candidate(
+        name="合成食堂 六号店",
+        genre="カフェ・スイーツ",
+        provider_page_url="https://example.invalid/acceptance-shop-f",
+        latitude=0.0020,
+        total_seats=10,
     ),
     _DEFAULT_EXCLUDED_CANDIDATE,
 )
@@ -192,24 +225,26 @@ _IZAKAYA_BAR_ONLY_CANDIDATES: tuple[NormalizedCandidate, ...] = (
 )
 
 
-def _normal_with_repeat_source(
-    reproposal_kind: str | None,
-) -> tuple[tuple[NormalizedCandidate, ...], Origin]:
-    candidates = _REPROPOSAL_CANDIDATES if reproposal_kind else _INITIAL_CANDIDATES
-    return candidates, _ORIGIN
+def _normal_with_repeat_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
+    return _CANDIDATES, _ORIGIN
 
 
-def _izakaya_bar_only_source(
-    reproposal_kind: str | None,
-) -> tuple[tuple[NormalizedCandidate, ...], Origin]:
-    del reproposal_kind  # Every fetch in this mode returns the same closed set.
+def _izakaya_bar_only_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
     return _IZAKAYA_BAR_ONLY_CANDIDATES, _ORIGIN
 
 
 def propose_with_override(
-    mode: AcceptanceCandidateProposalMode, reproposal_kind: str | None
+    mode: AcceptanceCandidateProposalMode,
+    reproposal_kind: str | None,
+    previously_shown_provider_page_urls: Sequence[str] = (),
 ) -> ProposalResult:
-    """The deterministic synthetic outcome for the currently selected mode."""
+    """The deterministic synthetic outcome for the currently selected mode.
+
+    ``previously_shown_provider_page_urls`` (adr/0017 decision 1) is passed
+    straight through to ``propose_candidates`` for the two modes that run
+    the real pipeline; it is otherwise unused, matching the other modes'
+    fixed synthetic outcomes.
+    """
     if mode is AcceptanceCandidateProposalMode.PROVIDER_UNAVAILABLE:
         raise AcceptanceProviderUnavailable
     if mode is AcceptanceCandidateProposalMode.RATE_LIMITED:
@@ -221,10 +256,12 @@ def propose_with_override(
     if mode is AcceptanceCandidateProposalMode.IZAKAYA_BAR_ONLY:
         return propose_candidates(
             reproposal_kind,
-            fetch_candidates=lambda: _izakaya_bar_only_source(reproposal_kind),
+            fetch_candidates=_izakaya_bar_only_source,
+            previously_shown_provider_page_urls=previously_shown_provider_page_urls,
         )
 
     return propose_candidates(
         reproposal_kind,
-        fetch_candidates=lambda: _normal_with_repeat_source(reproposal_kind),
+        fetch_candidates=_normal_with_repeat_source,
+        previously_shown_provider_page_urls=previously_shown_provider_page_urls,
     )

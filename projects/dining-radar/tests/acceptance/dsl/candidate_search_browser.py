@@ -43,6 +43,26 @@ re-proposal option (``candidate-reproposal-option``) itself now performs the
 re-proposal request, with no separate confirmation click. Every browser
 action below that used to click a submit control after selecting an option
 now captures the response from the selection click itself.
+
+adr/0017 (candidate-search-api.yaml v0.7.0, candidate-search-browser-interface.yaml
+v0.5, test-support-api.yaml v0.5.0) moves repeat demotion server-side: a
+re-proposal request now carries ``previouslyShownProviderPageUrls``, the exact
+providerPageUrl values already rendered on this screen, and the server -- not
+the browser -- demotes matching candidates before applying the 5-item display
+cap. ``businessHours`` is removed from the Candidate schema and from
+``requiredFields``, so it is no longer asserted on cards (TDR-CS-02).
+``requiredFields`` field list and card-level formatting are otherwise
+unchanged. The revised ``repeatPriority.invariant`` in
+candidate-search-browser-interface.yaml is a machine-checkable, black-box
+observation (the exact request body the browser sent, and the absence of the
+comparison state from storage/cookie/URL) rather than a judgment about prose,
+so it is asserted directly -- see ``assert_repeat_priority_orders_new_before_repeated``
+and its private helpers below -- unlike TDR-CS-09's rationale-tone claim
+(module section below), which meta/verification.md 3.4 rules out of L4.
+test-support-api.yaml's NORMAL_WITH_REPEAT now supplies, for at least one
+concept, more than 5 lunch-eligible synthetic candidates so this demotion is
+genuinely exercised by TDR-CS-03, TDR-CS-09, and TDR-CS-11's requests rather
+than satisfied by a fixed response shape independent of what was sent.
 """
 
 from __future__ import annotations
@@ -133,7 +153,6 @@ REQUIRED_CARD_FIELDS: dict[str, tuple[str, str | None]] = {
     "name": ("candidate-card-name", None),
     "genre": ("candidate-card-genre", None),
     "description": ("candidate-card-description", None),
-    "businessHours": ("candidate-card-business-hours", None),
     "regularHoliday": ("candidate-card-regular-holiday", None),
     "totalSeats": ("candidate-card-total-seats", "data-raw-value"),
     "access": ("candidate-card-access", None),
@@ -181,6 +200,27 @@ STATUS_BY_PROBLEM_CODE = {
     "PROPOSAL_RATE_LIMITED": 429,
     "PROPOSAL_REPROPOSAL_KIND_INVALID": 400,
 }
+
+# adr/0017 + candidate-search-browser-interface.yaml repeatPriority.invariant:
+# "The browser does not persist this state outside its own current-screen
+# memory; it is never written to storage, a cookie, or the URL." This reads
+# every key/value pair actually held in localStorage and sessionStorage (a
+# plain property spread over a Storage object does not enumerate its entries,
+# so the entries must be walked explicitly) as one JSON string a caller can
+# search for a providerPageUrl value.
+DUMP_BROWSER_STORAGE_JS = """
+() => {
+  const dump = (storage) => {
+    const out = {};
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      out[key] = storage.getItem(key);
+    }
+    return out;
+  };
+  return JSON.stringify({ local: dump(localStorage), session: dump(sessionStorage) });
+}
+"""
 
 # adr/0015: the only ConceptKind whose population additionally includes the
 # genre category that is excluded by default from the other three kinds
@@ -500,6 +540,8 @@ class CandidateSearchBrowserDsl:
                 "candidates"
             ]
         }
+        self._assert_previously_shown_urls_were_echoed_exactly(previous_hrefs)
+        self._assert_shown_state_not_persisted_outside_screen_memory(previous_hrefs)
         statuses: list[str] = []
         for index in range(count):
             card = cards.nth(index)
@@ -535,6 +577,60 @@ class CandidateSearchBrowserDsl:
             previous_urls & new_urls,
             "the seeded repeat candidate (same providerPageUrl) was excluded from the new proposal",
         )
+
+    def _assert_previously_shown_urls_were_echoed_exactly(self, previously_shown: set[str]) -> None:
+        """adr/0017 + repeatPriority.invariant: the request body's
+        ``previouslyShownProviderPageUrls`` must contain exactly the
+        providerPageUrl values already rendered on this screen, and nothing
+        else -- not invented by the browser. This is a structural comparison
+        of the exact JSON request the browser sent (captured from the real
+        network exchange, not re-derived) against the exact set of URLs the
+        prior response actually returned, so it needs no meaning judgment.
+        """
+        response = require(self.reproposal, "re-proposal was not requested")
+        sent = response.request_body or {}
+        echoed = set(sent.get("previouslyShownProviderPageUrls") or [])
+        self.assertions.assertEqual(
+            echoed,
+            previously_shown,
+            "previouslyShownProviderPageUrls must echo exactly the "
+            "providerPageUrl values already rendered on this screen, and "
+            "nothing else (adr/0017)",
+        )
+
+    def _assert_shown_state_not_persisted_outside_screen_memory(
+        self, previously_shown: set[str]
+    ) -> None:
+        """adr/0017 + repeatPriority.invariant: the browser does not persist
+        the shown-candidate comparison state outside its own current-screen
+        memory -- never written to storage, a cookie, or the URL. Checked by
+        searching the real values a leak would have to contain (the shown
+        candidates' providerPageUrl values) in the browser's actual storage
+        contents, cookie jar, and current URL -- the same canary-search
+        pattern already used for private-origin disclosure (``_assert_no_disclosures``),
+        not a judgment about implementation structure.
+        """
+        storage_dump = self.page.evaluate(DUMP_BROWSER_STORAGE_JS)
+        cookie_values = " ".join(cookie.get("value", "") for cookie in self.page.context.cookies())
+        for url in previously_shown:
+            self.assertions.assertNotIn(
+                url,
+                storage_dump,
+                "shown-candidate comparison state must not be written to "
+                "localStorage or sessionStorage (adr/0008 decision 3, adr/0017)",
+            )
+            self.assertions.assertNotIn(
+                url,
+                cookie_values,
+                "shown-candidate comparison state must not be written to a "
+                "cookie (adr/0008 decision 3, adr/0017)",
+            )
+            self.assertions.assertNotIn(
+                url,
+                self.page.url,
+                "shown-candidate comparison state must not be written to the "
+                "URL (adr/0008 decision 3, adr/0017)",
+            )
 
     # Observable assertions and actions: default genre exclusion ----------
     # (TDR-CS-09, TDR-CS-10). TDR-CS-09's "初期の候補には...含めない" has no

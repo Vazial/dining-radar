@@ -233,15 +233,17 @@
     /* Narrow-width card density (developer judgment under ADR-0021's "骨格を
        保つ限り自由に洗練してよい"; human 2026-08-08 real-device review:
        「モバイルの場合、1店舗が縦長すぎてスクロールしないとみれないね、情報
-       を圧縮したい」, adr/0016 hand-off). This is layout/typography only:
-       every one of the eight requiredFields in candidate-search-browser-
-       interface.yaml keeps its test id, its data-field-label, and (for
-       totalSeats) its rawValueAttribute in the DOM unchanged, and every
-       field's visible value still equals the returned value exactly -- the
-       description clamp below hides overflow visually without truncating
-       the DOM text node. Reuses the existing 64rem breakpoint (the point
-       where the map already becomes a side column instead of stacking
-       above the cards) rather than introducing a new one. */
+       を圧縮したい」, adr/0016 hand-off). businessHours itself was removed
+       from the card (adr/0017 decision 7, the largest single contributor to
+       card height) rather than compressed here. This is layout/typography
+       only for the remaining requiredFields in candidate-search-browser-
+       interface.yaml: every one keeps its test id, its data-field-label,
+       and (for totalSeats) its rawValueAttribute in the DOM unchanged, and
+       every field's visible value still equals the returned value exactly
+       -- the description clamp below hides overflow visually without
+       truncating the DOM text node. Reuses the existing 64rem breakpoint
+       (the point where the map already becomes a side column instead of
+       stacking above the cards) rather than introducing a new one. */
     @media (max-width: 63.999rem) {
       [data-testid="candidate-proposal-cards"] { gap: 0.5rem; }
       [data-testid="candidate-card"] { padding: 0.75rem 0.85rem; gap: 0.45rem; }
@@ -253,8 +255,7 @@
       /* Each field is a label+value pair wrapped in its own <div> (see
          fieldRow in candidate.js); laying that pair out in two columns
          instead of stacked rows is what shrinks a field with a short value
-         (business hours, regular holiday, total seats) from two lines to
-         one. */
+         (regular holiday, total seats) from two lines to one. */
       [data-testid="candidate-card"] dl.candidate-facts > div {
         display: grid; grid-template-columns: 4.4rem 1fr; column-gap: 0.5rem; align-items: baseline;
       }

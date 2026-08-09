@@ -66,6 +66,34 @@ class CandidateProposalsApiTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "PROPOSAL_REPROPOSAL_KIND_INVALID")
 
+    # previouslyShownProviderPageUrls (adr/0017 decision 1) -------------
+
+    def test_non_list_previously_shown_provider_page_urls_is_a_safe_400(self):
+        response = self.post_proposal(
+            {"reproposalKind": "PROXIMITY", "previouslyShownProviderPageUrls": "not-a-list"}
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "PROPOSAL_REPROPOSAL_KIND_INVALID")
+
+    def test_non_string_item_in_previously_shown_provider_page_urls_is_a_safe_400(self):
+        response = self.post_proposal(
+            {"reproposalKind": "PROXIMITY", "previouslyShownProviderPageUrls": [123]}
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_empty_previously_shown_provider_page_urls_is_accepted(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT
+        )
+
+        response = self.post_proposal(
+            {"reproposalKind": "PROXIMITY", "previouslyShownProviderPageUrls": []}
+        )
+
+        self.assertEqual(response.status_code, 200)
+
     # Real provider path (no runtime credentials in tests) -------------
 
     def test_missing_provider_configuration_is_a_safe_503(self):
@@ -130,25 +158,58 @@ class CandidateProposalsApiTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "PROPOSAL_REPROPOSAL_KIND_INVALID")
 
-    def test_normal_with_repeat_reproposal_contains_a_new_and_a_repeated_candidate(self):
+    def test_normal_with_repeat_reproposal_with_previously_shown_urls_has_new_and_repeated(
+        self,
+    ):
+        # adr/0017 decision 1-2: the demotion this asserts is driven only by
+        # the request's own previouslyShownProviderPageUrls, so it is sent
+        # explicitly here (unlike the pre-adr/0017 seam, the server no
+        # longer varies its response just because a reproposalKind is
+        # present).
         acceptance_state.set_mode(
             acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT
         )
         initial = self.post_proposal().json()
-        initial_urls = {
+        initial_urls = [
             candidate["providerPageUrl"] for candidate in initial["proposal"]["candidates"]
-        }
+        ]
         offered_kind = initial["reProposalOptions"][0]["kind"]
 
-        response = self.post_proposal({"reproposalKind": offered_kind})
+        response = self.post_proposal(
+            {"reproposalKind": offered_kind, "previouslyShownProviderPageUrls": initial_urls}
+        )
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         reproposed_urls = {
             candidate["providerPageUrl"] for candidate in payload["proposal"]["candidates"]
         }
-        self.assertTrue(reproposed_urls & initial_urls, "expected at least one repeated shop")
-        self.assertTrue(reproposed_urls - initial_urls, "expected at least one new shop")
+        self.assertTrue(reproposed_urls & set(initial_urls), "expected at least one repeated shop")
+        self.assertTrue(reproposed_urls - set(initial_urls), "expected at least one new shop")
+
+    def test_normal_with_repeat_reproposal_without_previously_shown_urls_leaves_ordering_unaffected(
+        self,
+    ):
+        # test-support-api.yaml v0.5.0: "omitting or emptying that field
+        # leaves ordering unaffected" -- resending the displayed kind with no
+        # previouslyShownProviderPageUrls returns the identical candidate set
+        # in the identical order.
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT
+        )
+        initial = self.post_proposal().json()
+        displayed_kind = initial["proposal"]["kind"]
+        initial_urls = [
+            candidate["providerPageUrl"] for candidate in initial["proposal"]["candidates"]
+        ]
+
+        response = self.post_proposal({"reproposalKind": displayed_kind})
+
+        payload = response.json()
+        reproposed_urls = [
+            candidate["providerPageUrl"] for candidate in payload["proposal"]["candidates"]
+        ]
+        self.assertEqual(reproposed_urls, initial_urls)
 
     # adr/0015: default genre exclusion and IZAKAYA_BAR_INCLUDED ----------
 
@@ -294,7 +355,6 @@ class CandidateResponseSchemaTests(TestCase):
                     "name",
                     "genre",
                     "description",
-                    "businessHours",
                     "regularHoliday",
                     "totalSeats",
                     "access",

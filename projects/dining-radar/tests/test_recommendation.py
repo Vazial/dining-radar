@@ -25,7 +25,6 @@ def candidate(
     total_seats=None,
     amenity_score=0,
     description="紹介文",
-    business_hours="11:00-14:00",
     regular_holiday="日曜",
     access="アクセス情報",
 ):
@@ -33,7 +32,6 @@ def candidate(
         name=name,
         genre=genre,
         description=description,
-        business_hours=business_hours,
         regular_holiday=regular_holiday,
         total_seats=total_seats,
         access=access,
@@ -490,6 +488,127 @@ class DisplayCapTests(SimpleTestCase):
         capacity = next(c for c in concepts if c.kind is ConceptKind.CAPACITY_REFERENCE)
         self.assertEqual(len(capacity.candidates), 5)
         self.assertEqual(capacity.candidates[0].name, "満席店")
+
+
+# adr/0017 decision 2: server-side repeat demotion, applied after ranking and
+# before the adr/0015 display cap. This replaces the browser-side algorithm
+# ADR-0008 decision 2 previously specified.
+class RepeatDemotionTests(SimpleTestCase):
+    def _ordered_candidates(self, count):
+        return [
+            candidate(
+                name=f"店{i}",
+                provider_page_url=f"https://example.invalid/order-{i}",
+                latitude=0.001 * i,
+            )
+            for i in range(1, count + 1)
+        ]
+
+    def test_no_previously_shown_urls_leaves_ranking_unaffected(self):
+        candidates = self._ordered_candidates(3)
+
+        without_argument = build_concepts(candidates, ORIGIN)
+        with_empty_list = build_concepts(candidates, ORIGIN, [])
+
+        proximity_without = next(c for c in without_argument if c.kind is ConceptKind.PROXIMITY)
+        proximity_with_empty = next(c for c in with_empty_list if c.kind is ConceptKind.PROXIMITY)
+        expected_order = ["店1", "店2", "店3"]
+        self.assertEqual([c.name for c in proximity_without.candidates], expected_order)
+        self.assertEqual([c.name for c in proximity_with_empty.candidates], expected_order)
+
+    def test_previously_shown_urls_not_matching_any_candidate_has_no_effect(self):
+        candidates = self._ordered_candidates(3)
+
+        concepts = build_concepts(candidates, ORIGIN, ["https://example.invalid/no-such-candidate"])
+
+        proximity = next(c for c in concepts if c.kind is ConceptKind.PROXIMITY)
+        self.assertEqual([c.name for c in proximity.candidates], ["店1", "店2", "店3"])
+
+    def test_previously_shown_candidate_is_demoted_to_the_end_but_not_excluded(self):
+        candidates = self._ordered_candidates(3)
+
+        concepts = build_concepts(candidates, ORIGIN, ["https://example.invalid/order-1"])
+
+        proximity = next(c for c in concepts if c.kind is ConceptKind.PROXIMITY)
+        # 店1 ranked nearest (1st); once named as previously shown it moves
+        # behind every unseen candidate but is still present, not excluded.
+        self.assertEqual([c.name for c in proximity.candidates], ["店2", "店3", "店1"])
+
+    def test_relative_order_is_preserved_within_each_of_the_two_demoted_groups(self):
+        candidates = self._ordered_candidates(5)
+
+        concepts = build_concepts(
+            candidates,
+            ORIGIN,
+            [
+                "https://example.invalid/order-1",
+                "https://example.invalid/order-3",
+            ],
+        )
+
+        proximity = next(c for c in concepts if c.kind is ConceptKind.PROXIMITY)
+        # Unseen (店2, 店4, 店5) keep their ranked relative order and precede
+        # the demoted pair (店1, 店3), which also keeps its ranked relative
+        # order among itself -- a stable partition, not a re-ranking.
+        self.assertEqual(
+            [c.name for c in proximity.candidates], ["店2", "店4", "店5", "店1", "店3"]
+        )
+
+    def test_demotion_runs_before_the_display_cap_so_an_unseen_candidate_is_promoted(self):
+        # Six candidates exceed the adr/0015 5-item display cap. Naming the
+        # five nearest as previously shown must let the sixth (otherwise
+        # truncated away before ranking-order alone would ever show it)
+        # appear in the capped, displayed set ahead of every repeat --
+        # exactly the defect adr/0017 fixes (the browser-only version of
+        # this mechanism never received the sixth candidate at all).
+        candidates = self._ordered_candidates(6)
+        previously_shown = [f"https://example.invalid/order-{i}" for i in range(1, 6)]
+
+        concepts = build_concepts(candidates, ORIGIN, previously_shown)
+
+        proximity = next(c for c in concepts if c.kind is ConceptKind.PROXIMITY)
+        self.assertEqual(len(proximity.candidates), 5)
+        self.assertEqual(proximity.candidates[0].name, "店6")
+        self.assertEqual(
+            {c.name for c in proximity.candidates[1:]},
+            {"店1", "店2", "店3", "店4"},
+            "the cap should keep the one unseen candidate plus four of the five repeats",
+        )
+
+    def test_demotion_applies_independently_per_concept_kind(self):
+        # AMENITY_REFERENCE ranks by amenity_score descending, the opposite
+        # order from PROXIMITY's ranking by distance here, so the same
+        # previously-shown URL demotes a different candidate's position in
+        # each concept -- demotion must run against each concept's own
+        # ranked order, not a single shared order.
+        near_low_amenity = candidate(
+            name="近いが設備少",
+            provider_page_url="https://example.invalid/near-low",
+            latitude=0.001,
+            amenity_score=1,
+        )
+        far_high_amenity = candidate(
+            name="遠いが設備充実",
+            provider_page_url="https://example.invalid/far-high",
+            latitude=0.002,
+            amenity_score=3,
+        )
+
+        concepts = build_concepts(
+            [near_low_amenity, far_high_amenity],
+            ORIGIN,
+            ["https://example.invalid/near-low"],
+        )
+
+        proximity = next(c for c in concepts if c.kind is ConceptKind.PROXIMITY)
+        amenity = next(c for c in concepts if c.kind is ConceptKind.AMENITY_REFERENCE)
+        # PROXIMITY ranks near_low_amenity first; demoting it moves it behind
+        # far_high_amenity.
+        self.assertEqual([c.name for c in proximity.candidates], ["遠いが設備充実", "近いが設備少"])
+        # AMENITY_REFERENCE already ranks far_high_amenity first on its own
+        # criterion, so demoting near_low_amenity (already last) is a no-op
+        # on this concept's visible order.
+        self.assertEqual([c.name for c in amenity.candidates], ["遠いが設備充実", "近いが設備少"])
 
 
 class RealisticLargeMultiGenrePopulationShapeTests(SimpleTestCase):

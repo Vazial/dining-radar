@@ -8,6 +8,15 @@
  * (`shownProviderPageUrls`) lives only in this module's memory and is
  * cleared automatically on reload, tab close, or sign-out, because none of
  * those keep this JavaScript execution context alive (ADR-0008 decision 3).
+ *
+ * Per adr/0017, repeat demotion (ordering every new candidate before every
+ * repeated one) is now computed server-side: on every re-proposal request
+ * this module echoes `shownProviderPageUrls` back unchanged as
+ * `previouslyShownProviderPageUrls`, and simply renders the response's
+ * `proposal.candidates` in the order the server returned them, without
+ * re-sorting locally. This module still tracks membership in
+ * `shownProviderPageUrls` itself, purely to decide each rendered card's own
+ * `data-repeat-status` badge.
  */
 (function () {
   "use strict";
@@ -49,6 +58,17 @@
   }
 
   function requestProposal(reproposalKind) {
+    // adr/0017 decision 1: a re-proposal request echoes back the exact
+    // providerPageUrl values this server has already returned to this
+    // browser this screen lifetime, unchanged and sourced only from this
+    // module's own in-memory Set -- never from storage, a cookie, or the
+    // URL. The initial request (reproposalKind omitted) sends an empty body,
+    // since nothing has been shown yet.
+    var body = {};
+    if (reproposalKind) {
+      body.reproposalKind = reproposalKind;
+      body.previouslyShownProviderPageUrls = Array.from(shownProviderPageUrls);
+    }
     return fetch("/candidate-proposals", {
       method: "POST",
       credentials: "same-origin",
@@ -56,7 +76,7 @@
         "Content-Type": "application/json",
         "X-CSRFToken": csrfToken(),
       },
-      body: JSON.stringify(reproposalKind ? { reproposalKind: reproposalKind } : {}),
+      body: JSON.stringify(body),
     }).then(function (response) {
       return response.json().then(function (body) {
         return { status: response.status, body: body };
@@ -136,7 +156,8 @@
     // chip, and -- only once a re-proposal has actually happened, since the
     // very first proposal has nothing to compare against -- whether this
     // shop is newly offered or was already shown this screen lifetime
-    // (ADR-0008 decision 2, contract repeatPriority).
+    // (contract repeatPriority; the ordering itself is now computed
+    // server-side, adr/0017).
     var idRow = el("div", { "class": "candidate-card-id-row" }, [
       el("span", { "class": "candidate-marker-badge", "aria-hidden": "true" }, [String(index + 1)]),
     ]);
@@ -189,7 +210,6 @@
         "紹介文の登録はありません"
       )
     );
-    facts.appendChild(fieldRow("営業時間", "candidate-card-business-hours", candidate.businessHours));
     facts.appendChild(fieldRow("定休日", "candidate-card-regular-holiday", candidate.regularHoliday));
     facts.appendChild(
       fieldRow(
@@ -471,14 +491,11 @@
     var decorated = proposal.candidates.map(function (candidate) {
       return { candidate: candidate, repeated: shownProviderPageUrls.has(candidate.providerPageUrl) };
     });
-    // Every new card precedes every repeated card; existing candidates are
-    // never excluded (contracts/test-support-api.yaml NORMAL_WITH_REPEAT).
-    decorated.sort(function (a, b) {
-      if (a.repeated === b.repeated) {
-        return 0;
-      }
-      return a.repeated ? 1 : -1;
-    });
+    // Ordering (every new candidate precedes every repeated one; existing
+    // candidates are never excluded, only demoted) is computed server-side
+    // from the previouslyShownProviderPageUrls this module echoed back
+    // (adr/0017); this module renders proposal.candidates in exactly the
+    // order the response returned, without re-sorting locally.
     // A repeat/new badge is only meaningful once at least one earlier
     // proposal has been shown this screen lifetime; the very first
     // proposal has nothing to compare against.
