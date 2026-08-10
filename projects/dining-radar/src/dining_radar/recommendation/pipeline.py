@@ -13,33 +13,28 @@ omitted entirely when the current candidate set cannot support the rule that
 explains it (for example, no candidate has a total-seat reference).
 
 Per ADR-0015, two further product rules apply to every concept built here:
-(1) ``PROXIMITY``, ``CAPACITY_REFERENCE``, and ``AMENITY_REFERENCE`` rank
-only candidates outside ``DEFAULT_EXCLUDED_GENRES`` (genres whose lunch
-service cannot be confirmed from returned provider fields);
-``IZAKAYA_BAR_INCLUDED`` is the only kind whose population also includes
-that genre category, and it is explainable only when at least one such
-candidate is present. When excluding that category leaves no candidate for
-any of the other three kinds, they fall through to unbuildable and
-``IZAKAYA_BAR_INCLUDED`` becomes the only (and therefore initial) concept,
-built from the full population rather than a "no candidates" outcome
-(TDR-CS-10). (2) Every concept's displayed ``candidates`` is capped to the
-top 5 after ranking the full eligible population; this is a display cap
-applied last, not a limit on what was ranked.
+(1) ``PROXIMITY``, ``GENRE_FOCUS``, and ``NON_SMOKING_REFERENCE`` rank only
+candidates outside ``DEFAULT_EXCLUDED_GENRES`` (genres whose lunch service
+cannot be confirmed from returned provider fields); ``IZAKAYA_BAR_INCLUDED``
+is the only kind whose population also includes that genre category, and it
+is explainable only when at least one such candidate is present. When
+excluding that category leaves no candidate for any of the other three
+kinds, they fall through to unbuildable and ``IZAKAYA_BAR_INCLUDED`` becomes
+the only (and therefore initial) concept, built from the full population
+rather than a "no candidates" outcome (TDR-CS-10). (2) Every concept's
+displayed ``candidates`` is capped to the top 5 after ranking the full
+eligible population; this is a display cap applied last, not a limit on what
+was ranked.
 
 Per ADR-0016, ``GENRE_VARIETY`` was removed from ``ConceptKind``: real
 production data showed it always converged to the same candidate set and
 order as ``PROXIMITY`` once the nearest candidates already spanned distinct
-genres, so it no longer described a distinct, explainable lens. This module
-now builds at most four concept kinds, so ``reproposal_options`` (at most
-three, excluding the displayed kind) can never drop one to fit
-``reProposalOptions.maxItems: 3`` -- the capacity defect ADR-0015 introduced
-by adding a fifth kind is resolved structurally rather than by reordering
-``_PRIORITY_ORDER``. A same-lens "try again" request (resending the
-displayed proposal's own ``kind`` as ``reproposalKind``) is not a new
-``ConceptKind`` and is not built here: ``select_reproposal`` already looks
-up any requested kind, including the currently displayed one, from the
-concepts this module built for the fresh search, so no new ranking logic is
-needed for it.
+genres, so it no longer described a distinct, explainable lens. A same-lens
+"try again" request (resending the displayed proposal's own ``kind`` as
+``reproposalKind``) is not a new ``ConceptKind`` and is not built here:
+``select_reproposal`` already looks up any requested kind, including the
+currently displayed one, from the concepts this module built for the fresh
+search, so no new ranking logic is needed for it.
 
 Per ADR-0017, a third real-data review found the display cap alone
 (ADR-0015) had structurally disabled the repeat-demotion mechanism ADR-0008
@@ -67,6 +62,48 @@ field only ever reports "available" for an already lunch-filtered search).
 ``NormalizedCandidate`` therefore carries no ``business_hours`` field; the
 provider page link (``provider_page_url``) remains the authoritative source
 for hours.
+
+Per ADR-0019, a field survey of the same live candidates found
+``CAPACITY_REFERENCE`` (sorting by exact seat count) and
+``AMENITY_REFERENCE`` (a combined score over ``private_room``,
+``non_smoking``, ``parking``, ``wifi``, ``barrier_free``) weak or unwanted as
+comparison lenses -- the organizer found sorting by exact seat count added
+no value, and every ``AMENITY_REFERENCE`` constituent field other than
+``non_smoking`` was sparse or unusable in real data. Both are removed.
+``ConceptKind`` gains two replacements, keeping the total at four so
+``reProposalOptions.maxItems: 3`` (three, always the total minus the one
+displayed) remains satisfied without change (decision 1):
+
+* ``GENRE_FOCUS`` ranks by proximity only the candidates sharing the single
+  most common genre in the default (non-excluded-genre) population, and is
+  explainable only when that population spans at least two distinct genres.
+  Because the rule always narrows the population rather than merely
+  reordering it, ``GENRE_FOCUS``'s candidate set is -- whenever it is
+  offered -- a strict subset of ``PROXIMITY``'s own candidate set, so it
+  cannot reproduce the exact-match degeneracy that led to
+  ``GENRE_VARIETY``'s removal (ADR-0016). Its ``title``/``rationale`` are
+  generated per response and name the genre selected; this stays
+  deterministic for a given candidate set (ADR-0004 decision 1's
+  "explainable, deterministic" requirement is about reproducibility, not
+  about being a compile-time constant).
+* ``NON_SMOKING_REFERENCE`` ranks primarily by each candidate's
+  ``non_smoking_status`` (full non-smoking, then partial, then none, then
+  unconfirmed), then by proximity, and is explainable only when the
+  population spans at least two distinct non-smoking references. It
+  replaces ``AMENITY_REFERENCE``.
+
+Total seats (``capacityTier``), dinner-price banding (``dinnerBudgetTier``),
+and credit-card acceptance (``cardPaymentAvailable``) are card-display-only
+derived values (ADR-0019 decisions 4, 5, and 8): they never participate in
+ranking and are never a ``ConceptKind``. ``NormalizedCandidate`` still
+carries the raw ``total_seats`` and ``budget_average`` values so
+``dining_radar.web.serializers`` can derive the coarse card labels, and it
+carries ``card_payment_available`` as a plain pass-through boolean; none of
+the three is read anywhere in this module. ``non_smoking_status`` is the one
+exception: it both drives ``NON_SMOKING_REFERENCE`` ranking here and is
+serialized to the browser unchanged (ADR-0019 decision 3 changes the prior
+"none of these raw values are ever included in a browser-facing Candidate"
+assumption, which held only for the retired ``amenity_score``).
 """
 
 from __future__ import annotations
@@ -81,8 +118,8 @@ class ConceptKind(StrEnum):
     """Mirrors ``components.schemas.ConceptKind`` in the API contract."""
 
     PROXIMITY = "PROXIMITY"
-    CAPACITY_REFERENCE = "CAPACITY_REFERENCE"
-    AMENITY_REFERENCE = "AMENITY_REFERENCE"
+    GENRE_FOCUS = "GENRE_FOCUS"
+    NON_SMOKING_REFERENCE = "NON_SMOKING_REFERENCE"
     IZAKAYA_BAR_INCLUDED = "IZAKAYA_BAR_INCLUDED"
 
 
@@ -107,6 +144,14 @@ DEFAULT_EXCLUDED_GENRES = frozenset({"居酒屋", "ダイニングバー・バ�
 # (adr/0015 decision 1). It bounds only what is serialized to the browser.
 _DISPLAY_CAP = 5
 
+# Non-smoking rank used only for NON_SMOKING_REFERENCE's primary sort key
+# (adr/0019 decision 3: full non-smoking, then partial, then none, then
+# unconfirmed). Not a display value -- the browser-visible label is derived
+# independently by dining_radar.web.serializers from the same raw enum
+# string this module ranks by.
+_NON_SMOKING_RANK: dict[str | None, int] = {"FULL": 0, "PARTIAL": 1, "NONE": 2}
+_NON_SMOKING_RANK_UNCONFIRMED = 3
+
 
 @dataclass(frozen=True)
 class Origin:
@@ -120,7 +165,13 @@ class Origin:
 class NormalizedCandidate:
     """A Hot Pepper shop already normalized to this application's fields.
 
-    ``amenity_score`` and the coordinates are internal ranking inputs; only
+    ``non_smoking_status`` is both a ranking input (``NON_SMOKING_REFERENCE``)
+    and a value serialized to the browser unchanged. ``total_seats``,
+    ``budget_average``, and ``card_payment_available`` are never read by this
+    module's ranking logic; they exist only so
+    ``dining_radar.web.serializers`` can derive ``capacityTier``,
+    ``dinnerBudgetTier``, and pass through ``cardPaymentAvailable`` (ADR-0019
+    decisions 4, 5, 8). The coordinates are an internal ranking input; only
     the fields also present in ``components.schemas.Candidate`` are ever
     serialized to the browser (see ``dining_radar.web.serializers``).
     """
@@ -130,11 +181,12 @@ class NormalizedCandidate:
     description: str | None
     regular_holiday: str | None
     total_seats: int | None
-    access: str | None
+    non_smoking_status: str | None
+    card_payment_available: bool | None
+    budget_average: float | None
     latitude: float
     longitude: float
     provider_page_url: str
-    amenity_score: int = 0
 
 
 @dataclass(frozen=True)
@@ -156,22 +208,19 @@ class ReproposalKindUnavailableError(Exception):
     """The requested lens cannot currently be explained from the candidates."""
 
 
+# GENRE_FOCUS has no static title/rationale: both are generated per response
+# from the genre it selected (see _build_genre_focus).
 _TITLES: dict[ConceptKind, str] = {
     ConceptKind.PROXIMITY: "近さを優先する",
-    ConceptKind.CAPACITY_REFERENCE: "グループ利用に余裕がありそうな店を選ぶ",
-    ConceptKind.AMENITY_REFERENCE: "個室・禁煙など設備を参考にする",
+    ConceptKind.NON_SMOKING_REFERENCE: "禁煙対応を参考にする",
     ConceptKind.IZAKAYA_BAR_INCLUDED: "居酒屋・バーを含めて探す",
 }
 
 _RATIONALES: dict[ConceptKind, str] = {
     ConceptKind.PROXIMITY: "検索地点から近い順に候補をまとめています。",
-    ConceptKind.CAPACITY_REFERENCE: (
-        "総席数の参考値をもとに、グループでの利用しやすさを比較しやすい候補を"
-        "まとめています。空席や着席人数を保証するものではありません。"
-    ),
-    ConceptKind.AMENITY_REFERENCE: (
-        "個室や禁煙対応など、取得できた設備情報を参考に候補をまとめています。"
-        "設備の詳細は店舗ページでご確認ください。"
+    ConceptKind.NON_SMOKING_REFERENCE: (
+        "禁煙対応の区分（全面禁煙・一部禁煙・禁煙席なし）を優先し、次に検索地点から近い順に"
+        "候補をまとめています。禁煙区分は店舗からの参考情報です。詳細は店舗ページでご確認ください。"
     ),
     ConceptKind.IZAKAYA_BAR_INCLUDED: (
         "居酒屋やバーなど、取得できた情報だけではランチ営業の実施を確認できない候補も含めて、"
@@ -186,15 +235,16 @@ _RATIONALES: dict[ConceptKind, str] = {
 # IZAKAYA_BAR_INCLUDED is placed last as a non-binding preference (adr/0015
 # decision 4): the organizer should normally reach it only by choosing it as
 # a re-proposal lens, and it is selected as the initial/only concept solely
-# through the fall-through described in this module's docstring. With
-# GENRE_VARIETY removed (adr/0016), this tuple has four members, so
-# reproposal_options's up-to-three-excluding-the-displayed-kind result can
-# never drop a kind to fit the contract's maxItems: 3 -- no reordering of
-# this tuple is needed to keep that true.
+# through the fall-through described in this module's docstring. This tuple
+# has four members (adr/0019 decision 1: GENRE_FOCUS and NON_SMOKING_REFERENCE
+# replace CAPACITY_REFERENCE and AMENITY_REFERENCE one-for-one, keeping the
+# total at four), so reproposal_options's up-to-three-excluding-the-
+# displayed-kind result can never drop a kind to fit the contract's
+# maxItems: 3 -- no reordering of this tuple is needed to keep that true.
 _PRIORITY_ORDER: tuple[ConceptKind, ...] = (
     ConceptKind.PROXIMITY,
-    ConceptKind.CAPACITY_REFERENCE,
-    ConceptKind.AMENITY_REFERENCE,
+    ConceptKind.GENRE_FOCUS,
+    ConceptKind.NON_SMOKING_REFERENCE,
     ConceptKind.IZAKAYA_BAR_INCLUDED,
 )
 
@@ -219,9 +269,9 @@ def _split_default_population(
 ) -> tuple[list[NormalizedCandidate], list[NormalizedCandidate]]:
     """Default-eligible candidates and the default-excluded subset (adr/0015).
 
-    ``PROXIMITY``, ``CAPACITY_REFERENCE``, and ``AMENITY_REFERENCE`` rank
-    only the first list. ``IZAKAYA_BAR_INCLUDED``
-    is explainable only when the second list is non-empty.
+    ``PROXIMITY``, ``GENRE_FOCUS``, and ``NON_SMOKING_REFERENCE`` rank only
+    the first list. ``IZAKAYA_BAR_INCLUDED`` is explainable only when the
+    second list is non-empty.
     """
     default: list[NormalizedCandidate] = []
     excluded: list[NormalizedCandidate] = []
@@ -255,36 +305,75 @@ def _build_proximity(candidates: Sequence[NormalizedCandidate], origin: Origin) 
     )
 
 
-def _build_capacity_reference(
-    candidates: Sequence[NormalizedCandidate],
+def _build_genre_focus(candidates: Sequence[NormalizedCandidate], origin: Origin) -> Concept | None:
+    """Rank by proximity only the single most common genre (adr/0019 decision 2).
+
+    Explainable only when the population spans at least two distinct
+    genres -- otherwise "the most common genre" is the whole population and
+    this lens would be indistinguishable from PROXIMITY. When it does apply,
+    the narrowing to one genre makes the resulting candidate set a strict
+    subset of PROXIMITY's own candidate set by construction, which is what
+    keeps this lens from reproducing GENRE_VARIETY's exact-match degeneracy
+    (adr/0016).
+    """
+    if not candidates:
+        return None
+    genre_counts: dict[str, int] = {}
+    for candidate in candidates:
+        genre_counts[candidate.genre] = genre_counts.get(candidate.genre, 0) + 1
+    if len(genre_counts) < 2:
+        return None
+
+    ordered_by_distance = sorted(candidates, key=lambda candidate: _distance(origin, candidate))
+    max_count = max(genre_counts.values())
+    most_common_genres = {genre for genre, count in genre_counts.items() if count == max_count}
+    # Deterministic tiebreak (developer discretion, adr/0019 decision 2's
+    # non-binding algorithm note): prefer the genre of whichever tied genre's
+    # candidate is nearest the search origin.
+    selected_genre = next(
+        candidate.genre
+        for candidate in ordered_by_distance
+        if candidate.genre in most_common_genres
+    )
+    filtered = [candidate for candidate in ordered_by_distance if candidate.genre == selected_genre]
+    title = f"「{selected_genre}」を中心に探す"
+    rationale = (
+        f"候補の中で最も件数が多い「{selected_genre}」というジャンルに絞り込み、"
+        "検索地点から近い順に候補をまとめています。"
+    )
+    return Concept(ConceptKind.GENRE_FOCUS, title, rationale, tuple(filtered))
+
+
+def _non_smoking_rank(status: str | None) -> int:
+    return _NON_SMOKING_RANK.get(status, _NON_SMOKING_RANK_UNCONFIRMED)
+
+
+def _build_non_smoking_reference(
+    candidates: Sequence[NormalizedCandidate], origin: Origin
 ) -> Concept | None:
-    if not any(candidate.total_seats is not None for candidate in candidates):
+    """Rank primarily by non-smoking reference, then proximity (adr/0019 decision 3).
+
+    Explainable only when the population spans at least two distinct
+    ``non_smoking_status`` values (including the unconfirmed/``None`` bucket
+    as its own distinct value) -- otherwise the primary sort key is constant
+    across every candidate and this lens would offer no comparison the
+    organizer could not already see from PROXIMITY.
+    """
+    if not candidates:
+        return None
+    if len({candidate.non_smoking_status for candidate in candidates}) < 2:
         return None
     ordered = sorted(
         candidates,
         key=lambda candidate: (
-            candidate.total_seats is None,
-            -(candidate.total_seats or 0),
+            _non_smoking_rank(candidate.non_smoking_status),
+            _distance(origin, candidate),
         ),
     )
     return Concept(
-        ConceptKind.CAPACITY_REFERENCE,
-        _TITLES[ConceptKind.CAPACITY_REFERENCE],
-        _RATIONALES[ConceptKind.CAPACITY_REFERENCE],
-        tuple(ordered),
-    )
-
-
-def _build_amenity_reference(
-    candidates: Sequence[NormalizedCandidate],
-) -> Concept | None:
-    if not any(candidate.amenity_score > 0 for candidate in candidates):
-        return None
-    ordered = sorted(candidates, key=lambda candidate: -candidate.amenity_score)
-    return Concept(
-        ConceptKind.AMENITY_REFERENCE,
-        _TITLES[ConceptKind.AMENITY_REFERENCE],
-        _RATIONALES[ConceptKind.AMENITY_REFERENCE],
+        ConceptKind.NON_SMOKING_REFERENCE,
+        _TITLES[ConceptKind.NON_SMOKING_REFERENCE],
+        _RATIONALES[ConceptKind.NON_SMOKING_REFERENCE],
         tuple(ordered),
     )
 
@@ -375,8 +464,10 @@ def build_concepts(
     default_population, excluded_population = _split_default_population(deduped)
     builders = {
         ConceptKind.PROXIMITY: lambda: _build_proximity(default_population, origin),
-        ConceptKind.CAPACITY_REFERENCE: lambda: _build_capacity_reference(default_population),
-        ConceptKind.AMENITY_REFERENCE: lambda: _build_amenity_reference(default_population),
+        ConceptKind.GENRE_FOCUS: lambda: _build_genre_focus(default_population, origin),
+        ConceptKind.NON_SMOKING_REFERENCE: lambda: _build_non_smoking_reference(
+            default_population, origin
+        ),
         ConceptKind.IZAKAYA_BAR_INCLUDED: lambda: _build_izakaya_bar_included(
             deduped, excluded_population, origin
         ),

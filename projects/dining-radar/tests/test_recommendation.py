@@ -23,10 +23,11 @@ def candidate(
     latitude=0.001,
     longitude=0.0,
     total_seats=None,
-    amenity_score=0,
+    non_smoking_status=None,
+    card_payment_available=None,
+    budget_average=None,
     description="紹介文",
     regular_holiday="日曜",
-    access="アクセス情報",
 ):
     return NormalizedCandidate(
         name=name,
@@ -34,11 +35,12 @@ def candidate(
         description=description,
         regular_holiday=regular_holiday,
         total_seats=total_seats,
-        access=access,
+        non_smoking_status=non_smoking_status,
+        card_payment_available=card_payment_available,
+        budget_average=budget_average,
         latitude=latitude,
         longitude=longitude,
         provider_page_url=provider_page_url,
-        amenity_score=amenity_score,
     )
 
 
@@ -76,83 +78,39 @@ class BuildConceptsTests(SimpleTestCase):
         proximity = next(concept for concept in concepts if concept.kind is ConceptKind.PROXIMITY)
         self.assertEqual([c.name for c in proximity.candidates], ["近い店", "遠い店"])
 
-    def test_capacity_reference_is_absent_without_any_seat_data(self):
-        concepts = build_concepts(
-            [candidate(provider_page_url="https://example.invalid/a", total_seats=None)], ORIGIN
-        )
-
-        self.assertNotIn(ConceptKind.CAPACITY_REFERENCE, [c.kind for c in concepts])
-
-    def test_capacity_reference_orders_seats_descending_with_missing_data_last(self):
-        many_seats = candidate(
-            name="広い店", provider_page_url="https://example.invalid/big", total_seats=50
-        )
-        few_seats = candidate(
-            name="狭い店", provider_page_url="https://example.invalid/small", total_seats=10
-        )
-        unknown_seats = candidate(
-            name="不明な店", provider_page_url="https://example.invalid/unknown", total_seats=None
-        )
-
-        concepts = build_concepts([few_seats, unknown_seats, many_seats], ORIGIN)
-
-        capacity = next(c for c in concepts if c.kind is ConceptKind.CAPACITY_REFERENCE)
-        self.assertEqual([c.name for c in capacity.candidates], ["広い店", "狭い店", "不明な店"])
-
     def test_genre_variety_is_not_a_buildable_concept_kind(self):
         # adr/0016: GENRE_VARIETY was removed from ConceptKind because real
         # production data showed it always converged to the same candidate
-        # set and order as PROXIMITY. Its enum member no longer exists, so
-        # this asserts the closed set of buildable kinds directly rather
-        # than the pre-adr/0016 "absent for a single genre" behaviour, which
-        # no longer applies to anything.
+        # set and order as PROXIMITY. adr/0019 then removed CAPACITY_REFERENCE
+        # and AMENITY_REFERENCE too, replacing them one-for-one with
+        # GENRE_FOCUS and NON_SMOKING_REFERENCE, keeping the total at four
+        # (decision 1). This asserts the closed set of buildable kinds
+        # directly.
         self.assertEqual(
             {kind.value for kind in ConceptKind},
-            {"PROXIMITY", "CAPACITY_REFERENCE", "AMENITY_REFERENCE", "IZAKAYA_BAR_INCLUDED"},
+            {"PROXIMITY", "GENRE_FOCUS", "NON_SMOKING_REFERENCE", "IZAKAYA_BAR_INCLUDED"},
         )
-
-    def test_amenity_reference_is_absent_without_any_amenity_signal(self):
-        concepts = build_concepts(
-            [candidate(provider_page_url="https://example.invalid/a", amenity_score=0)], ORIGIN
-        )
-
-        self.assertNotIn(ConceptKind.AMENITY_REFERENCE, [c.kind for c in concepts])
-
-    def test_amenity_reference_orders_by_score_descending(self):
-        equipped = candidate(
-            name="設備充実", provider_page_url="https://example.invalid/equipped", amenity_score=3
-        )
-        plain = candidate(
-            name="設備なし", provider_page_url="https://example.invalid/plain", amenity_score=0
-        )
-
-        concepts = build_concepts([plain, equipped], ORIGIN)
-
-        amenity = next(c for c in concepts if c.kind is ConceptKind.AMENITY_REFERENCE)
-        self.assertEqual([c.name for c in amenity.candidates], ["設備充実", "設備なし"])
 
     def test_concepts_are_returned_in_a_fixed_priority_order(self):
-        equipped = candidate(
+        soba = candidate(
             provider_page_url="https://example.invalid/a",
-            total_seats=10,
-            amenity_score=1,
             genre="和食",
+            non_smoking_status="FULL",
         )
-        other = candidate(
+        yoshoku = candidate(
             provider_page_url="https://example.invalid/b",
-            total_seats=5,
-            amenity_score=1,
             genre="洋食",
+            non_smoking_status="PARTIAL",
         )
 
-        concepts = build_concepts([equipped, other], ORIGIN)
+        concepts = build_concepts([soba, yoshoku], ORIGIN)
 
         self.assertEqual(
             [c.kind for c in concepts],
             [
                 ConceptKind.PROXIMITY,
-                ConceptKind.CAPACITY_REFERENCE,
-                ConceptKind.AMENITY_REFERENCE,
+                ConceptKind.GENRE_FOCUS,
+                ConceptKind.NON_SMOKING_REFERENCE,
             ],
         )
 
@@ -167,10 +125,215 @@ class SelectInitialTests(SimpleTestCase):
         self.assertEqual(select_initial(concepts).kind, ConceptKind.PROXIMITY)
 
 
+class GenreFocusTests(SimpleTestCase):
+    def test_absent_with_a_single_genre_in_the_default_population(self):
+        concepts = build_concepts(
+            [
+                candidate(provider_page_url="https://example.invalid/a", genre="和食"),
+                candidate(provider_page_url="https://example.invalid/b", genre="和食"),
+            ],
+            ORIGIN,
+        )
+
+        self.assertNotIn(ConceptKind.GENRE_FOCUS, [c.kind for c in concepts])
+
+    def test_ranks_only_the_most_common_genre_by_proximity(self):
+        soba_near = candidate(
+            name="そば近い",
+            provider_page_url="https://example.invalid/soba-near",
+            genre="和食",
+            latitude=0.002,
+        )
+        soba_far = candidate(
+            name="そば遠い",
+            provider_page_url="https://example.invalid/soba-far",
+            genre="和食",
+            latitude=0.004,
+        )
+        yoshoku = candidate(
+            name="洋食一件",
+            provider_page_url="https://example.invalid/yoshoku",
+            genre="洋食",
+            latitude=0.001,
+        )
+
+        concepts = build_concepts([yoshoku, soba_far, soba_near], ORIGIN)
+
+        genre_focus = next(c for c in concepts if c.kind is ConceptKind.GENRE_FOCUS)
+        self.assertEqual([c.name for c in genre_focus.candidates], ["そば近い", "そば遠い"])
+
+    def test_candidate_set_is_a_strict_subset_of_proximitys_own_set(self):
+        # adr/0019 decision 2's structural guarantee: whenever GENRE_FOCUS is
+        # offered, it must never equal PROXIMITY's full candidate set --
+        # this is what keeps it from reproducing GENRE_VARIETY's degeneracy.
+        soba = candidate(provider_page_url="https://example.invalid/soba", genre="和食")
+        yoshoku = candidate(provider_page_url="https://example.invalid/yoshoku", genre="洋食")
+
+        concepts = build_concepts([soba, yoshoku], ORIGIN)
+
+        proximity = next(c for c in concepts if c.kind is ConceptKind.PROXIMITY)
+        genre_focus = next(c for c in concepts if c.kind is ConceptKind.GENRE_FOCUS)
+        genre_focus_urls = {c.provider_page_url for c in genre_focus.candidates}
+        proximity_urls = {c.provider_page_url for c in proximity.candidates}
+        self.assertTrue(genre_focus_urls < proximity_urls)
+
+    def test_title_and_rationale_name_the_selected_genre(self):
+        soba = candidate(provider_page_url="https://example.invalid/soba", genre="和食")
+        yoshoku = candidate(provider_page_url="https://example.invalid/yoshoku", genre="洋食")
+
+        concepts = build_concepts([soba, yoshoku], ORIGIN)
+
+        genre_focus = next(c for c in concepts if c.kind is ConceptKind.GENRE_FOCUS)
+        # 和食's candidate is nearer the origin (default latitude=0.001 for
+        # both here, so the tiebreak falls to insertion order among ties --
+        # soba is listed first), so it is the selected genre.
+        self.assertIn("和食", genre_focus.title)
+        self.assertIn("和食", genre_focus.rationale)
+
+    def test_tiebreak_prefers_the_nearest_candidates_genre(self):
+        soba_near = candidate(
+            provider_page_url="https://example.invalid/soba", genre="和食", latitude=0.001
+        )
+        yoshoku_far = candidate(
+            provider_page_url="https://example.invalid/yoshoku", genre="洋食", latitude=0.05
+        )
+
+        concepts = build_concepts([yoshoku_far, soba_near], ORIGIN)
+
+        genre_focus = next(c for c in concepts if c.kind is ConceptKind.GENRE_FOCUS)
+        self.assertEqual([c.genre for c in genre_focus.candidates], ["和食"])
+
+    def test_default_excluded_genre_candidates_never_participate(self):
+        izakaya = candidate(
+            name="除外対象",
+            genre="居酒屋",
+            provider_page_url="https://example.invalid/izakaya",
+        )
+        soba = candidate(provider_page_url="https://example.invalid/soba", genre="和食")
+        yoshoku = candidate(provider_page_url="https://example.invalid/yoshoku", genre="洋食")
+
+        concepts = build_concepts([izakaya, soba, yoshoku], ORIGIN)
+
+        for concept in concepts:
+            if concept.kind is ConceptKind.IZAKAYA_BAR_INCLUDED:
+                continue
+            self.assertNotIn("除外対象", [c.name for c in concept.candidates])
+
+
+class NonSmokingReferenceTests(SimpleTestCase):
+    def test_absent_with_a_uniform_non_smoking_status(self):
+        concepts = build_concepts(
+            [
+                candidate(provider_page_url="https://example.invalid/a", non_smoking_status="FULL"),
+                candidate(provider_page_url="https://example.invalid/b", non_smoking_status="FULL"),
+            ],
+            ORIGIN,
+        )
+
+        self.assertNotIn(ConceptKind.NON_SMOKING_REFERENCE, [c.kind for c in concepts])
+
+    def test_absent_when_every_candidate_has_an_unconfirmed_status(self):
+        concepts = build_concepts(
+            [
+                candidate(provider_page_url="https://example.invalid/a", non_smoking_status=None),
+                candidate(provider_page_url="https://example.invalid/b", non_smoking_status=None),
+            ],
+            ORIGIN,
+        )
+
+        self.assertNotIn(ConceptKind.NON_SMOKING_REFERENCE, [c.kind for c in concepts])
+
+    def test_orders_full_then_partial_then_none_then_unconfirmed(self):
+        unconfirmed = candidate(
+            name="不明",
+            provider_page_url="https://example.invalid/unconfirmed",
+            non_smoking_status=None,
+            latitude=0.001,
+        )
+        none_status = candidate(
+            name="禁煙席なし",
+            provider_page_url="https://example.invalid/none",
+            non_smoking_status="NONE",
+            latitude=0.002,
+        )
+        partial = candidate(
+            name="一部禁煙",
+            provider_page_url="https://example.invalid/partial",
+            non_smoking_status="PARTIAL",
+            latitude=0.003,
+        )
+        full = candidate(
+            name="全面禁煙",
+            provider_page_url="https://example.invalid/full",
+            non_smoking_status="FULL",
+            latitude=0.004,
+        )
+
+        concepts = build_concepts([unconfirmed, none_status, partial, full], ORIGIN)
+
+        non_smoking = next(c for c in concepts if c.kind is ConceptKind.NON_SMOKING_REFERENCE)
+        self.assertEqual(
+            [c.name for c in non_smoking.candidates],
+            ["全面禁煙", "一部禁煙", "禁煙席なし", "不明"],
+        )
+
+    def test_proximity_breaks_ties_within_the_same_non_smoking_status(self):
+        near_full = candidate(
+            name="近い全面禁煙",
+            provider_page_url="https://example.invalid/near-full",
+            non_smoking_status="FULL",
+            latitude=0.001,
+        )
+        far_full = candidate(
+            name="遠い全面禁煙",
+            provider_page_url="https://example.invalid/far-full",
+            non_smoking_status="FULL",
+            latitude=0.005,
+        )
+        partial = candidate(
+            name="一部禁煙",
+            provider_page_url="https://example.invalid/partial",
+            non_smoking_status="PARTIAL",
+            latitude=0.002,
+        )
+
+        concepts = build_concepts([far_full, partial, near_full], ORIGIN)
+
+        non_smoking = next(c for c in concepts if c.kind is ConceptKind.NON_SMOKING_REFERENCE)
+        self.assertEqual(
+            [c.name for c in non_smoking.candidates],
+            ["近い全面禁煙", "遠い全面禁煙", "一部禁煙"],
+        )
+
+    def test_default_excluded_genre_candidates_never_participate(self):
+        izakaya = candidate(
+            name="除外対象",
+            genre="居酒屋",
+            provider_page_url="https://example.invalid/izakaya",
+            non_smoking_status="FULL",
+        )
+        soba = candidate(
+            provider_page_url="https://example.invalid/soba",
+            genre="和食",
+            non_smoking_status="NONE",
+        )
+
+        concepts = build_concepts([izakaya, soba], ORIGIN)
+
+        for concept in concepts:
+            if concept.kind is ConceptKind.IZAKAYA_BAR_INCLUDED:
+                continue
+            self.assertNotIn("除外対象", [c.name for c in concept.candidates])
+
+
 class ReproposalOptionsTests(SimpleTestCase):
     def test_displayed_kind_is_excluded(self):
         concepts = build_concepts(
-            [candidate(provider_page_url="https://example.invalid/a", total_seats=1)], ORIGIN
+            [
+                candidate(provider_page_url="https://example.invalid/a", genre="和食"),
+                candidate(provider_page_url="https://example.invalid/b", genre="洋食"),
+            ],
+            ORIGIN,
         )
 
         options = reproposal_options(concepts, ConceptKind.PROXIMITY)
@@ -182,8 +345,7 @@ class ReproposalOptionsTests(SimpleTestCase):
             candidate(
                 provider_page_url=f"https://example.invalid/{i}",
                 genre=str(i),
-                total_seats=i,
-                amenity_score=1,
+                non_smoking_status="FULL" if i % 2 else "NONE",
             )
             for i in range(1, 4)
         ]
@@ -194,27 +356,33 @@ class ReproposalOptionsTests(SimpleTestCase):
         self.assertLessEqual(len(options), 3)
 
     def test_all_four_buildable_kinds_never_exceed_the_three_option_cap(self):
-        # adr/0016 decision 4: with GENRE_VARIETY removed, ConceptKind has
-        # four members, so "every kind except the displayed one" is always
-        # at most three -- unlike the pre-adr/0016 five-kind shape, where
-        # IZAKAYA_BAR_INCLUDED could be silently dropped by maxItems: 3
-        # (FR-010). Build candidates that make all four kinds explainable
-        # (a total-seat value, an amenity signal, and an excluded-genre
-        # candidate alongside a default-population one) and assert none of
-        # the three non-displayed kinds is missing.
+        # adr/0019 decision 1 (formerly adr/0016 decision 4 for the pre-0019
+        # shape): with GENRE_FOCUS and NON_SMOKING_REFERENCE replacing
+        # CAPACITY_REFERENCE and AMENITY_REFERENCE one-for-one, ConceptKind
+        # still has four members, so "every kind except the displayed one" is
+        # always at most three -- the same structural guarantee the
+        # five-kind shape lacked (FR-010). Build candidates that make all
+        # four kinds explainable (two distinct genres, two distinct
+        # non-smoking references, and an excluded-genre candidate alongside a
+        # default-population one) and assert none of the three non-displayed
+        # kinds is missing.
         candidates = [
             candidate(
                 name="和食",
                 provider_page_url="https://example.invalid/soba",
                 genre="和食",
-                total_seats=10,
-                amenity_score=1,
+                non_smoking_status="FULL",
+            ),
+            candidate(
+                name="洋食",
+                provider_page_url="https://example.invalid/yoshoku",
+                genre="洋食",
+                non_smoking_status="NONE",
             ),
             candidate(
                 name="居酒屋",
                 provider_page_url="https://example.invalid/izakaya",
                 genre="居酒屋",
-                total_seats=20,
             ),
         ]
 
@@ -223,8 +391,8 @@ class ReproposalOptionsTests(SimpleTestCase):
             {c.kind for c in concepts},
             {
                 ConceptKind.PROXIMITY,
-                ConceptKind.CAPACITY_REFERENCE,
-                ConceptKind.AMENITY_REFERENCE,
+                ConceptKind.GENRE_FOCUS,
+                ConceptKind.NON_SMOKING_REFERENCE,
                 ConceptKind.IZAKAYA_BAR_INCLUDED,
             },
         )
@@ -235,8 +403,8 @@ class ReproposalOptionsTests(SimpleTestCase):
         self.assertEqual(
             {option.kind for option in options},
             {
-                ConceptKind.CAPACITY_REFERENCE,
-                ConceptKind.AMENITY_REFERENCE,
+                ConceptKind.GENRE_FOCUS,
+                ConceptKind.NON_SMOKING_REFERENCE,
                 ConceptKind.IZAKAYA_BAR_INCLUDED,
             },
         )
@@ -245,20 +413,32 @@ class ReproposalOptionsTests(SimpleTestCase):
 class SelectReproposalTests(SimpleTestCase):
     def test_selects_the_matching_buildable_concept(self):
         concepts = build_concepts(
-            [candidate(provider_page_url="https://example.invalid/a", total_seats=1)], ORIGIN
+            [
+                candidate(
+                    provider_page_url="https://example.invalid/a",
+                    genre="和食",
+                    non_smoking_status="FULL",
+                ),
+                candidate(
+                    provider_page_url="https://example.invalid/b",
+                    genre="洋食",
+                    non_smoking_status="NONE",
+                ),
+            ],
+            ORIGIN,
         )
 
-        selected = select_reproposal(concepts, ConceptKind.CAPACITY_REFERENCE)
+        selected = select_reproposal(concepts, ConceptKind.NON_SMOKING_REFERENCE)
 
-        self.assertEqual(selected.kind, ConceptKind.CAPACITY_REFERENCE)
+        self.assertEqual(selected.kind, ConceptKind.NON_SMOKING_REFERENCE)
 
     def test_raises_for_an_unbuildable_kind(self):
         concepts = build_concepts(
-            [candidate(provider_page_url="https://example.invalid/a", amenity_score=0)], ORIGIN
+            [candidate(provider_page_url="https://example.invalid/a", genre="和食")], ORIGIN
         )
 
         with self.assertRaises(ReproposalKindUnavailableError):
-            select_reproposal(concepts, ConceptKind.AMENITY_REFERENCE)
+            select_reproposal(concepts, ConceptKind.NON_SMOKING_REFERENCE)
 
     def test_requesting_the_currently_displayed_kind_returns_it_again(self):
         # adr/0016 decision 2-3: a same-lens "try again" request resends
@@ -292,20 +472,16 @@ class DefaultGenreExclusionTests(SimpleTestCase):
             name="除外対象",
             genre="居酒屋",
             provider_page_url="https://example.invalid/izakaya",
-            total_seats=99,
-            amenity_score=1,
         )
         soba = candidate(
             name="非除外",
             provider_page_url="https://example.invalid/soba",
             genre="和食",
-            total_seats=10,
         )
         udon = candidate(
             name="非除外2",
             provider_page_url="https://example.invalid/udon",
             genre="洋食",
-            total_seats=20,
         )
 
         concepts = build_concepts([izakaya, soba, udon], ORIGIN)
@@ -467,27 +643,29 @@ class DisplayCapTests(SimpleTestCase):
     def test_the_cap_ranks_over_the_full_population_before_truncating(self):
         # If the cap ran before ranking, a candidate placed 6th in insertion
         # order would be truncated away before ranking ever saw it, even
-        # though it ranks 1st by total seats. Ranking the full six-candidate
-        # population first, then capping to 5, must keep it.
-        low_seats = [
+        # though it ranks 1st by non-smoking reference. Ranking the full
+        # six-candidate population first, then capping to 5, must keep it.
+        others = [
             candidate(
                 name=f"店{i}",
                 provider_page_url=f"https://example.invalid/many-{i}",
-                total_seats=10 - i,
+                non_smoking_status="NONE",
+                latitude=0.001 * i,
             )
             for i in range(1, 6)
         ]
-        highest_seats_last_in_order = candidate(
-            name="満席店",
-            provider_page_url="https://example.invalid/many-highest",
-            total_seats=100,
+        full_non_smoking_last_in_order = candidate(
+            name="全面禁煙店",
+            provider_page_url="https://example.invalid/many-full",
+            non_smoking_status="FULL",
+            latitude=0.1,
         )
 
-        concepts = build_concepts([*low_seats, highest_seats_last_in_order], ORIGIN)
+        concepts = build_concepts([*others, full_non_smoking_last_in_order], ORIGIN)
 
-        capacity = next(c for c in concepts if c.kind is ConceptKind.CAPACITY_REFERENCE)
-        self.assertEqual(len(capacity.candidates), 5)
-        self.assertEqual(capacity.candidates[0].name, "満席店")
+        non_smoking = next(c for c in concepts if c.kind is ConceptKind.NON_SMOKING_REFERENCE)
+        self.assertEqual(len(non_smoking.candidates), 5)
+        self.assertEqual(non_smoking.candidates[0].name, "全面禁煙店")
 
 
 # adr/0017 decision 2: server-side repeat demotion, applied after ranking and
@@ -576,39 +754,43 @@ class RepeatDemotionTests(SimpleTestCase):
         )
 
     def test_demotion_applies_independently_per_concept_kind(self):
-        # AMENITY_REFERENCE ranks by amenity_score descending, the opposite
-        # order from PROXIMITY's ranking by distance here, so the same
-        # previously-shown URL demotes a different candidate's position in
-        # each concept -- demotion must run against each concept's own
+        # NON_SMOKING_REFERENCE ranks primarily by non-smoking status, the
+        # opposite order from PROXIMITY's ranking by distance here, so the
+        # same previously-shown URL demotes a different candidate's position
+        # in each concept -- demotion must run against each concept's own
         # ranked order, not a single shared order.
-        near_low_amenity = candidate(
-            name="近いが設備少",
-            provider_page_url="https://example.invalid/near-low",
+        near_none = candidate(
+            name="近いが禁煙席なし",
+            provider_page_url="https://example.invalid/near-none",
             latitude=0.001,
-            amenity_score=1,
+            non_smoking_status="NONE",
         )
-        far_high_amenity = candidate(
-            name="遠いが設備充実",
-            provider_page_url="https://example.invalid/far-high",
+        far_full = candidate(
+            name="遠いが全面禁煙",
+            provider_page_url="https://example.invalid/far-full",
             latitude=0.002,
-            amenity_score=3,
+            non_smoking_status="FULL",
         )
 
         concepts = build_concepts(
-            [near_low_amenity, far_high_amenity],
+            [near_none, far_full],
             ORIGIN,
-            ["https://example.invalid/near-low"],
+            ["https://example.invalid/near-none"],
         )
 
         proximity = next(c for c in concepts if c.kind is ConceptKind.PROXIMITY)
-        amenity = next(c for c in concepts if c.kind is ConceptKind.AMENITY_REFERENCE)
-        # PROXIMITY ranks near_low_amenity first; demoting it moves it behind
-        # far_high_amenity.
-        self.assertEqual([c.name for c in proximity.candidates], ["遠いが設備充実", "近いが設備少"])
-        # AMENITY_REFERENCE already ranks far_high_amenity first on its own
-        # criterion, so demoting near_low_amenity (already last) is a no-op
-        # on this concept's visible order.
-        self.assertEqual([c.name for c in amenity.candidates], ["遠いが設備充実", "近いが設備少"])
+        non_smoking = next(c for c in concepts if c.kind is ConceptKind.NON_SMOKING_REFERENCE)
+        # PROXIMITY ranks near_none first; demoting it moves it behind
+        # far_full.
+        self.assertEqual(
+            [c.name for c in proximity.candidates], ["遠いが全面禁煙", "近いが禁煙席なし"]
+        )
+        # NON_SMOKING_REFERENCE already ranks far_full first on its own
+        # criterion, so demoting near_none (already last) is a no-op on this
+        # concept's visible order.
+        self.assertEqual(
+            [c.name for c in non_smoking.candidates], ["遠いが全面禁煙", "近いが禁煙席なし"]
+        )
 
 
 class RealisticLargeMultiGenrePopulationShapeTests(SimpleTestCase):
@@ -622,11 +804,11 @@ class RealisticLargeMultiGenrePopulationShapeTests(SimpleTestCase):
     This test is a synthetic reproduction of that shape only (ADR-0002
     decision 7 forbids a live credentialed call from this repository); it
     does not reproduce the real request/response sequence. Building concepts
-    from this shape here yields non-empty re-proposal options (two, after
-    adr/0016 removed GENRE_VARIETY -- this shape's own repeated review is
-    part of what led to that removal), so this exact candidate shape alone
-    does not explain an empty ``reProposalOptions``. It does not rule out
-    the other named possibility
+    from this shape here yields non-empty re-proposal options (this shape
+    spans multiple genres, so GENRE_FOCUS is buildable; it carries no
+    non-smoking data, so NON_SMOKING_REFERENCE stays unbuildable here, per
+    adr/0019), so this exact candidate shape alone does not explain an empty
+    ``reProposalOptions``. It does not rule out the other named possibility
     (ADR-0008 decision 2: each request is an independent fresh provider
     search, so the request that produced the empty result may have returned a
     different, unmeasured shape) -- that possibility is outside what a
@@ -676,15 +858,13 @@ class RealisticLargeMultiGenrePopulationShapeTests(SimpleTestCase):
 
         options = reproposal_options(concepts, displayed.kind)
 
-        # adr/0016: GENRE_VARIETY no longer exists, so this real-data shape
-        # (which previously built it as a redundant duplicate of PROXIMITY,
-        # per adr/0016's own real-device finding) now yields two options
-        # instead of three -- AMENITY_REFERENCE stays unbuildable here since
-        # this synthetic shape carries no amenity signal.
+        # adr/0019: this shape carries multiple genres (GENRE_FOCUS
+        # buildable) but no non-smoking data (NON_SMOKING_REFERENCE stays
+        # unbuildable), yielding two options.
         self.assertEqual(
             {option.kind for option in options},
             {
-                ConceptKind.CAPACITY_REFERENCE,
+                ConceptKind.GENRE_FOCUS,
                 ConceptKind.IZAKAYA_BAR_INCLUDED,
             },
         )

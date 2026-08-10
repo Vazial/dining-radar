@@ -43,10 +43,42 @@
 # schema -- the server no longer returns it. The provider page link remains
 # the authoritative source for hours. This revision becomes durable when its
 # PR merges.
+# 2026-08-09 amendment (adr/0019): a field survey across the same 64 live
+# candidates found CAPACITY_REFERENCE and AMENITY_REFERENCE weak or
+# unwanted as comparison lenses (the human: sorting by the exact seat count
+# adds no value; AMENITY_REFERENCE's constituent fields other than
+# non_smoking are sparse or unusable in real data), while genre and
+# non-smoking status are well-populated and well-distributed. ConceptKind is
+# regrouped to PROXIMITY, GENRE_FOCUS (new -- ranks only the single most
+# common genre in the eligible population, a structural subset of
+# PROXIMITY's population so it cannot reproduce GENRE_VARIETY's exact-match
+# degeneracy), NON_SMOKING_REFERENCE (new, replacing AMENITY_REFERENCE --
+# ranks primarily by non-smoking reference), and IZAKAYA_BAR_INCLUDED
+# (unchanged); the total stays at four so reProposalOptions.maxItems: 3
+# remains satisfied without change (adr/0019 decision 1, responding to the
+# capacity-check follow-up recorded by adr/0016 decision 4). Candidate gains
+# capacityTier (a coarse SMALL/MEDIUM/LARGE seating-scale reference derived
+# from totalSeats, displayed instead of the raw number; it does not imply
+# reservation ease or availability), nonSmokingStatus (the provider-supplied
+# non-smoking reference), and cardPaymentAvailable (the provider-supplied
+# credit-card-acceptance reference, surfaced only as a caution when false;
+# it reflects card acceptance only, never a claim that a shop is
+# cash-only). access is removed from Candidate entirely -- the map already
+# shows shop location. This revision becomes durable when its PR merges.
+# 2026-08-09 amendment #2 (adr/0019 decision 8, same-day correction): the
+# first draft of this amendment rejected any dinner-budget display; the
+# human, on re-confirmation after a reasoning error was found in that
+# rejection, asked for a coarse staged display instead. Candidate gains
+# dinnerBudgetTier (a coarse LOW/MID/HIGH dinner-price-range reference
+# derived from the provider's budget data; null when not supplied). Its
+# visible label must always state it is a dinner reference, and no
+# rationale, label, or caution derived from it may state or imply a lunch
+# price. It is never a ConceptKind or ranking input. This revision becomes
+# durable when its PR merges.
 openapi: 3.0.3
 info:
   title: Toyama Dining Radar Candidate Proposal API
-  version: 0.7.0
+  version: 0.9.0
   description: >-
     Produces deterministic lunch-candidate concepts around one private
     runtime-configured location. The location, configured radius, credentials,
@@ -259,7 +291,11 @@ components:
           $ref: '#/components/schemas/ConceptKind'
         title:
           type: string
-          description: A plain-language label for the next comparison lens.
+          description: >-
+            A plain-language label for the next comparison lens. For
+            GENRE_FOCUS this is generated per response and names the genre
+            it selected (adr/0019); it remains deterministic for a given
+            candidate set.
         rationale:
           type: string
           description: >-
@@ -306,28 +342,50 @@ components:
             $ref: '#/components/schemas/Candidate'
     ConceptKind:
       type: string
-      enum: [PROXIMITY, CAPACITY_REFERENCE, AMENITY_REFERENCE, IZAKAYA_BAR_INCLUDED]
+      enum: [PROXIMITY, GENRE_FOCUS, NON_SMOKING_REFERENCE, IZAKAYA_BAR_INCLUDED]
       description: >-
         The deterministic selection lens. The server returns only kinds it can
         explain from the current normalized provider data. PROXIMITY,
-        CAPACITY_REFERENCE, and AMENITY_REFERENCE rank only candidates outside
-        a default-excluded genre category whose lunch service cannot be
+        GENRE_FOCUS, and NON_SMOKING_REFERENCE rank only candidates outside a
+        default-excluded genre category whose lunch service cannot be
         confirmed from returned provider fields (adr/0015). That default
         exclusion reflects unconfirmed lunch status, not a confirmed absence
         of lunch service, and no rationale may claim otherwise.
         IZAKAYA_BAR_INCLUDED is the only kind whose candidate population
         additionally includes that category; the organizer reaches it only by
         selecting it as a re-proposal lens, the same way as any other kind,
-        never as an upfront filter or secondary condition. GENRE_VARIETY was
+        never as an upfront filter or secondary condition. GENRE_FOCUS ranks
+        by proximity only the candidates sharing the single most common genre
+        in the eligible population, and is explainable only when that
+        population spans at least two distinct genres -- its candidate set is
+        therefore always a strict subset of PROXIMITY's own candidate set when
+        offered, which by construction differs from it (adr/0019; GENRE_VARIETY,
+        removed by adr/0016, instead reordered the same full population and
+        sometimes produced an identical set and order -- GENRE_FOCUS cannot
+        reproduce that exact failure because its population is always a
+        narrower subset when built). NON_SMOKING_REFERENCE ranks candidates
+        primarily by their provider-supplied non-smoking reference (full
+        non-smoking, then partial, then none, then unconfirmed), then by
+        proximity, and is explainable only when the population spans at least
+        two distinct non-smoking references; it replaces AMENITY_REFERENCE
+        (adr/0019), whose combined constituent fields (private_room, parking,
+        wifi, barrier_free) real-data review found too sparse or unusable to
+        compare by. CAPACITY_REFERENCE was also removed (adr/0019): the
+        organizer found sorting by the exact seat count added no comparison
+        value; every Candidate now instead carries a coarse capacityTier
+        reference shown regardless of the active lens. GENRE_VARIETY was
         removed (adr/0016): under real data it produced the same candidate
         set and order as PROXIMITY whenever the nearest candidates already
         spanned distinct genres, so it no longer described a distinct,
-        explainable lens.
+        explainable lens. dinnerBudgetTier (adr/0019 decision 8) is a
+        Candidate field, never a ConceptKind: dinner-price banding is never
+        offered as a comparison lens, only shown on every card.
     Candidate:
       type: object
       required:
         [candidateRef, name, genre, description, regularHoliday,
-         totalSeats, access, location, providerPageUrl]
+         totalSeats, capacityTier, nonSmokingStatus, cardPaymentAvailable,
+         dinnerBudgetTier, location, providerPageUrl]
       additionalProperties: false
       properties:
         candidateRef:
@@ -352,11 +410,52 @@ components:
           type: integer
           nullable: true
           minimum: 0
-          description: Provider-supplied total-seat reference; null when not supplied.
-        access:
+          description: >-
+            Provider-supplied total-seat reference; null when not supplied.
+            Retained for exact machine comparison only (see the browser
+            interface's rawValueAttribute); the visible card value is
+            capacityTier's coarse label, not this number (adr/0019). This
+            value does not indicate reservation availability.
+        capacityTier:
           type: string
           nullable: true
-          description: Provider-supplied access reference; null when not supplied.
+          enum: [SMALL, MEDIUM, LARGE]
+          description: >-
+            A coarse seating-scale reference derived from totalSeats
+            (adr/0019); null exactly when totalSeats is null. It describes the
+            shop's scale only -- it is not a claim about reservation ease,
+            availability, or whether a given party size can be seated.
+        nonSmokingStatus:
+          type: string
+          nullable: true
+          enum: [FULL, PARTIAL, NONE]
+          description: >-
+            Provider-supplied non-smoking reference (full non-smoking,
+            partial, or no non-smoking seating); null when not supplied. Do
+            not treat null as NONE -- an unconfirmed reference is not a claim
+            of no non-smoking seating.
+        cardPaymentAvailable:
+          type: boolean
+          nullable: true
+          description: >-
+            Provider-supplied credit-card-acceptance reference; null when not
+            supplied. This reflects credit-card acceptance only, not other
+            payment methods (cash, e-money, or other cashless methods), and
+            must not be presented as a claim that the shop accepts only cash.
+        dinnerBudgetTier:
+          type: string
+          nullable: true
+          enum: [LOW, MID, HIGH]
+          description: >-
+            A coarse dinner-price-range reference derived from the provider's
+            budget data (adr/0019 decision 8); null when not supplied. This
+            is the provider's dinner-oriented budget figure only -- it must
+            never be presented as, or used to infer, a lunch price, and no
+            rationale, label, or caution derived from it may state or imply
+            a lunch price threshold. Its visible label must always make
+            clear it is a dinner reference (for example a "dinner" or
+            equivalent qualifier). It is never a ConceptKind or ranking
+            input; it is shown on every card regardless of the active lens.
         location:
           $ref: '#/components/schemas/ShopLocation'
         providerPageUrl:

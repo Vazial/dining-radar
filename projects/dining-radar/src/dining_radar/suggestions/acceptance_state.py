@@ -105,14 +105,15 @@ def _synthetic_candidate(
     provider_page_url: str,
     latitude: float,
     total_seats: int | None = None,
+    non_smoking_status: str | None = None,
+    card_payment_available: bool | None = None,
+    budget_average: float | None = None,
 ) -> NormalizedCandidate:
     """A deterministic, clearly fictional synthetic shop.
 
-    Amenity data is intentionally never supplied so ``AMENITY_REFERENCE``
-    stays unbuildable, matching the contract's ``NORMAL_WITH_REPEAT``
-    requirement that it is excluded from every response's
-    ``reProposalOptions``. Per adr/0017 decision 7, ``NormalizedCandidate``
-    no longer carries a business-hours field, so none is supplied here.
+    Per adr/0017 decision 7, ``NormalizedCandidate`` no longer carries a
+    business-hours field, so none is supplied here. Per adr/0019 decision 6,
+    it no longer carries ``access`` either.
     """
     return NormalizedCandidate(
         name=name,
@@ -120,11 +121,12 @@ def _synthetic_candidate(
         description=f"{name}の紹介文（合成データ）です。",
         regular_holiday="日曜・祝日",
         total_seats=total_seats,
-        access="合成アクセス情報",
+        non_smoking_status=non_smoking_status,
+        card_payment_available=card_payment_available,
+        budget_average=budget_average,
         latitude=latitude,
         longitude=0.0,
         provider_page_url=provider_page_url,
-        amenity_score=0,
     )
 
 
@@ -151,9 +153,9 @@ _DEFAULT_EXCLUDED_CANDIDATE = _synthetic_candidate(
 # least one unseen candidate left to promote. The six default-population
 # (non-excluded-genre) candidates below give PROXIMITY exactly that: ranked
 # by latitude (this module's proximity approximation with longitude fixed at
-# 0.0, see pipeline._distance), the nearest five are the initial display and
-# the sixth is always the unseen "new" candidate once the initial five are
-# echoed back as previouslyShownProviderPageUrls.
+# 0.0, see pipeline._distance), the nearest five (shop A-E) are the initial
+# display and the sixth (shop F) is always the unseen "new" candidate once
+# the initial five are echoed back as previouslyShownProviderPageUrls.
 #
 # Unlike the pre-adr/0017 shape (two disjoint candidate sets switched by
 # whether the request carried a reproposalKind, modeling "each request is an
@@ -163,6 +165,25 @@ _DEFAULT_EXCLUDED_CANDIDATE = _synthetic_candidate(
 # previouslyShownProviderPageUrls (adr/0017 decision 2), so an
 # unconditionally-different response would no longer distinguish a working
 # demotion mechanism from a canned one that ignores the request.
+#
+# adr/0019: this population also carries the four new candidate-level
+# reference values.
+#
+# * Genre: all six default-population candidates carry distinct genres, so
+#   GENRE_FOCUS's "at least two distinct genres" explainability condition
+#   holds and its most-common-genre tiebreak (developer discretion, adr/0019
+#   decision 2) falls to the nearest-shop rule -- shop A (和食, the nearest).
+# * Non-smoking: every default-population candidate deliberately shares the
+#   same non_smoking_status (None, i.e. unconfirmed), so NON_SMOKING_REFERENCE
+#   stays unbuildable here -- this replaces the prior AMENITY_REFERENCE
+#   exclusion (both existed to make TDR-CS-07's "request an unavailable lens"
+#   scenario deterministic) and does not contradict GENRE_FOCUS's own
+#   distinct-genre requirement, since the two fields are independent.
+# * Card payment: shops A-E (the initial five displayed) mix True/False/None
+#   so TDR-CS-12's presence/absence contrast is observable in the very first
+#   response, not only after a re-proposal.
+# * Dinner budget: shops A-E also mix a non-null figure with an explicit
+#   `None` (no provider budget data) for the same reason.
 _CANDIDATES: tuple[NormalizedCandidate, ...] = (
     _synthetic_candidate(
         name="合成食堂 一号店",
@@ -170,6 +191,8 @@ _CANDIDATES: tuple[NormalizedCandidate, ...] = (
         provider_page_url="https://example.invalid/acceptance-shop-a",
         latitude=0.0010,
         total_seats=30,
+        card_payment_available=True,
+        budget_average=2500.0,
     ),
     _synthetic_candidate(
         name="合成食堂 二号店",
@@ -177,6 +200,8 @@ _CANDIDATES: tuple[NormalizedCandidate, ...] = (
         provider_page_url="https://example.invalid/acceptance-shop-b",
         latitude=0.0012,
         total_seats=20,
+        card_payment_available=False,
+        budget_average=None,
     ),
     _synthetic_candidate(
         name="合成食堂 三号店",
@@ -184,6 +209,8 @@ _CANDIDATES: tuple[NormalizedCandidate, ...] = (
         provider_page_url="https://example.invalid/acceptance-shop-c",
         latitude=0.0014,
         total_seats=45,
+        card_payment_available=None,
+        budget_average=1500.0,
     ),
     _synthetic_candidate(
         name="合成食堂 四号店",
@@ -191,6 +218,8 @@ _CANDIDATES: tuple[NormalizedCandidate, ...] = (
         provider_page_url="https://example.invalid/acceptance-shop-d",
         latitude=0.0016,
         total_seats=15,
+        card_payment_available=True,
+        budget_average=None,
     ),
     _synthetic_candidate(
         name="合成食堂 五号店",
@@ -198,6 +227,8 @@ _CANDIDATES: tuple[NormalizedCandidate, ...] = (
         provider_page_url="https://example.invalid/acceptance-shop-e",
         latitude=0.0018,
         total_seats=50,
+        card_payment_available=False,
+        budget_average=5000.0,
     ),
     _synthetic_candidate(
         name="合成食堂 六号店",
@@ -205,6 +236,8 @@ _CANDIDATES: tuple[NormalizedCandidate, ...] = (
         provider_page_url="https://example.invalid/acceptance-shop-f",
         latitude=0.0020,
         total_seats=10,
+        card_payment_available=None,
+        budget_average=3500.0,
     ),
     _DEFAULT_EXCLUDED_CANDIDATE,
 )

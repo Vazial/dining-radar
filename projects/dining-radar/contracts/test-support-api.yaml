@@ -34,13 +34,38 @@
 # leaves ordering unaffected. This makes TDR-CS-03 and TDR-CS-11 genuine
 # tests of the server-side selection adr/0017 introduces, not just of a fixed
 # response shape.
+# 2026-08-09 amendment (adr/0019): NORMAL_WITH_REPEAT's synthetic default
+# population (outside the adr/0015 default-excluded genre category) now
+# spans at least two distinct genres and at least two distinct non-smoking
+# references, so GENRE_FOCUS and NON_SMOKING_REFERENCE are deterministically
+# buildable and distinguishable from PROXIMITY. It also includes at least one
+# candidate with cardPaymentAvailable false and at least one with
+# cardPaymentAvailable true or null, so TDR-CS-12's presence/absence contrast
+# is deterministically reachable from one mode. The prior AMENITY_REFERENCE
+# reference (excluding it from the initial response's reProposalOptions to
+# make TDR-CS-07 deterministic) is replaced by NON_SMOKING_REFERENCE: this
+# mode deliberately gives every synthetic candidate in the default
+# population the same non-smoking reference (or none), so
+# NON_SMOKING_REFERENCE is unbuildable under adr/0019's own two-distinct-
+# values explainability rule, keeping the request for that valid enum
+# deterministically unavailable without a separate flag. No other existing
+# mode's prior guarantee changed.
+# 2026-08-09 amendment #2 (adr/0019 decision 8, same-day correction): the
+# first draft of this amendment carried no dinner-budget guarantee because
+# the corresponding API decision rejected any display; the human, on
+# re-confirmation after a reasoning error was found in that rejection, asked
+# for a coarse staged display instead. NORMAL_WITH_REPEAT now also includes
+# at least one candidate with a non-null dinnerBudgetTier and at least one
+# with dinnerBudgetTier null, so TDR-CS-02's dinner-budget-reference
+# assertion is deterministically observable in both states from this one
+# mode.
 openapi: 3.0.3
 info:
   title: Toyama Dining Radar acceptance test-support API
-  version: 0.5.0
+  version: 0.7.0
   description: >-
     Acceptance-only setup and reset seams for TDR-AUTH-01 through TDR-AUTH-07
-    and TDR-CS-00 through TDR-CS-11.
+    and TDR-CS-00 through TDR-CS-12.
     Browser actions and outcomes under test must use the public same-origin
     authentication and candidate-search boundaries; these operations are only
     for deterministic Given state and scenario isolation.
@@ -58,7 +83,7 @@ paths:
         reset by resetCandidateProposalAcceptanceState.
       x-acceptance-scenarios:
         [TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05, TDR-CS-06,
-         TDR-CS-07, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11]
+         TDR-CS-07, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12]
       requestBody:
         required: true
         content:
@@ -78,7 +103,8 @@ paths:
         storage, real account, or production/deployment setting.
       x-acceptance-scenarios:
         [TDR-CS-00, TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05,
-         TDR-CS-06, TDR-CS-07, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11]
+         TDR-CS-06, TDR-CS-07, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11,
+         TDR-CS-12]
       responses:
         '204':
           description: Candidate-proposal acceptance state is reset.
@@ -217,15 +243,30 @@ components:
             the displayed proposal's own kind (a same-lens "try again"
             request, adr/0016; TDR-CS-11), so both scenarios are
             deterministically reachable from this one mode without depending
-            on a canned response shape. It excludes AMENITY_REFERENCE from
-            the initial response's reProposalOptions so a public,
+            on a canned response shape. Its default (non-excluded-genre)
+            population spans at least two distinct genre values and at least
+            two distinct non-smoking references (adr/0019), so GENRE_FOCUS
+            and NON_SMOKING_REFERENCE are each explainable and observably
+            distinct from PROXIMITY's own candidate set or order; it excludes
+            NON_SMOKING_REFERENCE from the initial response's
+            reProposalOptions by giving every default-population candidate
+            the same non-smoking reference (or none), so a public,
             CSRF-protected request for that valid enum is deterministically
-            unavailable. Per adr/0015, it also includes at least one
-            synthetic candidate in the default-excluded genre category and
-            at least one outside it, so an acceptance test can observe from
-            this one mode that the default proposal excludes the former,
-            that IZAKAYA_BAR_INCLUDED is offered as a re-proposal option, and
-            that selecting it includes the former (TDR-CS-09).
+            unavailable (replacing the removed AMENITY_REFERENCE reference,
+            adr/0019). It also includes at least one candidate with
+            cardPaymentAvailable false and at least one with
+            cardPaymentAvailable true or null, so TDR-CS-12's presence/
+            absence contrast is deterministically observable in one response
+            (adr/0019). It also includes at least one candidate with a
+            non-null dinnerBudgetTier and at least one with dinnerBudgetTier
+            null, so TDR-CS-02's dinner-budget-reference assertion is
+            deterministically observable in both states (adr/0019 decision
+            8). Per adr/0015, it also includes at least one synthetic
+            candidate in the default-excluded genre category and at least one
+            outside it, so an acceptance test can observe from this one mode
+            that the default proposal excludes the former, that
+            IZAKAYA_BAR_INCLUDED is offered as a re-proposal option, and that
+            selecting it includes the former (TDR-CS-09).
             IZAKAYA_BAR_ONLY supplies only synthetic candidates in that
             default-excluded genre category, so the initial proposal falls
             through to IZAKAYA_BAR_INCLUDED instead of a successful null
@@ -235,7 +276,8 @@ components:
             corresponding public problem response. Synthetic display data is
             implementation-owned, deterministic, and must satisfy the
             candidate-search API schema (including its 5-candidate display
-            cap) without using real provider data.
+            cap and its capacityTier/nonSmokingStatus/cardPaymentAvailable/
+            dinnerBudgetTier fields) without using real provider data.
     AcceptanceAccountState:
       type: object
       additionalProperties: false

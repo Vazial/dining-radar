@@ -24,7 +24,9 @@ def _candidate(provider_page_url="https://example.invalid/shop"):
         description=None,
         regular_holiday=None,
         total_seats=None,
-        access=None,
+        non_smoking_status=None,
+        card_payment_available=None,
+        budget_average=None,
         latitude=0.001,
         longitude=0.0,
         provider_page_url=provider_page_url,
@@ -277,11 +279,21 @@ class ProposeWithOverrideAdr0015Tests(SimpleTestCase):
         # TDR-CS-03 (adr/0017): the same demotion mechanism applies whether
         # the re-proposal selects a different offered kind or the displayed
         # one -- the server does not branch its selection logic by kind.
+        # IZAKAYA_BAR_INCLUDED is picked deliberately (rather than
+        # reproposal_options[0]): adr/0019's NORMAL_WITH_REPEAT guarantees a
+        # population larger than the display cap for "at least one concept"
+        # (PROXIMITY and IZAKAYA_BAR_INCLUDED both qualify here), not for
+        # every offered lens -- GENRE_FOCUS narrows to a single genre and can
+        # be too small on its own to demonstrate this.
         initial = acceptance_state.propose_with_override(
             acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT, None
         )
         initial_urls = [c.provider_page_url for c in initial.proposal.candidates]
-        offered_kind = initial.reproposal_options[0].kind.value
+        offered_kind = next(
+            option.kind.value
+            for option in initial.reproposal_options
+            if option.kind.value == "IZAKAYA_BAR_INCLUDED"
+        )
 
         reproposed = acceptance_state.propose_with_override(
             acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT,

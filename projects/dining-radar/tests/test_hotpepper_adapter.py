@@ -157,15 +157,12 @@ class NormalizeShopsTests(SimpleTestCase):
             "open": "11:00〜14:30",
             "close": "日曜",
             "capacity": "38",
-            "access": "架空駅から徒歩1分",
             "lat": "35.1",
             "lng": "139.1",
             "urls": {"pc": "https://example.invalid/shop-a"},
-            "private_room": "あり",
-            "non_smoking": "完全禁煙",
-            "parking": "なし",
-            "wifi": "なし",
-            "barrier_free": "なし",
+            "non_smoking": "全面禁煙",
+            "card": "利用可",
+            "budget": {"code": "B003", "name": "3,001〜4,000円", "average": "3500"},
         }
         shop.update(overrides)
         return shop
@@ -180,23 +177,36 @@ class NormalizeShopsTests(SimpleTestCase):
         # is no longer part of NormalizedCandidate; normalize_shops must not
         # read it into anything this application still carries.
         self.assertFalse(hasattr(candidate, "business_hours"))
+        # adr/0019 decision 6: access is no longer read at all.
+        self.assertFalse(hasattr(candidate, "access"))
         self.assertEqual(candidate.regular_holiday, "日曜")
         self.assertEqual(candidate.total_seats, 38)
-        self.assertEqual(candidate.access, "架空駅から徒歩1分")
+        self.assertEqual(candidate.non_smoking_status, "FULL")
+        self.assertEqual(candidate.card_payment_available, True)
+        self.assertEqual(candidate.budget_average, 4000.0)
         self.assertEqual(candidate.latitude, 35.1)
         self.assertEqual(candidate.longitude, 139.1)
         self.assertEqual(candidate.provider_page_url, "https://example.invalid/shop-a")
-        self.assertEqual(candidate.amenity_score, 2)
 
     def test_missing_optional_fields_become_none(self):
-        raw = self._raw_shop(catch=None, open=None, close=None, capacity=None, access=None)
+        raw = self._raw_shop(
+            catch=None,
+            open=None,
+            close=None,
+            capacity=None,
+            non_smoking=None,
+            card=None,
+            budget=None,
+        )
 
         [candidate] = normalize_shops({"results": {"shop": [raw]}})
 
         self.assertIsNone(candidate.description)
         self.assertIsNone(candidate.regular_holiday)
         self.assertIsNone(candidate.total_seats)
-        self.assertIsNone(candidate.access)
+        self.assertIsNone(candidate.non_smoking_status)
+        self.assertIsNone(candidate.card_payment_available)
+        self.assertIsNone(candidate.budget_average)
 
     def test_missing_name_raises_response_error(self):
         raw = self._raw_shop()
@@ -235,11 +245,141 @@ class NormalizeShopsTests(SimpleTestCase):
         with self.assertRaisesRegex(HotPepperResponseError, "was not a list"):
             normalize_shops({"results": {"shop": 12345}})
 
-    def test_no_amenity_signals_score_zero(self):
+    def test_a_shop_entry_that_is_not_an_object_raises_response_error(self):
+        with self.assertRaisesRegex(HotPepperResponseError, "must be an object"):
+            normalize_shops({"results": {"shop": ["not-an-object"]}})
+
+    # total_seats numeric-typing branches -----------------------------------
+
+    def test_capacity_supplied_as_an_int_is_read_directly(self):
+        raw = self._raw_shop(capacity=38)
+
+        [candidate] = normalize_shops({"results": {"shop": [raw]}})
+
+        self.assertEqual(candidate.total_seats, 38)
+
+    def test_capacity_supplied_as_a_bool_is_treated_as_missing(self):
+        raw = self._raw_shop(capacity=True)
+
+        [candidate] = normalize_shops({"results": {"shop": [raw]}})
+
+        self.assertIsNone(candidate.total_seats)
+
+    # budget_average now reads budget.name, not budget.average (2026-08-10
+    # field-survey correction) -----------------------------------------------
+
+    def test_budget_average_reads_the_upper_bound_of_a_name_range(self):
+        raw = self._raw_shop(budget={"name": "3,001〜4,000円"})
+
+        [candidate] = normalize_shops({"results": {"shop": [raw]}})
+
+        self.assertEqual(candidate.budget_average, 4000.0)
+
+    def test_budget_average_reads_a_name_range_without_commas(self):
+        raw = self._raw_shop(budget={"name": "1501～2000円"})
+
+        [candidate] = normalize_shops({"results": {"shop": [raw]}})
+
+        self.assertEqual(candidate.budget_average, 2000.0)
+
+    def test_budget_average_reads_a_single_figure_name(self):
+        raw = self._raw_shop(budget={"name": "5000円"})
+
+        [candidate] = normalize_shops({"results": {"shop": [raw]}})
+
+        self.assertEqual(candidate.budget_average, 5000.0)
+
+    def test_budget_average_ignores_a_free_form_average_and_still_reads_name(self):
+        # The exact field-survey shape this fix responds to: `average` mixes
+        # more than one labeled figure and must not be guessed between, but
+        # `name` alone is enough.
         raw = self._raw_shop(
-            private_room="なし", non_smoking="なし", parking="", wifi=None, barrier_free="-"
+            budget={"average": "通常平均：3000円 / 宴会平均：3500円", "name": "2,001〜3,000円"}
         )
 
         [candidate] = normalize_shops({"results": {"shop": [raw]}})
 
-        self.assertEqual(candidate.amenity_score, 0)
+        self.assertEqual(candidate.budget_average, 3000.0)
+
+    def test_budget_average_is_null_when_name_is_not_a_string(self):
+        raw = self._raw_shop(budget={"name": None})
+
+        [candidate] = normalize_shops({"results": {"shop": [raw]}})
+
+        self.assertIsNone(candidate.budget_average)
+
+    def test_budget_average_is_null_when_name_names_no_figure(self):
+        raw = self._raw_shop(budget={"name": "応相談"})
+
+        [candidate] = normalize_shops({"results": {"shop": [raw]}})
+
+        self.assertIsNone(candidate.budget_average)
+
+    # non_smoking classification (adr/0019 decision 9) ---------------------
+
+    def test_non_smoking_full_when_the_text_contains_zenmen_kinen(self):
+        raw = self._raw_shop(non_smoking="全面禁煙")
+
+        [candidate] = normalize_shops({"results": {"shop": [raw]}})
+
+        self.assertEqual(candidate.non_smoking_status, "FULL")
+
+    def test_non_smoking_partial_when_kinen_without_zenmen(self):
+        raw = self._raw_shop(non_smoking="分煙（一部禁煙）")
+
+        [candidate] = normalize_shops({"results": {"shop": [raw]}})
+
+        self.assertEqual(candidate.non_smoking_status, "PARTIAL")
+
+    def test_non_smoking_none_for_a_known_negative_marker(self):
+        raw = self._raw_shop(non_smoking="なし")
+
+        [candidate] = normalize_shops({"results": {"shop": [raw]}})
+
+        self.assertEqual(candidate.non_smoking_status, "NONE")
+
+    def test_non_smoking_unknown_text_is_left_null(self):
+        raw = self._raw_shop(non_smoking="喫煙可の店内です")
+
+        [candidate] = normalize_shops({"results": {"shop": [raw]}})
+
+        self.assertIsNone(candidate.non_smoking_status)
+
+    # card classification (adr/0019 decision 9) -----------------------------
+
+    def test_card_true_when_the_text_contains_ka_without_fuka(self):
+        raw = self._raw_shop(card="利用可")
+
+        [candidate] = normalize_shops({"results": {"shop": [raw]}})
+
+        self.assertIs(candidate.card_payment_available, True)
+
+    def test_card_false_when_the_text_contains_fuka(self):
+        raw = self._raw_shop(card="利用不可")
+
+        [candidate] = normalize_shops({"results": {"shop": [raw]}})
+
+        self.assertIs(candidate.card_payment_available, False)
+
+    def test_card_unknown_text_is_left_null(self):
+        raw = self._raw_shop(card="要確認")
+
+        [candidate] = normalize_shops({"results": {"shop": [raw]}})
+
+        self.assertIsNone(candidate.card_payment_available)
+
+    # budget.name is read regardless of the (now-ignored) code/average siblings
+
+    def test_budget_average_is_read_from_the_nested_budget_object(self):
+        raw = self._raw_shop(budget={"average": "2800", "code": "B011", "name": "2,001〜3,000円"})
+
+        [candidate] = normalize_shops({"results": {"shop": [raw]}})
+
+        self.assertEqual(candidate.budget_average, 3000.0)
+
+    def test_budget_average_is_null_when_budget_is_not_an_object(self):
+        raw = self._raw_shop(budget="3000円くらい")
+
+        [candidate] = normalize_shops({"results": {"shop": [raw]}})
+
+        self.assertIsNone(candidate.budget_average)

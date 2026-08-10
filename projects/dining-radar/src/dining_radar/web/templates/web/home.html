@@ -217,11 +217,31 @@
     [data-testid="candidate-card-name"] { margin: 0; font-size: 1.05rem; line-height: 1.35; }
 
     [data-testid="candidate-card"] dl.candidate-facts {
-      margin: 0; display: grid; gap: 0.4rem;
+      margin: 0; display: grid; gap: 0.35rem;
       background: #f7f8f5; border: 1px solid #eceee9; border-radius: 0.5rem; padding: 0.65rem 0.75rem;
     }
     [data-testid="candidate-card"] dl.candidate-facts dt { font-weight: 650; font-size: 0.8125rem; color: #536057; }
     [data-testid="candidate-card"] dl.candidate-facts dd { margin: 0; font-size: 0.9rem; }
+    /* Each field is a label+value pair wrapped in its own <div> (see
+       fieldRow in candidate.js). adr/0019 grows this list from four fields
+       to five (access is removed; capacityTier's coarse label, non-smoking
+       reference, and dinner-budget reference are added) -- laying every
+       pair out in two columns (label | value) rather than stacking dt above
+       dd is what keeps the box from growing taller in proportion, at every
+       width, not only the narrow one this rule previously targeted. */
+    [data-testid="candidate-card"] dl.candidate-facts > div {
+      display: grid; grid-template-columns: 4.6rem 1fr; column-gap: 0.5rem; align-items: baseline;
+    }
+
+    /* adr/0019 decision 5: shown only when cardPaymentAvailable is false
+       (candidate.js). Styled as a caution, not an error -- it states one
+       confirmed fact (credit-card payment is not accepted), never "cash
+       only" or another payment method. */
+    .candidate-payment-caution {
+      margin: 0; padding: 0.45rem 0.65rem; border-radius: 0.4rem;
+      background: #fdf3e2; border: 1px solid #f0dcae; color: #6b4f13;
+      font-size: 0.825rem; line-height: 1.4;
+    }
 
     [data-testid="candidate-card-provider-page-link"] {
       display: inline-flex; align-items: center; justify-content: center;
@@ -233,31 +253,30 @@
     /* Narrow-width card density (developer judgment under ADR-0021's "骨格を
        保つ限り自由に洗練してよい"; human 2026-08-08 real-device review:
        「モバイルの場合、1店舗が縦長すぎてスクロールしないとみれないね、情報
-       を圧縮したい」, adr/0016 hand-off). businessHours itself was removed
-       from the card (adr/0017 decision 7, the largest single contributor to
-       card height) rather than compressed here. This is layout/typography
-       only for the remaining requiredFields in candidate-search-browser-
+       を圧縮したい」, adr/0016 hand-off). businessHours (adr/0017 decision
+       7) and access (adr/0019 decision 6) were both removed from the card
+       outright rather than compressed here. This is layout/typography only
+       for the remaining requiredFields in candidate-search-browser-
        interface.yaml: every one keeps its test id, its data-field-label,
-       and (for totalSeats) its rawValueAttribute in the DOM unchanged, and
+       and (where declared) its rawValueAttribute in the DOM unchanged, and
        every field's visible value still equals the returned value exactly
        -- the description clamp below hides overflow visually without
        truncating the DOM text node. Reuses the existing 64rem breakpoint
        (the point where the map already becomes a side column instead of
-       stacking above the cards) rather than introducing a new one. */
+       stacking above the cards) rather than introducing a new one. The
+       label/value two-column grid itself (dl.candidate-facts > div, added
+       for adr/0019's extra fields) now applies at every width; only the
+       column width narrows here to match the smaller font size below. */
     @media (max-width: 63.999rem) {
       [data-testid="candidate-proposal-cards"] { gap: 0.5rem; }
       [data-testid="candidate-card"] { padding: 0.75rem 0.85rem; gap: 0.45rem; }
       .candidate-card-id-row { gap: 0.35rem; }
       [data-testid="candidate-card-name"] { font-size: 1rem; }
       [data-testid="candidate-card"] dl.candidate-facts {
-        gap: 0.3rem; padding: 0.5rem 0.6rem;
+        gap: 0.25rem; padding: 0.5rem 0.6rem;
       }
-      /* Each field is a label+value pair wrapped in its own <div> (see
-         fieldRow in candidate.js); laying that pair out in two columns
-         instead of stacked rows is what shrinks a field with a short value
-         (regular holiday, total seats) from two lines to one. */
       [data-testid="candidate-card"] dl.candidate-facts > div {
-        display: grid; grid-template-columns: 4.4rem 1fr; column-gap: 0.5rem; align-items: baseline;
+        grid-template-columns: 4.4rem 1fr;
       }
       [data-testid="candidate-card"] dl.candidate-facts dt { font-size: 0.75rem; }
       [data-testid="candidate-card"] dl.candidate-facts dd { font-size: 0.85rem; line-height: 1.35; }

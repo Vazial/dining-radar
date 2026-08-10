@@ -70,10 +70,17 @@ moduleやfilter taxonomyはこの流れに含まれない。別の切り口は�
 操作である。除外の結果どの切り口も説明不能になる場合は、除いていたジャンルを含めた母集団へ
 フォールスルーする。
 
-切り口（`ConceptKind`）は現在4種類（`PROXIMITY`・`CAPACITY_REFERENCE`・`AMENITY_REFERENCE`・
+切り口（`ConceptKind`）は現在4種類（`PROXIMITY`・`GENRE_FOCUS`・`NON_SMOKING_REFERENCE`・
 `IZAKAYA_BAR_INCLUDED`）である。表示中の1つを除いた残りは常に再提案の選択肢の表示上限（3つ以下）に
-収まる（adr/0016）。ジャンルを横断して比較する切り口（`GENRE_VARIETY`）は、実データで初期切り口
-（`PROXIMITY`）と候補・順序ともに常に一致する縮退が観測されたため廃止した（adr/0016）。
+収まる（adr/0016、adr/0019決定1）。ジャンルを横断して比較する切り口（`GENRE_VARIETY`）は、実データで
+初期切り口（`PROXIMITY`）と候補・順序ともに常に一致する縮退が観測されたため廃止した（adr/0016）。
+実データのフィールド調査（adr/0019）を受け、総席数で並べ替える切り口（`CAPACITY_REFERENCE`）と
+個室・禁煙等を合算する切り口（`AMENITY_REFERENCE`）も廃止した——前者は人間自身が並べ替え基準としての
+価値を否定し、後者は構成フィールドの大半が実データで片側に極端に偏るか使えないと判明した。代わりに
+`GENRE_FOCUS`（既定母集団内の最多ジャンル1つへ絞り込み、`PROXIMITY`の候補集合の真部分集合になる
+場合だけ提示する）と`NON_SMOKING_REFERENCE`（禁煙区分を第一の並び順にする）を追加し、総数は4のまま
+据え置いた。予算感（`dinnerBudgetTier`）は切り口にせず、この4種の構成には数えない——総席数の目安と
+同じく、すべてのカードに常時示す参考情報である（adr/0019決定8）。
 
 候補提案画面はサーバから空のマウント点だけを受け取り、候補カード・地図・再提案モーダル・エラー表示は
 すべてクライアント側JavaScriptが生成する（ADR-0009）。この画面のL4検証は、サーバ応答時点のHTMLではなく
@@ -85,16 +92,16 @@ moduleやfilter taxonomyはこの流れに含まれない。別の切り口は�
 | モジュール | 責務 | 禁止・境界 |
 |---|---|---|
 | `authentication` | 管理者作成の個別account、session、login/logout/password change、account有効性の保護境界 | 公開signup、メールreset、SSO、実account・session・secretをGitまたはbrowser出力へ置かない |
-| `web` | 利用時の検索条件入力、候補表示、credit表示 | providerキー・実URL・provider固有形式を扱わない |
+| `web` | 利用時の検索条件入力、候補表示、credit表示、候補の表示専用派生値（総席数の目安`capacityTier`・予算感の目安`dinnerBudgetTier`等）の算出（adr/0019） | providerキー・実URL・provider固有形式を扱わない |
 | `suggestions` | provider と recommendation pipeline を調停（再提案リクエストの既表示候補一覧をrecommendationへ中継する） | provider事実を保存・改変しない |
 | `recommendation` | 正規化済み候補の適格性判定、順位付け（再提案時の既表示候補の二次順位低下を含む。adr/0017）、代替候補選択 | Django、HTTP、ORM、provider形式へ依存しない |
-| `integrations/hotpepper` | server側通信、クエリキー送信、URL redaction、正規化 | 実レスポンスをfixture・cache・DBへ残さない |
+| `integrations/hotpepper` | server側通信、クエリキー送信、URL redaction、正規化（`genre`・`non_smoking`・`card`・`budget.average`等の生フィールドをこのアプリの内部表現へ変換する。adr/0019） | 実レスポンスをfixture・cache・DBへ残さない |
 
 ## データと秘密の境界
 
 この製品は訪問履歴・ブラックリスト・長期候補照合を実装しない。provider ID と HMAC 由来トークンは保存しない。方針を再検討するには、新たな人の意思決定、provider 規約の再確認、新規 ADR を必要とする。`previouslyShownProviderPageUrls`（再提案リクエストがサーバへ送る既表示候補のprovider page URL一覧。adr/0017）はこの「履歴」の対象外である——サーバ自身が直前の応答で返した値をそのまま echo し返すだけで、保存・長期識別子・跨リクエストの継続的な照合を一切必要とせず、当該1リクエストの処理が終われば破棄される。
 
-正確な検索基点を browser、公開 URL、ログ、エラー、trace、Git へ出さないことは Must である。候補店舗と地図から地域をおおまかに推測できることの防止は Want であり、初期版では保証しない。`previouslyShownProviderPageUrls`の値がログ・トレース・エラーレスポンスへ出力されないことも実装上のMustとする（adr/0017決定3）。
+正確な検索基点を browser、公開 URL、ログ、エラー、trace、Git へ出さないことは Must である。候補店舗と地図から地域をおおまかに推測できることの防止は Want であり、初期版では保証しない。`previouslyShownProviderPageUrls`の値がログ・トレース・エラーレスポンスへ出力されないことも実装上のMustとする（adr/0017決定3）。`card`（カード払い可否）の注意表示は、確認済みの事実（クレジットカード利用不可）だけを述べ、「現金のみ」等の未確認の支払方法を主張しないことをMustとする（adr/0019決定5）。`dinnerBudgetTier`（予算感の目安）の可視ラベルは必ず「ディナー」であることが分かる表現を含み、いかなるrationale・注意文もランチ価格を推論・断定しないことをMustとする（adr/0019決定8）。
 
 Leaflet/OSM の公開運用は `Referrer-Policy: strict-origin-when-cross-origin` とし、タイル提供者へ公開 origin だけを送る。provider 通信は HTTPS のみとする。Leaflet 本体（JS/CSS/マーカーアイコン）は `static/` に同梱し自オリジンから配信する（ADR-0010）。認証済み画面が地図UIのために接触する外部オリジンは OSM 標準タイルサーバだけであり、第三者CDNへは接続しない。
 
@@ -120,4 +127,4 @@ Leaflet/OSM の公開運用は `Referrer-Policy: strict-origin-when-cross-origin
 - L2: provider固有依存のadapter外流出、`web`からadapter/ORMへの直接アクセス、`recommendation`へのframework依存を検出する。
 - L3: 合成fixtureでadapterの正規化・redactionを検証する。資格情報を用いるlive APIテストはしない。
 - L3: TDR-AUTH-06 の deployment 向け cookie/CSRF/CORS/token 非使用は設定・security-boundary 検証で確認する。ローカル acceptance profile の HTTP は public HTTPS の代替ではなく、実 transport は deployment slice が確認する。
-- L4: TDR-AUTH-01〜05・07 の利用者操作・観測は `contracts/authentication-browser-interface.yaml`、TDR-CS-00〜11 は `contracts/candidate-search-browser-interface.yaml` の browser control surface と既存 browser-facing 境界だけを通す。公開境界だけでは作れない認証の Given、candidate の合成状態選択、security-boundary 観測、シナリオ間の初期化は、acceptance-test 構成にだけ存在する `contracts/test-support-api.yaml` の機械可読 seam を使う。この seam は合成 account・session・login throttle state・閉じた candidate 状態と有効な acceptance 設定に限定し、実 account、非公開検索基点、provider data、secret、production 設定には触れない。TDR-AUTHの画面はサーバ応答時点のHTMLで観測できるが、TDR-CSの候補提案画面はクライアント側JavaScriptが描画するため、TDR-CSのL4はJS実行可能なブラウザ自動化を用いて実行後のDOMに対して行う（ADR-0009）。既表示候補の二次順位低下（adr/0017）を実際に検証できるよう、`test-support-api.yaml`の`NORMAL_WITH_REPEAT`合成候補は表示上限5件を上回る母集団を持つ。
+- L4: TDR-AUTH-01〜05・07 の利用者操作・観測は `contracts/authentication-browser-interface.yaml`、TDR-CS-00〜12 は `contracts/candidate-search-browser-interface.yaml` の browser control surface と既存 browser-facing 境界だけを通す。公開境界だけでは作れない認証の Given、candidate の合成状態選択、security-boundary 観測、シナリオ間の初期化は、acceptance-test 構成にだけ存在する `contracts/test-support-api.yaml` の機械可読 seam を使う。この seam は合成 account・session・login throttle state・閉じた candidate 状態と有効な acceptance 設定に限定し、実 account、非公開検索基点、provider data、secret、production 設定には触れない。TDR-AUTHの画面はサーバ応答時点のHTMLで観測できるが、TDR-CSの候補提案画面はクライアント側JavaScriptが描画するため、TDR-CSのL4はJS実行可能なブラウザ自動化を用いて実行後のDOMに対して行う（ADR-0009）。既表示候補の二次順位低下（adr/0017）を実際に検証できるよう、`test-support-api.yaml`の`NORMAL_WITH_REPEAT`合成候補は表示上限5件を上回る母集団を持つ。同じ合成モードは、`GENRE_FOCUS`・`NON_SMOKING_REFERENCE`が構成可能かつ`PROXIMITY`と区別できることと、カード払い不可の注意（`TDR-CS-12`）・予算感の目安（`dinnerBudgetTier`が非nullと null の両方）の有無をあわせて検証できるだけのジャンル・禁煙区分・カード払い可否・予算感の分散を持つ（adr/0019）。

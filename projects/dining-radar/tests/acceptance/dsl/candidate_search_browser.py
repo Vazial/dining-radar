@@ -63,6 +63,27 @@ test-support-api.yaml's NORMAL_WITH_REPEAT now supplies, for at least one
 concept, more than 5 lunch-eligible synthetic candidates so this demotion is
 genuinely exercised by TDR-CS-03, TDR-CS-09, and TDR-CS-11's requests rather
 than satisfied by a fixed response shape independent of what was sent.
+
+adr/0019 (candidate-search-api.yaml v0.9.0, candidate-search-browser-interface.yaml
+v0.7, test-support-api.yaml v0.7.0) regroups ConceptKind onto PROXIMITY,
+GENRE_FOCUS, NON_SMOKING_REFERENCE, and IZAKAYA_BAR_INCLUDED (CAPACITY_REFERENCE
+and AMENITY_REFERENCE are retired), removes ``access`` from the Candidate
+schema and from ``requiredFields``, and adds three new Candidate fields:
+``capacityTier`` (a coarse label that becomes totalSeats's own visible value,
+still checked for exact raw equality only through totalSeats's existing
+``data-raw-value`` attribute -- no separate DOM assertion exists for
+capacityTier itself, since the browser interface does not give it one),
+``nonSmokingStatus`` and ``dinnerBudgetTier`` (each a new ``requiredFields``
+entry reusing the same rawValueAttribute mechanism ADR-0011 established for
+totalSeats, extended to a second and third field for the first time). A new
+conditional element, ``cardPaymentCaution``, is asserted only via the two new
+TDR-CS-12 methods near the bottom of this module -- it is not a
+``requiredFields`` entry (it has no ``data-value-state``/unavailable state;
+its presence itself is the signal) and is asserted separately from
+``assert_required_card_fields_match_current_proposal``. See that method's new
+sibling ``assert_dinner_budget_reference_is_shown`` for why TDR-CS-02's new
+"discloses it is a dinner reference" Then-clause is limited to a presence
+check.
 """
 
 from __future__ import annotations
@@ -71,7 +92,7 @@ import json
 from pathlib import Path
 
 from django.test import SimpleTestCase
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Locator, Page, expect
 
 from tests.acceptance.dsl.authentication_browser import AuthenticationBrowserDsl
 from tests.acceptance.dsl.browser_mechanics import HttpBrowser, assert_no_content
@@ -146,17 +167,25 @@ MAP_FORBIDDEN_TEST_IDS = [
 ]
 REQUIRED_CARD_FIELDS: dict[str, tuple[str, str | None]] = {
     # (testId, rawValueAttribute) per candidate-search-browser-interface.yaml
-    # cardDataAttributes.requiredFields. rawValueAttribute is currently
-    # declared only for totalSeats (ADR-0011): its visible value may carry
-    # implementation-chosen display formatting (e.g. a unit suffix) around
-    # the returned value, so equality is instead checked on that attribute.
+    # cardDataAttributes.requiredFields. rawValueAttribute is declared for
+    # totalSeats (ADR-0011, the original field), and, since adr/0019, also
+    # for nonSmokingStatus and dinnerBudgetTier: each of these three fields'
+    # visible value may carry implementation-chosen display formatting (a
+    # unit suffix, or -- for totalSeats specifically -- a wholly different
+    # coarse label derived from capacityTier) around or instead of the
+    # returned value, so equality is instead checked on that attribute.
+    # ``access`` was removed entirely by adr/0019 (Candidate no longer
+    # returns it; the map already shows shop location).
     "name": ("candidate-card-name", None),
     "genre": ("candidate-card-genre", None),
     "description": ("candidate-card-description", None),
     "regularHoliday": ("candidate-card-regular-holiday", None),
     "totalSeats": ("candidate-card-total-seats", "data-raw-value"),
-    "access": ("candidate-card-access", None),
+    "nonSmokingStatus": ("candidate-card-non-smoking", "data-raw-value"),
+    "dinnerBudgetTier": ("candidate-card-dinner-budget", "data-raw-value"),
 }
+CARD_PAYMENT_CAUTION_TEST_ID = "candidate-card-payment-caution"
+CARD_PAYMENT_CAUTION_ATTRIBUTE = "data-card-payment-available"
 PROVIDER_PAGE_LINK_TEST_ID = "candidate-card-provider-page-link"
 VALUE_STATES = {"provided", "unavailable"}
 ALLOWED_CONTROL_PURPOSES = {
@@ -224,8 +253,9 @@ DUMP_BROWSER_STORAGE_JS = """
 
 # adr/0015: the only ConceptKind whose population additionally includes the
 # genre category that is excluded by default from the other three kinds
-# (PROXIMITY, CAPACITY_REFERENCE, AMENITY_REFERENCE; GENRE_VARIETY was the
-# fourth until adr/0016 removed it).
+# (PROXIMITY, GENRE_FOCUS, NON_SMOKING_REFERENCE, as regrouped by adr/0019;
+# CAPACITY_REFERENCE and AMENITY_REFERENCE were removed, and GENRE_VARIETY
+# was the prior fourth value until adr/0016 removed it).
 IZAKAYA_BAR_INCLUDED = "IZAKAYA_BAR_INCLUDED"
 
 
@@ -390,11 +420,7 @@ class CandidateSearchBrowserDsl:
         self.assertions.assertEqual(len(marker_refs), len(set(marker_refs)))
 
     def assert_required_card_fields_match_current_proposal(self) -> None:
-        response = require(self.initial, "candidate screen was not opened")
-        proposal = response.payload["proposal"]
-        self.assertions.assertIsNotNone(proposal)
-        candidates_by_ref = {c["candidateRef"]: c for c in proposal["candidates"]}
-        cards = wait_for_at_least_one(self.page, CARD)
+        cards, candidates_by_ref = self._current_cards_by_candidate_ref()
         for index in range(cards.count()):
             card = cards.nth(index)
             candidate_ref = card.get_attribute("data-candidate-ref")
@@ -419,6 +445,33 @@ class CandidateSearchBrowserDsl:
             link = by_test_id(card, PROVIDER_PAGE_LINK_TEST_ID)
             self.assertions.assertEqual(link.get_attribute("data-value-state"), "provided")
             self.assertions.assertEqual(link.get_attribute("href"), candidate["providerPageUrl"])
+
+    def assert_dinner_budget_reference_is_shown(self) -> None:
+        """TDR-CS-02's new Then-clause, "予算のめやすは、ディナーの価格である
+        ことが分かるように示される", requires the visible dinnerBudgetTier
+        label to disclose it is a dinner-price reference "or an equivalent
+        qualifier" -- candidate-search-browser-interface.yaml's own
+        nullBehavior description leaves the exact wording non-binding ("a
+        'dinner' or equivalent qualifier"), and adr/0019 itself calls its
+        example labels non-binding. Soundly verifying that free-form text
+        discloses this specific meaning needs comprehension a mechanized L4
+        check cannot provide without either rejecting a compliant but
+        differently-worded label (a false negative if it required the
+        literal substring "ディナー") or accepting a coincidental substring
+        match that is not really a dinner disclosure (a false positive) --
+        the same reasoning meta/verification.md 3.4 sets out, and the same
+        reasoning that already limits
+        assert_izakaya_bar_included_rationale_does_not_claim_confirmed_lunch
+        to a presence check rather than reviving the keyword-denylist
+        approach that check's own docstring records as rejected. This
+        assertion is therefore limited to what
+        assert_required_card_fields_match_current_proposal already
+        establishes soundly for dinnerBudgetTier -- the field is rendered
+        with its required label, and its data-raw-value attribute equals the
+        returned enum value exactly -- and leaves the "states a dinner
+        reference, not a lunch price" judgment to human review.
+        """
+        self.assert_required_card_fields_match_current_proposal()
 
     def assert_map_attribution_and_fit(self) -> None:
         map_node = by_test_id(self.page, MAP)
@@ -747,6 +800,49 @@ class CandidateSearchBrowserDsl:
     def assert_no_results_indicator_absent(self) -> None:
         assert_absent(self.assertions, self.page, NO_RESULTS)
 
+    # Observable assertions: card-payment caution (TDR-CS-12, adr/0019) ---
+    # cardPaymentCaution is a conditional element, not a requiredFields
+    # entry: candidate-search-browser-interface.yaml gives it its own
+    # presenceRule (present with data-card-payment-available="false" only
+    # when cardPaymentAvailable is false; otherwise absent from the DOM
+    # entirely, unlike an unavailable requiredFields entry which still
+    # renders with data-value-state=unavailable). It is therefore asserted
+    # separately from assert_required_card_fields_match_current_proposal
+    # rather than folded into REQUIRED_CARD_FIELDS.
+
+    def assert_payment_caution_shown_for_unavailable_card_payment(self) -> None:
+        cards, candidates_by_ref = self._current_cards_by_candidate_ref()
+        unavailable_seen = False
+        for index in range(cards.count()):
+            card = cards.nth(index)
+            candidate = candidates_by_ref[card.get_attribute("data-candidate-ref")]
+            if candidate["cardPaymentAvailable"] is False:
+                unavailable_seen = True
+                caution = assert_present(self.assertions, card, CARD_PAYMENT_CAUTION_TEST_ID)
+                expect(caution).to_have_attribute(CARD_PAYMENT_CAUTION_ATTRIBUTE, "false")
+        self.assertions.assertTrue(
+            unavailable_seen,
+            "no displayed candidate had cardPaymentAvailable false; the "
+            "Given precondition (a shop without card payment) was not "
+            "observable in this response",
+        )
+
+    def assert_payment_caution_absent_when_card_payment_is_available_or_unknown(self) -> None:
+        cards, candidates_by_ref = self._current_cards_by_candidate_ref()
+        other_seen = False
+        for index in range(cards.count()):
+            card = cards.nth(index)
+            candidate = candidates_by_ref[card.get_attribute("data-candidate-ref")]
+            if candidate["cardPaymentAvailable"] is not False:
+                other_seen = True
+                assert_absent(self.assertions, card, CARD_PAYMENT_CAUTION_TEST_ID)
+        self.assertions.assertTrue(
+            other_seen,
+            "every displayed candidate had cardPaymentAvailable false; no "
+            "contrasting candidate (true or null) was observable in this "
+            "response",
+        )
+
     # Observable assertions: empty / unavailable / rate-limited -----------
 
     def assert_no_results_shown(self) -> None:
@@ -789,8 +885,12 @@ class CandidateSearchBrowserDsl:
         self._assert_no_disclosures()
 
     def request_unsupported_lens_directly(self, kind: str) -> None:
-        # requestUnavailableEnumLens exists because the offered chosen kind
-        # (AMENITY_REFERENCE) is, by this scenario's own precondition, not
+        # requestUnavailableEnumLens exists because the requested kind
+        # (NON_SMOKING_REFERENCE, since adr/0019 -- test-support-api.yaml's
+        # NORMAL_WITH_REPEAT deliberately gives every default-population
+        # candidate the same non-smoking reference so this valid enum value
+        # is unbuildable, replacing the removed AMENITY_REFERENCE reference)
+        # is, by this scenario's own precondition, not
         # among the reproposal dialog's currently offered options -- there is
         # no clickable UI option for it. Opening the dialog and selecting a
         # different, actually-offered option keeps the request on the real
@@ -812,6 +912,19 @@ class CandidateSearchBrowserDsl:
         )
 
     # Private helpers -------------------------------------------------------
+
+    def _current_cards_by_candidate_ref(self) -> tuple[Locator, dict[str, dict]]:
+        """The rendered card locator plus the initial response's own
+        candidates keyed by candidateRef, shared by every assertion that
+        must compare a specific rendered card against the specific response
+        candidate it was rendered from (required-field equality, card-payment
+        caution presence)."""
+        response = require(self.initial, "candidate screen was not opened")
+        proposal = response.payload["proposal"]
+        self.assertions.assertIsNotNone(proposal)
+        candidates_by_ref = {c["candidateRef"]: c for c in proposal["candidates"]}
+        cards = wait_for_at_least_one(self.page, CARD)
+        return cards, candidates_by_ref
 
     def _card_candidate_refs(self) -> list[str]:
         cards = wait_for_at_least_one(self.page, CARD)

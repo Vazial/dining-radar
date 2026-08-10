@@ -17,6 +17,13 @@
  * re-sorting locally. This module still tracks membership in
  * `shownProviderPageUrls` itself, purely to decide each rendered card's own
  * `data-repeat-status` badge.
+ *
+ * Per adr/0019, `access` is no longer a card field; `capacityTier`,
+ * `nonSmokingStatus`, and `dinnerBudgetTier` are rendered through the same
+ * rawValueAttribute mechanism ADR-0011 established for `totalSeats` (the
+ * machine-checked value is the raw API value, the visible text is a coarse
+ * label), and a conditional payment-caution element appears only when
+ * `cardPaymentAvailable` is exactly `false`.
  */
 (function () {
   "use strict";
@@ -27,6 +34,19 @@
   }
 
   var overlay = document.getElementById("candidate-reproposal-overlay");
+
+  // adr/0019: visible labels for the coarse card-reference enums. These
+  // exact strings are the browser-interface contract's own non-binding
+  // examples, reused verbatim so the dinner-budget label always discloses
+  // it is a dinner figure (Must) and the other two stay consistent with it.
+  var CAPACITY_TIER_LABELS = { SMALL: "少なめ", MEDIUM: "標準", LARGE: "多め" };
+  var NON_SMOKING_LABELS = { FULL: "全席禁煙", PARTIAL: "一部禁煙", NONE: "禁煙席なし" };
+  var DINNER_BUDGET_LABELS = {
+    LOW: "ディナー目安 〜2,000円",
+    MID: "ディナー目安 2,001〜4,000円",
+    HIGH: "ディナー目安 4,001円〜",
+  };
+
   var shownProviderPageUrls = new Set();
   var currentOptions = [];
   var currentProposalKind = null;
@@ -211,19 +231,62 @@
       )
     );
     facts.appendChild(fieldRow("定休日", "candidate-card-regular-holiday", candidate.regularHoliday));
+    // adr/0019 decision 4 / ADR-0011's rawValueAttribute mechanism: the
+    // element's raw-value attribute and data-value-state still key off the
+    // exact returned totalSeats value, but the visible text is now
+    // capacityTier's coarse scale label rather than "38席".
     facts.appendChild(
       fieldRow(
         "総席数",
         "candidate-card-total-seats",
         candidate.totalSeats,
-        candidate.totalSeats === null || candidate.totalSeats === undefined
-          ? undefined
-          : candidate.totalSeats + "席",
+        CAPACITY_TIER_LABELS[candidate.capacityTier],
         "data-raw-value"
       )
     );
-    facts.appendChild(fieldRow("アクセス", "candidate-card-access", candidate.access));
+    // adr/0019 decision 3: a second rawValueAttribute field. The raw enum
+    // string (e.g. "FULL") is the machine-checked value; the visible text is
+    // a fixed Japanese label per enum value.
+    facts.appendChild(
+      fieldRow(
+        "禁煙対応",
+        "candidate-card-non-smoking",
+        candidate.nonSmokingStatus,
+        NON_SMOKING_LABELS[candidate.nonSmokingStatus],
+        "data-raw-value"
+      )
+    );
+    // adr/0019 decision 8: a third rawValueAttribute field. The visible
+    // label always states "ディナー" so it is never mistaken for a lunch
+    // price (Must) -- see DINNER_BUDGET_LABELS above.
+    facts.appendChild(
+      fieldRow(
+        "予算",
+        "candidate-card-dinner-budget",
+        candidate.dinnerBudgetTier,
+        DINNER_BUDGET_LABELS[candidate.dinnerBudgetTier],
+        "data-raw-value"
+      )
+    );
     card.appendChild(facts);
+
+    // adr/0019 decision 5: present only when cardPaymentAvailable is exactly
+    // false, stating only the confirmed fact (credit-card payment is not
+    // accepted) -- never a "cash only" claim, since `card` tracks credit-card
+    // acceptance only.
+    if (candidate.cardPaymentAvailable === false) {
+      card.appendChild(
+        el(
+          "p",
+          {
+            "data-testid": "candidate-card-payment-caution",
+            "data-card-payment-available": "false",
+            "class": "candidate-payment-caution",
+          },
+          ["クレジットカードは利用できません。お支払い方法は店舗にご確認ください。"]
+        )
+      );
+    }
 
     var link = el(
       "a",

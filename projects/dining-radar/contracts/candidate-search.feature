@@ -1,11 +1,13 @@
 # Toyama Dining Radar acceptance contract — TDR-CS candidate proposals
-# ステータス: 承認済み(2026-08-08) — 人間が2026-08-08のチャットで本番データ確認後の3度目の実機レビューを
-#   行い、「もう一度探す」の構造的な無効化の是正（実装場所の変更のみで業務文言は無変更）と、営業時間の
-#   カードからの削除を裁定した。architectがTDR-CS-02の改訂としてこの契約に翻訳した（adr/0017）。
-#   TDR-CS-03・TDR-CS-09・TDR-CS-10・TDR-CS-11は無変更——降格の実装場所（ブラウザかサーバか）を
-#   規定していない業務言語のままだからである。他のシナリオは2026-08-08改訂（adr/0016）からの変更なし。
-#   承認の実体は本PRのマージである。変更には再承認が必要。この行の形式は meta/adr/0043 の機械検証が
-#   要求する
+# ステータス: 承認済み(2026-08-09) — 人間が2026-08-09のチャットで実データのフィールド調査を踏まえた
+#   所感（「近さ・ジャンル・禁煙は良い切り口」「総席数・予算感・カード払い可否は加工すれば参考情報として
+#   使える」)を示し、architectがこれをTDR-CS-02の改訂（アクセスを外し、総席数・禁煙対応・予算感を
+#   目安表現にする）と新規TDR-CS-12（カード払い不可の注意）へ翻訳した（adr/0019）。予算感は当初の
+#   ドラフトで全面却下されたが、その却下理由の一部が循環していたことが判明し、人間が「ざっくりの段階
+#   表示ができるなら入れてほしい」と再確認・差し戻したため、TDR-CS-02へ追加した（adr/0019決定8）。
+#   他のシナリオは2026-08-08改訂（adr/0016・adr/0017）からの変更なし——切り口(ConceptKind)の中身の
+#   組み替えは、この契約がコンセプトの具体名を書いていないため文言変更を要しない。承認の実体は本PRの
+#   マージである。変更には再承認が必要。この行の形式は meta/adr/0043 の機械検証が要求する
 #
 # Status: human content-approved in chat (2026-08-03 amendment; original
 # approval 2026-08-01) and made durable by merged PR #76. TDR-CS-09 and
@@ -15,7 +17,15 @@
 # observable difference from the initial one, and replaced it with a
 # same-lens "try again" action. TDR-CS-02 was amended again the same day
 # (adr/0017, a third real-device review) to drop business hours from the
-# required card fields; no other scenario text changed.
+# required card fields. TDR-CS-02 was amended a second time on 2026-08-09
+# (adr/0019, a field survey of the same live candidates) to drop access from
+# the required card fields and to describe total seats and non-smoking
+# status as coarse references rather than exact/raw values; TDR-CS-12 is a
+# 2026-08-09 addition (adr/0019) for the card-level card-payment caution.
+# TDR-CS-02 was amended a third time the same day (adr/0019 decision 8,
+# after a same-day human re-confirmation reversed an initial rejection) to
+# add a coarse dinner-budget reference, explicitly disclosed as a dinner
+# figure. No other scenario text changed.
 
 Feature: 幹事がランチ候補を見て別の切り口で比べ直す
   幹事は非公開の検索地点の周辺にあるランチ候補を、選ぶ理由の異なる
@@ -54,7 +64,8 @@ Feature: 幹事がランチ候補を見て別の切り口で比べ直す
     And 店舗カードを選ぶと対応する地図上の店舗が強調される
     And 地図上の店舗を選ぶと対応する店舗カードが強調される
     And 地図は示されている店舗が見渡せる範囲になる
-    And 店舗カードには店名、ジャンル、紹介、定休日、総席数、アクセス、詳細へのリンクが示される
+    And 店舗カードには店名、ジャンル、紹介、定休日、総席数のめやす、禁煙対応のめやす、予算のめやす、詳細へのリンクが示される
+    And 予算のめやすは、ディナーの価格であることが分かるように示される
     And 非公開の検索地点、経路、現在地、徒歩時間は示されない
     And 地図の出典表示が示される
 
@@ -134,3 +145,10 @@ Feature: 幹事がランチ候補を見て別の切り口で比べ直す
     And 同じ画面で既に表示した店舗は未表示の店舗より後ろに表示される
     And 既に表示した店舗も候補から除外されない
     And 新しい提案が以前とすべて異なる店舗になるとは限らない
+
+  # TDR-CS-12
+  Scenario: カード払いができない候補には注意が示される
+    Given 候補にカード払いができない店舗が含まれている
+    When 幹事が候補を比較する
+    Then カード払いができない店舗のカードには、その旨の注意が示される
+    And カード払いができる、または情報がない店舗にはこの注意が示されない

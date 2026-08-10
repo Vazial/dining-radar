@@ -125,7 +125,12 @@ class CandidateProposalsApiTests(TestCase):
 
     # Acceptance-seam-driven synthetic outcomes --------------------------
 
-    def test_normal_with_repeat_initial_proposal_excludes_amenity_reference(self):
+    def test_normal_with_repeat_initial_proposal_excludes_non_smoking_reference(self):
+        # adr/0019: NORMAL_WITH_REPEAT's default population deliberately
+        # shares one non-smoking reference (unconfirmed) across every
+        # candidate, so NON_SMOKING_REFERENCE stays unbuildable here -- this
+        # keeps TDR-CS-07 (requesting an unavailable lens) deterministic,
+        # replacing the pre-adr/0019 AMENITY_REFERENCE exclusion.
         acceptance_state.set_mode(
             acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT
         )
@@ -137,7 +142,7 @@ class CandidateProposalsApiTests(TestCase):
         self.assertIsNotNone(payload["proposal"])
         self.assertLessEqual(len(payload["reProposalOptions"]), 3)
         offered_kinds = [option["kind"] for option in payload["reProposalOptions"]]
-        self.assertNotIn("AMENITY_REFERENCE", offered_kinds)
+        self.assertNotIn("NON_SMOKING_REFERENCE", offered_kinds)
         self.assertNotIn(payload["proposal"]["kind"], offered_kinds)
         self.assertEqual(
             payload["providerCredit"],
@@ -147,16 +152,60 @@ class CandidateProposalsApiTests(TestCase):
             },
         )
 
-    def test_requesting_the_excluded_amenity_lens_is_deterministically_unavailable(self):
+    def test_normal_with_repeat_initial_proposal_offers_genre_focus(self):
+        # adr/0019: the default population spans multiple genres, so
+        # GENRE_FOCUS is buildable and observably distinct from PROXIMITY.
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT
+        )
+
+        response = self.post_proposal()
+
+        payload = response.json()
+        offered_kinds = [option["kind"] for option in payload["reProposalOptions"]]
+        self.assertIn("GENRE_FOCUS", offered_kinds)
+
+    def test_requesting_the_unavailable_non_smoking_lens_is_deterministically_unavailable(self):
         acceptance_state.set_mode(
             acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT
         )
         self.post_proposal()
 
-        response = self.post_proposal({"reproposalKind": "AMENITY_REFERENCE"})
+        response = self.post_proposal({"reproposalKind": "NON_SMOKING_REFERENCE"})
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "PROPOSAL_REPROPOSAL_KIND_INVALID")
+
+    def test_normal_with_repeat_initial_proposal_has_a_card_payment_caution_contrast(self):
+        # adr/0019 decision 5 / TDR-CS-12: the initial displayed proposal
+        # must include at least one candidate with cardPaymentAvailable
+        # false and at least one with true or null, all within the same
+        # response.
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT
+        )
+
+        response = self.post_proposal()
+
+        candidates = response.json()["proposal"]["candidates"]
+        card_flags = [candidate["cardPaymentAvailable"] for candidate in candidates]
+        self.assertIn(False, card_flags)
+        self.assertTrue(any(flag is not False for flag in card_flags))
+
+    def test_normal_with_repeat_initial_proposal_has_a_dinner_budget_tier_contrast(self):
+        # adr/0019 decision 8: at least one candidate with a non-null
+        # dinnerBudgetTier and at least one with dinnerBudgetTier null, both
+        # observable in the same response.
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT
+        )
+
+        response = self.post_proposal()
+
+        candidates = response.json()["proposal"]["candidates"]
+        tiers = [candidate["dinnerBudgetTier"] for candidate in candidates]
+        self.assertTrue(any(tier is not None for tier in tiers))
+        self.assertIn(None, tiers)
 
     def test_normal_with_repeat_reproposal_with_previously_shown_urls_has_new_and_repeated(
         self,
@@ -165,7 +214,13 @@ class CandidateProposalsApiTests(TestCase):
         # the request's own previouslyShownProviderPageUrls, so it is sent
         # explicitly here (unlike the pre-adr/0017 seam, the server no
         # longer varies its response just because a reproposalKind is
-        # present).
+        # present). This resends the displayed kind itself (a same-lens
+        # "try again" request, adr/0016) rather than picking an arbitrary
+        # offered kind: adr/0019's NORMAL_WITH_REPEAT guarantees a
+        # population larger than the 5-item display cap for "at least one
+        # concept" (PROXIMITY here, six default-population candidates), not
+        # for every offered lens -- GENRE_FOCUS in particular narrows to a
+        # single genre and can be too small on its own to demonstrate this.
         acceptance_state.set_mode(
             acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT
         )
@@ -173,10 +228,10 @@ class CandidateProposalsApiTests(TestCase):
         initial_urls = [
             candidate["providerPageUrl"] for candidate in initial["proposal"]["candidates"]
         ]
-        offered_kind = initial["reProposalOptions"][0]["kind"]
+        displayed_kind = initial["proposal"]["kind"]
 
         response = self.post_proposal(
-            {"reproposalKind": offered_kind, "previouslyShownProviderPageUrls": initial_urls}
+            {"reproposalKind": displayed_kind, "previouslyShownProviderPageUrls": initial_urls}
         )
 
         self.assertEqual(response.status_code, 200)
@@ -357,7 +412,10 @@ class CandidateResponseSchemaTests(TestCase):
                     "description",
                     "regularHoliday",
                     "totalSeats",
-                    "access",
+                    "capacityTier",
+                    "nonSmokingStatus",
+                    "cardPaymentAvailable",
+                    "dinnerBudgetTier",
                     "location",
                     "providerPageUrl",
                 },

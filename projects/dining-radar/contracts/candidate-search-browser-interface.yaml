@@ -48,9 +48,32 @@
 # business hours the largest single contributor to mobile card height, so
 # businessHours (candidate-card-business-hours) is removed from
 # requiredFields; candidate-search-api.yaml no longer returns this field.
+# 2026-08-09 amendment (adr/0019): a field survey of the same live
+# candidates found access redundant with the map and total seats not
+# useful to compare by as an exact number. access (candidate-card-access)
+# is removed from requiredFields. totalSeats (candidate-card-total-seats)
+# keeps its rawValueAttribute mechanism, but its visible value now reflects
+# the new capacityTier response field's coarse label rather than a raw
+# number with a unit suffix. A new requiredFields entry, nonSmokingStatus
+# (candidate-card-non-smoking), is added with the same rawValueAttribute
+# mechanism, extending it beyond totalSeats for the first time. A new
+# conditional element, cardPaymentCaution (candidate-card-payment-caution),
+# is added: present only when the response's cardPaymentAvailable is
+# false. requestUnavailableEnumLens's synthetic requestBody now references
+# NON_SMOKING_REFERENCE instead of the removed AMENITY_REFERENCE enum
+# value.
+# 2026-08-09 amendment #2 (adr/0019 decision 8, same-day correction): the
+# first draft of this amendment carried no dinner-budget field because the
+# corresponding API decision rejected any display; the human, on
+# re-confirmation after a reasoning error was found in that rejection,
+# asked for a coarse staged display instead. A new requiredFields entry,
+# dinnerBudgetTier (candidate-card-dinner-budget), is added with the same
+# rawValueAttribute mechanism as totalSeats and nonSmokingStatus (now a
+# third field using it). Its visible label must always disclose that it is
+# a dinner reference.
 # Every amendment to this file becomes durable when its PR merges
 # (meta/adr/0035 method (i)).
-contractVersion: '0.5'
+contractVersion: '0.7'
 kind: acceptance-browser-interface
 scope: candidate-search
 profiles:
@@ -59,7 +82,8 @@ profiles:
     publicDeployment: false
     verifiesScenarios:
       [TDR-CS-00, TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05,
-       TDR-CS-06, TDR-CS-07, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11]
+       TDR-CS-06, TDR-CS-07, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11,
+       TDR-CS-12]
     invariant:
       - The profile is isolated and must never be selected by a public deployment.
       - Candidate state is supplied only through contracts/test-support-api.yaml.
@@ -112,7 +136,8 @@ browserControlSurface:
         description: {testId: candidate-card-description}
         regularHoliday: {testId: candidate-card-regular-holiday}
         totalSeats: {testId: candidate-card-total-seats, rawValueAttribute: data-raw-value}
-        access: {testId: candidate-card-access}
+        nonSmokingStatus: {testId: candidate-card-non-smoking, rawValueAttribute: data-raw-value}
+        dinnerBudgetTier: {testId: candidate-card-dinner-budget, rawValueAttribute: data-raw-value}
         providerPageLink: {testId: candidate-card-provider-page-link}
       labelObservation:
         semanticAttribute: data-field-label
@@ -124,20 +149,48 @@ browserControlSurface:
         data-value-state=unavailable and an implementation-neutral visible
         unavailable value. A non-null API value uses data-value-state=provided.
         A required field whose requiredFields entry declares
-        rawValueAttribute (currently only totalSeats) additionally carries
-        that attribute on the same element when provided, equal as an exact
-        string to the returned value (numbers use their canonical decimal
-        string, e.g. 38 -> "38"); the acceptance test asserts this attribute
-        for exact equality, and the field's visible value may add
-        implementation-chosen display formatting around the same value (for
-        example totalSeats's unit suffix "38席", per the approved screen
-        design) without itself being checked for exact equality against the
-        returned value. The attribute is absent when that field is
-        unavailable, since data-value-state=unavailable already expresses its
-        state. Every other required field's visible value equals the
-        returned value exactly. providerPageLink is always provided, is
-        exempt from rawValueAttribute because its href is already the exact
+        rawValueAttribute (currently totalSeats, nonSmokingStatus, and
+        dinnerBudgetTier) additionally carries that attribute on the same
+        element when provided, equal as an exact string to the returned raw
+        API value (for totalSeats, its canonical decimal string, e.g. 38 ->
+        "38"; for nonSmokingStatus and dinnerBudgetTier, the exact enum
+        string, e.g. "FULL" or "MID"); the acceptance test asserts this
+        attribute for exact equality, and the field's visible value may
+        instead show an implementation-chosen coarse label derived from a
+        different response field or a fixed per-enum-value label
+        (totalSeats's visible value reflects capacityTier's label, e.g.
+        "少なめ"/"標準"/"多め" for SMALL/MEDIUM/LARGE, not the raw number;
+        nonSmokingStatus's visible value reflects a fixed label per its own
+        enum value, e.g. "全席禁煙"/"一部禁煙"/"禁煙席なし" for
+        FULL/PARTIAL/NONE; dinnerBudgetTier's visible value reflects a
+        fixed label per its own enum value that always discloses it is a
+        dinner reference, e.g. "ディナー目安 〜2,000円"/"ディナー目安
+        2,001〜4,000円"/"ディナー目安 4,001円〜" for LOW/MID/HIGH and must
+        never state or imply a lunch price, per adr/0019 and, for
+        totalSeats, adr/0011) without itself being checked for exact
+        equality against the raw value. The attribute is absent when that
+        field is unavailable (for totalSeats, when totalSeats is null; for
+        nonSmokingStatus, when nonSmokingStatus is null; for
+        dinnerBudgetTier, when dinnerBudgetTier is null), since
+        data-value-state=unavailable already expresses its state. Every
+        other required field's visible value equals the returned value
+        exactly. providerPageLink is always provided, is exempt from
+        rawValueAttribute because its href is already the exact
         machine-readable value, and its href equals providerPageUrl.
+      cardPaymentCaution:
+        testId: candidate-card-payment-caution
+        attribute: data-card-payment-available
+        presenceRule: >-
+          Present, with data-card-payment-available="false", only when the
+          response's cardPaymentAvailable is false for that candidate.
+          Absent (no test id in the DOM) when cardPaymentAvailable is true
+          or null -- unlike requiredFields entries, this element does not
+          use data-value-state=unavailable for the null case, since a
+          caution about a confirmed unavailability is not itself an
+          unavailable-field display (adr/0019). Where present, its visible
+          text must state only that credit-card payment is not accepted; it
+          must not claim the shop is cash-only or state any other payment
+          method.
     markerDataAttributes:
       candidateRef: data-candidate-ref
       selectionState: data-selection-state
@@ -322,7 +375,7 @@ browserActions:
       path: /candidate-proposals
       session: authenticated-browser-cookie-jar
       csrf: same-origin-browser-CSRF-token
-      requestBody: {reproposalKind: AMENITY_REFERENCE}
+      requestBody: {reproposalKind: NON_SMOKING_REFERENCE}
     requiredOutcome:
       present: [candidate-proposal-problem, candidate-proposal-problem-guidance]
       apiResponse: {status: 400, code: PROPOSAL_REPROPOSAL_KIND_INVALID}

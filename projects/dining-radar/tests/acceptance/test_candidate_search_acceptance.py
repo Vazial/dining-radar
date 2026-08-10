@@ -1,4 +1,4 @@
-"""JS-capable browser L4 runner for TDR-CS-00 through TDR-CS-11.
+"""JS-capable browser L4 runner for TDR-CS-00 through TDR-CS-12.
 
 Per ADR-0009, the authenticated candidate-proposal screen renders candidate
 cards, the map, the re-proposal modal, and error surfaces with client-side
@@ -33,6 +33,18 @@ though the mechanism they were meant to exercise had no unseen candidate left
 to promote). See ``dsl/candidate_search_browser.py``'s
 ``assert_repeat_priority_orders_new_before_repeated`` for the added
 request-echo and non-persistence checks.
+
+adr/0019 (candidate-search-api.yaml v0.9.0, candidate-search-browser-interface.yaml
+v0.7, test-support-api.yaml v0.7.0) regroups ConceptKind onto PROXIMITY,
+GENRE_FOCUS, NON_SMOKING_REFERENCE, and IZAKAYA_BAR_INCLUDED, removes
+``access`` from the required card fields, adds ``capacityTier``,
+``nonSmokingStatus``, ``cardPaymentAvailable``, and ``dinnerBudgetTier`` to
+the Candidate schema, and revises TDR-CS-02's Then clauses accordingly
+(total-seats/non-smoking/dinner-budget as coarse references, a new
+dinner-price-disclosure clause). TDR-CS-07 now requests the unavailable
+NON_SMOKING_REFERENCE lens instead of the removed AMENITY_REFERENCE. New
+scenario TDR-CS-12 exercises the card-payment caution shown only when
+cardPaymentAvailable is false.
 """
 
 from __future__ import annotations
@@ -134,6 +146,7 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.selecting_a_marker_highlights_its_card()
         self.steps.map_shows_source_attribution()
         self.steps.cards_show_required_shop_fields()
+        self.steps.dinner_budget_reference_is_disclosed_as_a_dinner_price()
         self.steps.map_has_no_forbidden_surfaces()
 
     def test_tdr_cs_03_reproposal_via_popup_replaces_the_display(self) -> None:
@@ -144,8 +157,18 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.organizer_has_one_lens_of_candidates()
         self.steps.organizer_opens_reproposal_popup()
         self.steps.reproposal_options_exclude_current_lens_and_are_bounded()
-        chosen_kind = self.steps.organizer_selects_a_different_lens()
-        self.steps.new_proposal_replaces_display_with_chosen_lens(chosen_kind)
+        # Selecting whichever lens the popup happens to offer first is an
+        # implementation-order dependency, not a property TDR-CS-03 asks for
+        # (its When/Then never name a concept). IZAKAYA_BAR_INCLUDED is
+        # chosen explicitly instead: under NORMAL_WITH_REPEAT it is always
+        # offered (TDR-CS-09 exercises the same population) and, unlike
+        # GENRE_FOCUS -- a strict subset of the initial PROXIMITY population
+        # under adr/0019 decision 2 -- its eligible population always extends
+        # past the display cap, so this scenario's repeat-demotion assertions
+        # (new-before-repeated, TDR-CS-03's own Then clauses) are satisfiable
+        # without also breaking TDR-CS-09's disjoint-genre guarantee.
+        self.steps.organizer_selects_the_izakaya_bar_included_lens()
+        self.steps.new_proposal_replaces_display_with_chosen_lens("IZAKAYA_BAR_INCLUDED")
         self.steps.repeat_priority_orders_new_before_repeated()
         self.steps.repeated_candidate_is_not_excluded()
 
@@ -182,7 +205,7 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         )
         self.steps.lunch_candidates_can_be_proposed()
         self.steps.organizer_has_one_lens_of_candidates()
-        self.steps.organizer_requests_an_unsupported_lens_directly("AMENITY_REFERENCE")
+        self.steps.organizer_requests_an_unsupported_lens_directly("NON_SMOKING_REFERENCE")
         self.steps.unsupported_lens_is_rejected()
 
     def test_tdr_cs_08_repeated_requests_are_rate_limited(self) -> None:
@@ -228,3 +251,14 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.new_proposal_uses_same_lens_and_replaces_display()
         self.steps.repeat_priority_orders_new_before_repeated()
         self.steps.repeated_candidate_is_not_excluded()
+
+    def test_tdr_cs_12_payment_caution_shown_only_when_card_payment_is_unavailable(
+        self,
+    ) -> None:
+        self.steps.organizer_is_signed_in(
+            "organizer-a", "synthetic-organizer-a", "synthetic-secret-a"
+        )
+        self.steps.candidates_include_a_shop_without_card_payment()
+        self.steps.organizer_compares_candidates()
+        self.steps.payment_caution_is_shown_for_shops_without_card_payment()
+        self.steps.payment_caution_is_not_shown_for_other_shops()
