@@ -4,76 +4,27 @@
 # observation SSoT for TDR-CS acceptance work. It neither creates a public API
 # nor changes the browser-facing candidate-proposal API.
 #
-# Status: human content-approved in chat (2026-08-03 original approval, PR
-# #76). 2026-08-05 amendment: human ruling resolved a conflict between this
-# file's totalSeats equality rule and the already-approved screen design
-# (PR #66) by adding a machine-readable raw-value attribute for totalSeats;
-# see projects/toyama-dining-radar/adr/0011. All other content is unchanged
-# from the 2026-08-03 approval.
-# 2026-08-06 amendment: human real-device review of the authenticated
-# header (the individual-account guidance banner, the password-change/
-# sign-out arrangement, and the re-proposal button's position) directed
-# developer to fix all three, and the human stated a standing policy for
-# this project -- an approved screen direction may drive this file's
-# control-surface allowlist rather than the reverse; see
-# projects/toyama-dining-radar/adr/0013. This amendment adds one new allowed
-# purpose, auth-account-menu-toggle, so an implementation may group
-# auth-sign-out and auth-password-change-open behind a single disclosure
-# control (a menu bar entry, a dropdown, a hamburger toggle, or equivalent).
-# It neither mandates nor forbids that specific UI shape, and no other
-# control, scenario, or business API changed. All prior content is
-# unchanged.
-# 2026-08-08 amendment (adr/0016): a second real-device review found the
-# reproposal flow required an explicit "submit" click after selecting an
-# option, which the human directed to be removed so selecting an option
-# itself performs the re-proposal (candidate-search.feature's TDR-CS-03
-# already described one-step selection; only this file lagged). The
-# candidate-reproposal-submit test id and the reproposal-submit purpose are
-# removed; submitReProposal is renamed selectReProposal and now triggers on
-# a single input. A new always-available same-lens "try again" control
-# (candidate-reproposal-try-again, purpose reproposal-try-again) is added,
-# replacing the removed GENRE_VARIETY lens's slot in the comparison-choice
-# surface without occupying a reProposalOptions array slot.
-# 2026-08-08 amendment #2 (adr/0017): a third real-device review found
-# repeat demotion structurally unable to surface a new candidate on
-# re-proposal, because adr/0015 already caps every response at exactly 5
-# candidates and the browser-only demotion in adr/0008 decision 2 never had
-# an unseen candidate to promote. Repeat demotion now happens server-side:
-# the browser echoes back, in the re-proposal request body, the
-# providerPageUrl values already rendered on this screen. selectReProposal
-# and tryAgain's publicOperation.requestBody now include that value, and
-# their repeatPriority.invariant no longer states the browser withholds it
-# -- it instead requires the echoed value to be exact and to never be
-# sourced from storage, a cookie, or the URL. The same review also found
-# business hours the largest single contributor to mobile card height, so
-# businessHours (candidate-card-business-hours) is removed from
-# requiredFields; candidate-search-api.yaml no longer returns this field.
-# 2026-08-09 amendment (adr/0019): a field survey of the same live
-# candidates found access redundant with the map and total seats not
-# useful to compare by as an exact number. access (candidate-card-access)
-# is removed from requiredFields. totalSeats (candidate-card-total-seats)
-# keeps its rawValueAttribute mechanism, but its visible value now reflects
-# the new capacityTier response field's coarse label rather than a raw
-# number with a unit suffix. A new requiredFields entry, nonSmokingStatus
-# (candidate-card-non-smoking), is added with the same rawValueAttribute
-# mechanism, extending it beyond totalSeats for the first time. A new
-# conditional element, cardPaymentCaution (candidate-card-payment-caution),
-# is added: present only when the response's cardPaymentAvailable is
-# false. requestUnavailableEnumLens's synthetic requestBody now references
-# NON_SMOKING_REFERENCE instead of the removed AMENITY_REFERENCE enum
-# value.
-# 2026-08-09 amendment #2 (adr/0019 decision 8, same-day correction): the
-# first draft of this amendment carried no dinner-budget field because the
-# corresponding API decision rejected any display; the human, on
-# re-confirmation after a reasoning error was found in that rejection,
-# asked for a coarse staged display instead. A new requiredFields entry,
-# dinnerBudgetTier (candidate-card-dinner-budget), is added with the same
-# rawValueAttribute mechanism as totalSeats and nonSmokingStatus (now a
-# third field using it). Its visible label must always disclose that it is
-# a dinner reference.
-# Every amendment to this file becomes durable when its PR merges
-# (meta/adr/0035 method (i)).
-contractVersion: '0.7'
+# Status: 承認待ち — 2026-08-10 draft (adr/0020, 提案中・未承認). ConceptKind-based
+# re-proposal (candidate-reproposal-open/-dialog/-option/-cancel/-try-again,
+# data-reproposal-kind, repeat-demotion data-repeat-status/
+# data-provider-page-href) is entirely removed and replaced by a filter panel
+# (candidate-filter-*) plus a renamed candidate-search-again control. The
+# forbidden-purposes machine enforcement that previously kept "filter" and
+# "secondary-condition" out of allowedPurposes is reversed -- this is the
+# contract-level embodiment of adr/0020's central, human-re-approval-requiring
+# change (see adr/0020's conflict report). requestUnavailableEnumLens and the
+# invalidLens outcome are removed (TDR-CS-07 retired; there is no "invalid
+# lens" concept in a filter model). A new displayOrdering invariant and a new
+# per-card cardPaymentValueState attribute support TDR-CS-13's
+# unconfirmed-information-sorts-last observability. A same-day amendment
+# (adr/0020 decision 10, human instruction) changes dinnerBudgetTier's visible
+# card label to the tier word alone (低/中/高) and adds a single screen-level
+# candidate-budget-tier-note carrying the dinner-basis disclosure and the
+# tier-to-yen mapping that a per-card yen-range label previously carried; the
+# filter panel's budget-tier option labels must use the same terminology. All
+# prior content (2026-08-01 through 2026-08-09 amendments, superseded by this
+# draft) is summarized in adr/0020, not repeated here.
+contractVersion: '1.0'
 kind: acceptance-browser-interface
 scope: candidate-search
 profiles:
@@ -82,8 +33,8 @@ profiles:
     publicDeployment: false
     verifiesScenarios:
       [TDR-CS-00, TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05,
-       TDR-CS-06, TDR-CS-07, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11,
-       TDR-CS-12]
+       TDR-CS-06, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12,
+       TDR-CS-13]
     invariant:
       - The profile is isolated and must never be selected by a public deployment.
       - Candidate state is supplied only through contracts/test-support-api.yaml.
@@ -103,33 +54,31 @@ browserEntry:
   unauthenticatedOutcome:
     present: [auth-sign-in-form]
     absent:
-      [candidate-proposal-content, candidate-map, candidate-reproposal-open,
-       candidate-reproposal-try-again, candidate-reproposal-dialog,
-       candidate-secondary-conditions, candidate-manual-ordering,
+      [candidate-proposal-content, candidate-map, candidate-filter-open,
+       candidate-filter-panel, candidate-search-again,
+       candidate-budget-tier-note, candidate-manual-ordering,
        private-search-origin]
   authenticatedInitialOutcome:
     present: [candidate-proposal-content, candidate-proposal-cards, candidate-map,
-              candidate-provider-credit, candidate-reproposal-open,
-              candidate-reproposal-try-again]
-    absent: [candidate-secondary-conditions, candidate-manual-ordering]
+              candidate-provider-credit, candidate-filter-open,
+              candidate-search-again, candidate-budget-tier-note]
+    absent: [candidate-manual-ordering]
 
 browserControlSurface:
   proposal:
     requiredTestIds:
       content: candidate-proposal-content
-      conceptTitle: candidate-concept-title
-      conceptRationale: candidate-concept-rationale
       cards: candidate-proposal-cards
       card: candidate-card
       map: candidate-map
       mapMarker: candidate-map-marker
       providerCredit: candidate-provider-credit
-      reProposalOpen: candidate-reproposal-open
-      tryAgain: candidate-reproposal-try-again
+      filterOpen: candidate-filter-open
+      searchAgain: candidate-search-again
+      izakayaBarFallbackNotice: candidate-izakaya-bar-fallback-notice
+      budgetTierNote: candidate-budget-tier-note
     cardDataAttributes:
       candidateRef: data-candidate-ref
-      repeatComparisonHref: data-provider-page-href
-      repeatStatus: data-repeat-status
       requiredFields:
         name: {testId: candidate-card-name}
         genre: {testId: candidate-card-genre}
@@ -149,33 +98,29 @@ browserControlSurface:
         data-value-state=unavailable and an implementation-neutral visible
         unavailable value. A non-null API value uses data-value-state=provided.
         A required field whose requiredFields entry declares
-        rawValueAttribute (currently totalSeats, nonSmokingStatus, and
-        dinnerBudgetTier) additionally carries that attribute on the same
-        element when provided, equal as an exact string to the returned raw
-        API value (for totalSeats, its canonical decimal string, e.g. 38 ->
-        "38"; for nonSmokingStatus and dinnerBudgetTier, the exact enum
-        string, e.g. "FULL" or "MID"); the acceptance test asserts this
-        attribute for exact equality, and the field's visible value may
-        instead show an implementation-chosen coarse label derived from a
-        different response field or a fixed per-enum-value label
-        (totalSeats's visible value reflects capacityTier's label, e.g.
-        "少なめ"/"標準"/"多め" for SMALL/MEDIUM/LARGE, not the raw number;
-        nonSmokingStatus's visible value reflects a fixed label per its own
-        enum value, e.g. "全席禁煙"/"一部禁煙"/"禁煙席なし" for
-        FULL/PARTIAL/NONE; dinnerBudgetTier's visible value reflects a
-        fixed label per its own enum value that always discloses it is a
-        dinner reference, e.g. "ディナー目安 〜2,000円"/"ディナー目安
-        2,001〜4,000円"/"ディナー目安 4,001円〜" for LOW/MID/HIGH and must
-        never state or imply a lunch price, per adr/0019 and, for
-        totalSeats, adr/0011) without itself being checked for exact
-        equality against the raw value. The attribute is absent when that
-        field is unavailable (for totalSeats, when totalSeats is null; for
-        nonSmokingStatus, when nonSmokingStatus is null; for
-        dinnerBudgetTier, when dinnerBudgetTier is null), since
-        data-value-state=unavailable already expresses its state. Every
-        other required field's visible value equals the returned value
-        exactly. providerPageLink is always provided, is exempt from
-        rawValueAttribute because its href is already the exact
+        rawValueAttribute (totalSeats, nonSmokingStatus, dinnerBudgetTier)
+        additionally carries that attribute on the same element when
+        provided, equal as an exact string to the returned raw API value
+        (for totalSeats, its canonical decimal string, e.g. 38 -> "38"; for
+        nonSmokingStatus and dinnerBudgetTier, the exact enum string, e.g.
+        "FULL" or "MID"); the acceptance test asserts this attribute for
+        exact equality, and the field's visible value may instead show an
+        implementation-chosen coarse label derived from a different response
+        field or a fixed per-enum-value label (totalSeats's visible value
+        reflects capacityTier's label, e.g. "少なめ"/"標準"/"多め" for
+        SMALL/MEDIUM/LARGE, not the raw number; nonSmokingStatus's visible
+        value reflects a fixed label per its own enum value, e.g.
+        "全席禁煙"/"一部禁煙"/"禁煙席なし" for FULL/PARTIAL/NONE;
+        dinnerBudgetTier's visible value reflects a fixed tier-word label
+        per its own enum value -- "低"/"中"/"高" for LOW/MID/HIGH -- and
+        must NOT itself restate a yen range or the word "ディナー"; that
+        disclosure lives only in candidate-budget-tier-note, adr/0020
+        decision 10) without itself being checked for exact equality against
+        the raw value. The attribute is absent when that field is
+        unavailable, since data-value-state=unavailable already expresses
+        its state. Every other required field's visible value equals the
+        returned value exactly. providerPageLink is always provided, is
+        exempt from rawValueAttribute because its href is already the exact
         machine-readable value, and its href equals providerPageUrl.
       cardPaymentCaution:
         testId: candidate-card-payment-caution
@@ -184,17 +129,44 @@ browserControlSurface:
           Present, with data-card-payment-available="false", only when the
           response's cardPaymentAvailable is false for that candidate.
           Absent (no test id in the DOM) when cardPaymentAvailable is true
-          or null -- unlike requiredFields entries, this element does not
-          use data-value-state=unavailable for the null case, since a
-          caution about a confirmed unavailability is not itself an
-          unavailable-field display (adr/0019). Where present, its visible
+          or null -- a caution about a confirmed unavailability is not
+          itself an unavailable-field display. Where present, its visible
           text must state only that credit-card payment is not accepted; it
           must not claim the shop is cash-only or state any other payment
           method.
+      cardPaymentValueState:
+        attribute: data-card-payment-value-state
+        values: [provided, unavailable]
+        presenceRule: >-
+          Present on every card, unconditionally (unlike cardPaymentCaution,
+          which is conditional). "unavailable" exactly when the response's
+          cardPaymentAvailable is null for that candidate; "provided"
+          otherwise (true or false). This is the observable signal
+          TDR-CS-13's ordering assertion uses for the cardPaymentOnly
+          filter, since cardPaymentCaution alone cannot distinguish
+          cardPaymentAvailable=null from cardPaymentAvailable=true (both are
+          absent).
     markerDataAttributes:
       candidateRef: data-candidate-ref
       selectionState: data-selection-state
     selectionStates: [selected, unselected]
+    displayOrdering:
+      invariant: >-
+        Cards are always ordered nearest-first (data-candidate-ref order
+        matches the response's candidates array order, which is
+        nearest-first within each group below), except that when the
+        request's filters included nonSmokingOnly=true, cardPaymentOnly=true,
+        or a non-empty budgetTiers, every card that is "unconfirmed" for at
+        least one of those active filters is placed after every card that is
+        "confirmed" for all of them, before the nearest-first order is
+        applied within each group. A card is "unconfirmed" for
+        nonSmokingOnly when its nonSmokingStatus requiredFields entry has
+        data-value-state=unavailable; for cardPaymentOnly when its
+        data-card-payment-value-state is "unavailable"; for budgetTiers when
+        its dinnerBudgetTier requiredFields entry has
+        data-value-state=unavailable. When no such filter is active, this
+        invariant reduces to plain nearest-first (adr/0020 decision 4;
+        TDR-CS-13).
     mapObservations:
       fitStateAttribute: {testId: candidate-map, attribute: data-map-fit-state, value: displayed-candidates}
       tileProviderAttribute: {testId: candidate-map, attribute: data-map-tile-provider, value: openstreetmap-standard}
@@ -212,18 +184,50 @@ browserControlSurface:
       element: anchor
       text: response.providerCredit.text
       href: response.providerCredit.url
-  reProposal:
+    izakayaBarFallbackNoticeObservation:
+      testId: candidate-izakaya-bar-fallback-notice
+      presenceRule: >-
+        Present exactly when the response's izakayaBarFallbackApplied is
+        true; absent otherwise. Where present, its visible text must
+        disclose both that the default izakaya/bar exclusion was set aside
+        for this response and that the lunch service of the included shops
+        is not confirmed (adr/0020 decision 6).
+    budgetTierNoteObservation:
+      testId: candidate-budget-tier-note
+      presenceRule: >-
+        Present at all times on the authenticated proposal screen
+        (adr/0020 decision 10), independent of whether any candidate is
+        currently displayed. Its visible text must state both that the
+        LOW/MID/HIGH tiers (低/中/高) are based on the provider's dinner
+        budget figure, not a lunch price, and the approximate yen range each
+        tier covers (the current thresholds: LOW up to and including
+        ¥2,000, MID ¥2,001-¥4,000, HIGH ¥4,001 and above -- adr/0019
+        decisions 4 and 8). This is the single place this disclosure and
+        mapping appear; no per-card element restates them (see
+        cardDataAttributes.nullBehavior's dinnerBudgetTier note). Its tier
+        words must be the same 低/中/高 terminology used by
+        candidate-card-dinner-budget's visible label and by
+        filterPanel.requiredTestIds.budgetTierOption's visible labels.
+  filterPanel:
     requiredTestIds:
-      dialog: candidate-reproposal-dialog
-      option: candidate-reproposal-option
-      cancel: candidate-reproposal-cancel
+      panel: candidate-filter-panel
+      genreOption: candidate-filter-genre-option
+      includeIzakayaBar: candidate-filter-include-izakaya-bar
+      nonSmokingOnly: candidate-filter-non-smoking-only
+      cardPaymentOnly: candidate-filter-card-payment-only
+      budgetTierOption: candidate-filter-budget-tier-option
+      apply: candidate-filter-apply
+      cancel: candidate-filter-cancel
     optionDataAttributes:
-      kind: data-reproposal-kind
+      genreValue: data-genre-value
+      budgetTierValue: data-budget-tier-value
     constraints:
-      - The dialog is absent until candidate-reproposal-open is activated and opens without document navigation or URL change.
-      - It presents at most three options and excludes the currently displayed concept kind.
-      - Selecting an option itself performs the re-proposal; no separate confirmation control exists for this dialog.
-      - No secondary-condition or manual-ordering control is present.
+      - The panel is absent until candidate-filter-open is activated and opens without document navigation or URL change.
+      - One candidate-filter-genre-option element exists per response.availableGenres entry, in the order returned, each carrying that genre string as data-genre-value.
+      - One candidate-filter-budget-tier-option element exists per LOW/MID/HIGH, each carrying that enum string as data-budget-tier-value, and its visible label must use the same 低/中/高 terminology as candidate-card-dinner-budget and candidate-budget-tier-note (adr/0020 decision 10).
+      - Changing any control inside the panel does not itself perform a search; only activating candidate-filter-apply does.
+      - candidate-filter-cancel closes the panel without changing the currently displayed candidates or the filters used to produce them.
+      - No free-text input control exists for genre, budget, or any other filter; every filter control is a closed selection (checkbox or toggle) over a server-supplied or fixed enum vocabulary.
   unavailableControls:
     forbiddenFormControlCategories:
       [select, input, textarea, checkbox, radio, range, combobox, listbox,
@@ -233,38 +237,23 @@ browserControlSurface:
       controlPurpose: data-candidate-control-purpose
     allCandidateScreenFormControlsMustDeclarePurpose: true
     allowedPurposes:
-      [candidate-card-selection, candidate-map-marker-selection, reproposal-open,
-       reproposal-selection, reproposal-try-again, reproposal-cancel, auth-sign-out,
-       auth-password-change-open, auth-account-menu-toggle]
-    reproposalTryAgainNotes: >-
-      reproposal-try-again (added 2026-08-08, projects/toyama-dining-radar/
-      adr/0016) is a single always-available control that repeats the
-      currently displayed proposal's own kind rather than offering a
-      distinct comparison lens; it replaces the removed GENRE_VARIETY lens's
-      slot in the comparison-choice surface and does not occupy a
-      reProposalOptions array slot or open the reProposal dialog by itself
-      (an implementation may surface it inside or outside that dialog; this
-      file does not prescribe its layout). It carries the same repeat
-      demotion, invalid-lens, and rate-limit outcomes as selectReProposal.
-    accountMenuToggleNotes: >-
-      auth-account-menu-toggle is a pure disclosure control (added
-      2026-08-06, projects/toyama-dining-radar/adr/0013): activating it may
-      show or hide a group of controls that already declare their own
-      allowed purpose (for example auth-sign-out and
-      auth-password-change-open). It triggers no publicOperation of its own
-      and grants no new business capability -- forbiddenPurposes below still
-      applies to every control inside the group it discloses. No TDR-CS or
-      TDR-AUTH scenario currently asserts this control's open or closed
-      state directly, so no browserActions entry is required for it. An
-      implementation is free to use it, or to leave auth-sign-out and
-      auth-password-change-open always visible instead without this
-      control; whether it appears at all is a layout choice, not an outcome
-      this file requires.
+      [candidate-card-selection, candidate-map-marker-selection,
+       candidate-filter-open, candidate-filter-genre-selection,
+       candidate-filter-izakaya-bar-toggle, candidate-filter-non-smoking-toggle,
+       candidate-filter-card-payment-toggle, candidate-filter-budget-tier-selection,
+       candidate-filter-apply, candidate-filter-cancel, candidate-search-again,
+       auth-sign-out, auth-password-change-open, auth-account-menu-toggle]
     forbiddenPurposes:
-      [secondary-condition, filter, sort, manual-ordering]
+      [sort, manual-ordering, free-text-search]
     invariant: >-
-      No form control may provide a secondary condition, filter, sort, or
-      manual ordering capability, whether or not it has a test id.
+      No form control may provide a manual sort/ordering capability or a
+      free-text search input, whether or not it has a test id. Filters
+      (genre, izakaya/bar inclusion, non-smoking, card payment, budget tier)
+      are allowed purposes as of adr/0020 -- this reverses the prior
+      contract's forbiddenPurposes entries "secondary-condition" and
+      "filter", which adr/0015 relied on to justify representing
+      IZAKAYA_BAR_INCLUDED as a "concept" rather than a toggle. That
+      reasoning no longer applies once filters are the primary operation.
   empty:
     requiredTestIds: [candidate-no-results]
     absent: [candidate-proposal-cards, candidate-map]
@@ -286,10 +275,9 @@ browserActions:
       requestBody: {}
     success:
       present: [candidate-proposal-content, candidate-proposal-cards, candidate-map,
-                candidate-provider-credit, candidate-reproposal-open,
-                candidate-reproposal-try-again]
-      absent: [candidate-reproposal-dialog, candidate-secondary-conditions,
-               candidate-manual-ordering]
+                candidate-provider-credit, candidate-filter-open, candidate-search-again,
+                candidate-budget-tier-note]
+      absent: [candidate-filter-panel]
   selectCard:
     input: candidate-card
     requiredOutcome:
@@ -302,88 +290,71 @@ browserActions:
       selectedMarkerAttribute: {attribute: data-selection-state, value: selected}
       matchingCardAttribute: {attribute: data-selection-state, value: selected}
       allOtherCardsAndMarkers: {attribute: data-selection-state, value: unselected}
-  openReProposal:
-    input: candidate-reproposal-open
+  openFilterPanel:
+    input: candidate-filter-open
     success:
-      present: [candidate-reproposal-dialog, candidate-reproposal-option,
-                candidate-reproposal-cancel]
+      present: [candidate-filter-panel, candidate-filter-genre-option,
+                candidate-filter-include-izakaya-bar, candidate-filter-non-smoking-only,
+                candidate-filter-card-payment-only, candidate-filter-budget-tier-option,
+                candidate-filter-apply, candidate-filter-cancel]
       navigation: {document: unchanged, url: unchanged}
-  selectReProposal:
-    input: candidate-reproposal-option
+  applyFilters:
+    input: candidate-filter-apply
     publicOperation:
       method: POST
       path: /candidate-proposals
-      requestBody: selected-data-reproposal-kind-plus-previously-shown-provider-page-urls
+      requestBody: filters-object-reflecting-current-panel-control-state
     success:
       requiredOutcome:
         cards: exactly-current-success-response-candidates
         markers: exactly-one-per-current-success-response-candidate
         removed: all-prior-card-and-marker-candidateRefs-not-in-current-response
-        dialog: absent
-      repeatPriority:
-        comparisonKey: candidate-card.data-provider-page-href
-        repeatedState: {attribute: data-repeat-status, value: repeated}
-        newState: {attribute: data-repeat-status, value: new}
-        ordering: every-new-card-precedes-every-repeated-card
-        invariant:
-          - A repeated candidate is not excluded.
-          - candidate-card.data-provider-page-href equals its response providerPageUrl href.
-          - The request body's previouslyShownProviderPageUrls contains exactly the providerPageUrl values already rendered on this screen (every response shown so far in this screen's lifetime), and nothing else -- it is not invented by the browser and is not sourced from storage, a cookie, or the URL (adr/0017).
-          - The browser does not persist this state outside its own current-screen memory; it is never written to storage, a cookie, or the URL.
-      reset:
-        - Reloading the screen, closing its tab, or signing out clears comparison state.
-    invalidLens:
-      present: [candidate-proposal-problem]
-      apiResponse: {status: 400, code: PROPOSAL_REPROPOSAL_KIND_INVALID}
+        panel: absent
+        ordering: satisfies-proposal.displayOrdering.invariant
+    emptyResult:
+      present: [candidate-no-results]
     rateLimited:
       present: [candidate-proposal-problem]
       apiResponse: {status: 429, code: PROPOSAL_RATE_LIMITED}
-  tryAgain:
-    input: candidate-reproposal-try-again
-    publicOperation:
-      method: POST
-      path: /candidate-proposals
-      requestBody: displayed-proposal-kind-plus-previously-shown-provider-page-urls
-    success:
-      requiredOutcome:
-        cards: exactly-current-success-response-candidates
-        markers: exactly-one-per-current-success-response-candidate
-        removed: all-prior-card-and-marker-candidateRefs-not-in-current-response
-        dialog: absent
-      repeatPriority:
-        comparisonKey: candidate-card.data-provider-page-href
-        repeatedState: {attribute: data-repeat-status, value: repeated}
-        newState: {attribute: data-repeat-status, value: new}
-        ordering: every-new-card-precedes-every-repeated-card
-        invariant:
-          - A repeated candidate is not excluded.
-          - candidate-card.data-provider-page-href equals its response providerPageUrl href.
-          - The request body's previouslyShownProviderPageUrls contains exactly the providerPageUrl values already rendered on this screen (every response shown so far in this screen's lifetime), and nothing else -- it is not invented by the browser and is not sourced from storage, a cookie, or the URL (adr/0017).
-          - The browser does not persist this state outside its own current-screen memory; it is never written to storage, a cookie, or the URL.
-      reset:
-        - Reloading the screen, closing its tab, or signing out clears comparison state.
-    invalidLens:
-      present: [candidate-proposal-problem]
-      apiResponse: {status: 400, code: PROPOSAL_REPROPOSAL_KIND_INVALID}
-    rateLimited:
-      present: [candidate-proposal-problem]
-      apiResponse: {status: 429, code: PROPOSAL_RATE_LIMITED}
-  requestUnavailableEnumLens:
-    purpose: deterministic-CS-07-observation-without-requiring-a-UI-option
-    publicOperation:
-      method: POST
-      path: /candidate-proposals
-      session: authenticated-browser-cookie-jar
-      csrf: same-origin-browser-CSRF-token
-      requestBody: {reproposalKind: NON_SMOKING_REFERENCE}
+  cancelFilterPanel:
+    input: candidate-filter-cancel
     requiredOutcome:
-      present: [candidate-proposal-problem, candidate-proposal-problem-guidance]
-      apiResponse: {status: 400, code: PROPOSAL_REPROPOSAL_KIND_INVALID}
+      panel: absent
+      cards: unchanged-from-before-opening-the-panel
+      publicOperation: none
+  searchAgain:
+    input: candidate-search-again
+    publicOperation:
+      method: POST
+      path: /candidate-proposals
+      requestBody: filters-object-identical-to-the-currently-applied-one
+    success:
+      requiredOutcome:
+        cards: exactly-current-success-response-candidates
+        markers: exactly-one-per-current-success-response-candidate
+        removed: all-prior-card-and-marker-candidateRefs-not-in-current-response
+        panel: absent
+        ordering: satisfies-proposal.displayOrdering.invariant
+      randomness: >-
+        The candidates array may differ from the immediately prior response
+        even though the request body is unchanged (adr/0020 decision 4): the
+        server samples up to 5 candidates at random from the near-distance
+        pool on every request. Acceptance testing observes this by pinning
+        contracts/test-support-api.yaml's randomSeed to two different values
+        across two searchAgain calls against a synthetic population larger
+        than the pool and asserting the returned candidate sets differ; a
+        third call with the same randomSeed as the first must reproduce the
+        first response's candidates exactly, in the same order.
+    emptyResult:
+      present: [candidate-no-results]
+    rateLimited:
+      present: [candidate-proposal-problem]
+      apiResponse: {status: 429, code: PROPOSAL_RATE_LIMITED}
 
 disclosureObservations:
   responseSurfaces:
-    [unauthenticated-browser-entry, initial-proposal, re-proposal, no-results,
-     provider-unavailable, invalid-lens, rate-limited]
+    [unauthenticated-browser-entry, initial-proposal, filter-apply, search-again,
+     no-results, provider-unavailable, rate-limited]
   bodyMustNotContain:
     - source: profiles.localAcceptance.syntheticDisclosureCanaries.privateSearchOrigin
     - source: profiles.localAcceptance.syntheticDisclosureCanaries.providerInternals
@@ -396,10 +367,8 @@ apiObservations:
   unauthenticated:
     response: {status: 401, code: AUTHENTICATION_REQUIRED}
   noResults:
-    response: {status: 200, proposal: null}
+    response: {status: 200, candidates: []}
   providerUnavailable:
     response: {status: 503, code: PROVIDER_UNAVAILABLE, guidance: non-empty-safe-message}
-  invalidLens:
-    response: {status: 400, code: PROPOSAL_REPROPOSAL_KIND_INVALID, guidance: non-empty-safe-message}
   rateLimited:
     response: {status: 429, code: PROPOSAL_RATE_LIMITED, guidance: non-empty-safe-message}
