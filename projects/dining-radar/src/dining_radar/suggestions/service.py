@@ -36,7 +36,10 @@ class ProposalResult:
 
 
 def propose_candidates(
-    reproposal_kind: str | None, *, fetch_candidates: CandidateSource
+    reproposal_kind: str | None,
+    *,
+    fetch_candidates: CandidateSource,
+    previously_shown_provider_page_urls: Sequence[str] = (),
 ) -> ProposalResult:
     """Perform one fresh search and select the displayed proposal.
 
@@ -45,13 +48,20 @@ def propose_candidates(
     an unavailable lens both raise ``ReproposalKindUnavailableError`` /
     ``ValueError`` for the caller to translate into the contract's single
     ``400 PROPOSAL_REPROPOSAL_KIND_INVALID`` response.
+
+    ``previously_shown_provider_page_urls`` (adr/0017 decision 1) is a plain
+    data argument -- the exact ``providerPageUrl`` values this server most
+    recently returned to the same browser, echoed back on a re-proposal
+    request. It is passed straight through to ``build_concepts`` for
+    same-request demotion only; this module never stores, caches, or logs it
+    (adr/0017 decision 3 Must).
     """
     # Validate the requested lens before any fallible provider call: a
     # malformed request is a client error regardless of provider health.
     parsed_kind = ConceptKind(reproposal_kind) if reproposal_kind is not None else None
 
     candidates, origin = fetch_candidates()
-    concepts = build_concepts(candidates, origin)
+    concepts = build_concepts(candidates, origin, previously_shown_provider_page_urls)
 
     if parsed_kind is None:
         initial = select_initial(concepts)

@@ -8,6 +8,22 @@
  * (`shownProviderPageUrls`) lives only in this module's memory and is
  * cleared automatically on reload, tab close, or sign-out, because none of
  * those keep this JavaScript execution context alive (ADR-0008 decision 3).
+ *
+ * Per adr/0017, repeat demotion (ordering every new candidate before every
+ * repeated one) is now computed server-side: on every re-proposal request
+ * this module echoes `shownProviderPageUrls` back unchanged as
+ * `previouslyShownProviderPageUrls`, and simply renders the response's
+ * `proposal.candidates` in the order the server returned them, without
+ * re-sorting locally. This module still tracks membership in
+ * `shownProviderPageUrls` itself, purely to decide each rendered card's own
+ * `data-repeat-status` badge.
+ *
+ * Per adr/0019, `access` is no longer a card field; `capacityTier`,
+ * `nonSmokingStatus`, and `dinnerBudgetTier` are rendered through the same
+ * rawValueAttribute mechanism ADR-0011 established for `totalSeats` (the
+ * machine-checked value is the raw API value, the visible text is a coarse
+ * label), and a conditional payment-caution element appears only when
+ * `cardPaymentAvailable` is exactly `false`.
  */
 (function () {
   "use strict";
@@ -18,9 +34,22 @@
   }
 
   var overlay = document.getElementById("candidate-reproposal-overlay");
+
+  // adr/0019: visible labels for the coarse card-reference enums. These
+  // exact strings are the browser-interface contract's own non-binding
+  // examples, reused verbatim so the dinner-budget label always discloses
+  // it is a dinner figure (Must) and the other two stay consistent with it.
+  var CAPACITY_TIER_LABELS = { SMALL: "少なめ", MEDIUM: "標準", LARGE: "多め" };
+  var NON_SMOKING_LABELS = { FULL: "全席禁煙", PARTIAL: "一部禁煙", NONE: "禁煙席なし" };
+  var DINNER_BUDGET_LABELS = {
+    LOW: "ディナー目安 〜2,000円",
+    MID: "ディナー目安 2,001〜4,000円",
+    HIGH: "ディナー目安 4,001円〜",
+  };
+
   var shownProviderPageUrls = new Set();
   var currentOptions = [];
-  var selectedReproposalKind = null;
+  var currentProposalKind = null;
   var cardElementsByRef = {};
   var markerElementsByRef = {};
   var leafletMap = null;
@@ -49,6 +78,17 @@
   }
 
   function requestProposal(reproposalKind) {
+    // adr/0017 decision 1: a re-proposal request echoes back the exact
+    // providerPageUrl values this server has already returned to this
+    // browser this screen lifetime, unchanged and sourced only from this
+    // module's own in-memory Set -- never from storage, a cookie, or the
+    // URL. The initial request (reproposalKind omitted) sends an empty body,
+    // since nothing has been shown yet.
+    var body = {};
+    if (reproposalKind) {
+      body.reproposalKind = reproposalKind;
+      body.previouslyShownProviderPageUrls = Array.from(shownProviderPageUrls);
+    }
     return fetch("/candidate-proposals", {
       method: "POST",
       credentials: "same-origin",
@@ -56,7 +96,7 @@
         "Content-Type": "application/json",
         "X-CSRFToken": csrfToken(),
       },
-      body: JSON.stringify(reproposalKind ? { reproposalKind: reproposalKind } : {}),
+      body: JSON.stringify(body),
     }).then(function (response) {
       return response.json().then(function (body) {
         return { status: response.status, body: body };
@@ -136,7 +176,8 @@
     // chip, and -- only once a re-proposal has actually happened, since the
     // very first proposal has nothing to compare against -- whether this
     // shop is newly offered or was already shown this screen lifetime
-    // (ADR-0008 decision 2, contract repeatPriority).
+    // (contract repeatPriority; the ordering itself is now computed
+    // server-side, adr/0017).
     var idRow = el("div", { "class": "candidate-card-id-row" }, [
       el("span", { "class": "candidate-marker-badge", "aria-hidden": "true" }, [String(index + 1)]),
     ]);
@@ -189,21 +230,63 @@
         "紹介文の登録はありません"
       )
     );
-    facts.appendChild(fieldRow("営業時間", "candidate-card-business-hours", candidate.businessHours));
     facts.appendChild(fieldRow("定休日", "candidate-card-regular-holiday", candidate.regularHoliday));
+    // adr/0019 decision 4 / ADR-0011's rawValueAttribute mechanism: the
+    // element's raw-value attribute and data-value-state still key off the
+    // exact returned totalSeats value, but the visible text is now
+    // capacityTier's coarse scale label rather than "38席".
     facts.appendChild(
       fieldRow(
         "総席数",
         "candidate-card-total-seats",
         candidate.totalSeats,
-        candidate.totalSeats === null || candidate.totalSeats === undefined
-          ? undefined
-          : candidate.totalSeats + "席",
+        CAPACITY_TIER_LABELS[candidate.capacityTier],
         "data-raw-value"
       )
     );
-    facts.appendChild(fieldRow("アクセス", "candidate-card-access", candidate.access));
+    // adr/0019 decision 3: a second rawValueAttribute field. The raw enum
+    // string (e.g. "FULL") is the machine-checked value; the visible text is
+    // a fixed Japanese label per enum value.
+    facts.appendChild(
+      fieldRow(
+        "禁煙対応",
+        "candidate-card-non-smoking",
+        candidate.nonSmokingStatus,
+        NON_SMOKING_LABELS[candidate.nonSmokingStatus],
+        "data-raw-value"
+      )
+    );
+    // adr/0019 decision 8: a third rawValueAttribute field. The visible
+    // label always states "ディナー" so it is never mistaken for a lunch
+    // price (Must) -- see DINNER_BUDGET_LABELS above.
+    facts.appendChild(
+      fieldRow(
+        "予算",
+        "candidate-card-dinner-budget",
+        candidate.dinnerBudgetTier,
+        DINNER_BUDGET_LABELS[candidate.dinnerBudgetTier],
+        "data-raw-value"
+      )
+    );
     card.appendChild(facts);
+
+    // adr/0019 decision 5: present only when cardPaymentAvailable is exactly
+    // false, stating only the confirmed fact (credit-card payment is not
+    // accepted) -- never a "cash only" claim, since `card` tracks credit-card
+    // acceptance only.
+    if (candidate.cardPaymentAvailable === false) {
+      card.appendChild(
+        el(
+          "p",
+          {
+            "data-testid": "candidate-card-payment-caution",
+            "data-card-payment-available": "false",
+            "class": "candidate-payment-caution",
+          },
+          ["クレジットカードは利用できません。お支払い方法は店舗にご確認ください。"]
+        )
+      );
+    }
 
     var link = el(
       "a",
@@ -317,29 +400,9 @@
   }
 
   function renderReproposalDialog() {
-    selectedReproposalKind = null;
-
-    var submitButton = el(
-      "button",
-      {
-        type: "button",
-        "data-testid": "candidate-reproposal-submit",
-        "data-candidate-control-category": "button",
-        "data-candidate-control-purpose": "reproposal-submit",
-        disabled: true,
-      },
-      ["この選び方で探す"]
-    );
-    submitButton.addEventListener("click", function () {
-      if (!selectedReproposalKind) {
-        return;
-      }
-      requestProposal(selectedReproposalKind).then(function (result) {
-        closeReproposalDialog();
-        handleProposalResponse(result.status, result.body);
-      });
-    });
-
+    // adr/0016 decision 5: selecting an option itself performs the
+    // re-proposal; there is no separate confirmation control (the removed
+    // candidate-reproposal-submit / reproposal-submit purpose).
     var optionButtons = currentOptions.map(function (option) {
       var button = el(
         "button",
@@ -349,16 +412,14 @@
           "data-reproposal-kind": option.kind,
           "data-candidate-control-category": "button",
           "data-candidate-control-purpose": "reproposal-selection",
-          "aria-pressed": "false",
         },
         [el("strong", {}, [option.title]), el("p", {}, [option.rationale])]
       );
       button.addEventListener("click", function () {
-        selectedReproposalKind = option.kind;
-        optionButtons.forEach(function (candidateButton) {
-          candidateButton.setAttribute("aria-pressed", candidateButton === button ? "true" : "false");
+        requestProposal(option.kind).then(function (result) {
+          closeReproposalDialog();
+          handleProposalResponse(result.status, result.body);
         });
-        submitButton.removeAttribute("disabled");
       });
       return button;
     });
@@ -378,7 +439,7 @@
     var dialog = el(
       "section",
       { "data-testid": "candidate-reproposal-dialog", role: "dialog", "aria-modal": "true" },
-      [el("div", {}, optionButtons), submitButton, cancelButton]
+      [el("div", {}, optionButtons), cancelButton]
     );
 
     overlay.innerHTML = "";
@@ -408,6 +469,7 @@
 
   function renderProposal(proposal, providerCredit) {
     cardElementsByRef = {};
+    currentProposalKind = proposal.kind;
     root.innerHTML = "";
 
     var content = el("section", { "data-testid": "candidate-proposal-content" }, []);
@@ -422,6 +484,27 @@
       ]),
     ]);
 
+    // adr/0016 decision 2: a single always-available "try again" control
+    // that resends the currently displayed proposal's own kind, relying
+    // only on the existing current-screen repeat demotion (ADR-0008
+    // decision 2). It is not one of the labeled reProposalOptions lenses
+    // and does not open the re-proposal dialog.
+    var tryAgainButton = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "candidate-reproposal-try-again",
+        "data-candidate-control-category": "button",
+        "data-candidate-control-purpose": "reproposal-try-again",
+      },
+      ["もう一度探す"]
+    );
+    tryAgainButton.addEventListener("click", function () {
+      requestProposal(currentProposalKind).then(function (result) {
+        handleProposalResponse(result.status, result.body);
+      });
+    });
+
     var reproposalButton = el(
       "button",
       {
@@ -433,7 +516,12 @@
       ["別の選び方でもう一度探す"]
     );
     reproposalButton.addEventListener("click", renderReproposalDialog);
-    conceptBanner.appendChild(reproposalButton);
+
+    var conceptActions = el("div", { "class": "candidate-concept-actions" }, [
+      tryAgainButton,
+      reproposalButton,
+    ]);
+    conceptBanner.appendChild(conceptActions);
     content.appendChild(conceptBanner);
 
     // Candidate map + card list, one visual block (ADR-0012 skeleton block
@@ -466,14 +554,11 @@
     var decorated = proposal.candidates.map(function (candidate) {
       return { candidate: candidate, repeated: shownProviderPageUrls.has(candidate.providerPageUrl) };
     });
-    // Every new card precedes every repeated card; existing candidates are
-    // never excluded (contracts/test-support-api.yaml NORMAL_WITH_REPEAT).
-    decorated.sort(function (a, b) {
-      if (a.repeated === b.repeated) {
-        return 0;
-      }
-      return a.repeated ? 1 : -1;
-    });
+    // Ordering (every new candidate precedes every repeated one; existing
+    // candidates are never excluded, only demoted) is computed server-side
+    // from the previouslyShownProviderPageUrls this module echoed back
+    // (adr/0017); this module renders proposal.candidates in exactly the
+    // order the response returned, without re-sorting locally.
     // A repeat/new badge is only meaningful once at least one earlier
     // proposal has been shown this screen lifetime; the very first
     // proposal has nothing to compare against.

@@ -73,22 +73,38 @@ def _csrf_failed(request) -> bool:
     return rejection is not None
 
 
-def _parse_reproposal_kind(raw_body: bytes) -> str | None:
+_ALLOWED_REQUEST_KEYS = frozenset({"reproposalKind", "previouslyShownProviderPageUrls"})
+
+
+def _parse_request_body(raw_body: bytes) -> tuple[str | None, tuple[str, ...]]:
+    """Parse ``CandidateProposalRequest``: ``(reproposalKind, previouslyShownProviderPageUrls)``.
+
+    Per ADR-0017 decision 3 (Must), the parsed
+    ``previouslyShownProviderPageUrls`` value is returned only as a plain
+    local tuple for the caller to pass straight into the recommendation
+    pipeline for this one request's candidate selection -- this function and
+    every caller in this module must never log, trace, or echo it back in an
+    error response.
+    """
     try:
         body = json.loads(raw_body or b"{}")
     except (TypeError, ValueError) as error:
         raise MalformedProposalRequestError from error
 
-    if not isinstance(body, dict) or (set(body) - {"reproposalKind"}):
+    if not isinstance(body, dict) or (set(body) - _ALLOWED_REQUEST_KEYS):
         raise MalformedProposalRequestError
 
-    if "reproposalKind" not in body:
-        return None
-
-    value = body["reproposalKind"]
-    if not isinstance(value, str):
+    reproposal_kind = body.get("reproposalKind")
+    if reproposal_kind is not None and not isinstance(reproposal_kind, str):
         raise MalformedProposalRequestError
-    return value
+
+    previously_shown = body.get("previouslyShownProviderPageUrls", [])
+    if not isinstance(previously_shown, list) or not all(
+        isinstance(item, str) for item in previously_shown
+    ):
+        raise MalformedProposalRequestError
+
+    return reproposal_kind, tuple(previously_shown)
 
 
 def _problem(status: int, code_and_message: tuple[str, str]) -> JsonResponse:
@@ -107,14 +123,16 @@ def candidate_proposals(request):
         return _problem(403, _REQUEST_REJECTED)
 
     try:
-        reproposal_kind = _parse_reproposal_kind(request.body)
+        reproposal_kind, previously_shown_provider_page_urls = _parse_request_body(request.body)
     except MalformedProposalRequestError:
         return _problem(400, _REPROPOSAL_KIND_INVALID)
 
     override = active_mode()
     if override is not None:
         try:
-            result = propose_with_override(override, reproposal_kind)
+            result = propose_with_override(
+                override, reproposal_kind, previously_shown_provider_page_urls
+            )
         except ReproposalKindUnavailableError:
             return _problem(400, _REPROPOSAL_KIND_INVALID)
         except AcceptanceProviderUnavailable:
@@ -133,7 +151,11 @@ def candidate_proposals(request):
     throttle.record_request()
 
     try:
-        result = propose_candidates(reproposal_kind, fetch_candidates=fetch_real_candidates)
+        result = propose_candidates(
+            reproposal_kind,
+            fetch_candidates=fetch_real_candidates,
+            previously_shown_provider_page_urls=previously_shown_provider_page_urls,
+        )
     except (ValueError, ReproposalKindUnavailableError):
         return _problem(400, _REPROPOSAL_KIND_INVALID)
     except CandidateSourceUnavailableError:

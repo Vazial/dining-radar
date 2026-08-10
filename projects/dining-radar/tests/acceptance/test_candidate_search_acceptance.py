@@ -1,4 +1,4 @@
-"""JS-capable browser L4 runner for TDR-CS-00 through TDR-CS-08.
+"""JS-capable browser L4 runner for TDR-CS-00 through TDR-CS-12.
 
 Per ADR-0009, the authenticated candidate-proposal screen renders candidate
 cards, the map, the re-proposal modal, and error surfaces with client-side
@@ -6,20 +6,45 @@ JavaScript after the server returns only an empty mount point. Every scenario
 in this file therefore runs against a real Chromium instance (Playwright)
 that executes that script, rather than against server-rendered HTML.
 
-Every scenario below executes for real -- none is skipped. As of this
-writing, ``test_tdr_cs_02_compare_candidates_on_cards_and_map`` and
-``test_tdr_cs_03_reproposal_via_popup_replaces_the_display`` fail against the
-current implementation: enumerating every ``[data-testid]`` element on the
-fully-rendered authenticated screen (with the ``NORMAL_WITH_REPEAT``
-synthetic Given state) finds ``candidate-card``, ``candidate-map``, and every
-other test id ``candidate-search-browser-interface.yaml`` requires, but no
-``candidate-map-marker`` anywhere -- Leaflet's own marker DOM element carries
-only a plain CSS class (``candidate-map-marker-icon``), not the contract's
-``data-testid``/``data-candidate-ref``/``data-selection-state`` attributes.
-This is a red, not a skip: per this project's step-definition rules, testers
-do not read or adapt to implementation source, so this file asserts exactly
-what the contract requires and reports the resulting failure rather than
-working around it.
+Every scenario below executes for real -- none is skipped. TDR-CS-09 and
+TDR-CS-10 (adr/0015, candidate-search-api.yaml v0.5.0, test-support-api.yaml
+v0.3.0) exercise the default exclusion of the genre category whose lunch
+service cannot be confirmed and its dedicated IZAKAYA_BAR_INCLUDED
+re-proposal lens; see ``dsl/candidate_search_browser.py`` for why their
+assertions compare responses rather than a genre-string literal. TDR-CS-11
+(adr/0016, candidate-search-api.yaml v0.6.0,
+candidate-search-browser-interface.yaml v0.4, test-support-api.yaml v0.4.0)
+exercises the always-available same-lens "try again" control that replaced
+the removed GENRE_VARIETY concept; the same amendment also made selecting a
+re-proposal option perform the re-proposal directly (no separate submit
+control), which TDR-CS-03, TDR-CS-07, and TDR-CS-09 below now rely on.
+
+adr/0017 (candidate-search-api.yaml v0.7.0,
+candidate-search-browser-interface.yaml v0.5, test-support-api.yaml v0.5.0)
+moves repeat demotion server-side and removes ``businessHours`` from the
+Candidate schema and from the card's required fields (TDR-CS-02). TDR-CS-03
+and TDR-CS-11 now also exercise a genuinely working repeat-demotion
+mechanism: test-support-api.yaml's NORMAL_WITH_REPEAT synthetic population
+was extended past the 5-item display cap specifically so a repeat-demotion
+outcome depends on the request's ``previouslyShownProviderPageUrls`` rather
+than being satisfied by a fixed response shape regardless of what was sent
+(this closed a structural gap where TDR-CS-11's assertions could pass even
+though the mechanism they were meant to exercise had no unseen candidate left
+to promote). See ``dsl/candidate_search_browser.py``'s
+``assert_repeat_priority_orders_new_before_repeated`` for the added
+request-echo and non-persistence checks.
+
+adr/0019 (candidate-search-api.yaml v0.9.0, candidate-search-browser-interface.yaml
+v0.7, test-support-api.yaml v0.7.0) regroups ConceptKind onto PROXIMITY,
+GENRE_FOCUS, NON_SMOKING_REFERENCE, and IZAKAYA_BAR_INCLUDED, removes
+``access`` from the required card fields, adds ``capacityTier``,
+``nonSmokingStatus``, ``cardPaymentAvailable``, and ``dinnerBudgetTier`` to
+the Candidate schema, and revises TDR-CS-02's Then clauses accordingly
+(total-seats/non-smoking/dinner-budget as coarse references, a new
+dinner-price-disclosure clause). TDR-CS-07 now requests the unavailable
+NON_SMOKING_REFERENCE lens instead of the removed AMENITY_REFERENCE. New
+scenario TDR-CS-12 exercises the card-payment caution shown only when
+cardPaymentAvailable is false.
 """
 
 from __future__ import annotations
@@ -121,6 +146,7 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.selecting_a_marker_highlights_its_card()
         self.steps.map_shows_source_attribution()
         self.steps.cards_show_required_shop_fields()
+        self.steps.dinner_budget_reference_is_disclosed_as_a_dinner_price()
         self.steps.map_has_no_forbidden_surfaces()
 
     def test_tdr_cs_03_reproposal_via_popup_replaces_the_display(self) -> None:
@@ -131,8 +157,18 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.organizer_has_one_lens_of_candidates()
         self.steps.organizer_opens_reproposal_popup()
         self.steps.reproposal_options_exclude_current_lens_and_are_bounded()
-        chosen_kind = self.steps.organizer_selects_a_different_lens()
-        self.steps.new_proposal_replaces_display_with_chosen_lens(chosen_kind)
+        # Selecting whichever lens the popup happens to offer first is an
+        # implementation-order dependency, not a property TDR-CS-03 asks for
+        # (its When/Then never name a concept). IZAKAYA_BAR_INCLUDED is
+        # chosen explicitly instead: under NORMAL_WITH_REPEAT it is always
+        # offered (TDR-CS-09 exercises the same population) and, unlike
+        # GENRE_FOCUS -- a strict subset of the initial PROXIMITY population
+        # under adr/0019 decision 2 -- its eligible population always extends
+        # past the display cap, so this scenario's repeat-demotion assertions
+        # (new-before-repeated, TDR-CS-03's own Then clauses) are satisfiable
+        # without also breaking TDR-CS-09's disjoint-genre guarantee.
+        self.steps.organizer_selects_the_izakaya_bar_included_lens()
+        self.steps.new_proposal_replaces_display_with_chosen_lens("IZAKAYA_BAR_INCLUDED")
         self.steps.repeat_priority_orders_new_before_repeated()
         self.steps.repeated_candidate_is_not_excluded()
 
@@ -169,7 +205,7 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         )
         self.steps.lunch_candidates_can_be_proposed()
         self.steps.organizer_has_one_lens_of_candidates()
-        self.steps.organizer_requests_an_unsupported_lens_directly("AMENITY_REFERENCE")
+        self.steps.organizer_requests_an_unsupported_lens_directly("NON_SMOKING_REFERENCE")
         self.steps.unsupported_lens_is_rejected()
 
     def test_tdr_cs_08_repeated_requests_are_rate_limited(self) -> None:
@@ -180,3 +216,49 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.organizer_opens_candidate_proposal_screen()
         self.steps.organizer_is_guided_to_wait_and_retry()
         self.steps.organizer_is_guided_to_wait_and_retry_by_api()
+
+    def test_tdr_cs_09_default_excludes_hard_to_confirm_lunch_genre_until_selected(
+        self,
+    ) -> None:
+        self.steps.organizer_is_signed_in(
+            "organizer-a", "synthetic-organizer-a", "synthetic-secret-a"
+        )
+        self.steps.candidates_include_a_hard_to_confirm_lunch_genre()
+        self.steps.organizer_opens_candidate_proposal_screen()
+        self.steps.organizer_opens_reproposal_popup()
+        self.steps.izakaya_bar_included_lens_is_offered_as_reproposal_option()
+        self.steps.organizer_selects_the_izakaya_bar_included_lens()
+        self.steps.initial_candidates_exclude_the_hard_to_confirm_lunch_genre()
+        self.steps.chosen_lens_candidates_include_the_hard_to_confirm_lunch_genre()
+        self.steps.chosen_lens_rationale_does_not_assert_confirmed_lunch_service()
+
+    def test_tdr_cs_10_excluded_genre_fallback_when_it_is_the_only_population(self) -> None:
+        self.steps.organizer_is_signed_in(
+            "organizer-a", "synthetic-organizer-a", "synthetic-secret-a"
+        )
+        self.steps.excluding_the_genre_leaves_no_candidates_but_including_it_does()
+        self.steps.organizer_opens_candidate_proposal_screen()
+        self.steps.candidates_are_shown_including_the_excluded_genre()
+        self.steps.no_results_guidance_is_not_shown()
+
+    def test_tdr_cs_11_try_again_repeats_the_same_lens(self) -> None:
+        self.steps.organizer_is_signed_in(
+            "organizer-a", "synthetic-organizer-a", "synthetic-secret-a"
+        )
+        self.steps.lunch_candidates_can_be_proposed()
+        self.steps.organizer_has_one_lens_of_candidates()
+        self.steps.organizer_selects_try_again()
+        self.steps.new_proposal_uses_same_lens_and_replaces_display()
+        self.steps.repeat_priority_orders_new_before_repeated()
+        self.steps.repeated_candidate_is_not_excluded()
+
+    def test_tdr_cs_12_payment_caution_shown_only_when_card_payment_is_unavailable(
+        self,
+    ) -> None:
+        self.steps.organizer_is_signed_in(
+            "organizer-a", "synthetic-organizer-a", "synthetic-secret-a"
+        )
+        self.steps.candidates_include_a_shop_without_card_payment()
+        self.steps.organizer_compares_candidates()
+        self.steps.payment_caution_is_shown_for_shops_without_card_payment()
+        self.steps.payment_caution_is_not_shown_for_other_shops()

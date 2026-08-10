@@ -91,14 +91,19 @@
     .candidate-account-menu-panel button:hover { background: #f4f5f1; }
     .candidate-account-menu-panel form { margin: 0; width: 100%; }
 
-    /* Concept banner: current lens heading + re-proposal starting point
-       (ADR-0012 skeleton block 2). Point 3: the re-proposal button is
-       always pushed to the row's end (margin-left: auto) instead of
-       relying on justify-content: space-between, which left-aligned it
-       once it wrapped onto its own line under the rationale text -- that
-       was the reported "左詰め" defect. candidate-proposal-content also
-       gets its own vertical rhythm (see below) so this banner no longer
-       sits flush against the map/cards below it ("地図と接近"). */
+    /* Concept banner: current lens heading + re-proposal starting point(s)
+       (ADR-0012 skeleton block 2). Point 3: the action group is always
+       pushed to the row's end (margin-left: auto on the wrapping group)
+       instead of relying on justify-content: space-between, which
+       left-aligned it once it wrapped onto its own line under the
+       rationale text -- that was the reported "左詰め" defect.
+       candidate-proposal-content also gets its own vertical rhythm (see
+       below) so this banner no longer sits flush against the map/cards
+       below it ("地図と接近"). candidate-concept-actions groups the
+       always-available "もう一度探す" (try again, adr/0016 decision 2) and
+       "別の選び方でもう一度探す" (open the lens-choice dialog) controls
+       together as one unit at the row's end, so the margin-left: auto only
+       needs to move once instead of being duplicated per button. */
     .candidate-concept-banner {
       display: flex;
       flex-wrap: wrap;
@@ -108,13 +113,27 @@
     .candidate-concept-copy { min-width: 0; }
     [data-testid="candidate-concept-title"] { margin: 0 0 0.35rem; font-size: 1.2rem; line-height: 1.3; }
     [data-testid="candidate-concept-rationale"] { margin: 0; color: #536057; font-size: 0.9rem; }
-    [data-testid="candidate-reproposal-open"] {
+    .candidate-concept-actions {
+      display: flex; flex-wrap: wrap; gap: 0.5rem; margin-left: auto;
+    }
+    [data-testid="candidate-reproposal-open"],
+    [data-testid="candidate-reproposal-try-again"] {
       display: inline-flex; align-items: center; justify-content: center;
-      min-height: 2.75rem; padding: 0.55rem 1.1rem; border: 0; border-radius: 0.5rem;
-      background: #155c42; color: #fff; font: inherit; font-weight: 650; cursor: pointer;
-      white-space: nowrap; margin-left: auto;
+      min-height: 2.75rem; padding: 0.55rem 1.1rem; border-radius: 0.5rem;
+      font: inherit; font-weight: 650; cursor: pointer; white-space: nowrap;
+    }
+    [data-testid="candidate-reproposal-open"] {
+      border: 0; background: #155c42; color: #fff;
     }
     [data-testid="candidate-reproposal-open"]:hover { background: #0e4933; }
+    /* "もう一度探す" reads as the lighter-weight action of the pair (it
+       repeats the same lens rather than opening a choice), so it uses an
+       outline treatment instead of the reproposal-open button's solid
+       fill. */
+    [data-testid="candidate-reproposal-try-again"] {
+      border: 1px solid #155c42; background: #fff; color: #155c42;
+    }
+    [data-testid="candidate-reproposal-try-again"]:hover { background: #eaf3ee; }
     [data-testid="candidate-proposal-content"] { display: flex; flex-direction: column; gap: 1.25rem; }
 
     /* Candidate map + card list (ADR-0012 skeleton block 3). PC (human-
@@ -198,11 +217,31 @@
     [data-testid="candidate-card-name"] { margin: 0; font-size: 1.05rem; line-height: 1.35; }
 
     [data-testid="candidate-card"] dl.candidate-facts {
-      margin: 0; display: grid; gap: 0.4rem;
+      margin: 0; display: grid; gap: 0.35rem;
       background: #f7f8f5; border: 1px solid #eceee9; border-radius: 0.5rem; padding: 0.65rem 0.75rem;
     }
     [data-testid="candidate-card"] dl.candidate-facts dt { font-weight: 650; font-size: 0.8125rem; color: #536057; }
     [data-testid="candidate-card"] dl.candidate-facts dd { margin: 0; font-size: 0.9rem; }
+    /* Each field is a label+value pair wrapped in its own <div> (see
+       fieldRow in candidate.js). adr/0019 grows this list from four fields
+       to five (access is removed; capacityTier's coarse label, non-smoking
+       reference, and dinner-budget reference are added) -- laying every
+       pair out in two columns (label | value) rather than stacking dt above
+       dd is what keeps the box from growing taller in proportion, at every
+       width, not only the narrow one this rule previously targeted. */
+    [data-testid="candidate-card"] dl.candidate-facts > div {
+      display: grid; grid-template-columns: 4.6rem 1fr; column-gap: 0.5rem; align-items: baseline;
+    }
+
+    /* adr/0019 decision 5: shown only when cardPaymentAvailable is false
+       (candidate.js). Styled as a caution, not an error -- it states one
+       confirmed fact (credit-card payment is not accepted), never "cash
+       only" or another payment method. */
+    .candidate-payment-caution {
+      margin: 0; padding: 0.45rem 0.65rem; border-radius: 0.4rem;
+      background: #fdf3e2; border: 1px solid #f0dcae; color: #6b4f13;
+      font-size: 0.825rem; line-height: 1.4;
+    }
 
     [data-testid="candidate-card-provider-page-link"] {
       display: inline-flex; align-items: center; justify-content: center;
@@ -210,6 +249,41 @@
       border: 1px solid #155c42; border-radius: 0.5rem; font-weight: 650;
     }
     [data-testid="candidate-card-provider-page-link"]:hover { background: #eaf3ee; }
+
+    /* Narrow-width card density (developer judgment under ADR-0021's "骨格を
+       保つ限り自由に洗練してよい"; human 2026-08-08 real-device review:
+       「モバイルの場合、1店舗が縦長すぎてスクロールしないとみれないね、情報
+       を圧縮したい」, adr/0016 hand-off). businessHours (adr/0017 decision
+       7) and access (adr/0019 decision 6) were both removed from the card
+       outright rather than compressed here. This is layout/typography only
+       for the remaining requiredFields in candidate-search-browser-
+       interface.yaml: every one keeps its test id, its data-field-label,
+       and (where declared) its rawValueAttribute in the DOM unchanged, and
+       every field's visible value still equals the returned value exactly
+       -- the description clamp below hides overflow visually without
+       truncating the DOM text node. Reuses the existing 64rem breakpoint
+       (the point where the map already becomes a side column instead of
+       stacking above the cards) rather than introducing a new one. The
+       label/value two-column grid itself (dl.candidate-facts > div, added
+       for adr/0019's extra fields) now applies at every width; only the
+       column width narrows here to match the smaller font size below. */
+    @media (max-width: 63.999rem) {
+      [data-testid="candidate-proposal-cards"] { gap: 0.5rem; }
+      [data-testid="candidate-card"] { padding: 0.75rem 0.85rem; gap: 0.45rem; }
+      .candidate-card-id-row { gap: 0.35rem; }
+      [data-testid="candidate-card-name"] { font-size: 1rem; }
+      [data-testid="candidate-card"] dl.candidate-facts {
+        gap: 0.25rem; padding: 0.5rem 0.6rem;
+      }
+      [data-testid="candidate-card"] dl.candidate-facts > div {
+        grid-template-columns: 4.4rem 1fr;
+      }
+      [data-testid="candidate-card"] dl.candidate-facts dt { font-size: 0.75rem; }
+      [data-testid="candidate-card"] dl.candidate-facts dd { font-size: 0.85rem; line-height: 1.35; }
+      [data-testid="candidate-card-description"] {
+        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+      }
+    }
 
     /* candidate-map-attribution / candidate-provider-credit are inline
        text links whose exact wording the contract fixes (OSM copyright
@@ -248,9 +322,18 @@
       line-height: 2.75rem !important;
     }
 
-    /* Re-proposal modal (ADR-0012 skeleton block 4). */
+    /* Re-proposal modal (ADR-0012 skeleton block 4). z-index: 1000 is an
+       explicit stacking-context tiebreaker (orchestrator real-device
+       measurement, adr/0016 developer hand-off): #candidate-reproposal-
+       overlay is `position: fixed` and .leaflet-container is `position:
+       relative`, and neither previously declared a z-index, so Leaflet's
+       own internal panes (z-index 200-700, an implementation detail of
+       vendored Leaflet, not authored here) could end up painted above this
+       overlay depending on how the browser resolves the shared ancestor
+       stacking context. An explicit, clearly-higher z-index here removes
+       that ambiguity outright rather than depending on DOM order. */
     #candidate-reproposal-overlay:not([hidden]) {
-      position: fixed; inset: 0; background: rgb(28 36 32 / 45%);
+      position: fixed; inset: 0; z-index: 1000; background: rgb(28 36 32 / 45%);
       display: flex; align-items: center; justify-content: center; padding: 1rem;
     }
     [data-testid="candidate-reproposal-dialog"] { background: #fff; border-radius: 0.75rem; padding: 1.25rem; max-width: 32rem; width: 100%; }
@@ -258,8 +341,6 @@
       display: block; width: 100%; min-height: 2.75rem; text-align: left;
       margin-bottom: 0.5rem; padding: 0.6rem 0.75rem; background: #f4f5f1; color: #1c2420; border-radius: 0.4rem;
     }
-    [data-testid="candidate-reproposal-option"][aria-pressed="true"] { background: #d7e9df; }
-    [data-testid="candidate-reproposal-submit"],
     [data-testid="candidate-reproposal-cancel"] { min-height: 2.75rem; padding: 0.55rem 1.1rem; }
   </style>
 {% endblock %}

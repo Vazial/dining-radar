@@ -1,10 +1,17 @@
-"""Thin Gherkin-to-DSL mappings for TDR-CS-00 through TDR-CS-08.
+"""Thin Gherkin-to-DSL mappings for TDR-CS-00 through TDR-CS-12.
 
 Signing in composes the DSL's own JS-capable ``sign_in`` (see
 ``dsl/candidate_search_browser.py`` module docstring for why this cannot
 reuse the plain-HTTP ``AuthenticationSteps``): the candidate-search
 Background line "幹事はサインインしている" is the same precondition as
 TDR-AUTH-02, executed through the browser this scenario also observes.
+
+TDR-CS-12 (adr/0019) reuses the same NORMAL_WITH_REPEAT synthetic state as
+TDR-CS-01/02/03/09/11 (see ``candidates_include_a_shop_without_card_payment``
+below) rather than a dedicated mode, because test-support-api.yaml's
+NORMAL_WITH_REPEAT already guarantees at least one candidate with
+cardPaymentAvailable false and at least one with it true or null in one
+response.
 """
 
 from __future__ import annotations
@@ -44,6 +51,15 @@ class CandidateSearchSteps:
     def organizer_has_one_lens_of_candidates(self) -> None:
         self.dsl.open_candidate_screen()
 
+    def candidates_include_a_hard_to_confirm_lunch_genre(self) -> None:
+        self.dsl.set_candidate_state("NORMAL_WITH_REPEAT")
+
+    def excluding_the_genre_leaves_no_candidates_but_including_it_does(self) -> None:
+        self.dsl.set_candidate_state("IZAKAYA_BAR_ONLY")
+
+    def candidates_include_a_shop_without_card_payment(self) -> None:
+        self.dsl.set_candidate_state("NORMAL_WITH_REPEAT")
+
     # When ----------------------------------------------------------------
 
     def visitor_opens_candidate_proposal_screen(self) -> None:
@@ -52,14 +68,23 @@ class CandidateSearchSteps:
     def organizer_opens_candidate_proposal_screen(self) -> None:
         self.dsl.open_candidate_screen()
 
+    def organizer_compares_candidates(self) -> None:
+        self.dsl.open_candidate_screen()
+
     def organizer_opens_reproposal_popup(self) -> None:
         self.dsl.open_reproposal_popup()
 
     def organizer_selects_a_different_lens(self) -> str:
-        return self.dsl.select_and_submit_first_offered_lens()
+        return self.dsl.select_first_offered_lens()
 
     def organizer_requests_an_unsupported_lens_directly(self, kind: str) -> None:
         self.dsl.request_unsupported_lens_directly(kind)
+
+    def organizer_selects_the_izakaya_bar_included_lens(self) -> None:
+        self.dsl.select_izakaya_bar_included_lens()
+
+    def organizer_selects_try_again(self) -> None:
+        self.dsl.select_try_again()
 
     # Then ------------------------------------------------------------------
 
@@ -90,6 +115,9 @@ class CandidateSearchSteps:
     def cards_show_required_shop_fields(self) -> None:
         self.dsl.assert_required_card_fields_match_current_proposal()
 
+    def dinner_budget_reference_is_disclosed_as_a_dinner_price(self) -> None:
+        self.dsl.assert_dinner_budget_reference_is_shown()
+
     def map_has_no_forbidden_surfaces(self) -> None:
         self.dsl.assert_map_has_no_forbidden_surfaces()
 
@@ -107,6 +135,9 @@ class CandidateSearchSteps:
 
     def new_proposal_replaces_display_with_chosen_lens(self, chosen_kind: str) -> None:
         self.dsl.assert_display_replaced_by_reproposal(chosen_kind)
+
+    def new_proposal_uses_same_lens_and_replaces_display(self) -> None:
+        self.dsl.assert_new_proposal_uses_same_lens_and_replaces_display()
 
     def repeat_priority_orders_new_before_repeated(self) -> None:
         self.dsl.assert_repeat_priority_orders_new_before_repeated()
@@ -137,3 +168,27 @@ class CandidateSearchSteps:
 
     def organizer_is_guided_to_wait_and_retry_by_api(self) -> None:
         self.dsl.assert_captured_problem_matches_schema("PROPOSAL_RATE_LIMITED")
+
+    def izakaya_bar_included_lens_is_offered_as_reproposal_option(self) -> None:
+        self.dsl.assert_izakaya_bar_included_offered_as_reproposal_option()
+
+    def initial_candidates_exclude_the_hard_to_confirm_lunch_genre(self) -> None:
+        self.dsl.assert_initial_excludes_hard_to_confirm_lunch_genre()
+
+    def chosen_lens_candidates_include_the_hard_to_confirm_lunch_genre(self) -> None:
+        self.dsl.assert_chosen_lens_includes_hard_to_confirm_lunch_genre()
+
+    def chosen_lens_rationale_does_not_assert_confirmed_lunch_service(self) -> None:
+        self.dsl.assert_izakaya_bar_included_rationale_does_not_claim_confirmed_lunch()
+
+    def candidates_are_shown_including_the_excluded_genre(self) -> None:
+        self.dsl.assert_fallback_proposal_uses_izakaya_bar_included_lens()
+
+    def no_results_guidance_is_not_shown(self) -> None:
+        self.dsl.assert_no_results_indicator_absent()
+
+    def payment_caution_is_shown_for_shops_without_card_payment(self) -> None:
+        self.dsl.assert_payment_caution_shown_for_unavailable_card_payment()
+
+    def payment_caution_is_not_shown_for_other_shops(self) -> None:
+        self.dsl.assert_payment_caution_absent_when_card_payment_is_available_or_unknown()

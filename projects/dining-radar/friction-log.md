@@ -318,3 +318,133 @@ principles: [P-01, P-02, P-05, P-10]
   未着手であり、developerの次の実装スライスに委ねられる——本FRが閉じるのは「この欠落を認識し、
   是正の方針を確定した」という統治面までである（`reservation-frontend`のFR-002〜005が同種の順序
   ——ADR・契約の確定を「対応済み」とし、実装の着地は後続スライスに委ねる——を採っている先例に倣う）。
+
+## FR-010: ADR-0015が`IZAKAYA_BAR_INCLUDED`を追加した際、`reProposalOptions.maxItems: 3`との容量衝突を確認しなかった
+
+```yaml
+id: FR-010
+date: 2026-08-08
+found_at: L5
+slice: TDR-CS
+agents: [architect]
+cause_category: new contract enum member added without checking interaction with an existing fixed-size array constraint
+cause_key: concept-kind-addition-vs-reproposal-cap-unchecked
+pushed_to:
+  - projects/toyama-dining-radar/adr/0016-retire-genre-variety-for-try-again-and-fix-reproposal-capacity.md
+  - projects/toyama-dining-radar/contracts/candidate-search-api.yaml
+status: 対応済み
+principles: [P-02, P-08, P-10]
+```
+
+- Situation: ADR-0015（2026-08-07）は実データレビューを受けて`ConceptKind`へ5番目の値
+  `IZAKAYA_BAR_INCLUDED`を追加し、「非拘束の見解として…他の4切り口より低い優先順位に置くことを
+  推奨する」とした。しかし`candidate-search-api.yaml`の`reProposalOptions`は既に`maxItems: 3`
+  という固定容量制約を持っており、`ConceptKind`が5種類、表示中の1つを除いた残りが最大4つになる
+  以上、優先順位を最後に置いたことと`maxItems: 3`の組み合わせは、5つ全てがビルド可能な母集団では
+  `IZAKAYA_BAR_INCLUDED`が常に切り捨てられることを**単純な計数だけで**含意していた。これは実データを
+  必要としない論理的な帰結だったが、ADR-0015はこの容量衝突を一度も検討・言及しなかった。orchestratorが
+  2度目の実機レビューで、実際に`IZAKAYA_BAR_INCLUDED`が一度もAPI応答に現れないことを計測して初めて
+  発覚した（`adr/0016`文脈節）。
+- AI contribution: architect（ADR-0015起草時）は、`ConceptKind`へ新しい値を追加する決定と、
+  `reProposalOptions.maxItems: 3`という既存の固定容量制約が同じ契約内に共存することの相互作用を
+  確認しなかった。「優先順位はpipeline実装の詳細であり本ADRは拘束しない」という留保はあったが、
+  その留保自体が容量超過という契約レベルの帰結を隠す形になった——優先順位をどこに置いても、
+  5種類中4つを提示しようとする限り必ず1つが切り捨てられるという事実は、優先順位の値によらず
+  常に成立する契約構造上の問題であり、pipeline実装の詳細ではなかった。
+- Downward push: `adr/0016`が`GENRE_VARIETY`の削除により`ConceptKind`を4種類へ戻し、表示中の1つを
+  除いた残りが常に`maxItems: 3`に収まる構造にした。将来`ConceptKind`に新しい値を追加するarchitectは、
+  追加後の総数から表示中の1つを引いた値が`reProposalOptions.maxItems`に収まるかを明示的に確認する
+  ことを`adr/0016`決定4に申し送りとして記録した。
+- Result: 本件は「新しいenum値の追加」と「既存の固定容量スキーマ制約」という、今後も繰り返しうる
+  組み合わせの一般的な見落としパターンである。次に同じ形の追加が起きた場合、この確認を怠らないことが
+  再発防止の実体であり、今回は機械的な検査（例えばenum数と`maxItems`の関係を検証するgovlintルール）
+  までは導入しない——単一契約ファイル内の2つの数値の関係をチェックする汎用ルールの費用対効果は、
+  再発時に判断する（P-05）。
+
+## FR-011: ADR-0015が表示上限を5件に絞った際、それがADR-0008決定2の再表示降格を無効化することを、ADR-0015・ADR-0016いずれの起草時にも確認しなかった
+
+```yaml
+id: FR-011
+date: 2026-08-08
+found_at: L5
+slice: TDR-CS
+agents: [architect]
+cause_category: existing contract constraint changed without checking its interaction with a mechanism defined in a different, unrelated ADR
+cause_key: display-cap-silently-disables-repeat-demotion
+pushed_to:
+  - projects/toyama-dining-radar/adr/0017-move-repeat-demotion-to-server-and-remove-business-hours.md
+  - projects/toyama-dining-radar/contracts/candidate-search-api.yaml
+status: 対応済み
+principles: [P-02, P-08, P-10]
+```
+
+- Situation: ADR-0015（2026-08-07）は`CandidateConcept.candidates.maxItems`を100から5へ改め、
+  「これは表示上限であり、取得・順位付け対象の上限ではない」と明記した。しかしこの変更以前は、
+  応答が最大100件を運びうる一方で表示は一部だけだったため、ブラウザは表示していない候補を手元の
+  メモリに保持でき、ADR-0008決定2の「同一画面のメモリだけで既表示候補を判定し降格する」機構は
+  6位以下の候補をのちの再提案で繰り上げる余地を持っていた。ADR-0015が応答の実運搬件数を表示件数
+  ちょうどの5へ絞った時点で、ブラウザは表示分より多くの候補を一度も受け取らなくなり、
+  ADR-0008決定2の降格機構は「5件の中で並べ替える」以上のことができなくなった——これは実データを
+  要さない論理的帰結だった。同日に「もう一度探す」を追加したADR-0016も、この機構が「既存の
+  再表示降格（ADR-0008決定2）だけに頼る」と明記しながら、その機構が既に機能条件を失っていることを
+  確認しなかった。3度目の実機レビュー（`adr/0017`文脈1節）で、「もう一度探す」を2回押しても候補が
+  完全に同一・同順序になることが計測されて初めて発覚した。
+- AI contribution: architectは、ADR-0015起草時に`candidates.maxItems`を変更する決定と、ADR-0008
+  決定2という**別のADRが定めるブラウザ専用アルゴリズム**への影響を確認しなかった。ADR-0016起草時にも、
+  「既存の再表示降格に頼る」と書きながら、その機構が実際に機能する前提（表示分より多い候補をブラウザが
+  保持していること）をADR-0015が既に崩していたことを再検証しなかった。本件はFR-010（`ConceptKind`
+  追加時に`reProposalOptions.maxItems`との衝突を確認しなかった）と同じ**種類**の見落とし——契約の
+  一部を変更する際、それに依存する別の機構への影響を確認しない——だが、機構自体は異なる（FR-010は
+  同一契約ファイル内のenum数と配列上限の関係、本件は表示上限という容量系フィールドと、別ADRが定める
+  ブラウザ専用アルゴリズムの関係）ため、cause_keyは新規に発行する。
+- Downward push: `adr/0017`が再表示降格の実施主体をブラウザからサーバへ移し、サーバが取得・
+  ランキング済みの母集団全体（5件への切り詰め前）から毎回選び直す構造にした。これにより、表示上限を
+  何件に設定しても、母集団に未表示の候補が残る限り降格が機能する——表示上限の値と降格機構の可用性が
+  構造的に分離された。
+- Result: 「表示上限のような容量系フィールドを変更する際は、それに依存する別の機構（今回は
+  再表示降格）が存在しないかを確認する」ことを、以後の同種変更で確認事項として扱う。機械的な検査
+  （例えば契約ファイル横断で「表示件数を絞る変更」と「既存の降格・並べ替えアルゴリズムの前提」の
+  依存関係を検出するgovlintルール）は導入しない——契約ファイルをまたぐ暗黙の依存関係を汎用検出する
+  費用対効果は、再発時に判断する（P-05、FR-010と同じ判断）。
+
+## FR-012: ADR-0019決定8で、architectが自身のセッション内追記をADR-0019自身の根拠として循環的に引用し、予算感の表示を不当に全面却下した
+
+```yaml
+id: FR-012
+date: 2026-08-09
+found_at: AI
+slice: TDR-CS-field-refinement
+agents: [architect]
+cause_category: 契約の除外根拠として、同一ドラフト内で自ら書き足した文をあたかも独立した既存決定であるかのように引用した
+cause_key: adr-cites-own-session-edit-as-independent-precedent
+pushed_to:
+  - projects/toyama-dining-radar/adr/0019-refine-comparison-lenses-and-card-fields-from-field-survey.md
+  - projects/toyama-dining-radar/product-brief.md
+status: 対応済み
+principles: [P-01, P-06, P-08, P-10]
+```
+
+- Situation: ADR-0019のドラフト（実データのフィールド調査を受けた切り口・カード項目の再設計）で、
+  architectは人間が併記した2つの予算感の扱い方——(a) ランチ1000円以下を見通す推論、(b) 段階に分けて
+  予算感をディナー予算と明示して見せる——のうち、(a)は確認できない事実の断定になるため妥当に不採用と
+  したが、**(b)も含めて全面不採用**と判定した。その根拠として`product-brief.md` §3・§7が
+  「既に持つ明確な除外決定」を挙げたが、その除外記述の一部（「実データのフィールド調査で価格帯情報
+  自体は取得できることが確認できたが…ADR-0019。理由はADR-0019決定8を参照」）は、**同じドラフト作業の
+  中でarchitect自身が新たに書き足した文であり、ADR-0019自身を根拠にADR-0019の結論を正当化する
+  循環になっていた**。
+- AI contribution: architectは、`product-brief.md`の既存の除外記述（このセッション以前から実在した
+  「価格帯は Hot Pepper の情報がディナー寄りであるため表示しない」という文）と、自分が今回のドラフトで
+  同じ節に書き足した文（ADR-0019を参照する新規の一節）を区別せず、両者をまとめて「既に持つ明確な
+  除外決定」として引用した。これは根拠の出所を検証せずに引用した誤りであり、P-06（決定は新しい決定で
+  置き換える。古い記述を信じる事故を防ぐ）が防ごうとする事故の一種——ただし今回は「古い記述」ではなく
+  「自分がたった今書いた記述」を、あたかも独立した先行決定であるかのように扱った点で、通常のP-06違反
+  とは異なる新しい形である。
+- Downward push: orchestratorがこの循環を検知し、人間へ事実を提示した。人間は「ざっくりの段階表示が
+  できるなら入れてほしい」と回答し、決定8を差し戻した。ADR-0019決定8を全面書き換え、`dinnerBudgetTier`
+  （ディナー予算をディナー予算と明示した3段階の粗い目安。ランチ価格は推論・断定しない）を採用する
+  設計に改めた。`product-brief.md` §3・§7も、この差し戻しを反映して改訂する（人間の再承認点）。
+- Result: 今後、architectが契約・ADRの除外根拠として「既存の決定」を引用する際は、その引用元の文が
+  **本当に過去の別の作業で確定したものか、それとも今回のドラフト作業自身がその場で書き足したものか**
+  を区別すること。同一PR・同一ドラフト内で書いた文を、独立した先行制約として自己引用してはならない。
+  機械的な検査（例えば同一PR内の差分行を根拠として引用していないかを検出するgovlintルール）は
+  導入しない——単発の推論エラーであり、再発時に費用対効果を判断する（P-05、FR-010・FR-011と同じ判断）。
