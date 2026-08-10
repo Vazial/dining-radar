@@ -88,9 +88,7 @@ def _dinner_budget_yen_reference(budget: object) -> float | None:
     name = _text_or_none(budget.get("name"))
     if name is None:
         return None
-    figures = [
-        float(match.replace(",", "")) for match in _DINNER_BUDGET_YEN_PATTERN.findall(name)
-    ]
+    figures = [float(match.replace(",", "")) for match in _DINNER_BUDGET_YEN_PATTERN.findall(name)]
     return max(figures) if figures else None
 
 
