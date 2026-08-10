@@ -1,11 +1,6 @@
 from django.test import SimpleTestCase
 
-from dining_radar.recommendation.pipeline import (
-    Concept,
-    ConceptKind,
-    NormalizedCandidate,
-    ReproposalOption,
-)
+from dining_radar.recommendation.pipeline import NormalizedCandidate
 from dining_radar.suggestions.service import ProposalResult
 from dining_radar.web.serializers import serialize_result
 
@@ -29,13 +24,14 @@ def _candidate(**overrides):
 
 
 class SerializeResultTests(SimpleTestCase):
-    def test_null_proposal_serializes_to_null_with_fixed_credit(self):
-        result = ProposalResult(None, [])
+    def test_empty_candidates_serializes_with_fixed_credit(self):
+        result = ProposalResult((), False, ())
 
         payload = serialize_result(result)
 
-        self.assertIsNone(payload["proposal"])
-        self.assertEqual(payload["reProposalOptions"], [])
+        self.assertEqual(payload["candidates"], [])
+        self.assertFalse(payload["izakayaBarFallbackApplied"])
+        self.assertEqual(payload["availableGenres"], [])
         self.assertEqual(
             payload["providerCredit"],
             {
@@ -46,14 +42,11 @@ class SerializeResultTests(SimpleTestCase):
 
     def test_candidate_fields_and_nullable_handling_are_preserved(self):
         candidate = _candidate(description=None, total_seats=None)
-        concept = Concept(ConceptKind.PROXIMITY, "近さを優先する", "理由", (candidate,))
-        result = ProposalResult(
-            concept, [ReproposalOption(ConceptKind.GENRE_FOCUS, "変化", "理由2")]
-        )
+        result = ProposalResult((candidate,), False, ("和食",))
 
         payload = serialize_result(result)
 
-        serialized_candidate = payload["proposal"]["candidates"][0]
+        serialized_candidate = payload["candidates"][0]
         self.assertEqual(serialized_candidate["name"], "架空食堂")
         self.assertIsNone(serialized_candidate["description"])
         self.assertIsNone(serialized_candidate["totalSeats"])
@@ -62,30 +55,63 @@ class SerializeResultTests(SimpleTestCase):
         self.assertIsNone(serialized_candidate["cardPaymentAvailable"])
         self.assertIsNone(serialized_candidate["dinnerBudgetTier"])
         self.assertEqual(serialized_candidate["location"], {"latitude": 35.0, "longitude": 139.0})
-        # adr/0017 decision 7: businessHours is no longer part of the
-        # Candidate shape this serializer produces.
+        # adr/0020: the response no longer has a proposal/reProposalOptions
+        # wrapper -- these keys must never appear.
         self.assertNotIn("businessHours", serialized_candidate)
-        # adr/0019 decision 6: access is no longer part of the Candidate
-        # shape this serializer produces.
         self.assertNotIn("access", serialized_candidate)
-        self.assertEqual(payload["proposal"]["kind"], "PROXIMITY")
-        self.assertEqual(
-            payload["reProposalOptions"],
-            [{"kind": "GENRE_FOCUS", "title": "変化", "rationale": "理由2"}],
-        )
+        self.assertEqual(payload["availableGenres"], ["和食"])
 
     def test_candidate_refs_are_unique_within_one_response(self):
         candidates = (
             _candidate(provider_page_url="https://example.invalid/a"),
             _candidate(provider_page_url="https://example.invalid/b"),
         )
-        concept = Concept(ConceptKind.PROXIMITY, "近さを優先する", "理由", candidates)
-        result = ProposalResult(concept, [])
+        result = ProposalResult(candidates, False, ())
 
         payload = serialize_result(result)
 
-        refs = [candidate["candidateRef"] for candidate in payload["proposal"]["candidates"]]
+        refs = [candidate["candidateRef"] for candidate in payload["candidates"]]
         self.assertEqual(len(refs), len(set(refs)))
+
+    def test_izakaya_bar_fallback_applied_is_passed_through(self):
+        result = ProposalResult((), True, ())
+
+        payload = serialize_result(result)
+
+        self.assertTrue(payload["izakayaBarFallbackApplied"])
+
+    def test_response_has_exactly_the_contract_shape(self):
+        result = ProposalResult((_candidate(),), False, ())
+
+        payload = serialize_result(result)
+
+        self.assertEqual(
+            set(payload),
+            {
+                "candidates",
+                "izakayaBarFallbackApplied",
+                "availableGenres",
+                "populationAttributes",
+                "providerCredit",
+            },
+        )
+        self.assertEqual(
+            set(payload["candidates"][0]),
+            {
+                "candidateRef",
+                "name",
+                "genre",
+                "description",
+                "regularHoliday",
+                "totalSeats",
+                "capacityTier",
+                "nonSmokingStatus",
+                "cardPaymentAvailable",
+                "dinnerBudgetTier",
+                "location",
+                "providerPageUrl",
+            },
+        )
 
 
 class CapacityTierTests(SimpleTestCase):
@@ -93,9 +119,8 @@ class CapacityTierTests(SimpleTestCase):
 
     def _serialize_one(self, total_seats):
         candidate = _candidate(total_seats=total_seats)
-        concept = Concept(ConceptKind.PROXIMITY, "近さを優先する", "理由", (candidate,))
-        payload = serialize_result(ProposalResult(concept, []))
-        return payload["proposal"]["candidates"][0]
+        payload = serialize_result(ProposalResult((candidate,), False, ()))
+        return payload["candidates"][0]
 
     def test_null_total_seats_is_a_null_capacity_tier(self):
         self.assertIsNone(self._serialize_one(None)["capacityTier"])
@@ -111,23 +136,17 @@ class CapacityTierTests(SimpleTestCase):
         self.assertEqual(self._serialize_one(61)["capacityTier"], "LARGE")
 
     def test_visible_capacity_tier_wording_never_mentions_reservation_ease(self):
-        # adr/0019 decision 4 Must: capacityTier's own label/rationale/API
-        # description never use words implying reservation ease. This
-        # serializer only ever emits the bare enum literal (SMALL/MEDIUM/
-        # LARGE); rendering a human label is candidate.js's job. This test
-        # locks that the enum literal itself carries no such wording.
         for tier in ("SMALL", "MEDIUM", "LARGE"):
             self.assertNotIn("予約", tier)
 
 
 class DinnerBudgetTierTests(SimpleTestCase):
-    """adr/0019 decision 8: coarse dinner-price-range reference."""
+    """adr/0019 decision 8 / adr/0020 decision 10: coarse dinner-price-range reference."""
 
     def _serialize_one(self, budget_average):
         candidate = _candidate(budget_average=budget_average)
-        concept = Concept(ConceptKind.PROXIMITY, "近さを優先する", "理由", (candidate,))
-        payload = serialize_result(ProposalResult(concept, []))
-        return payload["proposal"]["candidates"][0]
+        payload = serialize_result(ProposalResult((candidate,), False, ()))
+        return payload["candidates"][0]
 
     def test_null_budget_average_is_a_null_dinner_budget_tier(self):
         self.assertIsNone(self._serialize_one(None)["dinnerBudgetTier"])
@@ -146,24 +165,21 @@ class DinnerBudgetTierTests(SimpleTestCase):
 class PassThroughFieldTests(SimpleTestCase):
     def test_non_smoking_status_is_passed_through_unchanged(self):
         candidate = _candidate(non_smoking_status="PARTIAL")
-        concept = Concept(ConceptKind.PROXIMITY, "近さを優先する", "理由", (candidate,))
 
-        payload = serialize_result(ProposalResult(concept, []))
+        payload = serialize_result(ProposalResult((candidate,), False, ()))
 
-        self.assertEqual(payload["proposal"]["candidates"][0]["nonSmokingStatus"], "PARTIAL")
+        self.assertEqual(payload["candidates"][0]["nonSmokingStatus"], "PARTIAL")
 
     def test_card_payment_available_false_is_passed_through_unchanged(self):
         candidate = _candidate(card_payment_available=False)
-        concept = Concept(ConceptKind.PROXIMITY, "近さを優先する", "理由", (candidate,))
 
-        payload = serialize_result(ProposalResult(concept, []))
+        payload = serialize_result(ProposalResult((candidate,), False, ()))
 
-        self.assertIs(payload["proposal"]["candidates"][0]["cardPaymentAvailable"], False)
+        self.assertIs(payload["candidates"][0]["cardPaymentAvailable"], False)
 
     def test_card_payment_available_true_is_passed_through_unchanged(self):
         candidate = _candidate(card_payment_available=True)
-        concept = Concept(ConceptKind.PROXIMITY, "近さを優先する", "理由", (candidate,))
 
-        payload = serialize_result(ProposalResult(concept, []))
+        payload = serialize_result(ProposalResult((candidate,), False, ()))
 
-        self.assertIs(payload["proposal"]["candidates"][0]["cardPaymentAvailable"], True)
+        self.assertIs(payload["candidates"][0]["cardPaymentAvailable"], True)

@@ -2,23 +2,31 @@
 
 Field names and nesting mirror ``contracts/candidate-search-api.yaml``
 exactly (``additionalProperties: false``): no extra key is ever added.
-Per ADR-0017 decision 7, ``Candidate`` no longer includes ``businessHours``.
-Per ADR-0019 decision 6, ``Candidate`` no longer includes ``access``.
 
-Per ADR-0019 decisions 4, 8, and 10, this module derives the two card-only
-coarse reference values that never participate in ranking --
-``capacityTier`` from ``totalSeats`` and ``dinnerBudgetTier`` from the
-provider's raw dinner-budget figure -- since neither is a ranking input for
-``recommendation`` (ADR-0019 decision 10's non-binding placement
-recommendation). Both threshold sets are one-time field-survey-derived
-provisional values (ADR-0019 §0) kept together here, each with a comment
-referencing the deciding ADR, per the same discipline
-``DEFAULT_EXCLUDED_GENRES`` already follows.
+Per adr/0020, the response is no longer a single ``proposal`` concept plus
+``reProposalOptions``: it is a flat ``candidates`` array (already filtered,
+ordered, and randomly sampled by ``dining_radar.recommendation.pipeline``),
+``izakayaBarFallbackApplied``, and ``availableGenres``.
+
+Per ADR-0019 decision 4, this module derives ``capacityTier`` from
+``totalSeats`` -- the one card-only coarse reference value that still lives
+here rather than in ``recommendation`` (it never participates in filtering or
+ordering, so `dining_radar.recommendation.pipeline` has no reason to compute
+it). ``dinnerBudgetTier`` (adr/0019 decision 8, adr/0020 decision 10) is
+computed by ``dining_radar.recommendation.pipeline.dinner_budget_tier``
+instead of being duplicated here, because ``recommendation`` also needs that
+same coarse tier for ``budgetTiers`` filtering and ordering (adr/0020 decision
+3): keeping the threshold mapping in one place is what keeps the two from
+silently disagreeing.
 """
 
 from __future__ import annotations
 
-from dining_radar.recommendation.pipeline import Concept, NormalizedCandidate, ReproposalOption
+from dining_radar.recommendation.pipeline import (
+    NormalizedCandidate,
+    PopulationAttribute,
+    dinner_budget_tier,
+)
 from dining_radar.suggestions.service import ProposalResult
 
 PROVIDER_CREDIT = {
@@ -32,13 +40,6 @@ PROVIDER_CREDIT = {
 _CAPACITY_TIER_SMALL_MAX_SEATS = 20
 _CAPACITY_TIER_MEDIUM_MAX_SEATS = 60
 
-# adr/0019 decision 8: coarse dinner-price-range reference derived from the
-# provider's dinner-oriented budget figure. Provisional thresholds from the
-# same one-time field survey (64 candidates, roughly balanced 18/30/16
-# split). Never used to infer or imply a lunch price.
-_DINNER_BUDGET_LOW_MAX_YEN = 2000
-_DINNER_BUDGET_MID_MAX_YEN = 4000
-
 
 def _capacity_tier(total_seats: int | None) -> str | None:
     if total_seats is None:
@@ -48,16 +49,6 @@ def _capacity_tier(total_seats: int | None) -> str | None:
     if total_seats <= _CAPACITY_TIER_MEDIUM_MAX_SEATS:
         return "MEDIUM"
     return "LARGE"
-
-
-def _dinner_budget_tier(budget_average: float | None) -> str | None:
-    if budget_average is None:
-        return None
-    if budget_average <= _DINNER_BUDGET_LOW_MAX_YEN:
-        return "LOW"
-    if budget_average <= _DINNER_BUDGET_MID_MAX_YEN:
-        return "MID"
-    return "HIGH"
 
 
 def serialize_candidate(candidate: NormalizedCandidate, index: int) -> dict:
@@ -71,34 +62,38 @@ def serialize_candidate(candidate: NormalizedCandidate, index: int) -> dict:
         "capacityTier": _capacity_tier(candidate.total_seats),
         "nonSmokingStatus": candidate.non_smoking_status,
         "cardPaymentAvailable": candidate.card_payment_available,
-        "dinnerBudgetTier": _dinner_budget_tier(candidate.budget_average),
+        "dinnerBudgetTier": dinner_budget_tier(candidate.budget_average),
         "location": {"latitude": candidate.latitude, "longitude": candidate.longitude},
         "providerPageUrl": candidate.provider_page_url,
     }
 
 
-def serialize_concept(concept: Concept) -> dict:
+def serialize_population_attribute(attribute: PopulationAttribute) -> dict:
+    """One identity-free population row (see ``PopulationAttribute``).
+
+    Deliberately carries no name, provider page URL, or coordinates: the
+    browser uses these only to count how many candidates a pending filter
+    selection would match, never to render a shop.
+    """
     return {
-        "conceptRef": f"concept-{concept.kind.value.lower()}",
-        "kind": concept.kind.value,
-        "title": concept.title,
-        "rationale": concept.rationale,
-        "candidates": [
-            serialize_candidate(candidate, index)
-            for index, candidate in enumerate(concept.candidates)
-        ],
+        "genre": attribute.genre,
+        "nonSmokingStatus": attribute.non_smoking_status,
+        "cardPaymentAvailable": attribute.card_payment_available,
+        "dinnerBudgetTier": attribute.dinner_budget_tier,
+        "defaultExcluded": attribute.default_excluded,
     }
-
-
-def serialize_reproposal_option(option: ReproposalOption) -> dict:
-    return {"kind": option.kind.value, "title": option.title, "rationale": option.rationale}
 
 
 def serialize_result(result: ProposalResult) -> dict:
     return {
-        "proposal": serialize_concept(result.proposal) if result.proposal is not None else None,
-        "reProposalOptions": [
-            serialize_reproposal_option(option) for option in result.reproposal_options
+        "candidates": [
+            serialize_candidate(candidate, index)
+            for index, candidate in enumerate(result.candidates)
+        ],
+        "izakayaBarFallbackApplied": result.izakaya_bar_fallback_applied,
+        "availableGenres": list(result.available_genres),
+        "populationAttributes": [
+            serialize_population_attribute(attribute) for attribute in result.population_attributes
         ],
         "providerCredit": PROVIDER_CREDIT,
     }

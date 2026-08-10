@@ -158,7 +158,8 @@ def candidate_proposal_state(request):
     """Selects or resets the synthetic state the next public API call observes.
 
     Implements ``CandidateProposalAcceptanceState`` from
-    ``contracts/test-support-api.yaml``.
+    ``contracts/test-support-api.yaml``, including the ``randomSeed`` property
+    adr/0020 decision 4 adds to pin the server's random pool-sampling source.
     """
     _acceptance_only()
 
@@ -172,8 +173,14 @@ def candidate_proposal_state(request):
     except (KeyError, ValueError):
         return HttpResponse(status=400)
 
-    if set(body) != {"mode"} or mode not in CANDIDATE_PROPOSAL_MODES:
+    if set(body) - {"mode", "randomSeed"} or mode not in CANDIDATE_PROPOSAL_MODES:
         return HttpResponse(status=400)
 
-    acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode(mode))
+    random_seed = body.get("randomSeed")
+    if random_seed is not None and (
+        not isinstance(random_seed, int) or isinstance(random_seed, bool)
+    ):
+        return HttpResponse(status=400)
+
+    acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode(mode), random_seed)
     return HttpResponse(status=204)

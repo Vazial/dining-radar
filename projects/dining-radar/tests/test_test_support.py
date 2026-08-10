@@ -1,4 +1,5 @@
 import json
+import random
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -188,6 +189,58 @@ class CandidateProposalAcceptanceStateTests(TestCase):
         self.assertEqual(response.status_code, 204)
         self.assertEqual(response.content, b"")
         self.assertIsNone(acceptance_state.active_mode())
+
+    # randomSeed (adr/0020 decision 4) -----------------------------------
+
+    def test_put_accepts_a_random_seed_and_pins_a_deterministic_source(self):
+        response = self.client.put(
+            "/test-support/candidate-proposals/state",
+            data=json.dumps({"mode": "NORMAL_WITH_POOL", "randomSeed": 42}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        first = acceptance_state.active_random_source().random()
+        second = acceptance_state.active_random_source().random()
+        self.assertEqual(first, second)
+
+    def test_put_without_a_random_seed_leaves_sampling_non_deterministic(self):
+        response = self.client.put(
+            "/test-support/candidate-proposals/state",
+            data=json.dumps({"mode": "NORMAL_WITH_POOL"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertIsInstance(acceptance_state.active_random_source(), random.Random)
+
+    def test_put_rejects_a_non_integer_random_seed(self):
+        response = self.client.put(
+            "/test-support/candidate-proposals/state",
+            data=json.dumps({"mode": "NORMAL_WITH_POOL", "randomSeed": "not-an-int"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_put_rejects_a_boolean_random_seed(self):
+        response = self.client.put(
+            "/test-support/candidate-proposals/state",
+            data=json.dumps({"mode": "NORMAL_WITH_POOL", "randomSeed": True}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_delete_also_clears_the_pinned_random_seed(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL, random_seed=42
+        )
+
+        response = self.client.delete("/test-support/candidate-proposals/state")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertIsNone(cache.get(acceptance_state._CACHE_KEY_SEED))
 
 
 @override_settings(

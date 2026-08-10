@@ -1,156 +1,130 @@
-"""Pure candidate-concept selection and ranking.
+"""Pure candidate filtering, ordering, and randomized pool selection.
 
 Per ADR-0001 decision 3 and ``ARCHITECTURE.md``, this module has no Django,
-HTTP, ORM, or Hot Pepper-specific dependency. It only reorders and selects
-among already-normalized candidates. Provider communication lives in
+HTTP, ORM, or Hot Pepper-specific dependency. It only filters, orders, and
+selects among already-normalized candidates. Provider communication lives in
 ``dining_radar.integrations.hotpepper``; request/response wiring lives in
 ``dining_radar.web`` and ``dining_radar.suggestions``.
 
-Per ADR-0004 decision 1 and the ``kind`` field description in
-``contracts/candidate-search-api.yaml``, the server "returns only kinds it
-can explain from the current normalized provider data": a concept kind is
-omitted entirely when the current candidate set cannot support the rule that
-explains it (for example, no candidate has a total-seat reference).
+Per adr/0020, the prior ``ConceptKind`` lens model (``PROXIMITY``,
+``GENRE_FOCUS``, ``NON_SMOKING_REFERENCE``, ``IZAKAYA_BAR_INCLUDED``) is
+retired. adr/0020 decision 0 found every surviving lens decomposed into
+either a filter (``GENRE_FOCUS``'s narrowing, ``IZAKAYA_BAR_INCLUDED``'s
+default-exclusion inversion) or a sort (``PROXIMITY``'s and
+``NON_SMOKING_REFERENCE``'s distance ordering). This module replaces that
+model with two operations plus one product decision the human made
+explicitly:
 
-Per ADR-0015, two further product rules apply to every concept built here:
-(1) ``PROXIMITY``, ``GENRE_FOCUS``, and ``NON_SMOKING_REFERENCE`` rank only
-candidates outside ``DEFAULT_EXCLUDED_GENRES`` (genres whose lunch service
-cannot be confirmed from returned provider fields); ``IZAKAYA_BAR_INCLUDED``
-is the only kind whose population also includes that genre category, and it
-is explainable only when at least one such candidate is present. When
-excluding that category leaves no candidate for any of the other three
-kinds, they fall through to unbuildable and ``IZAKAYA_BAR_INCLUDED`` becomes
-the only (and therefore initial) concept, built from the full population
-rather than a "no candidates" outcome (TDR-CS-10). (2) Every concept's
-displayed ``candidates`` is capped to the top 5 after ranking the full
-eligible population; this is a display cap applied last, not a limit on what
-was ranked.
+1. **Filtering** (``filter_candidates``, adr/0020 decisions 1-3): ``genres``,
+   ``includeIzakayaBar``, ``nonSmokingOnly``, ``cardPaymentOnly``, and
+   ``budgetTiers`` are applied to the full retrieved, normalized, deduplicated
+   population -- never to a display-truncated subset. ``nonSmokingOnly``,
+   ``cardPaymentOnly``, and ``budgetTiers`` are *soft* filters (decision 2,
+   human judgment): they exclude only a candidate confirmed not to match, and
+   never a candidate whose relevant field is unconfirmed (``None``). This
+   mirrors ADR-0015's "確認できないことを断定しない" principle, applied here
+   to filtering rather than only to display.
+2. **Ordering** (``order_confirmed_then_unconfirmed``, decision 4 steps 2-3
+   and 6): candidates confirmed to match every *active* nullable filter
+   (``nonSmokingOnly``, ``cardPaymentOnly``, ``budgetTiers``) are placed
+   before every candidate unconfirmed for at least one of them; within each
+   group, candidates are ordered nearest-first. When no nullable filter is
+   active, this reduces to plain nearest-first. This same ordering rule is
+   applied twice: once to the filtered population before pool selection, and
+   again to the final sampled candidates immediately before display (decision
+   4 step 6), so the browser always sees the same fixed display order
+   regardless of the random sample drawn.
+3. **Randomized pool selection** (``select_pool_and_sample``, decision 4
+   steps 4-5): the nearest ``min(population, pool_size)`` candidates (a
+   non-binding recommended ``pool_size`` of 20) form a pool, and up to 5
+   candidates are drawn from it at random via an injected ``random.Random``
+   source. Per decision 4's "決定性としての要求", the exact distance value
+   feeding this ordering is never returned to the browser (unchanged from the
+   prior ``ConceptKind`` model's own non-disclosure of distance), and the
+   random source itself is never seeded from anything the public API
+   accepts -- only ``dining_radar.suggestions`` may inject a seeded source,
+   and only via ``contracts/test-support-api.yaml``.
+4. **The default izakaya/bar-genre exclusion fallback**
+   (``apply_izakaya_bar_fallback``, decision 6, successor to ADR-0015 decision
+   4 / ``IZAKAYA_BAR_INCLUDED``): when ``includeIzakayaBar`` is false and
+   applying every filter leaves no candidate, the server recomputes with that
+   one exclusion set aside and returns those candidates instead, flagging
+   this in the response. No other filter is ever silently loosened.
 
-Per ADR-0016, ``GENRE_VARIETY`` was removed from ``ConceptKind``: real
-production data showed it always converged to the same candidate set and
-order as ``PROXIMITY`` once the nearest candidates already spanned distinct
-genres, so it no longer described a distinct, explainable lens. A same-lens
-"try again" request (resending the displayed proposal's own ``kind`` as
-``reproposalKind``) is not a new ``ConceptKind`` and is not built here:
-``select_reproposal`` already looks up any requested kind, including the
-currently displayed one, from the concepts this module built for the fresh
-search, so no new ranking logic is needed for it.
+``build_proposal`` composes all four steps into the one operation
+``dining_radar.suggestions.service`` calls per request.
 
-Per ADR-0017, a third real-data review found the display cap alone
-(ADR-0015) had structurally disabled the repeat-demotion mechanism ADR-0008
-decision 2 originally specified for the browser: once every response is
-truncated to exactly the display cap, the browser never holds an unseen
-candidate to promote on a later re-proposal. Repeat demotion therefore moves
-here, server-side: ``build_concepts`` now accepts
-``previously_shown_provider_page_urls`` -- the exact ``providerPageUrl``
-values a re-proposal request echoes back from what this server most
-recently returned to the same browser (ADR-0017 decision 1) -- and, for
-every concept, stably demotes matching candidates to the end of that
-concept's ranked order before applying the ``_DISPLAY_CAP`` (ADR-0017
-decision 2). This is a demotion, not an exclusion: a previously-shown
-candidate is never dropped by this step, only reordered, and it may still
-appear in the capped, displayed set once no unseen candidate remains ahead
-of it. The caller (``dining_radar.suggestions.service``) receives this list
-as a plain data argument and never stores, logs, or traces it (ADR-0017
-decision 3 Must).
-
-Per ADR-0017 decision 7, ``businessHours`` is no longer part of this
-application's candidate model: it was the single largest contributor to
-mobile card height and the browser never had a way to use it to confirm
-lunch service (the provider's ``open`` field is free text and its ``lunch``
-field only ever reports "available" for an already lunch-filtered search).
-``NormalizedCandidate`` therefore carries no ``business_hours`` field; the
-provider page link (``provider_page_url``) remains the authoritative source
-for hours.
-
-Per ADR-0019, a field survey of the same live candidates found
-``CAPACITY_REFERENCE`` (sorting by exact seat count) and
-``AMENITY_REFERENCE`` (a combined score over ``private_room``,
-``non_smoking``, ``parking``, ``wifi``, ``barrier_free``) weak or unwanted as
-comparison lenses -- the organizer found sorting by exact seat count added
-no value, and every ``AMENITY_REFERENCE`` constituent field other than
-``non_smoking`` was sparse or unusable in real data. Both are removed.
-``ConceptKind`` gains two replacements, keeping the total at four so
-``reProposalOptions.maxItems: 3`` (three, always the total minus the one
-displayed) remains satisfied without change (decision 1):
-
-* ``GENRE_FOCUS`` ranks by proximity only the candidates sharing the single
-  most common genre in the default (non-excluded-genre) population, and is
-  explainable only when that population spans at least two distinct genres.
-  Because the rule always narrows the population rather than merely
-  reordering it, ``GENRE_FOCUS``'s candidate set is -- whenever it is
-  offered -- a strict subset of ``PROXIMITY``'s own candidate set, so it
-  cannot reproduce the exact-match degeneracy that led to
-  ``GENRE_VARIETY``'s removal (ADR-0016). Its ``title``/``rationale`` are
-  generated per response and name the genre selected; this stays
-  deterministic for a given candidate set (ADR-0004 decision 1's
-  "explainable, deterministic" requirement is about reproducibility, not
-  about being a compile-time constant).
-* ``NON_SMOKING_REFERENCE`` ranks primarily by each candidate's
-  ``non_smoking_status`` (full non-smoking, then partial, then none, then
-  unconfirmed), then by proximity, and is explainable only when the
-  population spans at least two distinct non-smoking references. It
-  replaces ``AMENITY_REFERENCE``.
-
-Total seats (``capacityTier``), dinner-price banding (``dinnerBudgetTier``),
-and credit-card acceptance (``cardPaymentAvailable``) are card-display-only
-derived values (ADR-0019 decisions 4, 5, and 8): they never participate in
-ranking and are never a ``ConceptKind``. ``NormalizedCandidate`` still
-carries the raw ``total_seats`` and ``budget_average`` values so
-``dining_radar.web.serializers`` can derive the coarse card labels, and it
-carries ``card_payment_available`` as a plain pass-through boolean; none of
-the three is read anywhere in this module. ``non_smoking_status`` is the one
-exception: it both drives ``NON_SMOKING_REFERENCE`` ranking here and is
-serialized to the browser unchanged (ADR-0019 decision 3 changes the prior
-"none of these raw values are ever included in a browser-facing Candidate"
-assumption, which held only for the retired ``amenity_score``).
+Total seats (``capacityTier``), non-smoking reference display, and
+credit-card acceptance display remain card-display-only concerns owned by
+``dining_radar.web.serializers`` (ADR-0019). ``dinner_budget_tier`` is the one
+derived value this module also needs, because ``budgetTiers`` filtering and
+ordering must reason about the same coarse tier the card displays -- so it is
+defined here (the single source of truth for the threshold mapping) and
+reused, not duplicated, by ``dining_radar.web.serializers``.
 """
 
 from __future__ import annotations
 
 import math
+import random
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
-from enum import StrEnum
-
-
-class ConceptKind(StrEnum):
-    """Mirrors ``components.schemas.ConceptKind`` in the API contract."""
-
-    PROXIMITY = "PROXIMITY"
-    GENRE_FOCUS = "GENRE_FOCUS"
-    NON_SMOKING_REFERENCE = "NON_SMOKING_REFERENCE"
-    IZAKAYA_BAR_INCLUDED = "IZAKAYA_BAR_INCLUDED"
-
+from dataclasses import dataclass, field
 
 # Genres whose Hot Pepper `lunch` response field cannot confirm lunch service
 # for an individual shop (adr/0015 decision 2-3: the field only ever reports
 # "available" for a search already restricted to lunch, and free-text `open`
-# hours are not machine-judgeable). These are excluded from the default
-# candidate population of every concept except IZAKAYA_BAR_INCLUDED. This
-# exclusion reflects unconfirmed lunch status, not a confirmed absence of
-# lunch service (no rationale here may claim the latter).
+# hours are not machine-judgeable). Excluded from the eligible population
+# unless `includeIzakayaBar` is true (adr/0020 decision 1, successor to
+# ADR-0015's IZAKAYA_BAR_INCLUDED concept). This exclusion reflects
+# unconfirmed lunch status, not a confirmed absence of lunch service (no
+# rationale here may claim the latter).
 #
 # Confirmed members come from one real-data review sample and are not yet a
 # complete Hot Pepper genre-taxonomy audit; genre-string matching (rather
 # than a genre code) is also a provisional choice. Both must be reconfirmed
 # against current official documentation before public operation (adr/0015
-# decision 3, design.md "後続スライスへの条件"), mirroring the same
-# reconfirmation duty ``integrations/hotpepper/normalize.py`` already
-# documents for its own field-name assumptions.
+# decision 3), mirroring the same reconfirmation duty
+# ``integrations/hotpepper/normalize.py`` already documents for its own
+# field-name assumptions.
 DEFAULT_EXCLUDED_GENRES = frozenset({"居酒屋", "ダイニングバー・バル"})
 
-# Display cap applied after ranking the full eligible population
-# (adr/0015 decision 1). It bounds only what is serialized to the browser.
-_DISPLAY_CAP = 5
+# Non-binding recommended pool size (adr/0020 decision 4 step 4): the nearest
+# min(population, this) candidates form the pool up to 5 are randomly sampled
+# from. Kept as a module constant so callers needn't hardcode it, but
+# `build_proposal`/`select_pool_and_sample` both accept an override.
+DEFAULT_POOL_SIZE = 20
 
-# Non-smoking rank used only for NON_SMOKING_REFERENCE's primary sort key
-# (adr/0019 decision 3: full non-smoking, then partial, then none, then
-# unconfirmed). Not a display value -- the browser-visible label is derived
-# independently by dining_radar.web.serializers from the same raw enum
-# string this module ranks by.
-_NON_SMOKING_RANK: dict[str | None, int] = {"FULL": 0, "PARTIAL": 1, "NONE": 2}
-_NON_SMOKING_RANK_UNCONFIRMED = 3
+# Display cap: the maximum number of candidates ever returned to the browser
+# (adr/0020 decision 4 step 5). Unchanged in value from the prior
+# ConceptKind model's own display cap (ADR-0015 decision 1), but now also the
+# random sample size rather than a plain ranking truncation.
+DISPLAY_CAP = 5
+
+# adr/0020 decision 10 / adr/0019 decisions 4 and 8: coarse dinner-price-range
+# reference derived from the provider's dinner-oriented budget figure.
+# Provisional thresholds from a one-time field survey (64 candidates, roughly
+# balanced 18/30/16 split). Never used to infer or imply a lunch price. This
+# is the single place these thresholds are defined; `filter_candidates` and
+# `dining_radar.web.serializers.serialize_candidate` both read
+# `dinner_budget_tier` rather than duplicating the thresholds.
+_DINNER_BUDGET_LOW_MAX_YEN = 2000
+_DINNER_BUDGET_MID_MAX_YEN = 4000
+
+
+def dinner_budget_tier(budget_average: float | None) -> str | None:
+    """The coarse LOW/MID/HIGH dinner-budget tier for a raw yen figure.
+
+    ``None`` when ``budget_average`` is ``None`` -- never a guess (adr/0020
+    decision 2's "確認できないことを断定しない" principle applies here too:
+    an unconfirmed budget figure must never be coerced into a tier).
+    """
+    if budget_average is None:
+        return None
+    if budget_average <= _DINNER_BUDGET_LOW_MAX_YEN:
+        return "LOW"
+    if budget_average <= _DINNER_BUDGET_MID_MAX_YEN:
+        return "MID"
+    return "HIGH"
 
 
 @dataclass(frozen=True)
@@ -165,15 +139,13 @@ class Origin:
 class NormalizedCandidate:
     """A Hot Pepper shop already normalized to this application's fields.
 
-    ``non_smoking_status`` is both a ranking input (``NON_SMOKING_REFERENCE``)
-    and a value serialized to the browser unchanged. ``total_seats``,
-    ``budget_average``, and ``card_payment_available`` are never read by this
-    module's ranking logic; they exist only so
-    ``dining_radar.web.serializers`` can derive ``capacityTier``,
-    ``dinnerBudgetTier``, and pass through ``cardPaymentAvailable`` (ADR-0019
-    decisions 4, 5, 8). The coordinates are an internal ranking input; only
-    the fields also present in ``components.schemas.Candidate`` are ever
-    serialized to the browser (see ``dining_radar.web.serializers``).
+    ``total_seats``, ``non_smoking_status``, ``card_payment_available``, and
+    ``budget_average`` are all serialized to the browser (directly, or -- for
+    ``budget_average`` -- via ``dinner_budget_tier``); ``budget_average``
+    itself is never returned raw (only its coarse tier is). The coordinates
+    are an internal ranking input; only the fields also present in
+    ``components.schemas.Candidate`` are ever serialized to the browser (see
+    ``dining_radar.web.serializers``).
     """
 
     name: str
@@ -190,63 +162,54 @@ class NormalizedCandidate:
 
 
 @dataclass(frozen=True)
-class Concept:
-    kind: ConceptKind
-    title: str
-    rationale: str
-    candidates: tuple[NormalizedCandidate, ...]
+class CandidateFilters:
+    """Mirrors ``components.schemas.CandidateFilters`` in the API contract.
+
+    Every field defaults to "no restriction" (an empty tuple or ``False``),
+    matching the contract's "omit, or send {}, for no restriction" rule for
+    the initial request. ``budget_tiers`` holds raw ``LOW``/``MID``/``HIGH``
+    strings, mirroring the wire enum exactly.
+    """
+
+    genres: tuple[str, ...] = field(default_factory=tuple)
+    include_izakaya_bar: bool = False
+    non_smoking_only: bool = False
+    card_payment_only: bool = False
+    budget_tiers: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
-class ReproposalOption:
-    kind: ConceptKind
-    title: str
-    rationale: str
+class PopulationAttribute:
+    """One candidate's filterable attributes, stripped of all identity.
+
+    Carries no name, no provider page URL, and -- critically -- no
+    coordinates, so the sequence of these can be sent to the browser without
+    disclosing anything about the private search origin beyond what the
+    displayed candidates already disclose (ADR-0005/ADR-0008). It exists so
+    the browser can count how many candidates a *pending* filter selection
+    would match, before the organizer commits it, without issuing a provider
+    request per keystroke and without this application caching provider
+    responses (a policy ADR-0018 leaves unopened).
+
+    ``default_excluded`` mirrors ``DEFAULT_EXCLUDED_GENRES`` membership so the
+    browser can also count the effect of toggling ``includeIzakayaBar``.
+    """
+
+    genre: str
+    non_smoking_status: str | None
+    card_payment_available: bool | None
+    dinner_budget_tier: str | None
+    default_excluded: bool
 
 
-class ReproposalKindUnavailableError(Exception):
-    """The requested lens cannot currently be explained from the candidates."""
+@dataclass(frozen=True)
+class Proposal:
+    """A complete replacement displayed-proposal, ready to serialize."""
 
-
-# GENRE_FOCUS has no static title/rationale: both are generated per response
-# from the genre it selected (see _build_genre_focus).
-_TITLES: dict[ConceptKind, str] = {
-    ConceptKind.PROXIMITY: "近さを優先する",
-    ConceptKind.NON_SMOKING_REFERENCE: "禁煙対応を参考にする",
-    ConceptKind.IZAKAYA_BAR_INCLUDED: "居酒屋・バーを含めて探す",
-}
-
-_RATIONALES: dict[ConceptKind, str] = {
-    ConceptKind.PROXIMITY: "検索地点から近い順に候補をまとめています。",
-    ConceptKind.NON_SMOKING_REFERENCE: (
-        "禁煙対応の区分（全面禁煙・一部禁煙・禁煙席なし）を優先し、次に検索地点から近い順に"
-        "候補をまとめています。禁煙区分は店舗からの参考情報です。詳細は店舗ページでご確認ください。"
-    ),
-    ConceptKind.IZAKAYA_BAR_INCLUDED: (
-        "居酒屋やバーなど、取得できた情報だけではランチ営業の実施を確認できない候補も含めて、"
-        "検索地点から近い順に候補をまとめています。含めた店舗が実際にランチ営業しているとは"
-        "限らないため、営業時間は店舗ページでご確認ください。"
-    ),
-}
-
-# Fixed, deterministic priority order for the initial displayed concept and
-# for the order concepts are offered as re-proposal lenses (ADR-0004 decision
-# 1: "初期のコンセプト生成と順位付けは...決定的なルールだけで行う").
-# IZAKAYA_BAR_INCLUDED is placed last as a non-binding preference (adr/0015
-# decision 4): the organizer should normally reach it only by choosing it as
-# a re-proposal lens, and it is selected as the initial/only concept solely
-# through the fall-through described in this module's docstring. This tuple
-# has four members (adr/0019 decision 1: GENRE_FOCUS and NON_SMOKING_REFERENCE
-# replace CAPACITY_REFERENCE and AMENITY_REFERENCE one-for-one, keeping the
-# total at four), so reproposal_options's up-to-three-excluding-the-
-# displayed-kind result can never drop a kind to fit the contract's
-# maxItems: 3 -- no reordering of this tuple is needed to keep that true.
-_PRIORITY_ORDER: tuple[ConceptKind, ...] = (
-    ConceptKind.PROXIMITY,
-    ConceptKind.GENRE_FOCUS,
-    ConceptKind.NON_SMOKING_REFERENCE,
-    ConceptKind.IZAKAYA_BAR_INCLUDED,
-)
+    candidates: tuple[NormalizedCandidate, ...]
+    izakaya_bar_fallback_applied: bool
+    available_genres: tuple[str, ...]
+    population_attributes: tuple[PopulationAttribute, ...]
 
 
 def _dedupe(candidates: Sequence[NormalizedCandidate]) -> list[NormalizedCandidate]:
@@ -264,28 +227,12 @@ def _dedupe(candidates: Sequence[NormalizedCandidate]) -> list[NormalizedCandida
     return deduped
 
 
-def _split_default_population(
-    candidates: Sequence[NormalizedCandidate],
-) -> tuple[list[NormalizedCandidate], list[NormalizedCandidate]]:
-    """Default-eligible candidates and the default-excluded subset (adr/0015).
-
-    ``PROXIMITY``, ``GENRE_FOCUS``, and ``NON_SMOKING_REFERENCE`` rank only
-    the first list. ``IZAKAYA_BAR_INCLUDED`` is explainable only when the
-    second list is non-empty.
-    """
-    default: list[NormalizedCandidate] = []
-    excluded: list[NormalizedCandidate] = []
-    for candidate in candidates:
-        (excluded if candidate.genre in DEFAULT_EXCLUDED_GENRES else default).append(candidate)
-    return default, excluded
-
-
 def _distance(origin: Origin, candidate: NormalizedCandidate) -> float:
     """A small-scale planar approximation used only to rank nearby candidates.
 
-    The exact distance is never returned to the browser (ADR-0004/0005/0008),
-    so geodesic precision is unnecessary; a locally consistent ordering is
-    sufficient.
+    The exact distance is never returned to the browser (ADR-0004/0005/0008,
+    unchanged by adr/0020), so geodesic precision is unnecessary; a locally
+    consistent ordering is sufficient.
     """
     latitude_scale = math.cos(math.radians(origin.latitude))
     delta_latitude = candidate.latitude - origin.latitude
@@ -293,218 +240,220 @@ def _distance(origin: Origin, candidate: NormalizedCandidate) -> float:
     return math.hypot(delta_latitude, delta_longitude)
 
 
-def _build_proximity(candidates: Sequence[NormalizedCandidate], origin: Origin) -> Concept | None:
-    if not candidates:
-        return None
-    ordered = sorted(candidates, key=lambda candidate: _distance(origin, candidate))
-    return Concept(
-        ConceptKind.PROXIMITY,
-        _TITLES[ConceptKind.PROXIMITY],
-        _RATIONALES[ConceptKind.PROXIMITY],
-        tuple(ordered),
-    )
+def population_attributes(
+    candidates: Sequence[NormalizedCandidate],
+) -> list[PopulationAttribute]:
+    """Identity-free filterable attributes for the whole deduplicated population.
 
-
-def _build_genre_focus(candidates: Sequence[NormalizedCandidate], origin: Origin) -> Concept | None:
-    """Rank by proximity only the single most common genre (adr/0019 decision 2).
-
-    Explainable only when the population spans at least two distinct
-    genres -- otherwise "the most common genre" is the whole population and
-    this lens would be indistinguishable from PROXIMITY. When it does apply,
-    the narrowing to one genre makes the resulting candidate set a strict
-    subset of PROXIMITY's own candidate set by construction, which is what
-    keeps this lens from reproducing GENRE_VARIETY's exact-match degeneracy
-    (adr/0016).
+    Computed before any filter is applied -- including the default
+    izakaya/bar exclusion -- because the browser must be able to count the
+    effect of *any* pending selection, including turning ``includeIzakayaBar``
+    on. Order is the deduplicated provider order and carries no distance
+    information: nothing here may let the browser re-derive the ranking, only
+    count set membership.
     """
-    if not candidates:
-        return None
-    genre_counts: dict[str, int] = {}
-    for candidate in candidates:
-        genre_counts[candidate.genre] = genre_counts.get(candidate.genre, 0) + 1
-    if len(genre_counts) < 2:
-        return None
-
-    ordered_by_distance = sorted(candidates, key=lambda candidate: _distance(origin, candidate))
-    max_count = max(genre_counts.values())
-    most_common_genres = {genre for genre, count in genre_counts.items() if count == max_count}
-    # Deterministic tiebreak (developer discretion, adr/0019 decision 2's
-    # non-binding algorithm note): prefer the genre of whichever tied genre's
-    # candidate is nearest the search origin.
-    selected_genre = next(
-        candidate.genre
-        for candidate in ordered_by_distance
-        if candidate.genre in most_common_genres
-    )
-    filtered = [candidate for candidate in ordered_by_distance if candidate.genre == selected_genre]
-    title = f"「{selected_genre}」を中心に探す"
-    rationale = (
-        f"候補の中で最も件数が多い「{selected_genre}」というジャンルに絞り込み、"
-        "検索地点から近い順に候補をまとめています。"
-    )
-    return Concept(ConceptKind.GENRE_FOCUS, title, rationale, tuple(filtered))
-
-
-def _non_smoking_rank(status: str | None) -> int:
-    return _NON_SMOKING_RANK.get(status, _NON_SMOKING_RANK_UNCONFIRMED)
-
-
-def _build_non_smoking_reference(
-    candidates: Sequence[NormalizedCandidate], origin: Origin
-) -> Concept | None:
-    """Rank primarily by non-smoking reference, then proximity (adr/0019 decision 3).
-
-    Explainable only when the population spans at least two distinct
-    ``non_smoking_status`` values (including the unconfirmed/``None`` bucket
-    as its own distinct value) -- otherwise the primary sort key is constant
-    across every candidate and this lens would offer no comparison the
-    organizer could not already see from PROXIMITY.
-    """
-    if not candidates:
-        return None
-    if len({candidate.non_smoking_status for candidate in candidates}) < 2:
-        return None
-    ordered = sorted(
-        candidates,
-        key=lambda candidate: (
-            _non_smoking_rank(candidate.non_smoking_status),
-            _distance(origin, candidate),
-        ),
-    )
-    return Concept(
-        ConceptKind.NON_SMOKING_REFERENCE,
-        _TITLES[ConceptKind.NON_SMOKING_REFERENCE],
-        _RATIONALES[ConceptKind.NON_SMOKING_REFERENCE],
-        tuple(ordered),
-    )
-
-
-def _build_izakaya_bar_included(
-    deduped: Sequence[NormalizedCandidate],
-    excluded_population: Sequence[NormalizedCandidate],
-    origin: Origin,
-) -> Concept | None:
-    """The only kind ranking the full population, including excluded genres.
-
-    Explainable only when ``excluded_population`` is non-empty (adr/0015
-    decision 2): otherwise this lens would rank exactly the same candidates
-    as the default population already covers, with nothing distinct to
-    offer. Ranking uses the same proximity rule as ``PROXIMITY`` over the
-    full (excluded-inclusive) population, applied to the deduplicated set so
-    the fall-through in ``build_concepts`` can rely on it as the sole
-    surviving concept when every default-population concept is unbuildable
-    (TDR-CS-10).
-    """
-    if not excluded_population:
-        return None
-    ordered = sorted(deduped, key=lambda candidate: _distance(origin, candidate))
-    return Concept(
-        ConceptKind.IZAKAYA_BAR_INCLUDED,
-        _TITLES[ConceptKind.IZAKAYA_BAR_INCLUDED],
-        _RATIONALES[ConceptKind.IZAKAYA_BAR_INCLUDED],
-        tuple(ordered),
-    )
-
-
-def _demote_repeated(
-    concept: Concept, previously_shown_provider_page_urls: frozenset[str]
-) -> Concept:
-    """Stably move already-shown candidates behind unseen ones (adr/0017 decision 2).
-
-    This is a demotion, not an exclusion: every candidate in ``concept``
-    stays in the returned candidates, only reordered. Unseen candidates keep
-    their relative ranked order and precede every demoted one, which also
-    keeps its relative ranked order among the other demoted candidates
-    (mirroring the browser-side algorithm ADR-0008 decision 2 specified
-    before ADR-0017 moved it server-side). Must run after ranking and before
-    ``_cap_display`` so demotion can only ever change which candidates the
-    cap keeps, never how they were ranked.
-    """
-    if not previously_shown_provider_page_urls:
-        return concept
-    unseen = [
-        candidate
-        for candidate in concept.candidates
-        if candidate.provider_page_url not in previously_shown_provider_page_urls
+    return [
+        PopulationAttribute(
+            genre=candidate.genre,
+            non_smoking_status=candidate.non_smoking_status,
+            card_payment_available=candidate.card_payment_available,
+            dinner_budget_tier=dinner_budget_tier(candidate.budget_average),
+            default_excluded=candidate.genre in DEFAULT_EXCLUDED_GENRES,
+        )
+        for candidate in candidates
     ]
-    seen = [
-        candidate
-        for candidate in concept.candidates
-        if candidate.provider_page_url in previously_shown_provider_page_urls
-    ]
-    return replace(concept, candidates=tuple(unseen + seen))
 
 
-def _cap_display(concept: Concept) -> Concept:
-    """Top-``_DISPLAY_CAP`` candidates after ranking (adr/0015 decision 1).
+def available_genres(
+    candidates: Sequence[NormalizedCandidate], include_izakaya_bar: bool
+) -> list[str]:
+    """Distinct genre labels for the response's ``availableGenres`` (decision 9).
 
-    Every ``_build_*`` function above already ranks its full eligible
-    population; this must run last so the cap never influences ranking.
+    Computed from the population given only ``include_izakaya_bar`` -- never
+    narrowed by ``genres`` or any other filter -- so the browser's offered
+    genre choices never shrink as the organizer narrows (adr/0020 decision
+    9). Returned in a fixed, deterministic (sorted) order: the contract
+    requires only that the filter panel's options match this order one-to-
+    one, not any particular ordering rule.
     """
-    if len(concept.candidates) <= _DISPLAY_CAP:
-        return concept
-    return replace(concept, candidates=concept.candidates[:_DISPLAY_CAP])
+    population = (
+        candidates
+        if include_izakaya_bar
+        else [
+            candidate for candidate in candidates if candidate.genre not in DEFAULT_EXCLUDED_GENRES
+        ]
+    )
+    return sorted({candidate.genre for candidate in population})
 
 
-def build_concepts(
+def filter_candidates(
+    candidates: Sequence[NormalizedCandidate], filters: CandidateFilters
+) -> list[NormalizedCandidate]:
+    """Apply every filter to the full population (adr/0020 decisions 1-3).
+
+    ``genres`` and ``includeIzakayaBar`` (its default-exclusion inversion)
+    are hard filters. ``nonSmokingOnly``, ``cardPaymentOnly``, and
+    ``budgetTiers`` are soft filters (decision 2): each excludes only a
+    candidate *confirmed* not to match; a candidate whose relevant field is
+    unconfirmed (``None``) is never excluded by that filter.
+    """
+    population: Sequence[NormalizedCandidate] = candidates
+
+    if not filters.include_izakaya_bar:
+        population = [
+            candidate for candidate in population if candidate.genre not in DEFAULT_EXCLUDED_GENRES
+        ]
+
+    if filters.genres:
+        requested_genres = set(filters.genres)
+        population = [candidate for candidate in population if candidate.genre in requested_genres]
+
+    if filters.non_smoking_only:
+        population = [
+            candidate for candidate in population if candidate.non_smoking_status != "NONE"
+        ]
+
+    if filters.card_payment_only:
+        population = [
+            candidate for candidate in population if candidate.card_payment_available is not False
+        ]
+
+    if filters.budget_tiers:
+        requested_tiers = set(filters.budget_tiers)
+        population = [
+            candidate
+            for candidate in population
+            if (tier := dinner_budget_tier(candidate.budget_average)) is None
+            or tier in requested_tiers
+        ]
+
+    return list(population)
+
+
+def apply_izakaya_bar_fallback(
+    candidates: Sequence[NormalizedCandidate], filters: CandidateFilters
+) -> tuple[list[NormalizedCandidate], bool]:
+    """Filter, falling back to include izakaya/bar genres if that leaves none.
+
+    Returns ``(population, izakaya_bar_fallback_applied)``. Per adr/0020
+    decision 6 (successor to TDR-CS-10 / ADR-0015 decision 4): when
+    ``includeIzakayaBar`` is false and filtering with it false leaves no
+    candidate, this recomputes with only that one exclusion set aside --
+    every other filter the organizer explicitly chose (``genres``,
+    ``nonSmokingOnly``, ``cardPaymentOnly``, ``budgetTiers``) is applied
+    unchanged and never automatically loosened. ``izakaya_bar_fallback_applied``
+    is true only when that retry actually produced a non-empty population;
+    if it is still empty, the exclusion was not the (sole) cause of the empty
+    result, so the flag stays false (matching the contract's own
+    description).
+    """
+    population = filter_candidates(candidates, filters)
+    if population or filters.include_izakaya_bar:
+        return population, False
+
+    fallback_filters = CandidateFilters(
+        genres=filters.genres,
+        include_izakaya_bar=True,
+        non_smoking_only=filters.non_smoking_only,
+        card_payment_only=filters.card_payment_only,
+        budget_tiers=filters.budget_tiers,
+    )
+    fallback_population = filter_candidates(candidates, fallback_filters)
+    return fallback_population, bool(fallback_population)
+
+
+def _is_unconfirmed_for_active_filters(
+    candidate: NormalizedCandidate, filters: CandidateFilters
+) -> bool:
+    if filters.non_smoking_only and candidate.non_smoking_status is None:
+        return True
+    if filters.card_payment_only and candidate.card_payment_available is None:
+        return True
+    if filters.budget_tiers and dinner_budget_tier(candidate.budget_average) is None:
+        return True
+    return False
+
+
+def order_confirmed_then_unconfirmed(
+    candidates: Sequence[NormalizedCandidate], origin: Origin, filters: CandidateFilters
+) -> list[NormalizedCandidate]:
+    """Confirmed-match candidates first, then unconfirmed; each nearest-first.
+
+    Per adr/0020 decision 4 steps 2-3 and 6 / TDR-CS-13: when at least one of
+    ``nonSmokingOnly``, ``cardPaymentOnly``, or ``budgetTiers`` is active,
+    every candidate unconfirmed for at least one of those active filters is
+    placed after every candidate confirmed for all of them; within each
+    group, candidates are ordered nearest-first. When none of those filters
+    is active, this reduces to plain nearest-first over the whole input.
+    """
+    any_nullable_filter_active = bool(
+        filters.non_smoking_only or filters.card_payment_only or filters.budget_tiers
+    )
+    if not any_nullable_filter_active:
+        return sorted(candidates, key=lambda candidate: _distance(origin, candidate))
+
+    confirmed = [
+        candidate
+        for candidate in candidates
+        if not _is_unconfirmed_for_active_filters(candidate, filters)
+    ]
+    unconfirmed = [
+        candidate
+        for candidate in candidates
+        if _is_unconfirmed_for_active_filters(candidate, filters)
+    ]
+    confirmed.sort(key=lambda candidate: _distance(origin, candidate))
+    unconfirmed.sort(key=lambda candidate: _distance(origin, candidate))
+    return confirmed + unconfirmed
+
+
+def select_pool_and_sample(
+    ordered_population: Sequence[NormalizedCandidate],
+    *,
+    random_source: random.Random,
+    pool_size: int = DEFAULT_POOL_SIZE,
+    display_cap: int = DISPLAY_CAP,
+) -> list[NormalizedCandidate]:
+    """A random up-to-``display_cap`` sample from the nearest ``pool_size`` (decision 4 steps 4-5).
+
+    ``ordered_population`` must already be ordered nearest-first (optionally
+    confirmed-before-unconfirmed) by ``order_confirmed_then_unconfirmed``,
+    since the pool is defined as its nearest prefix. The returned list's own
+    order is not meaningful -- the caller must re-apply
+    ``order_confirmed_then_unconfirmed`` to it before display (decision 4
+    step 6).
+    """
+    pool = ordered_population[: min(len(ordered_population), pool_size)]
+    sample_size = min(display_cap, len(pool))
+    return random_source.sample(list(pool), sample_size)
+
+
+def build_proposal(
     candidates: Sequence[NormalizedCandidate],
     origin: Origin,
-    previously_shown_provider_page_urls: Sequence[str] = (),
-) -> list[Concept]:
-    """Every concept explainable from the current candidates, in priority order.
+    filters: CandidateFilters,
+    *,
+    random_source: random.Random,
+    pool_size: int = DEFAULT_POOL_SIZE,
+) -> Proposal:
+    """The complete adr/0020 decision 1-9 pipeline for one request.
 
-    ``previously_shown_provider_page_urls`` (adr/0017 decision 1) is empty
-    for the initial request and, for a re-proposal, the exact
-    ``providerPageUrl`` values this server most recently returned to the
-    same browser. When non-empty, every concept's ranked candidates are
-    stably demoted (``_demote_repeated``) before the display cap is applied;
-    when empty, ranking and the cap are unaffected, matching the initial
-    request and the pre-adr/0017 behavior exactly.
+    Composes deduplication, ``available_genres`` (decision 9, computed from
+    the deduplicated population before any other filter),
+    ``apply_izakaya_bar_fallback`` (decisions 1-3 and 6),
+    ``order_confirmed_then_unconfirmed`` (decision 4 steps 2-3), and
+    ``select_pool_and_sample`` (decision 4 steps 4-5), then re-orders the
+    sample for display (decision 4 step 6).
     """
     deduped = _dedupe(candidates)
-    default_population, excluded_population = _split_default_population(deduped)
-    builders = {
-        ConceptKind.PROXIMITY: lambda: _build_proximity(default_population, origin),
-        ConceptKind.GENRE_FOCUS: lambda: _build_genre_focus(default_population, origin),
-        ConceptKind.NON_SMOKING_REFERENCE: lambda: _build_non_smoking_reference(
-            default_population, origin
-        ),
-        ConceptKind.IZAKAYA_BAR_INCLUDED: lambda: _build_izakaya_bar_included(
-            deduped, excluded_population, origin
-        ),
-    }
-    previously_shown = frozenset(previously_shown_provider_page_urls)
-    concepts = (builders[kind]() for kind in _PRIORITY_ORDER)
-    return [
-        _cap_display(_demote_repeated(concept, previously_shown))
-        for concept in concepts
-        if concept is not None
-    ]
-
-
-def select_initial(concepts: Sequence[Concept]) -> Concept | None:
-    """The first buildable concept in the fixed deterministic priority order."""
-    return concepts[0] if concepts else None
-
-
-def reproposal_options(
-    concepts: Sequence[Concept], displayed_kind: ConceptKind | None
-) -> list[ReproposalOption]:
-    """Up to three lenses other than the currently displayed one."""
-    offered = [concept for concept in concepts if concept.kind != displayed_kind]
-    return [
-        ReproposalOption(concept.kind, concept.title, concept.rationale) for concept in offered[:3]
-    ]
-
-
-def select_reproposal(concepts: Sequence[Concept], requested_kind: ConceptKind) -> Concept:
-    """The buildable concept for ``requested_kind``.
-
-    Raises ``ReproposalKindUnavailableError`` when the current candidates
-    cannot explain that lens. The server holds no memory of what was
-    previously displayed (ADR-0008), so availability depends only on the
-    current candidate set.
-    """
-    for concept in concepts:
-        if concept.kind == requested_kind:
-            return concept
-    raise ReproposalKindUnavailableError(requested_kind)
+    genres = available_genres(deduped, filters.include_izakaya_bar)
+    population, izakaya_bar_fallback_applied = apply_izakaya_bar_fallback(deduped, filters)
+    ordered = order_confirmed_then_unconfirmed(population, origin, filters)
+    sampled = select_pool_and_sample(ordered, random_source=random_source, pool_size=pool_size)
+    display = order_confirmed_then_unconfirmed(sampled, origin, filters)
+    return Proposal(
+        candidates=tuple(display),
+        izakaya_bar_fallback_applied=izakaya_bar_fallback_applied,
+        available_genres=tuple(genres),
+        population_attributes=tuple(population_attributes(deduped)),
+    )

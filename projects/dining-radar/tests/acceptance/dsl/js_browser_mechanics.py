@@ -15,17 +15,21 @@ needed -- and capturing the exact ``POST /candidate-proposals`` request and
 response a browser action triggered). It knows nothing about candidate-search
 business vocabulary; ``candidate_search_browser.py`` composes these
 primitives.
+
+``is_candidate_proposal_request`` (as opposed to ``_response``) exists for
+callers that only need to count outgoing requests -- e.g. asserting that
+cancelling the filter panel sends none at all -- without waiting on a
+response.
 """
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
 
 from django.test import SimpleTestCase
-from playwright.sync_api import APIResponse, Locator, Page, Response, Route, expect
+from playwright.sync_api import APIResponse, Locator, Page, Request, Response, expect
 
 CANDIDATE_PROPOSAL_PATH = "/candidate-proposals"
 
@@ -34,6 +38,10 @@ def is_candidate_proposal_response(response: Response) -> bool:
     return response.request.method == "POST" and response.url.rstrip("/").endswith(
         CANDIDATE_PROPOSAL_PATH
     )
+
+
+def is_candidate_proposal_request(request: Request) -> bool:
+    return request.method == "POST" and request.url.rstrip("/").endswith(CANDIDATE_PROPOSAL_PATH)
 
 
 @dataclass(frozen=True)
@@ -89,29 +97,6 @@ def capture_candidate_proposal_response(
     with page.expect_response(is_candidate_proposal_response) as info:
         trigger()
     return build_captured_response(info.value)
-
-
-def capture_candidate_proposal_response_with_overridden_body(
-    page: Page, trigger: Callable[[], None], overridden_body: dict[str, Any]
-) -> CapturedApiResponse:
-    """Rewrite the next outgoing ``POST /candidate-proposals`` request's JSON
-    body before it is sent, then capture the resulting response.
-
-    This drives the SUT's own request/response handling code path -- the same
-    one a real ``trigger`` UI action produces -- with a body no UI control can
-    itself construct, instead of a side-channel request the page's own
-    JavaScript never observes and therefore never renders an outcome for.
-    """
-
-    def route_handler(route: Route) -> None:
-        route.continue_(post_data=json.dumps(overridden_body))
-
-    page.route(_is_candidate_proposal_path, route_handler, times=1)
-    return capture_candidate_proposal_response(page, trigger)
-
-
-def _is_candidate_proposal_path(url: str) -> bool:
-    return url.rstrip("/").endswith(CANDIDATE_PROPOSAL_PATH)
 
 
 def by_test_id(scope: Page | Locator, test_id: str) -> Locator:
