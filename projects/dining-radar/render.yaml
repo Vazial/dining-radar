@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: toyama-dining-radar
+    runtime: python
+    plan: free
+    region: singapore
+    rootDir: projects/toyama-dining-radar
+    buildCommand: bash build.sh
+    startCommand: >-
+      gunicorn dining_radar.wsgi:application
+      --bind 0.0.0.0:$PORT
+      --workers 1
+      --threads 4
+      --timeout 60
+    healthCheckPath: /healthz
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.13
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: HOTPEPPER_API_KEY
+        sync: false
+      - key: HOTPEPPER_SEARCH_LATITUDE
+        sync: false
+      - key: HOTPEPPER_SEARCH_LONGITUDE
+        sync: false
+      - key: HOTPEPPER_SEARCH_RANGE
+        sync: false
+      - key: DJANGO_BOOTSTRAP_ORGANIZER_USERNAME
+        sync: false
+      - key: DJANGO_BOOTSTRAP_ORGANIZER_PASSWORD
+        sync: false

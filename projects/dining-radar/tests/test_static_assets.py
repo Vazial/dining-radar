@@ -70,6 +70,13 @@ class LeafletVendoringSourceTests(SimpleTestCase):
         license_text = Path(license_path).read_text(encoding="utf-8")
         self.assertIn("BSD 2-Clause License", license_text)
 
+    def test_vendored_leaflet_does_not_reference_an_unvendored_source_map(self):
+        script_path = finders.find("dining_radar/web/vendor/leaflet/leaflet.js")
+        self.assertIsNotNone(script_path)
+
+        script = Path(script_path).read_text(encoding="utf-8")
+        self.assertNotIn("sourceMappingURL=leaflet.js.map", script)
+
 
 class CandidateSurfaceSourceTests(SimpleTestCase):
     """Guard the presentation boundaries that do not need live provider data."""

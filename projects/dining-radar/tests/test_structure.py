@@ -4,6 +4,7 @@ import runpy
 from pathlib import Path
 from unittest.mock import patch
 
+import yaml
 from django.test import SimpleTestCase
 
 from dining_radar import settings_base
@@ -13,6 +14,47 @@ SOURCE_ROOT = PROJECT_ROOT / "src" / "dining_radar"
 
 
 class ApplicationStructureTests(SimpleTestCase):
+    def test_render_blueprint_uses_the_agreed_free_stateless_topology(self):
+        blueprint = yaml.safe_load((PROJECT_ROOT / "render.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(len(blueprint["services"]), 1)
+
+        service = blueprint["services"][0]
+        self.assertEqual(service["type"], "web")
+        self.assertEqual(service["runtime"], "python")
+        self.assertEqual(service["plan"], "free")
+        self.assertEqual(service["region"], "singapore")
+        self.assertEqual(service["rootDir"], "projects/toyama-dining-radar")
+        self.assertEqual(service["healthCheckPath"], "/healthz")
+        self.assertEqual(service["autoDeployTrigger"], "checksPass")
+        self.assertIn("--workers 1", service["startCommand"])
+
+        env_vars = {item["key"]: item for item in service["envVars"]}
+        self.assertTrue(env_vars["DJANGO_SECRET_KEY"]["generateValue"])
+        for secret_name in (
+            "DATABASE_URL",
+            "HOTPEPPER_API_KEY",
+            "HOTPEPPER_SEARCH_LATITUDE",
+            "HOTPEPPER_SEARCH_LONGITUDE",
+            "HOTPEPPER_SEARCH_RANGE",
+            "DJANGO_BOOTSTRAP_ORGANIZER_USERNAME",
+            "DJANGO_BOOTSTRAP_ORGANIZER_PASSWORD",
+        ):
+            self.assertEqual(env_vars[secret_name], {"key": secret_name, "sync": False})
+
+    def test_render_build_is_reproducible_and_checks_the_deployed_configuration(self):
+        build_script = (PROJECT_ROOT / "build.sh").read_text(encoding="utf-8")
+
+        commands = [
+            "python -m pip install --disable-pip-version-check -e .",
+            "python manage.py collectstatic --no-input",
+            "python manage.py migrate --no-input",
+            "python manage.py provision_organizer --if-configured",
+            "python manage.py check --deploy",
+        ]
+        positions = [build_script.index(command) for command in commands]
+        self.assertEqual(positions, sorted(positions))
+        self.assertNotIn("DJANGO_BOOTSTRAP_ORGANIZER_PASSWORD=", build_script)
+
     def test_web_layer_does_not_reach_adapter_or_orm_layers_directly(self):
         forbidden_prefixes = ("dining_radar.integrations", "dining_radar.records")
 
@@ -51,6 +93,7 @@ class ApplicationStructureTests(SimpleTestCase):
         self.assertEqual(settings_base.SESSION_COOKIE_SAMESITE, "Lax")
         self.assertTrue(settings_base.CSRF_COOKIE_SECURE)
         self.assertEqual(settings_base.CSRF_COOKIE_SAMESITE, "Lax")
+        self.assertEqual(settings_base.SECURE_REFERRER_POLICY, "strict-origin-when-cross-origin")
 
     def test_authentication_routes_do_not_offer_signup_or_email_reset(self):
         route_source = (SOURCE_ROOT / "authentication" / "urls.py").read_text(encoding="utf-8")
@@ -77,6 +120,36 @@ class ApplicationStructureTests(SimpleTestCase):
             self.assertRaisesRegex(RuntimeError, "DJANGO_SECRET_KEY must be configured"),
         ):
             runpy.run_module("dining_radar.settings", run_name="dining_radar._missing_secret_probe")
+
+    def test_render_runtime_requires_postgres_and_trusts_only_its_https_proxy_signal(self):
+        base_environment = {
+            "DJANGO_SECRET_KEY": "synthetic-runtime-secret-long-enough-for-deploy-checks",
+            "RENDER": "true",
+            "RENDER_EXTERNAL_HOSTNAME": "synthetic-service.onrender.com",
+        }
+        with (
+            patch.dict(os.environ, base_environment, clear=True),
+            self.assertRaisesRegex(RuntimeError, "DATABASE_URL must be configured"),
+        ):
+            runpy.run_module("dining_radar.settings", run_name="dining_radar._render_no_db")
+
+        with patch.dict(
+            os.environ,
+            {
+                **base_environment,
+                "DATABASE_URL": "postgresql://synthetic:secret@db.invalid:5432/app",
+            },
+            clear=True,
+        ):
+            runtime = runpy.run_module(
+                "dining_radar.settings", run_name="dining_radar._render_probe"
+            )
+
+        self.assertIn("synthetic-service.onrender.com", runtime["ALLOWED_HOSTS"])
+        self.assertEqual(runtime["SECURE_PROXY_SSL_HEADER"], ("HTTP_X_FORWARDED_PROTO", "https"))
+        self.assertEqual(runtime["DATABASES"]["default"]["ENGINE"], "django.db.backends.postgresql")
+        self.assertEqual(runtime["DATABASES"]["default"]["OPTIONS"]["sslmode"], "require")
+        self.assertEqual(runtime["SECURE_HSTS_SECONDS"], 31_536_000)
 
     def test_env_example_documents_exactly_the_environment_variables_read_at_runtime(self):
         """A human must be able to configure this app without reading source.
