@@ -17,6 +17,16 @@ from django.urls import reverse
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 HOME_TEMPLATE = PROJECT_ROOT / "src" / "dining_radar" / "web" / "templates" / "web" / "home.html"
+CANDIDATE_SCRIPT = (
+    PROJECT_ROOT
+    / "src"
+    / "dining_radar"
+    / "web"
+    / "static"
+    / "dining_radar"
+    / "web"
+    / "candidate.js"
+)
 
 _VENDORED_LEAFLET_ASSETS = (
     "dining_radar/web/vendor/leaflet/leaflet.js",
@@ -59,6 +69,52 @@ class LeafletVendoringSourceTests(SimpleTestCase):
 
         license_text = Path(license_path).read_text(encoding="utf-8")
         self.assertIn("BSD 2-Clause License", license_text)
+
+
+class CandidateSurfaceSourceTests(SimpleTestCase):
+    """Guard the presentation boundaries that do not need live provider data."""
+
+    def test_map_led_deck_keeps_cards_and_map_in_the_same_surface(self):
+        source = HOME_TEMPLATE.read_text(encoding="utf-8")
+
+        self.assertIn('grid-template-areas: "map" "cards"', source)
+        self.assertIn("scroll-snap-type: inline mandatory", source)
+        self.assertIn("margin-top: -8.25rem", source)
+        self.assertIn("align-items: flex-start", source)
+        self.assertIn("height: clamp(20rem, 52dvh, 28rem)", source)
+        self.assertIn("height: clamp(22rem, 50dvh, 34rem)", source)
+        self.assertIn("max-width: calc(100% - 2.5rem)", source)
+        self.assertIn("scrollbar-width: none", source)
+        self.assertIn("isolation: isolate", source)
+        self.assertIn("position: relative;\n      z-index: 2", source)
+        self.assertIn("top: 0.5rem;\n      right: 0.5rem", source)
+        self.assertIn("background: rgb(255 255 255 / 92%)", source)
+
+    def test_pending_filter_text_cannot_replace_the_applied_summary(self):
+        source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("filterSummaryText(currentFilters)", source)
+        self.assertIn("searchAgain.disabled = dirty", source)
+        self.assertIn("if (matchCount === 0 || !dirty)", source)
+
+    def test_filter_controls_keep_a_44px_minimum_target(self):
+        source = HOME_TEMPLATE.read_text(encoding="utf-8")
+
+        self.assertIn(".candidate-chip,", source)
+        self.assertIn("min-height: 2.75rem", source)
+        self.assertIn(".candidate-chip { min-width: 2.75rem; }", source)
+
+    def test_soft_filter_labels_do_not_claim_unknown_values_are_confirmed(self):
+        source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("カード利用不可を除く", source)
+        self.assertIn("ディナー予算感", source)
+        self.assertIn("ディナー予算 ", source)
+        self.assertIn(
+            'fieldRow(\n        "ディナー予算感",\n        "candidate-card-dinner-budget"', source
+        )
+        self.assertIn('["クレジットカードは利用できません"]', source)
+        self.assertNotIn("お支払い方法は店舗にご確認ください", source)
 
 
 class LeafletVendoringRenderedPageTests(TestCase):

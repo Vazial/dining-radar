@@ -43,10 +43,10 @@
   var TIER_LABELS = { LOW: "低", MID: "中", HIGH: "高" };
   var BUDGET_TIERS = ["LOW", "MID", "HIGH"];
   // Genres shown before the "ほか N件…" overflow control. Real data carries
-  // about ten genres, which cannot fit one row at 375px; three plus the
+  // about ten genres, which cannot fit one row at 375px; four short labels plus the
   // overflow keeps the filter row's height fixed no matter how many the
   // provider returns.
-  var GENRE_PREVIEW_COUNT = 3;
+  var GENRE_PREVIEW_COUNT = 4;
   // Mirrors recommendation.pipeline._DISPLAY_CAP, used only to phrase the
   // apply control honestly when more candidates match than can be displayed.
   var DISPLAY_CAP = 5;
@@ -164,7 +164,7 @@
     ]);
   }
 
-  function selectCandidate(candidateRef) {
+  function selectCandidate(candidateRef, revealCard) {
     Object.keys(cardElementsByRef).forEach(function (ref) {
       var state = ref === candidateRef ? "selected" : "unselected";
       cardElementsByRef[ref].setAttribute("data-selection-state", state);
@@ -172,6 +172,13 @@
         markerElementsByRef[ref].setAttribute("data-selection-state", state);
       }
     });
+    if (revealCard && cardElementsByRef[candidateRef]) {
+      cardElementsByRef[candidateRef].scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+        inline: "center",
+      });
+    }
   }
 
   function renderCard(candidate, selected, index) {
@@ -200,7 +207,7 @@
     card.addEventListener("keydown", function (event) {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
-        selectCandidate(candidate.candidateRef);
+        selectCandidate(candidate.candidateRef, true);
       }
     });
 
@@ -272,7 +279,7 @@
     // the static candidate-budget-tier-note element (home.html).
     facts.appendChild(
       fieldRow(
-        "予算感",
+        "ディナー予算感",
         "candidate-card-dinner-budget",
         candidate.dinnerBudgetTier,
         TIER_LABELS[candidate.dinnerBudgetTier],
@@ -293,7 +300,7 @@
             "data-card-payment-available": "false",
             "class": "candidate-payment-caution",
           },
-          ["クレジットカードは利用できません。お支払い方法は店舗にご確認ください。"]
+          ["クレジットカードは利用できません"]
         )
       );
     }
@@ -375,7 +382,7 @@
         markerVisual.textContent = String(index + 1);
       }
       markerEl.addEventListener("click", function () {
-        selectCandidate(candidate.candidateRef);
+        selectCandidate(candidate.candidateRef, true);
       });
       markerElementsByRef[candidate.candidateRef] = markerEl;
     });
@@ -454,11 +461,11 @@
       parts.push("禁煙");
     }
     if (filters.cardPaymentOnly) {
-      parts.push("カード可");
+      parts.push("カード利用不可を除く");
     }
     if (filters.budgetTiers.length) {
       parts.push(
-        "予算 " +
+        "ディナー予算 " +
           BUDGET_TIERS.filter(function (tier) {
             return filters.budgetTiers.indexOf(tier) !== -1;
           })
@@ -471,7 +478,7 @@
     if (filters.includeIzakayaBar) {
       parts.push("居酒屋等も含む");
     }
-    return parts.length ? parts.join("・") : "すべてのランチ候補";
+    return parts.length ? parts.join("・") : "居酒屋・バーを除く";
   }
 
   // A pill-shaped toggle. `pressed` drives both the visual state and
@@ -508,9 +515,14 @@
   }
 
   function genreChips() {
+    // The provider order is not a presentation order. Surface the compact,
+    // familiar labels first so the closed preview remains useful on a phone.
+    var orderedGenres = currentAvailableGenres.slice().sort(function (left, right) {
+      return left.length - right.length || left.localeCompare(right, "ja");
+    });
     var visible = genreOverflowExpanded
-      ? currentAvailableGenres
-      : currentAvailableGenres.slice(0, GENRE_PREVIEW_COUNT);
+      ? orderedGenres
+      : orderedGenres.slice(0, GENRE_PREVIEW_COUNT);
     var chips = visible.map(function (genre) {
       return chip({
         testId: "candidate-filter-genre-option",
@@ -525,7 +537,7 @@
         },
       });
     });
-    var hidden = currentAvailableGenres.length - visible.length;
+    var hidden = orderedGenres.length - visible.length;
     if (hidden > 0 || genreOverflowExpanded) {
       var overflow = el(
         "button",
@@ -567,7 +579,37 @@
     });
   }
 
-  function renderFilterBar() {
+  function filterFocusTarget() {
+    var active = document.activeElement;
+    if (!active || !filterBar.contains(active)) {
+      return null;
+    }
+    return {
+      testId: active.getAttribute("data-testid"),
+      genre: active.getAttribute("data-genre-value"),
+      tier: active.getAttribute("data-budget-tier-value"),
+    };
+  }
+
+  function restoreFilterFocus(target) {
+    if (!target || !target.testId) {
+      return;
+    }
+    var selector = '[data-testid="' + target.testId + '"]';
+    if (target.genre) {
+      selector += '[data-genre-value="' + target.genre + '"]';
+    }
+    if (target.tier) {
+      selector += '[data-budget-tier-value="' + target.tier + '"]';
+    }
+    var control = filterBar.querySelector(selector);
+    if (control) {
+      control.focus();
+    }
+  }
+
+  function renderFilterBar(restoreFocus) {
+    var focusTarget = restoreFocus || filterFocusTarget();
     var dirty = !sameFilters(pendingFilters, currentFilters);
     filterBar.innerHTML = "";
     filterBar.setAttribute("data-filter-expanded", filterExpanded ? "true" : "false");
@@ -575,7 +617,7 @@
 
     var summaryTexts = [
       el("span", { "class": "candidate-filter-summary-text" }, [
-        filterSummaryText(dirty ? pendingFilters : currentFilters),
+        filterSummaryText(currentFilters),
       ]),
     ];
     if (dirty) {
@@ -629,6 +671,7 @@
         handleProposalResponse(result.status, result.body);
       });
     });
+    searchAgain.disabled = dirty;
 
     filterBar.appendChild(
       el("div", { "class": "candidate-filter-head" }, [summary, searchAgain])
@@ -647,7 +690,7 @@
           chip({
             testId: "candidate-filter-non-smoking-only",
             purpose: "candidate-filter-non-smoking-toggle",
-            label: "禁煙",
+            label: "禁煙席あり",
             pressed: pendingFilters.nonSmokingOnly,
             onToggle: function (next) {
               pendingFilters.nonSmokingOnly = next;
@@ -657,7 +700,7 @@
           chip({
             testId: "candidate-filter-card-payment-only",
             purpose: "candidate-filter-card-payment-toggle",
-            label: "カード可",
+            label: "カード利用不可を除く",
             pressed: pendingFilters.cardPaymentOnly,
             onToggle: function (next) {
               pendingFilters.cardPaymentOnly = next;
@@ -676,7 +719,7 @@
           }),
         ]),
         chipRow(
-          "予算感",
+          "ディナー予算感",
           BUDGET_TIERS.map(function (tier) {
             return chip({
               testId: "candidate-filter-budget-tier-option",
@@ -708,33 +751,31 @@
       },
       [applyControlLabel(matchCount)]
     );
-    if (matchCount === 0) {
+    if (matchCount === 0 || !dirty) {
       apply.disabled = true;
     }
     apply.addEventListener("click", applyPendingFilters);
 
-    var revert = el(
-      "button",
-      {
-        type: "button",
-        "class": "candidate-filter-revert",
-        "data-testid": "candidate-filter-revert",
-        "data-candidate-control-category": "button",
-        "data-candidate-control-purpose": "candidate-filter-revert",
-      },
-      ["変更を戻す"]
-    );
-    revert.addEventListener("click", function () {
-      pendingFilters = cloneFilters(currentFilters);
-      renderFilterBar();
-    });
-    if (!dirty) {
-      revert.disabled = true;
+    var actions = [apply];
+    if (dirty) {
+      var revert = el(
+        "button",
+        {
+          type: "button",
+          "class": "candidate-filter-revert",
+          "data-testid": "candidate-filter-revert",
+          "data-candidate-control-category": "button",
+          "data-candidate-control-purpose": "candidate-filter-revert",
+        },
+        ["変更を戻す"]
+      );
+      revert.addEventListener("click", function () {
+        pendingFilters = cloneFilters(currentFilters);
+        renderFilterBar();
+      });
+      actions.unshift(revert);
     }
-
-    panel.appendChild(
-      el("div", { "class": "candidate-filter-actions" }, [revert, apply])
-    );
+    panel.appendChild(el("div", { "class": "candidate-filter-actions" }, actions));
     // adr/0020 decision 10, revised on human instruction 2026-08-10: the
     // dinner-basis disclosure stays (TDR-CS-02 requires the organizer be able
     // to tell the figure is a dinner one) but the yen mapping is gone and the
@@ -747,11 +788,12 @@
           "class": "candidate-budget-tier-note",
           "data-testid": "candidate-budget-tier-note",
         },
-        ["予算感はディナー予算をもとにした目安です。"]
+        ["ディナー予算をもとにした目安です。ランチ価格を示すものではありません。"]
       )
     );
 
     filterBar.appendChild(panel);
+    restoreFilterFocus(focusTarget);
   }
 
   function renderProblem(code, message) {
