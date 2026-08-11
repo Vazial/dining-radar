@@ -516,6 +516,141 @@
       [data-testid="candidate-card"] { flex-basis: min(23rem, 30%); }
     }
 
+    /* Human-approved mobile composition (2026-08-11). The map remains the
+       decision surface; controls and cards are deliberately compact layers
+       over it instead of separate full-width sections. */
+    .visually-hidden {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+    }
+    .candidate-filter-summary-icon,
+    .candidate-search-again-icon { font-size: 1.2rem; line-height: 1; }
+    .candidate-filter-summary-label {
+      font-size: 0.6875rem; line-height: 1; color: #738078; font-weight: 700;
+    }
+    .candidate-card-detail-footer {
+      display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
+    }
+    .candidate-main-layout { position: relative; }
+    .candidate-card-detail-footer .candidate-fact-row {
+      display: flex; align-items: baseline; min-width: 0; gap: 0.3rem;
+    }
+    .candidate-card-detail-footer dt { flex: 0 0 auto; color: #68766c; font-size: 0.75rem; font-weight: 650; }
+    .candidate-card-detail-footer dd {
+      margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      color: #29342e; font-size: 0.8125rem;
+    }
+    .candidate-deck-counter {
+      position: absolute; z-index: 4; right: 1rem; bottom: 15.1rem;
+      min-width: 2.75rem; padding: 0.28rem 0.55rem; border-radius: 999px;
+      background: rgb(28 36 32 / 88%); color: #fff; font-size: 0.75rem;
+      font-weight: 750; text-align: center; box-shadow: 0 2px 6px rgb(28 36 32 / 20%);
+    }
+
+    @media (max-width: 63.999rem) {
+      header[data-testid="authenticated-application-shell"] {
+        box-sizing: border-box; min-height: 3.25rem; padding: 0.25rem 0.75rem;
+        flex-wrap: nowrap; background: #fff;
+      }
+      header[data-testid="authenticated-application-shell"] .app-header h1 { font-size: 1.08rem; }
+      .candidate-account-note { width: 2.75rem; height: 2.75rem; background: transparent; }
+      .candidate-account-menu summary {
+        box-sizing: border-box; width: 2.75rem; min-height: 2.75rem; padding: 0;
+        justify-content: center; border: 0; font-size: 1.15rem;
+      }
+      .candidate-account-menu-label { display: none; }
+      #candidate-app { gap: 0; }
+      #candidate-filter-bar {
+        margin: 0; border-width: 1px 0; border-radius: 0; position: relative; z-index: 5;
+      }
+      .candidate-filter-head { box-sizing: border-box; height: 3.5rem; padding: 0.35rem 0.5rem; gap: 0.25rem; }
+      .candidate-filter-summary { min-height: 2.75rem; padding: 0 0.35rem; gap: 0.4rem; }
+      .candidate-filter-summary-body { flex-direction: row; align-items: center; gap: 0.4rem; }
+      .candidate-filter-summary-text { font-size: 0.875rem; }
+      .candidate-filter-pending {
+        width: 0.45rem; height: 0.45rem; overflow: hidden; color: transparent;
+        flex: 0 0 0.45rem; border-radius: 50%; background: #b77b18;
+      }
+      .candidate-search-again {
+        box-sizing: border-box; width: 2.75rem; min-height: 2.75rem; padding: 0;
+        border: 0; border-radius: 50%;
+      }
+      .candidate-filter-panel { padding: 0 0 0.45rem; gap: 0; }
+      .candidate-filter-row {
+        box-sizing: border-box; height: 3.25rem; align-items: center; gap: 0;
+        border-bottom: 1px solid #f0f1ed;
+      }
+      .candidate-filter-row-label {
+        flex: 0 0 3.9rem; padding: 0 0 0 0.75rem; font-size: 0.75rem;
+      }
+      .candidate-filter-row-chips {
+        flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-inline: contain;
+        scrollbar-width: none; gap: 0.35rem; padding: 0.25rem 0.75rem 0.25rem 0;
+      }
+      .candidate-filter-row-chips::-webkit-scrollbar { display: none; }
+      .candidate-chip { flex: 0 0 auto; min-width: 2.75rem; min-height: 2.75rem; padding: 0 0.75rem; }
+      .candidate-filter-actions { min-height: 3.25rem; padding: 0.25rem 0.75rem 0; }
+      .candidate-budget-tier-note { margin: 0.35rem 0.75rem 0; font-size: 0.7rem; line-height: 1.35; }
+      [data-testid="candidate-proposal-content"] { position: relative; gap: 0; }
+      .candidate-main-layout {
+        position: relative; display: block; height: calc(100dvh - 6.875rem); min-height: 32rem;
+      }
+      .candidate-map-wrapper { position: absolute; inset: 0; padding: 0; }
+      [data-testid="candidate-map"] { width: 100%; height: 100%; border-radius: 0; }
+      [data-testid="candidate-map-attribution"] { top: 0.4rem; right: 0.4rem; font-size: 0.65rem; }
+      [data-testid="candidate-proposal-cards"] {
+        position: absolute; z-index: 3; left: 0; right: 0; bottom: 1.55rem;
+        margin: 0; padding: 0.75rem 1rem; gap: 0.75rem; align-items: stretch;
+        scroll-padding-inline: 1rem;
+      }
+      [data-testid="candidate-card"] {
+        flex: 0 0 calc(100vw - 2rem); width: calc(100vw - 2rem); max-width: 25.625rem;
+        min-height: 12.9rem; max-height: 13.5rem; padding: 0.7rem 0.8rem; gap: 0.35rem;
+        overflow: hidden; scroll-snap-align: center;
+      }
+      [data-testid="candidate-card-name"] {
+        font-size: 1rem; line-height: 1.25; white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis;
+      }
+      [data-testid="candidate-card"] dl.candidate-facts {
+        flex-wrap: nowrap; gap: 0.3rem; overflow: hidden;
+      }
+      [data-testid="candidate-card"] dl.candidate-facts > div {
+        flex: 1 1 0; width: auto; max-width: none; min-width: 0; padding: 0.28rem 0.35rem;
+        display: flex; flex-direction: column; align-items: flex-start; gap: 0.05rem;
+        overflow: hidden;
+      }
+      [data-testid="candidate-card"] dl.candidate-facts > div:nth-child(-n + 2) {
+        flex: 1 1 0; width: auto; max-width: none;
+      }
+      [data-testid="candidate-card"] dl.candidate-facts > .candidate-fact-row--candidate-card-description {
+        display: none;
+      }
+      [data-testid="candidate-card"] dl.candidate-facts dt,
+      [data-testid="candidate-card"] dl.candidate-facts dd {
+        display: block; flex: 0 1 auto; max-width: 100%; overflow: hidden;
+        text-overflow: ellipsis; white-space: nowrap;
+      }
+      .candidate-payment-caution {
+        padding: 0.2rem 0.4rem; font-size: 0.7rem; line-height: 1.25; border: 0;
+      }
+      [data-testid="candidate-card-provider-page-link"] {
+        flex: 0 0 auto; align-self: center; min-height: 2.75rem; padding: 0 0.8rem;
+        font-size: 0.8125rem;
+      }
+      .candidate-deck-counter { right: 1rem; bottom: 15.15rem; }
+      [data-testid="candidate-provider-credit"] {
+        position: absolute; z-index: 4; left: 0.5rem; bottom: 0.1rem;
+        margin: 0; padding: 0.1rem 0.25rem; border-radius: 0.2rem;
+        background: rgb(255 255 255 / 88%); font-size: 0.65rem;
+      }
+    }
+
+    @media (min-width: 64rem) {
+      .candidate-deck-counter { right: 1.5rem; bottom: 16.25rem; }
+      .candidate-card-detail-footer { margin-top: auto; }
+    }
+
   </style>
 {% endblock %}
 
@@ -578,7 +713,7 @@
             data-testid="auth-account-menu-toggle"
             data-candidate-control-category="button"
             data-candidate-control-purpose="auth-account-menu-toggle"
-          ><span aria-hidden="true">☰</span> アカウント</summary>
+          ><span aria-hidden="true">☰</span><span class="candidate-account-menu-label">アカウント</span></summary>
           <div class="candidate-account-menu-panel">
             <a
               href="{% url 'authentication:password_change' %}"
@@ -617,5 +752,5 @@
     </main>
 
     <script src="{% static 'dining_radar/web/vendor/leaflet/leaflet.js' %}"></script>
-    <script src="{% static 'dining_radar/web/candidate.js' %}?v=20260811-responsive"></script>
+    <script src="{% static 'dining_radar/web/candidate.js' %}?v=20260811-approved-layout"></script>
 {% endblock %}

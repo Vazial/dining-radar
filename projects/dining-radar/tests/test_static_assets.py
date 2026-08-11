@@ -79,16 +79,35 @@ class CandidateSurfaceSourceTests(SimpleTestCase):
 
         self.assertIn('grid-template-areas: "map" "cards"', source)
         self.assertIn("scroll-snap-type: inline mandatory", source)
-        self.assertIn("margin-top: -8.25rem", source)
-        self.assertIn("align-items: flex-start", source)
-        self.assertIn("height: clamp(20rem, 52dvh, 28rem)", source)
+        self.assertIn("height: calc(100dvh - 6.875rem)", source)
+        self.assertIn("position: absolute; inset: 0", source)
         self.assertIn("height: clamp(22rem, 50dvh, 34rem)", source)
-        self.assertIn("max-width: calc(100% - 2.5rem)", source)
+        self.assertIn("flex: 0 0 calc(100vw - 2rem)", source)
+        self.assertIn("max-height: 13.5rem", source)
         self.assertIn("scrollbar-width: none", source)
         self.assertIn("isolation: isolate", source)
-        self.assertIn("position: relative;\n      z-index: 2", source)
         self.assertIn("top: 0.5rem;\n      right: 0.5rem", source)
         self.assertIn("background: rgb(255 255 255 / 92%)", source)
+
+    def test_mobile_layout_keeps_decision_controls_compact(self):
+        template = HOME_TEMPLATE.read_text(encoding="utf-8")
+        script = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("min-height: 3.25rem", template)
+        self.assertIn("height: 3.5rem", template)
+        self.assertIn("height: 3.25rem", template)
+        self.assertIn("flex-wrap: nowrap; overflow-x: auto", template)
+        self.assertIn("candidate-card-description", template)
+        self.assertIn("display: none", template)
+        self.assertIn('"data-testid": "candidate-deck-counter"', script)
+        self.assertIn('["1/" + String(body.candidates.length)]', script)
+
+    def test_unchanged_filter_panel_omits_batch_actions(self):
+        source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("var actions = [];", source)
+        self.assertIn("actions.push(apply);", source)
+        self.assertIn("if (actions.length > 0)", source)
 
     def test_pending_filter_text_cannot_replace_the_applied_summary(self):
         source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")

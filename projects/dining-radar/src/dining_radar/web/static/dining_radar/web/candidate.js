@@ -31,6 +31,8 @@
   }
 
   var filterBar = document.getElementById("candidate-filter-bar");
+  var candidateCounter = null;
+  var candidateOrderByRef = {};
 
   // adr/0019 (unchanged by adr/0020): visible labels for the coarse card
   // reference enums. These exact strings are the browser-interface
@@ -129,7 +131,15 @@
     });
   }
 
-  function fieldRow(label, testId, value, formatted, rawValueAttribute, unavailableText) {
+  function fieldRow(
+    label,
+    testId,
+    value,
+    formatted,
+    rawValueAttribute,
+    unavailableText,
+    compactLabel
+  ) {
     var provided = value !== null && value !== undefined && value !== "";
     var attrs = {
       "data-testid": testId,
@@ -146,8 +156,8 @@
     if (provided && rawValueAttribute) {
       attrs[rawValueAttribute] = String(value);
     }
-    return el("div", {}, [
-      el("dt", {}, [label]),
+    return el("div", { "class": "candidate-fact-row candidate-fact-row--" + testId }, [
+      el("dt", {}, [compactLabel || label]),
       el(
         "dd",
         attrs,
@@ -172,6 +182,11 @@
         markerElementsByRef[ref].setAttribute("data-selection-state", state);
       }
     });
+    if (candidateCounter && candidateOrderByRef[candidateRef] !== undefined) {
+      candidateCounter.textContent =
+        String(candidateOrderByRef[candidateRef] + 1) + "/" +
+        String(Object.keys(cardElementsByRef).length);
+    }
     if (revealCard && cardElementsByRef[candidateRef]) {
       cardElementsByRef[candidateRef].scrollIntoView({
         behavior: "smooth",
@@ -255,14 +270,15 @@
         "紹介文の登録はありません"
       )
     );
-    facts.appendChild(fieldRow("定休日", "candidate-card-regular-holiday", candidate.regularHoliday));
     facts.appendChild(
       fieldRow(
         "総席数",
         "candidate-card-total-seats",
         candidate.totalSeats,
         CAPACITY_TIER_LABELS[candidate.capacityTier],
-        "data-raw-value"
+        "data-raw-value",
+        undefined,
+        "席数"
       )
     );
     facts.appendChild(
@@ -271,7 +287,9 @@
         "candidate-card-non-smoking",
         candidate.nonSmokingStatus,
         NON_SMOKING_LABELS[candidate.nonSmokingStatus],
-        "data-raw-value"
+        "data-raw-value",
+        undefined,
+        "禁煙"
       )
     );
     // adr/0020 decision 10: the visible value is the bare tier word only
@@ -283,7 +301,9 @@
         "candidate-card-dinner-budget",
         candidate.dinnerBudgetTier,
         TIER_LABELS[candidate.dinnerBudgetTier],
-        "data-raw-value"
+        "data-raw-value",
+        undefined,
+        "夜予算"
       )
     );
     card.appendChild(facts);
@@ -321,7 +341,12 @@
     link.addEventListener("click", function (event) {
       event.stopPropagation();
     });
-    card.appendChild(link);
+    card.appendChild(
+      el("div", { "class": "candidate-card-detail-footer" }, [
+        fieldRow("定休日", "candidate-card-regular-holiday", candidate.regularHoliday),
+        link,
+      ])
+    );
 
     cardElementsByRef[candidate.candidateRef] = card;
     return card;
@@ -616,6 +641,7 @@
     filterBar.setAttribute("data-filter-dirty", dirty ? "true" : "false");
 
     var summaryTexts = [
+      el("span", { "class": "candidate-filter-summary-label" }, ["条件"]),
       el("span", { "class": "candidate-filter-summary-text" }, [
         filterSummaryText(currentFilters),
       ]),
@@ -644,6 +670,7 @@
         "aria-expanded": filterExpanded ? "true" : "false",
       },
       [
+        el("span", { "class": "candidate-filter-summary-icon", "aria-hidden": "true" }, ["☷"]),
         el("span", { "class": "candidate-filter-summary-body" }, summaryTexts),
         el("span", { "class": "candidate-filter-caret", "aria-hidden": "true" }, [
           filterExpanded ? "⌃" : "⌄",
@@ -664,7 +691,10 @@
         "data-candidate-control-category": "button",
         "data-candidate-control-purpose": "candidate-search-again",
       },
-      ["もう一度探す"]
+      [
+        el("span", { "class": "candidate-search-again-icon", "aria-hidden": "true" }, ["↻"]),
+        el("span", { "class": "visually-hidden" }, ["もう一度探す"]),
+      ]
     );
     searchAgain.addEventListener("click", function () {
       requestProposal(currentFilters).then(function (result) {
@@ -719,7 +749,7 @@
           }),
         ]),
         chipRow(
-          "ディナー予算感",
+          "夜予算",
           BUDGET_TIERS.map(function (tier) {
             return chip({
               testId: "candidate-filter-budget-tier-option",
@@ -756,7 +786,7 @@
     }
     apply.addEventListener("click", applyPendingFilters);
 
-    var actions = [apply];
+    var actions = [];
     if (dirty) {
       var revert = el(
         "button",
@@ -774,8 +804,11 @@
         renderFilterBar();
       });
       actions.unshift(revert);
+      actions.push(apply);
     }
-    panel.appendChild(el("div", { "class": "candidate-filter-actions" }, actions));
+    if (actions.length > 0) {
+      panel.appendChild(el("div", { "class": "candidate-filter-actions" }, actions));
+    }
     // adr/0020 decision 10, revised on human instruction 2026-08-10: the
     // dinner-basis disclosure stays (TDR-CS-02 requires the organizer be able
     // to tell the figure is a dinner one) but the yen mapping is gone and the
@@ -809,6 +842,8 @@
 
   function renderResult(body) {
     cardElementsByRef = {};
+    candidateOrderByRef = {};
+    candidateCounter = null;
     root.innerHTML = "";
 
     // The filter bar is not part of this element: it lives outside the
@@ -870,14 +905,26 @@
 
     var cardsContainer = el("div", { "data-testid": "candidate-proposal-cards" }, []);
     body.candidates.forEach(function (candidate, index) {
+      candidateOrderByRef[candidate.candidateRef] = index;
       cardsContainer.appendChild(renderCard(candidate, index === 0, index));
     });
+    candidateCounter = el(
+      "output",
+      {
+        "class": "candidate-deck-counter",
+        "data-testid": "candidate-deck-counter",
+        "aria-live": "polite",
+        "aria-label": "選択中の候補",
+      },
+      ["1/" + String(body.candidates.length)]
+    );
     // DOM order is cards-then-map (matching the PC reading order, where
     // cards are primary) on purpose: CSS grid-template-areas is what moves
     // the map above the cards at narrow widths (see home.html), so this DOM
     // order is what keyboard/reader users encounter at every width.
     mainLayout.appendChild(cardsContainer);
     mainLayout.appendChild(mapWrapper);
+    mainLayout.appendChild(candidateCounter);
     content.appendChild(mainLayout);
 
     content.appendChild(
