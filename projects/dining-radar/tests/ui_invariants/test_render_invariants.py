@@ -415,6 +415,35 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
     # (e) 44px minimum activatable-control target --------------------------
 
     def _assert_all_declared_controls_meet_44px(self, context_label: str) -> None:
+        """decision 4(e) gates the size of *activatable* control surface.
+
+        A control declared inside a currently-closed native disclosure
+        (``<details>``/``<summary>``, e.g. ``auth-sign-out`` and
+        ``auth-password-change-open`` before ``auth-account-menu-toggle`` is
+        opened) exists in server-rendered HTML per
+        ``authentication-browser-interface.yaml``'s ``renderModel`` --
+        satisfying "present" -- but is not activatable yet: it cannot be
+        clicked, and (per ``authentication-browser-interface.yaml``'s own
+        accountMenuToggleNotes) it becomes reachable only once the toggle
+        discloses it. ``Locator.bounding_box()`` (``getBoundingClientRect()``)
+        on such a not-yet-disclosed element was found to be flaky --
+        returning a real, non-zero size on one Windows run and a zero-sized
+        box on the very next Windows run of the same query, and a
+        consistent zero-sized box on Ubuntu CI -- because it reads whatever
+        stale/UA-internal layout box a browser happens to keep for hidden
+        ``<details>`` content, which is not specified to be stable. Using
+        ``Locator.is_visible()`` first (confirmed to return exactly
+        ``False`` for this element in this closed state, deterministically,
+        on both platforms) to decide whether to measure a control at all
+        avoids depending on that unspecified, environment-dependent value
+        for pass/fail, while a genuinely visible, undersized control is
+        still measured and still fails here exactly as before -- this
+        method is called again, later in the same test, once each
+        disclosure (the re-proposal dialog, the account menu) is open and
+        its own controls have become visible, so nothing here is
+        permanently excluded from the gate, only deferred to the phase
+        where it is actually activatable.
+        """
         controls = self.page.locator("[data-candidate-control-purpose]")
         count = controls.count()
         self.assertGreater(
@@ -422,11 +451,15 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
             0,
             f"no activatable controls with a declared purpose were found ({context_label})",
         )
+        checked = 0
         for index in range(count):
             control = controls.nth(index)
             test_id = control.get_attribute("data-testid") or "(no testid)"
             if test_id in CONTROL_SIZE_ALLOWLIST_TEST_IDS:
                 continue
+            if not control.is_visible():
+                continue
+            checked += 1
             box = control.bounding_box()
             self.assertIsNotNone(box, f"{test_id} has no bounding box ({context_label})")
             self.assertGreaterEqual(
@@ -439,6 +472,11 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
                 MINIMUM_TARGET_PX,
                 f"{test_id} height {box['height']}px < {MINIMUM_TARGET_PX}px ({context_label})",
             )
+        self.assertGreater(
+            checked,
+            0,
+            f"no currently-visible activatable control was actually measured ({context_label})",
+        )
 
     def test_e_activatable_controls_meet_44px_minimum_target(self) -> None:
         self._sign_in_with_candidates()
