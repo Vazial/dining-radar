@@ -664,9 +664,9 @@
       {
         type: "button",
         "class": "candidate-filter-summary",
-        "data-testid": "candidate-filter-toggle",
+        "data-testid": "candidate-filter-open",
         "data-candidate-control-category": "button",
-        "data-candidate-control-purpose": "candidate-filter-toggle",
+        "data-candidate-control-purpose": "candidate-filter-open",
         "aria-expanded": filterExpanded ? "true" : "false",
       },
       [

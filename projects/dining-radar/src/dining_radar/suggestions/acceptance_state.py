@@ -6,12 +6,13 @@ This module implements the ``CandidateProposalAcceptanceState`` seam from
 is enabled (mirrors the guard on
 ``dining_radar.authentication.throttle.LoginThrottle.seed_acceptance_limit``).
 
-``NORMAL_WITH_POOL`` and ``IZAKAYA_BAR_ONLY`` drive the exact same production
-``suggestions.service.propose_candidates`` pipeline with synthetic
-candidates, rather than a hand-written fake response, so those seams
-exercise real filtering/ordering/pool-sampling logic (adr/0020). ``NO_RESULTS``,
-``PROVIDER_UNAVAILABLE``, and ``RATE_LIMITED`` return a fixed synthetic
-outcome directly, without calling the pipeline.
+``NORMAL_WITH_POOL``, ``DEFAULT_EXCLUSION_VISIBLE``,
+``CARD_PAYMENT_CAUTION_VISIBLE``, and ``IZAKAYA_BAR_ONLY`` drive the exact
+same production ``suggestions.service.propose_candidates`` pipeline with
+synthetic candidates, rather than a hand-written fake response, so those
+seams exercise real filtering/ordering/pool-sampling logic (adr/0020).
+``NO_RESULTS``, ``PROVIDER_UNAVAILABLE``, and ``RATE_LIMITED`` return a fixed
+synthetic outcome directly, without calling the pipeline.
 
 Per adr/0020 decision 4 hand-off item 4, this module also owns the seeded
 random-source injection this seam needs to make pool sampling deterministic
@@ -63,6 +64,8 @@ assert _DEFAULT_EXCLUDED_SYNTHETIC_GENRE in DEFAULT_EXCLUDED_GENRES
 
 class AcceptanceCandidateProposalMode(StrEnum):
     NORMAL_WITH_POOL = "NORMAL_WITH_POOL"
+    DEFAULT_EXCLUSION_VISIBLE = "DEFAULT_EXCLUSION_VISIBLE"
+    CARD_PAYMENT_CAUTION_VISIBLE = "CARD_PAYMENT_CAUTION_VISIBLE"
     IZAKAYA_BAR_ONLY = "IZAKAYA_BAR_ONLY"
     NO_RESULTS = "NO_RESULTS"
     PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"
@@ -213,6 +216,58 @@ _POOL_CANDIDATES: tuple[NormalizedCandidate, ...] = tuple(
 
 _CANDIDATES: tuple[NormalizedCandidate, ...] = (*_POOL_CANDIDATES, _DEFAULT_EXCLUDED_CANDIDATE)
 
+# The two focused TDR-CS Givens intentionally have an eligible population no
+# larger than DISPLAY_CAP. Their visible result is therefore independent of a
+# random seed, while still running through the production pipeline rather
+# than bypassing its filtering, default exclusion, and serialization paths.
+_DEFAULT_EXCLUSION_VISIBLE_CANDIDATES: tuple[NormalizedCandidate, ...] = (
+    _synthetic_candidate(
+        name="Synthetic default-eligible one",
+        genre="Synthetic Japanese",
+        provider_page_url="https://example.invalid/acceptance-default-visible-one",
+        latitude=0.0010,
+        card_payment_available=True,
+    ),
+    _synthetic_candidate(
+        name="Synthetic default-eligible two",
+        genre="Synthetic Western",
+        provider_page_url="https://example.invalid/acceptance-default-visible-two",
+        latitude=0.0020,
+        card_payment_available=None,
+    ),
+    _synthetic_candidate(
+        name="Synthetic default-excluded",
+        genre=_DEFAULT_EXCLUDED_SYNTHETIC_GENRE,
+        provider_page_url="https://example.invalid/acceptance-default-visible-excluded",
+        latitude=0.0005,
+        card_payment_available=False,
+    ),
+)
+
+_CARD_PAYMENT_CAUTION_VISIBLE_CANDIDATES: tuple[NormalizedCandidate, ...] = (
+    _synthetic_candidate(
+        name="Synthetic card unavailable",
+        genre="Synthetic Card Test",
+        provider_page_url="https://example.invalid/acceptance-card-unavailable",
+        latitude=0.0010,
+        card_payment_available=False,
+    ),
+    _synthetic_candidate(
+        name="Synthetic card available",
+        genre="Synthetic Card Test",
+        provider_page_url="https://example.invalid/acceptance-card-available",
+        latitude=0.0020,
+        card_payment_available=True,
+    ),
+    _synthetic_candidate(
+        name="Synthetic card unknown",
+        genre="Synthetic Card Test",
+        provider_page_url="https://example.invalid/acceptance-card-unknown",
+        latitude=0.0030,
+        card_payment_available=None,
+    ),
+)
+
 # Only default-excluded-genre candidates, so the default population (with
 # includeIzakayaBar=false) is empty and the response falls through to the
 # izakaya-bar-inclusive one instead of a successful no-results outcome
@@ -238,6 +293,14 @@ def _izakaya_bar_only_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]
     return _IZAKAYA_BAR_ONLY_CANDIDATES, _ORIGIN
 
 
+def _default_exclusion_visible_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
+    return _DEFAULT_EXCLUSION_VISIBLE_CANDIDATES, _ORIGIN
+
+
+def _card_payment_caution_visible_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
+    return _CARD_PAYMENT_CAUTION_VISIBLE_CANDIDATES, _ORIGIN
+
+
 def propose_with_override(
     mode: AcceptanceCandidateProposalMode, filters: CandidateFilters
 ) -> ProposalResult:
@@ -257,6 +320,18 @@ def propose_with_override(
         return propose_candidates(
             filters,
             fetch_candidates=_izakaya_bar_only_source,
+            random_source=active_random_source(),
+        )
+    if mode is AcceptanceCandidateProposalMode.DEFAULT_EXCLUSION_VISIBLE:
+        return propose_candidates(
+            filters,
+            fetch_candidates=_default_exclusion_visible_source,
+            random_source=active_random_source(),
+        )
+    if mode is AcceptanceCandidateProposalMode.CARD_PAYMENT_CAUTION_VISIBLE:
+        return propose_candidates(
+            filters,
+            fetch_candidates=_card_payment_caution_visible_source,
             random_source=active_random_source(),
         )
 

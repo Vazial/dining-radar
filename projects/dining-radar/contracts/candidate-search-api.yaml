@@ -41,9 +41,10 @@
 #   genre/description/regularHoliday/providerPageUrl/location/
 #   candidateRef は Must により無変更 (adr/0020 は adr/0019 が確立した
 #   カード表示項目を変えない)。
-# - dinnerBudgetTier の可視表示は段階語（低/中/高）だけにし、ディナー
-#   基準である開示と各段階のおおよその金額は、カードごとに繰り返さず
-#   画面に1箇所の注記へ集約する (adr/0020 決定10, 人間の明示的な判断)。
+# - dinnerBudgetTier の可視表示は段階語（低/中/高）だけにする。ディナー
+#   基準である開示だけを、展開中の絞り込みパネル内の1行注記へ置き、金額・
+#   レンジ・段階から金額への対応は表示しない (adr/0020 決定10の2026-08-11
+#   人間修正)。
 #   enum値 (LOW/MID/HIGH) 自体、しきい値、切り口にしないという扱いは
 #   adr/0019 決定8のまま無変更。これは adr/0019 決定8の「可視ラベルに
 #   必ずディナーである語を含める」というMustの適用単位をカード単位から
@@ -52,7 +53,7 @@
 openapi: 3.0.3
 info:
   title: Toyama Dining Radar Candidate Proposal API
-  version: 1.0.0
+  version: 1.0.2
   description: >-
     Produces up to 5 lunch candidates around one private runtime-configured
     location, after filtering and a randomized near-distance pool selection
@@ -64,7 +65,8 @@ info:
     (adr/0020 decision 5 removes the previously-shown-candidate demotion
     mechanism adr/0008 decision 2 and adr/0017 established). DRAFT: this
     contract version is not yet human-approved; see
-    adr/0020-replace-concept-lenses-with-filters-sort-and-randomized-pool-selection.md.
+    adr/0020-replace-concept-lenses-with-filters-sort-and-randomized-pool-selection.md
+    and adr/0022-expose-identity-free-population-filter-attributes.md.
 servers:
   - url: https://app.example.invalid
     description: >-
@@ -193,9 +195,26 @@ components:
           $ref: '#/components/schemas/CandidateFilters'
       description: >-
         Omit `filters`, or send it as `{}`, when opening the screen for the
-        first time. "Try again" resends the exact same `filters` object as
-        the previous request; "change filters" sends a different one. Both
-        are the same request shape (adr/0020 decision 1).
+        first time. Before filtering, the server normalizes an omitted
+        `filters`, an empty `filters` object, and omitted properties within
+        `filters` to CandidateFilters' semantic defaults. "Try again" sends
+        filters whose normalized value equals the currently applied value;
+        it need not repeat byte-for-byte the same JSON object. "Change
+        filters" sends a normalized value that differs from the applied one.
+        Both use this request shape (adr/0020 decisions 1 and 13).
+      x-default-normalization:
+        normalizedFilters:
+          genres: []
+          includeIzakayaBar: false
+          nonSmokingOnly: false
+          cardPaymentOnly: false
+          budgetTiers: []
+        semanticallyEquivalentRequestBodies:
+          - {}
+          - {filters: {}}
+          - {filters: {genres: [], includeIzakayaBar: false,
+                       nonSmokingOnly: false, cardPaymentOnly: false,
+                       budgetTiers: []}}
     CandidateFilters:
       type: object
       additionalProperties: false
@@ -254,12 +273,13 @@ components:
             cannot represent this three-tier scheme within its two-code
             limit); it is always evaluated locally. The browser-facing filter
             option labels for LOW/MID/HIGH must use the same 低/中/高
-            terminology as the per-candidate visible label and the
-            screen-level budget-tier note (adr/0020 decision 10), so a reader
-            can tell all three surfaces describe the same three tiers.
+            terminology as the per-candidate visible label. The single
+            dinner-basis disclosure appears only inside the expanded filter
+            panel and contains no tier-to-yen mapping (adr/0020 decision 10,
+            as amended 2026-08-11).
     CandidateProposalResponse:
       type: object
-      required: [candidates, izakayaBarFallbackApplied, availableGenres, providerCredit]
+      required: [candidates, izakayaBarFallbackApplied, availableGenres, populationAttributes, providerCredit]
       additionalProperties: false
       properties:
         candidates:
@@ -307,8 +327,75 @@ components:
             filter (adr/0020 decision 9). Lets the browser offer genre
             choices without a dedicated filter-taxonomy endpoint and without
             the offered choices shrinking as the organizer narrows.
+        populationAttributes:
+          type: array
+          description: >-
+            Identity-free attributes for every retrieved, normalized,
+            deduplicated candidate before any request filter is applied,
+            including the default izakaya/bar exclusion. The browser uses
+            this only to count the effect of a pending filters selection
+            before it makes another proposal request (adr/0022). Rows do not
+            identify shops and their sequence has no public ranking, distance,
+            map, or candidate-correspondence meaning. They must not contain
+            or be extended with a name, candidateRef, provider identifier or
+            page URL, coordinates, search origin/range, distance, route,
+            walking time, current location, image, description, business
+            hours, seats, or any other identifying/location attribute.
+          items:
+            $ref: '#/components/schemas/PopulationAttribute'
         providerCredit:
           $ref: '#/components/schemas/ProviderCredit'
+    PopulationAttribute:
+      type: object
+      required:
+        [genre, nonSmokingStatus, cardPaymentAvailable, dinnerBudgetTier,
+         defaultExcluded]
+      additionalProperties: false
+      description: >-
+        One anonymous filter-membership row for `populationAttributes`.
+        It is not a candidate, a stable identity, or an association to any
+        displayed candidate or marker. `null` is unavailable information, not
+        a negative value or confirmed non-match (adr/0020 decision 2).
+      properties:
+        genre:
+          type: string
+          description: >-
+            Provider-supplied genre label used only for the closed `genres`
+            filter vocabulary and match count. It is not a shop identity.
+        nonSmokingStatus:
+          type: string
+          nullable: true
+          enum: [FULL, PARTIAL, NONE]
+          description: >-
+            The same coarse non-smoking reference used by
+            `CandidateFilters.nonSmokingOnly`; null means unavailable, never
+            `NONE`.
+        cardPaymentAvailable:
+          type: boolean
+          nullable: true
+          description: >-
+            The same credit-card-acceptance reference used by
+            `CandidateFilters.cardPaymentOnly`; null means unavailable. False
+            means only that credit cards are not accepted, not that payment is
+            cash-only.
+        dinnerBudgetTier:
+          type: string
+          nullable: true
+          enum: [LOW, MID, HIGH]
+          description: >-
+            The same coarse provider-derived dinner-budget reference used by
+            `CandidateFilters.budgetTiers`; null means unavailable. It never
+            represents or implies a lunch price.
+        defaultExcluded:
+          type: boolean
+          description: >-
+            Whether this row is in ADR-0015's default-excluded genre category.
+            It lets the browser count the effect of `includeIzakayaBar` without
+            asking the provider again. This is a genre-category property: all
+            rows with the same `genre` have the same value, so acceptance may
+            classify a displayed candidate's already-public genre for
+            TDR-CS-09. It still must not associate that candidate with any
+            particular populationAttributes row or reveal an identity.
     Candidate:
       type: object
       required:
@@ -389,13 +476,13 @@ components:
             caution derived from it may state or imply a lunch price
             threshold. The per-candidate visible label is the tier word
             alone (e.g. 低/中/高 for LOW/MID/HIGH); it does not itself
-            restate that this is a dinner figure or the yen range each tier
-            covers. That disclosure and the tier-to-yen mapping are stated
-            once, in a single screen-level note, not repeated per candidate
-            (adr/0020 decision 10 -- this changes the unit at which
-            adr/0019 decision 8's "always disclose this is a dinner figure"
-            requirement is satisfied, from per-card to per-screen; see the
-            dated addendum in adr/0019). See `CandidateFilters.budgetTiers`
+            restate that this is a dinner figure or any yen amount/range. The
+            dinner-basis disclosure appears once, only in the expanded filter
+            panel, and does not include a tier-to-yen mapping (adr/0020
+            decision 10 as amended 2026-08-11). This changes the unit at
+            which adr/0019 decision 8's "always disclose this is a dinner
+            figure" requirement is satisfied, from per-card to the expanded
+            filter panel. See `CandidateFilters.budgetTiers`
             for how this drives filtering and ordering; this filter is never
             sent to the provider.
         location:

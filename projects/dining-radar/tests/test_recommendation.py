@@ -13,6 +13,7 @@ from dining_radar.recommendation.pipeline import (
     dinner_budget_tier,
     filter_candidates,
     order_confirmed_then_unconfirmed,
+    population_attributes,
     select_pool_and_sample,
 )
 
@@ -104,6 +105,118 @@ class AvailableGenresTests(SimpleTestCase):
         ]
 
         self.assertEqual(available_genres(candidates, False), ["和食", "洋食"])
+
+
+class PopulationAttributesTests(SimpleTestCase):
+    def test_has_only_the_filter_membership_values_required_for_pending_counts(self):
+        row = population_attributes(
+            [
+                candidate(
+                    name="private name must not escape",
+                    provider_page_url="https://example.invalid/private-id",
+                    latitude=35.123,
+                    longitude=139.456,
+                    genre="western",
+                    non_smoking_status="FULL",
+                    card_payment_available=True,
+                    budget_average=1500.0,
+                )
+            ]
+        )[0]
+
+        self.assertEqual(
+            set(vars(row)),
+            {
+                "genre",
+                "non_smoking_status",
+                "card_payment_available",
+                "dinner_budget_tier",
+                "default_excluded",
+            },
+        )
+        self.assertEqual(row.genre, "western")
+        self.assertEqual(row.non_smoking_status, "FULL")
+        self.assertIs(row.card_payment_available, True)
+        self.assertEqual(row.dinner_budget_tier, "LOW")
+        self.assertFalse(row.default_excluded)
+
+    def test_order_is_independent_of_provider_source_order_and_candidate_distance(self):
+        first_source_row = candidate(
+            name="first provider result",
+            provider_page_url="https://example.invalid/first",
+            latitude=0.001,
+            genre="western",
+            non_smoking_status="FULL",
+            card_payment_available=True,
+            budget_average=5000.0,
+        )
+        second_source_row = candidate(
+            name="second provider result",
+            provider_page_url="https://example.invalid/second",
+            latitude=9.0,
+            genre="japanese",
+            non_smoking_status=None,
+            card_payment_available=False,
+            budget_average=None,
+        )
+
+        in_source_order = population_attributes([first_source_row, second_source_row])
+        in_reverse_source_order = population_attributes([second_source_row, first_source_row])
+
+        self.assertEqual(in_source_order, in_reverse_source_order)
+        self.assertEqual(
+            [row.genre for row in in_source_order],
+            ["japanese", "western"],
+        )
+
+    def test_canonical_order_uses_every_non_derived_public_filter_value(self):
+        def rows_with(**first_overrides):
+            defaults = {
+                "genre": "same-genre",
+                "non_smoking_status": "FULL",
+                "card_payment_available": True,
+                "budget_average": 1500.0,
+            }
+            defaults.update(first_overrides)
+            first = candidate(
+                provider_page_url="https://example.invalid/first",
+                latitude=9.0,
+                **defaults,
+            )
+            second = candidate(
+                provider_page_url="https://example.invalid/second",
+                latitude=0.001,
+                genre="same-genre",
+                non_smoking_status="FULL",
+                card_payment_available=True,
+                budget_average=1500.0,
+            )
+            return population_attributes([second, first])
+
+        self.assertEqual(
+            [row.non_smoking_status for row in rows_with(non_smoking_status="PARTIAL")],
+            ["FULL", "PARTIAL"],
+        )
+        self.assertEqual(
+            [row.non_smoking_status for row in rows_with(non_smoking_status=None)],
+            ["FULL", None],
+        )
+        self.assertEqual(
+            [row.card_payment_available for row in rows_with(card_payment_available=False)],
+            [False, True],
+        )
+        self.assertEqual(
+            [row.card_payment_available for row in rows_with(card_payment_available=None)],
+            [True, None],
+        )
+        self.assertEqual(
+            [row.dinner_budget_tier for row in rows_with(budget_average=5000.0)],
+            ["HIGH", "LOW"],
+        )
+        self.assertEqual(
+            [row.dinner_budget_tier for row in rows_with(budget_average=None)],
+            ["LOW", None],
+        )
 
 
 class FilterCandidatesTests(SimpleTestCase):

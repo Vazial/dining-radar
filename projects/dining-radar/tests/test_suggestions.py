@@ -378,3 +378,61 @@ class ProposeWithOverrideTests(SimpleTestCase):
                 seen.add(tuple(c.provider_page_url for c in result.candidates))
 
             self.assertGreater(len(seen), 1, "every seed produced the identical candidate set")
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_default_exclusion_visible_mode_displays_the_excluded_category_only_when_enabled(self):
+        try:
+            for seed in range(_REACHABILITY_SEEDS):
+                acceptance_state.set_mode(
+                    acceptance_state.AcceptanceCandidateProposalMode.DEFAULT_EXCLUSION_VISIBLE,
+                    random_seed=seed,
+                )
+                default_result = acceptance_state.propose_with_override(
+                    acceptance_state.AcceptanceCandidateProposalMode.DEFAULT_EXCLUSION_VISIBLE,
+                    CandidateFilters(),
+                )
+                included_result = acceptance_state.propose_with_override(
+                    acceptance_state.AcceptanceCandidateProposalMode.DEFAULT_EXCLUSION_VISIBLE,
+                    CandidateFilters(include_izakaya_bar=True),
+                )
+                excluded_by_genre = {
+                    attribute.genre: attribute.default_excluded
+                    for attribute in default_result.population_attributes
+                }
+
+                self.assertTrue(default_result.candidates)
+                self.assertTrue(
+                    all(
+                        not excluded_by_genre[candidate.genre]
+                        for candidate in default_result.candidates
+                    )
+                )
+                self.assertTrue(
+                    any(
+                        excluded_by_genre[candidate.genre]
+                        for candidate in included_result.candidates
+                    )
+                )
+        finally:
+            acceptance_state.reset_mode()
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_card_payment_caution_visible_mode_is_never_randomly_hidden(self):
+        try:
+            for seed in range(_REACHABILITY_SEEDS):
+                acceptance_state.set_mode(
+                    acceptance_state.AcceptanceCandidateProposalMode.CARD_PAYMENT_CAUTION_VISIBLE,
+                    random_seed=seed,
+                )
+                result = acceptance_state.propose_with_override(
+                    acceptance_state.AcceptanceCandidateProposalMode.CARD_PAYMENT_CAUTION_VISIBLE,
+                    CandidateFilters(),
+                )
+                payment_values = {
+                    candidate.card_payment_available for candidate in result.candidates
+                }
+
+                self.assertIn(False, payment_values)
+                self.assertTrue(True in payment_values or None in payment_values)
+        finally:
+            acceptance_state.reset_mode()

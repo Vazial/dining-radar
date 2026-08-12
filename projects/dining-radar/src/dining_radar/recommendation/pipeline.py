@@ -248,11 +248,13 @@ def population_attributes(
     Computed before any filter is applied -- including the default
     izakaya/bar exclusion -- because the browser must be able to count the
     effect of *any* pending selection, including turning ``includeIzakayaBar``
-    on. Order is the deduplicated provider order and carries no distance
-    information: nothing here may let the browser re-derive the ranking, only
-    count set membership.
+    on. The result is canonically ordered by the five public filter values,
+    never by provider order, distance, or display rank. This prevents an
+    array index from becoming an implicit correspondence with a candidate or
+    a private-location-derived ordering; the browser can only count set
+    membership.
     """
-    return [
+    attributes = [
         PopulationAttribute(
             genre=candidate.genre,
             non_smoking_status=candidate.non_smoking_status,
@@ -262,6 +264,23 @@ def population_attributes(
         )
         for candidate in candidates
     ]
+
+    # ADR-0022: the public sequence must have no provider/source, ranking,
+    # distance, map, or candidate-correspondence meaning. Every key below is
+    # itself part of PopulationAttribute's closed public shape, so this sort
+    # cannot encode a private field by accident.
+    return sorted(
+        attributes,
+        key=lambda attribute: (
+            attribute.genre,
+            attribute.non_smoking_status is None,
+            attribute.non_smoking_status or "",
+            attribute.card_payment_available is None,
+            attribute.card_payment_available is True,
+            attribute.dinner_budget_tier is None,
+            attribute.dinner_budget_tier or "",
+        ),
+    )
 
 
 def available_genres(

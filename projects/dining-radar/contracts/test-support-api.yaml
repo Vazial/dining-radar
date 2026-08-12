@@ -24,10 +24,17 @@
 # CandidateProposalAcceptanceState pins the server's random pool-sampling
 # source for subsequent /candidate-proposals calls; it is never exposed on
 # the public candidate-search-api.yaml (adr/0020 decision 4).
+# DEFAULT_EXCLUSION_VISIBLE and CARD_PAYMENT_CAUTION_VISIBLE provide the two
+# deterministic displayed-result Givens required by TDR-CS-09 and TDR-CS-12;
+# they remain synthetic acceptance-only population shapes and add no public
+# identifier, location, distance, or ordering field (adr/0020 decision 13).
+# ZERO_PENDING_MATCH and FALLBACK_PRESERVES_FILTERS provide seed-independent
+# public-UI/API evidence for reviewer R5 without adding a public test hook or
+# exposing an origin, distance, route, or internal order (adr/0020 decision 14).
 openapi: 3.0.3
 info:
   title: Toyama Dining Radar acceptance test-support API
-  version: 1.0.0
+  version: 1.0.2
   description: >-
     Acceptance-only setup and reset seams for TDR-AUTH-01 through TDR-AUTH-07
     and TDR-CS-00 through TDR-CS-13.
@@ -193,7 +200,9 @@ components:
         mode:
           type: string
           enum:
-            [NORMAL_WITH_POOL, IZAKAYA_BAR_ONLY, NO_RESULTS,
+            [NORMAL_WITH_POOL, DEFAULT_EXCLUSION_VISIBLE,
+             CARD_PAYMENT_CAUTION_VISIBLE, ZERO_PENDING_MATCH,
+             FALLBACK_PRESERVES_FILTERS, IZAKAYA_BAR_ONLY, NO_RESULTS,
              PROVIDER_UNAVAILABLE, RATE_LIMITED]
           description: >-
             A closed synthetic state selection. NORMAL_WITH_POOL supplies at
@@ -214,12 +223,64 @@ components:
             rule is deterministically exercised (this null case is not
             currently observed in real Hot Pepper data, per adr/0020's
             measured-facts context, but the synthetic mode must still supply
-            it as a safety-net path). It also includes at least one synthetic
-            candidate in the default-excluded genre category (izakaya/bar)
-            and at least one outside it, so an acceptance test can observe
-            from this one mode that the default proposal excludes the
-            former and that including it via includeIzakayaBar=true adds it
-            back (TDR-CS-09). IZAKAYA_BAR_ONLY supplies only synthetic
+            it as a safety-net path).
+
+            DEFAULT_EXCLUSION_VISIBLE is the deterministic TDR-CS-09 Given.
+            Its synthetic population contains both default-excluded and
+            non-excluded genre categories. With semantically default filters,
+            every displayed candidate has a genre whose populationAttributes
+            rows classify it as defaultExcluded=false. With the otherwise
+            same normalized filters and includeIzakayaBar=true, at least one
+            displayed candidate has a genre classified as
+            defaultExcluded=true. The population and internal relative
+            ordering must make both display guarantees hold for every
+            randomSeed; no candidate identity or location is added to
+            populationAttributes.
+
+            CARD_PAYMENT_CAUTION_VISIBLE is the deterministic TDR-CS-12 Given.
+            Its default successful proposal displays at least one candidate
+            with cardPaymentAvailable=false and at least one candidate whose
+            value is true or null. Its eligible synthetic population is no
+            larger than the display cap, so both observable states are
+            displayed for every randomSeed rather than merely existing in a
+            larger random pool.
+
+            ZERO_PENDING_MATCH is the deterministic dirty-filter count Given.
+            Its non-empty, non-excluded default population has no null
+            card-payment or dinner-budget value. At least one row matches
+            cardPaymentOnly=true and at least one row has dinnerBudgetTier=LOW,
+            but no row matches both. Therefore the UI-selectable pending
+            combination cardPaymentOnly=true plus budgetTiers=[LOW] has an
+            exact population count of zero for every randomSeed, while each
+            control is independently meaningful. The public browser must
+            expose candidate-filter-apply with data-match-count="0" and keep
+            it disabled; this mode does not accept or return a count override.
+
+            FALLBACK_PRESERVES_FILTERS is the deterministic TDR-CS-10 boundary
+            Given. Its non-excluded population has no row matching the
+            combination nonSmokingOnly=true, cardPaymentOnly=true, and
+            budgetTiers=[LOW]. Its default-excluded population has at least
+            one confirmed row matching all three and, separately, at least
+            one confirmed non-matching row for each active soft filter; none
+            of these proof rows has a null soft-filter value. The all-matching
+            fallback-eligible set is no larger than the display cap. Thus a
+            public request with that combination and includeIzakayaBar=false
+            deterministically returns izakayaBarFallbackApplied=true and only
+            candidates that match all three selected soft filters, for every
+            randomSeed. populationAttributes proves that confirmed
+            non-matching default-excluded rows existed but were not admitted;
+            no identity join, location, distance, or internal order is
+            exposed.
+
+            The same mode also has exactly one non-excluded genre in
+            availableGenres, and every candidate of that genre has confirmed
+            nonSmokingStatus=NONE. A public request selecting that offered
+            genre plus nonSmokingOnly=true deterministically returns an empty
+            candidates array with izakayaBarFallbackApplied=false even though
+            default-excluded FULL rows exist. This separately proves that the
+            fallback does not loosen an explicit genres filter.
+
+            IZAKAYA_BAR_ONLY supplies only synthetic
             candidates in the default-excluded genre category, so the
             default (includeIzakayaBar=false) request yields izakayaBar
             FallbackApplied=true rather than an empty result (TDR-CS-10);
@@ -237,10 +298,11 @@ components:
             Pins the server's random pool-sampling source (adr/0020 decision
             4) for every /candidate-proposals call made while this state is
             active. Two calls with the same randomSeed, the same mode, and
-            an identical filters request body must return byte-identical
+            semantically equivalent filters after candidate-search API
+            default normalization must return byte-identical
             candidates arrays in the same order. Two calls with different
-            randomSeed values, the same mode, and an identical filters
-            request body must return different candidates arrays whenever
+            randomSeed values, the same mode, and semantically equivalent
+            normalized filters must return different candidates arrays whenever
             the eligible population exceeds the implementation's pool size
             (guaranteed reachable under NORMAL_WITH_POOL). Omit or set to
             null for non-deterministic sampling matching production

@@ -116,6 +116,14 @@ class CandidateSurfaceSourceTests(SimpleTestCase):
         self.assertIn("actions.push(apply);", source)
         self.assertIn("if (actions.length > 0)", source)
 
+    def test_filter_opener_uses_the_contract_test_id_and_allowed_control_purpose(self):
+        source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn('"data-testid": "candidate-filter-open"', source)
+        self.assertIn('"data-candidate-control-purpose": "candidate-filter-open"', source)
+        self.assertNotIn('"data-testid": "candidate-filter-toggle"', source)
+        self.assertNotIn('"data-candidate-control-purpose": "candidate-filter-toggle"', source)
+
     def test_pending_filter_text_cannot_replace_the_applied_summary(self):
         source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
 

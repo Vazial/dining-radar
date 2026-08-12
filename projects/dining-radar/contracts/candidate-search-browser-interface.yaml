@@ -16,15 +16,19 @@
 # invalidLens outcome are removed (TDR-CS-07 retired; there is no "invalid
 # lens" concept in a filter model). A new displayOrdering invariant and a new
 # per-card cardPaymentValueState attribute support TDR-CS-13's
-# unconfirmed-information-sorts-last observability. A same-day amendment
-# (adr/0020 decision 10, human instruction) changes dinnerBudgetTier's visible
-# card label to the tier word alone (低/中/高) and adds a single screen-level
-# candidate-budget-tier-note carrying the dinner-basis disclosure and the
-# tier-to-yen mapping that a per-card yen-range label previously carried; the
-# filter panel's budget-tier option labels must use the same terminology. All
+# unconfirmed-information-sorts-last observability. The 2026-08-11 human
+# amendment to adr/0020 decision 10 changes dinnerBudgetTier's visible card
+# label to the tier word alone (低/中/高), removes every yen amount/range,
+# and places exactly one dinner-basis disclosure inside the expanded filter
+# panel. The filter panel's budget-tier option labels use the same terms. The
+# same human-approved mobile-first refinement separates the filters that
+# produced the displayed proposal (applied) from edits in the open panel
+# (pending): batch actions exist only for a dirty pending copy. Its genre rail
+# is a compact, deterministic four-item preview with an explicit no-search
+# overflow toggle. All
 # prior content (2026-08-01 through 2026-08-09 amendments, superseded by this
 # draft) is summarized in adr/0020, not repeated here.
-contractVersion: '1.0'
+contractVersion: '1.0.5'
 kind: acceptance-browser-interface
 scope: candidate-search
 profiles:
@@ -61,8 +65,11 @@ browserEntry:
   authenticatedInitialOutcome:
     present: [candidate-proposal-content, candidate-proposal-cards, candidate-map,
               candidate-provider-credit, candidate-filter-open,
-              candidate-search-again, candidate-budget-tier-note]
-    absent: [candidate-manual-ordering]
+              candidate-search-again]
+    absent: [candidate-budget-tier-note, candidate-filter-genre-overflow,
+             candidate-filter-pending-note,
+             candidate-filter-apply, candidate-filter-revert,
+             candidate-manual-ordering]
 
 browserControlSurface:
   proposal:
@@ -113,9 +120,10 @@ browserControlSurface:
         "全席禁煙"/"一部禁煙"/"禁煙席なし" for FULL/PARTIAL/NONE;
         dinnerBudgetTier's visible value reflects a fixed tier-word label
         per its own enum value -- "低"/"中"/"高" for LOW/MID/HIGH -- and
-        must NOT itself restate a yen range or the word "ディナー"; that
-        disclosure lives only in candidate-budget-tier-note, adr/0020
-        decision 10) without itself being checked for exact equality against
+        must NOT itself restate a yen range or the word "ディナー"; the
+        dinner-basis disclosure lives only in the expanded filter panel's
+        candidate-budget-tier-note (adr/0020 decision 10, as amended
+        2026-08-11) without itself being checked for exact equality against
         the raw value. The attribute is absent when that field is
         unavailable, since data-value-state=unavailable already expresses
         its state. Every other required field's visible value equals the
@@ -167,6 +175,22 @@ browserControlSurface:
         data-value-state=unavailable. When no such filter is active, this
         invariant reduces to plain nearest-first (adr/0020 decision 4;
         TDR-CS-13).
+      verificationAllocation:
+        L1: >-
+          Pure recommendation tests independently prove that each confirmed
+          or unavailable group is ordered by ascending synthetic internal
+          distance before and after pool sampling. These inputs and distances
+          never cross the public API boundary.
+        L3: >-
+          Boundary tests prove that serialization preserves the pipeline
+          candidate order exactly and that origin, range, distance, route,
+          walking-time, and internal ordering evidence are absent from the
+          public response and logs.
+        L4: >-
+          Browser acceptance proves that card and marker order matches the
+          public response and that confirmed candidates precede unavailable
+          candidates. It deliberately does not reconstruct nearest-first from
+          a private origin or expose distance solely to make that assertion.
     mapObservations:
       fitStateAttribute: {testId: candidate-map, attribute: data-map-fit-state, value: displayed-candidates}
       tileProviderAttribute: {testId: candidate-map, attribute: data-map-tile-provider, value: openstreetmap-standard}
@@ -195,38 +219,87 @@ browserControlSurface:
     budgetTierNoteObservation:
       testId: candidate-budget-tier-note
       presenceRule: >-
-        Present at all times on the authenticated proposal screen
-        (adr/0020 decision 10), independent of whether any candidate is
-        currently displayed. Its visible text must state both that the
-        LOW/MID/HIGH tiers (低/中/高) are based on the provider's dinner
-        budget figure, not a lunch price, and the approximate yen range each
-        tier covers (the current thresholds: LOW up to and including
-        ¥2,000, MID ¥2,001-¥4,000, HIGH ¥4,001 and above -- adr/0019
-        decisions 4 and 8). This is the single place this disclosure and
-        mapping appear; no per-card element restates them (see
-        cardDataAttributes.nullBehavior's dinnerBudgetTier note). Its tier
-        words must be the same 低/中/高 terminology used by
-        candidate-card-dinner-budget's visible label and by
-        filterPanel.requiredTestIds.budgetTierOption's visible labels.
+        Present exactly once only while candidate-filter-panel is present;
+        absent on the collapsed authenticated screen and after the panel is
+        closed. Its one-line visible text must disclose that the budget tiers
+        are based on the provider's dinner-budget figure and do not state or
+        imply a lunch price (adr/0020 decision 10, as amended 2026-08-11).
+        It must not contain a yen amount, price range, or tier-to-yen mapping.
+        No per-card element restates this disclosure.
   filterPanel:
     requiredTestIds:
       panel: candidate-filter-panel
-      genreOption: candidate-filter-genre-option
       includeIzakayaBar: candidate-filter-include-izakaya-bar
       nonSmokingOnly: candidate-filter-non-smoking-only
       cardPaymentOnly: candidate-filter-card-payment-only
       budgetTierOption: candidate-filter-budget-tier-option
+      budgetTierNote: candidate-budget-tier-note
+    conditionalTestIds:
+      genreOption: candidate-filter-genre-option
+      genreOverflow: candidate-filter-genre-overflow
+      pendingNote: candidate-filter-pending-note
       apply: candidate-filter-apply
-      cancel: candidate-filter-cancel
+      revert: candidate-filter-revert
     optionDataAttributes:
       genreValue: data-genre-value
       budgetTierValue: data-budget-tier-value
+    genrePresentation:
+      source: response.availableGenres
+      presentationOrder: ascending-string-length-then-ja-locale-collation
+      previewLimit: 4
+      responseCountStates:
+        empty:
+          when: response.availableGenres-count-equals-zero
+          genreOptionCount: 0
+          genreOverflow: absent
+        compact:
+          when: response.availableGenres-count-between-one-and-four-inclusive
+          genreOptionCount: exactly-response.availableGenres-count
+          genreOptionOrder: presentationOrder
+          genreOverflow: absent
+        preview:
+          when: response.availableGenres-count-at-least-five-and-overflow-collapsed
+          genreOptionCount: 4
+          genreOptionOrder: first-four-in-presentationOrder
+          genreOverflow: {presentExactlyOnce: true, visibleLabel: 'ほか N件…', N: response-count-minus-four}
+        expanded:
+          when: response.availableGenres-count-at-least-five-and-overflow-expanded
+          genreOptionCount: exactly-response.availableGenres-count
+          genreOptionOrder: presentationOrder
+          genreOverflow: {presentExactlyOnce: true, visibleLabel: '閉じる'}
+    matchCountObservation:
+      testId: candidate-filter-apply
+      attribute: data-match-count
+      value: >-
+        Exact decimal count obtained by applying pending filters to every
+        response.populationAttributes row with the public filter semantics,
+        before random pool selection and the five-card display cap.
+      zeroState: >-
+        While pending differs from applied and the count is zero,
+        candidate-filter-apply remains present with data-match-count="0" and
+        is disabled. Activating it cannot start a public operation.
+    stateModel:
+      applied: >-
+        The filters that produced the currently displayed proposal and the
+        condition summary. They change only after candidate-filter-apply
+        starts its proposal request.
+      pending: >-
+        A working copy initialized from applied when a proposal is rendered.
+        Controls in the expanded panel edit only this copy.
+      dirty: >-
+        Pending differs from applied. The visible candidate-filter-pending-note
+        must make clear that a search has not happened yet. It is absent when
+        pending equals applied.
     constraints:
       - The panel is absent until candidate-filter-open is activated and opens without document navigation or URL change.
-      - One candidate-filter-genre-option element exists per response.availableGenres entry, in the order returned, each carrying that genre string as data-genre-value.
-      - One candidate-filter-budget-tier-option element exists per LOW/MID/HIGH, each carrying that enum string as data-budget-tier-value, and its visible label must use the same 低/中/高 terminology as candidate-card-dinner-budget and candidate-budget-tier-note (adr/0020 decision 10).
-      - Changing any control inside the panel does not itself perform a search; only activating candidate-filter-apply does.
-      - candidate-filter-cancel closes the panel without changing the currently displayed candidates or the filters used to produce them.
+      - Each visible candidate-filter-genre-option carries its response.availableGenres genre string as data-genre-value. The browser must use genrePresentation's order, not the response order.
+      - One candidate-filter-budget-tier-option element exists per LOW/MID/HIGH, each carrying that enum string as data-budget-tier-value, and its visible label must use the same 低/中/高 terminology as candidate-card-dinner-budget (adr/0020 decision 10).
+      - Exactly one candidate-budget-tier-note exists inside candidate-filter-panel. It is the one-line dinner-basis disclosure defined by budgetTierNoteObservation and contains no yen amount, range, or tier-to-yen mapping.
+      - Changing any control inside the panel changes pending only: it makes the state dirty, does not perform a search, and does not change the displayed cards, markers, condition summary, or applied filters.
+      - When pending equals applied, candidate-filter-pending-note, candidate-filter-revert, and candidate-filter-apply are all absent. The open panel therefore has no batch action for unchanged controls.
+      - When pending differs from applied, candidate-filter-pending-note, candidate-filter-revert, and candidate-filter-apply are each present. candidate-filter-apply carries data-match-count for the identity-free pending-population count and is disabled exactly when that count is zero; otherwise it is enabled.
+      - candidate-filter-revert replaces pending with applied, keeps the panel open, changes neither the currently displayed candidates nor applied filters, and performs no public operation.
+      - candidate-search-again is disabled while pending differs from applied, and is re-enabled only after candidate-filter-revert or a completed proposal rendering makes pending equal applied.
       - No free-text input control exists for genre, budget, or any other filter; every filter control is a closed selection (checkbox or toggle) over a server-supplied or fixed enum vocabulary.
   unavailableControls:
     forbiddenFormControlCategories:
@@ -239,12 +312,49 @@ browserControlSurface:
     allowedPurposes:
       [candidate-card-selection, candidate-map-marker-selection,
        candidate-filter-open, candidate-filter-genre-selection,
+       candidate-filter-genre-overflow-toggle,
        candidate-filter-izakaya-bar-toggle, candidate-filter-non-smoking-toggle,
        candidate-filter-card-payment-toggle, candidate-filter-budget-tier-selection,
-       candidate-filter-apply, candidate-filter-cancel, candidate-search-again,
+       candidate-filter-apply, candidate-filter-revert, candidate-search-again,
        auth-sign-out, auth-password-change-open, auth-account-menu-toggle]
     forbiddenPurposes:
-      [sort, manual-ordering, free-text-search]
+      [sort, manual-ordering, free-text-search, search-origin,
+       search-location, current-location, search-range, radius, distance]
+    locationRangeControlProhibition:
+      invariant: >-
+        No application-authored interactive control may enter, choose,
+        derive, request, or change the private search origin or configured
+        search range. Leaflet viewport pan/zoom controls inside candidate-map
+        may change only the visible map viewport; they must not change a
+        proposal request or the configured origin/range.
+      machineObservation:
+        forbiddenTestIds:
+          [candidate-search-origin, candidate-search-location,
+           candidate-current-location-control, candidate-search-range,
+           candidate-search-radius, candidate-search-distance]
+        forbiddenControlPurposes:
+          [search-origin, search-location, current-location, search-range,
+           radius, distance]
+        normalizedAccessibleNameTokens:
+          [検索地点, 検索場所, 検索基点, 起点, 現在地, 探索範囲, 検索範囲,
+           半径, 距離, search-location, search-origin, current-location,
+           search-range, radius, distance]
+        identifierAttributes:
+          [id, name, data-testid, data-candidate-control-purpose]
+        requirement: >-
+          For every application-authored button, input, select, textarea,
+          contenteditable element, or element with an interactive ARIA role,
+          acceptance enumerates its declared purpose, normalized accessible
+          name/visible label, and identifier attributes. None may equal or
+          contain a forbidden purpose or token. Provider/detail/credit links
+          are observations, not controls; Leaflet viewport controls are the
+          scoped exception above.
+      verificationAllocation:
+        L4: the machineObservation above denies a location/range control
+        L3: >-
+          CandidateProposalRequest's strict public schema is independently
+          checked to contain no origin, location, range, radius, distance, or
+          route input property.
     invariant: >-
       No form control may provide a manual sort/ordering capability or a
       free-text search input, whether or not it has a test id. Filters
@@ -273,11 +383,16 @@ browserActions:
       method: POST
       path: /candidate-proposals
       requestBody: {}
+      normalizedAppliedFilters:
+        {genres: [], includeIzakayaBar: false, nonSmokingOnly: false,
+         cardPaymentOnly: false, budgetTiers: []}
     success:
       present: [candidate-proposal-content, candidate-proposal-cards, candidate-map,
-                candidate-provider-credit, candidate-filter-open, candidate-search-again,
-                candidate-budget-tier-note]
-      absent: [candidate-filter-panel]
+                candidate-provider-credit, candidate-filter-open, candidate-search-again]
+      absent: [candidate-filter-panel, candidate-budget-tier-note,
+               candidate-filter-genre-overflow,
+               candidate-filter-pending-note, candidate-filter-apply,
+               candidate-filter-revert]
   selectCard:
     input: candidate-card
     requiredOutcome:
@@ -292,42 +407,104 @@ browserActions:
       allOtherCardsAndMarkers: {attribute: data-selection-state, value: unselected}
   openFilterPanel:
     input: candidate-filter-open
-    success:
-      present: [candidate-filter-panel, candidate-filter-genre-option,
-                candidate-filter-include-izakaya-bar, candidate-filter-non-smoking-only,
-                candidate-filter-card-payment-only, candidate-filter-budget-tier-option,
-                candidate-filter-apply, candidate-filter-cancel]
-      navigation: {document: unchanged, url: unchanged}
+    stateVariants:
+      clean:
+        when: pending-equals-applied
+        present: [candidate-filter-panel, candidate-filter-include-izakaya-bar,
+                  candidate-filter-non-smoking-only,
+                  candidate-filter-card-payment-only, candidate-filter-budget-tier-option,
+                  candidate-budget-tier-note]
+        absent: [candidate-filter-pending-note, candidate-filter-apply,
+                 candidate-filter-revert]
+      dirty:
+        when: pending-differs-from-applied
+        present: [candidate-filter-panel, candidate-filter-include-izakaya-bar,
+                  candidate-filter-non-smoking-only,
+                  candidate-filter-card-payment-only, candidate-filter-budget-tier-option,
+                  candidate-budget-tier-note, candidate-filter-pending-note,
+                  candidate-filter-apply, candidate-filter-revert]
+    genrePresence: satisfies-filterPanel.genrePresentation.responseCountStates-for-current-response-and-overflow-state
+    navigation: {document: unchanged, url: unchanged}
+  toggleGenreOverflow:
+    input: candidate-filter-genre-overflow
+    stateVariants:
+      expand:
+        precondition: genre-preview-collapsed-and-response-availableGenres-count-greater-than-four
+        requiredOutcome:
+          visibleGenreOptions: every-response-availableGenres-entry-in-genrePresentation-order
+          overflowLabel: '閉じる'
+      collapse:
+        precondition: genre-preview-expanded
+        requiredOutcome:
+          visibleGenreOptions: at-most-first-four-response-availableGenres-entries-in-genrePresentation-order
+          overflowLabel: 'ほか N件…'
+    invariant:
+      pendingAndApplied: unchanged
+      dirty: unchanged
+      cardsMarkersAndConditionSummary: unchanged
+      publicOperation: none
+  changePendingFilter:
+    input: any-candidate-filter-genre-option-or-toggle-or-budget-tier-option
+    precondition: candidate-filter-panel-present-and-pending-equals-applied
+    requiredOutcome:
+      pending: differs-from-applied
+      applied: unchanged
+      cardsAndMarkers: unchanged
+      conditionSummary: unchanged
+      batchActions: [candidate-filter-revert, candidate-filter-apply]
+      pendingNote: candidate-filter-pending-note-present
+      searchAgain: disabled
+      publicOperation: none
   applyFilters:
     input: candidate-filter-apply
+    precondition: pending-differs-from-applied-and-pending-match-count-is-positive
     publicOperation:
       method: POST
       path: /candidate-proposals
-      requestBody: filters-object-reflecting-current-panel-control-state
+      requestBody: filters-object-reflecting-pending-panel-control-state
     success:
       requiredOutcome:
         cards: exactly-current-success-response-candidates
         markers: exactly-one-per-current-success-response-candidate
         removed: all-prior-card-and-marker-candidateRefs-not-in-current-response
         panel: absent
+        applied: equals-former-pending
+        pending: equals-applied
         ordering: satisfies-proposal.displayOrdering.invariant
     emptyResult:
       present: [candidate-no-results]
     rateLimited:
       present: [candidate-proposal-problem]
       apiResponse: {status: 429, code: PROPOSAL_RATE_LIMITED}
-  cancelFilterPanel:
-    input: candidate-filter-cancel
+  revertPendingFilters:
+    input: candidate-filter-revert
+    requiredOutcome:
+      panel: remains-present
+      pending: equals-applied
+      applied: unchanged
+      cardsAndMarkers: unchanged
+      conditionSummary: unchanged
+      batchActions: absent
+      publicOperation: none
+  closeFilterPanel:
+    input: candidate-filter-open
+    precondition: candidate-filter-panel-present
     requiredOutcome:
       panel: absent
-      cards: unchanged-from-before-opening-the-panel
+      pendingAndApplied: unchanged
+      cardsAndMarkers: unchanged
       publicOperation: none
   searchAgain:
     input: candidate-search-again
     publicOperation:
       method: POST
       path: /candidate-proposals
-      requestBody: filters-object-identical-to-the-currently-applied-one
+      requestBody: filters-object-semantically-equal-after-default-normalization-to-the-currently-applied-one
+      defaultEquivalence: >-
+        When the applied conditions are the defaults, the initial `{}` body,
+        `{filters: {}}`, and a fully expanded default filters object are
+        equivalent under candidate-search-api.yaml's x-default-normalization;
+        exact JSON-object or byte equality is not required.
     success:
       requiredOutcome:
         cards: exactly-current-success-response-candidates
@@ -337,7 +514,8 @@ browserActions:
         ordering: satisfies-proposal.displayOrdering.invariant
       randomness: >-
         The candidates array may differ from the immediately prior response
-        even though the request body is unchanged (adr/0020 decision 4): the
+        even though the normalized applied filters are unchanged (adr/0020
+        decisions 4 and 13): the
         server samples up to 5 candidates at random from the near-distance
         pool on every request. Acceptance testing observes this by pinning
         contracts/test-support-api.yaml's randomSeed to two different values

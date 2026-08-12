@@ -22,7 +22,8 @@ relates_to:
 > **承認者向けサマリ**: 4回目の実データ運用レビューで人間が示した判断——「もう選び方の意義がないかも
 > しれない」「フィルタ機能と『もう一度探す』だけにすべきか」——と、その後2回の追加判断（「情報なしは
 > 除外せず、情報なしと分かる形で、順は後ろでよい」「絞り込みは表示上限5件ではなく取得段階から効かせる」、
-> および「予算感の表示は段階語（高中低）だけでよく、円のレンジは1箇所に注記すればよい」）を、次のとおり
+> および2026-08-11の修正「予算感の注意書きはなくていいよ」（カードと選択肢は段階語だけ、展開中の
+> 絞り込みパネルにはディナー由来・ランチ価格ではない旨の1行だけを残し、金額目盛りは出さない））を、次のとおり
 > 契約へ翻訳する。
 >
 > **(1)** `ConceptKind`を廃止し、**絞り込み（ジャンル・居酒屋バーを含める・禁煙・カード払い・予算感）
@@ -58,15 +59,41 @@ relates_to:
 > TDR-CS-07は絞り込みモデルに対応概念がないため廃止する（決定8）。
 >
 > **(7)** 店舗カードの予算感は**段階語（低・中・高）だけを示し、円のレンジは示さない**。「ディナー予算
-> をもとにした目安である」という開示と各段階のおおよその金額は、カードごとに繰り返さず、**画面に1箇所
-> だけの注記**へ集約する（人間の明示的な判断: 「ディナー目安〇〇円じゃ何のために載せてるのかわから
-> ない」「高中低くらいでいい」「不正確なのがひっかかるなら書いておけばいい」）。この開示単位の変更は
+> をもとにした目安であり、ランチ価格を示すものではない」という開示だけを、カードごとに繰り返さず、
+> **展開中の絞り込みパネル内に1行だけ**置く。金額、円レンジ、段階から金額への対応は表示しない
+> （2026-08-11の人間修正: 「予算感の注意書きはなくていいよ」）。この開示単位の変更は
 > ADR-0019決定8の一部を置き換えるため、ADR-0019へも追記注記を加える（決定10）。
 >
-> 契約への波及は`candidate-search-api.yaml`（v1.0.0への破壊的更新）・`candidate-search.feature`
+> **(8) 2026-08-11 人間承認済みの絞り込み操作モデル**: 表示中の候補を作った`applied`条件と、
+> パネル内で編集中の`pending`条件を分ける。パネルを開いた直後と`pending`=`applied`のときは
+> バッチ操作を置かない。コントロール変更は`pending`だけを変え、候補・ピン・条件要約・`applied`を
+> 変えず、検索もしない。差分がある`dirty`状態だけで「まだ検索しない」表示、
+> `candidate-filter-revert`、`candidate-filter-apply`を出す。revertは`pending`を`applied`へ戻すだけで
+> パネルを開いたままにし、公開操作をしない。applyだけが`pending`を条件として
+> `POST /candidate-proposals`を行う。パネルの開閉も両条件を変えない。dirtyの間は「もう一度探す」を
+> 無効にして、未適用の編集で検索結果を取り違えないようにする。
+>
+> **(9) 2026-08-11 人間承認済みのジャンル折畳み**: `availableGenres`のprovider順は表示順にしない。
+> 文字数昇順、同じ文字数では日本語ロケール照合順で並べ、通常時は先頭4件だけを出す。残りがあれば
+> `candidate-filter-genre-overflow`を「ほか N件…」として出し、操作後は全件と「閉じる」を出す。この
+> 操作は`pending`／`applied`／dirty・候補・ピン・条件要約を変えず、検索も行わない。
+>
+> **(10) reviewer差分監査に対する検証境界の明確化**: TDR-CS-09/12には、対象がランダム表示へ
+> 必ず現れる合成専用Givenを別々に置く。地点・範囲control禁止はL4の閉じたcontrol観測とL3のstrict
+> request schemaで分担する。初回`{}`と明示default filtersはserver正規化後に意味的同値とする。
+> 近い順は、非公開地点・距離をL4へ出さず、L1の純粋pipeline順序、L3の順序保存／非露出、L4の
+> response→DOM順序対応を合成して検証する（決定13）。
+>
+> **(11) zero件・fallback・ジャンル0件の決定的観測**: `availableGenres`が0件ならジャンルoptionと
+> overflowはともに不在、1〜4件なら全optionだけ、5件以上なら決定12の4件preview／展開状態とする。
+> また、dirtyの一致件数0と、fallbackが明示soft filtersを緩めないことは、seedや実データを推測せず
+> `ZERO_PENDING_MATCH`／`FALLBACK_PRESERVES_FILTERS`というacceptance専用合成母集団で観測する。
+> 公開境界へID・地点・距離・経路・順序証跡は追加しない（決定14）。
+>
+> 契約への波及は`candidate-search-api.yaml`（v1.0.2への破壊的更新）・`candidate-search.feature`
 > （TDR-CS-02/03/04/09/10を改訂、TDR-CS-07廃止、新規TDR-CS-13追加、他は文言更新）・
-> `candidate-search-browser-interface.yaml`（contractVersion 1.0）・`test-support-api.yaml`
-> （v1.0.0）の4ファイル。`design.md`・`ARCHITECTURE.md`・`product-brief.md`は、本ADRが未承認の間は
+> `candidate-search-browser-interface.yaml`（contractVersion 1.0.5）・`test-support-api.yaml`
+> （v1.0.2）の4ファイル。`design.md`・`ARCHITECTURE.md`・`product-brief.md`は、本ADRが未承認の間は
 > 更新しない。
 
 ## 文脈
@@ -255,23 +282,19 @@ ADR-0016（「2. 人間の指摘と判断」）が引用する人間自身の言
 `CandidateProposalResponse`に`availableGenres`を含めることで、専用エンドポイントなしに動的な選択肢を
 供給する。
 
-### 10. カードの予算感表示を段階語のみにし、ディナー開示と金額目盛りを画面1箇所の注記へ集約する
+### 10. カードの予算感表示を段階語のみにし、ディナー由来の開示だけを展開中の絞り込みパネルに置く
+
+> **2026-08-11 人間修正（現在の決定）**: 人間は「予算感の注意書きはなくていいよ」と明示した。よって、
+> 本節の従前ドラフトにある「金額目盛り」「円レンジ」「段階から金額への対応」を画面のどこかへ出す要件、
+> および`candidate-budget-tier-note`を常時表示する要件は取り消す。`candidate-budget-tier-note`は展開中の
+> `candidate-filter-panel`内にだけ1つ置き、ディナー予算由来でランチ価格を示さないことを1行で開示する。
+> この注記には金額、円レンジ、段階から金額への対応を含めない。カードと予算フィルタ選択肢は低・中・高
+> の段階語だけを示す。
 
 **これは人間が明示的に下した判断である**（「ディナー目安〇〇円じゃ何のために載せてるのかわからない」
-「予算感：高中低くらいでいいんじゃない？」「不正確なのがひっかかるなら書いておけばいいでしょ」）。
-
-カードの予算感の可視値を、円のレンジを含む文字列（例:「ディナー目安 〜2,000円」）から、段階語だけ
-（低・中・高、LOW/MID/HIGHにそれぞれ対応）へ変える。「ディナー予算をもとにした目安である」という
-開示と、各段階のおおよその金額（現行のしきい値、ADR-0019決定4・8: 〜2,000円／2,001〜4,000円／
-4,001円〜）は、カードごとに繰り返さず、**画面に1箇所だけ置く注記**（`candidate-budget-tier-note`）に
-集約する。
-
-**orchestratorの推奨を採用した理由**: 段階語だけを出すと「高」が何に対して高いのかという手がかりが
-なくなる。注記に開示と目盛りの両方を持たせれば、カードは短いまま両方の要求（人間の「わからない」への
-対処と、目盛りを求める読み手の需要）を満たせる。
-
-**この判断は絞り込みのUIラベルにも同じ段階語（低/中/高）を使うことを要求する**——カードの表示・絞り込み
-の選択肢・注記の目盛りが同じ3段階を指していることが読み手に分かる形にする。
+「予算感：高中低くらいでいいんじゃない？」「予算感の注意書きはなくていいよ」）。カードと絞り込みの
+選択肢は同じ段階語（低／中／高、LOW／MID／HIGHに対応）だけを使う。開示は、expanded filter panelで
+予算条件を理解するときにだけ参照できる1行へ限定し、金額目盛りを復活させない。
 
 **ADR-0019決定8との関係**: 決定8は「その可視ラベルには必ず『ディナー』という語を含める」という
 Mustを、**カードのラベル単位**で定めていた。本決定はこのMustの適用単位を、**カード単位から画面単位
@@ -279,13 +302,9 @@ Mustを、**カードのラベル単位**で定めていた。本決定はこの
 繰り返しの単位を変える。ADR-0017が自らADR-0008へ行った処理と同じ方式で、`adr/0019`に日付入りの
 追記注記を加える（本PRに同梱）。
 
-**TDR-CS-02との関係（人間の再承認点）**: `TDR-CS-02`の既存Then節「予算のめやすは、ディナーの価格で
-あることが分かるように示される」は、直前の「店舗カードには…予算のめやすが示される」という節に
-続けて書かれており、位置と文脈からカード単位の開示を意図していたと判定する（実際、承認・マージ済みの
-実装もカード単位で「ディナー目安 〜2,000円」と表示していた）。したがって**単なる解釈の拡大では
-満たせず、文言の改訂を要する**——勝手に緩めない。本ADRは`TDR-CS-02`のThen節を、カード単位（段階語
-のみ）と画面単位（開示＋目盛りの注記）の2つに明示的に分割する形で改訂する。これは人間の再承認点で
-ある。
+**TDR-CS-02との関係（人間の再承認点）**: `TDR-CS-02`の既存Then節はカード単位のディナー開示を意図
+していたため、単なる解釈拡大では満たせない。本ADRは、カードは段階語だけ、expanded filter panel内の
+1行だけがディナー由来・ランチ価格ではないことを開示する形へ改訂する。金額目盛りの記述は削除する。
 
 **product-brief.mdとの関係（人間の再承認点）**: `product-brief.md` §3「店舗カード」の「予算感の目安
 （ディナー目安として3段階のいずれか…必ず『ディナー』であることが分かる表現で示し…)」という記述は、
@@ -294,16 +313,90 @@ Mustを、**カードのラベル単位**で定めていた。本決定はこの
 対象として提示する（本PRではproduct-brief.md自体は書き換えない）。
 
 **検討した代替案**:
-- **段階語だけを示し、注記も置かない**: 却下。「高」の基準がどこにもなくなり、orchestratorの指摘
-  どおり読み手の手がかりを失う。
-- **円のレンジをカードに残したまま、開示の語だけを短くする**: 却下。人間が明示的に問題視したのは
-  カードごとの円レンジ表示そのものであり、語を短くするだけでは応えたことにならない。
+- **開示も置かない**: 採らない。予算段階がディナー由来でありランチ価格ではないという取得情報の境界を
+  失うため、expanded filter panel内の1行だけは残す。
+- **円レンジ／金額目盛りをカードまたは注記へ残す**: 採らない。2026-08-11の人間修正に反する。
+
+### 11. applied／pendingを分け、dirtyのときだけ絞り込みの一括操作を出す
+
+> **2026-08-11 人間承認済みのUI整合追記**: 絞り込み面は、現在の候補を作った`applied`条件と、
+> 操作中の`pending`条件を別に持つ。パネルを開いた時点では両者は等しく、apply・revert・
+> 「変更中」のいずれも出さない。条件の変更は`pending`だけを変えてdirtyにする。この間、候補・ピン・
+> 条件要約は`applied`のままで、検索を開始しない。dirtyのときだけ`candidate-filter-revert`と
+> `candidate-filter-apply`、および未検索であることを示す表示を出す。
+>
+> `candidate-filter-revert`は`pending`を`applied`へ戻すだけで、パネルを閉じず、候補を変更せず、
+> `POST`しない。`candidate-filter-apply`だけが`pending`条件で`POST /candidate-proposals`を行い、
+> 成功時にその条件を`applied`へ確定する。パネルの開閉はどちらの条件も変更しない。dirtyの間は
+> `candidate-search-again`を無効にし、まだ適用していない編集と再検索を混同させない。
+
+### 12. ジャンルは短い名称優先の4件プレビューに折畳み、展開操作は検索条件を変えない
+
+> **2026-08-11 人間承認済みのモバイル優先UI整合追記**: `availableGenres`はproviderの返却順を
+> 表示順として使わず、文字数昇順、同じ文字数では日本語ロケール照合順で並べる。通常時は先頭4件を
+> `candidate-filter-genre-option`として表示する。5件目以降があるときだけ
+> `candidate-filter-genre-overflow`を「ほか N件…」として出す。その操作後は全ジャンルを同じ順で出し、
+> 同じコントロールを「閉じる」と表示する。4件以下ではoverflow controlを出さない。
+>
+> この展開／折畳みは、表示量を変えるだけである。`pending`／`applied`／dirty、候補、ピン、条件要約を
+> 変えず、`POST /candidate-proposals`を行わない。ジャンルを選ぶ操作だけが既存のpending変更として扱われる。
+
+### 13. 決定的Given・既定値正規化・privacyを守る順序証跡の検証境界
+
+reviewerの差分監査R2/R3/R6/R7/R9は、新しい公開機能ではなく、既存決定を証明する境界の不足として扱う。
+
+1. **TDR-CS-09 / TDR-CS-12のGiven**: `test-support-api.yaml`へ
+   `DEFAULT_EXCLUSION_VISIBLE`と`CARD_PAYMENT_CAUTION_VISIBLE`を追加する。前者は既定条件の表示候補が
+   `defaultExcluded=false`のジャンルだけで、`includeIzakayaBar=true`後は少なくとも1件の
+   `defaultExcluded=true`ジャンルを必ず表示する。後者は`cardPaymentAvailable=false`とtrueまたはnullを
+   少なくとも1件ずつ必ず表示する。いずれも合成母集団の形だけで保証し、公開応答へID・地点・距離・
+   順序証跡を追加しない。
+2. **TDR-CS-04の機械観測**: L4はapplication-authored controlのpurpose・accessible name・識別属性を
+   閉じた語彙で列挙し、地点・基点・現在地・範囲・半径・距離を入力／指定するcontrolを否定する。
+   Leafletのpan/zoomは地図viewportだけを変え、検索条件を変えない例外である。L3はstrictな
+   `CandidateProposalRequest`にこれらの入力propertyが存在しないことを別に証明する。
+3. **初回と再検索の既定条件**: `{}`、`{"filters": {}}`、および全propertyを明示したdefault filtersは、
+   serverが`genres=[]`、`includeIzakayaBar=false`、`nonSmokingOnly=false`、`cardPaymentOnly=false`、
+   `budgetTiers=[]`へ正規化した後に意味的同値である。「もう一度探す」はbyte/object同一ではなく、
+   この正規化後の`applied`条件との同値を要求する。
+4. **近い順の証跡**: L1は合成internal distanceを使って純粋pipelineの各group内距離昇順を検証する。
+   L3はpipeline順をserializerが保存することと、公開応答・ログに検索地点、範囲、距離、経路、徒歩時間、
+   internal order tokenがないことを検証する。L4は公開response順とcard/marker順の一致、および
+   確認済み一致group→情報なしgroupだけを検証する。L4の独立検証のためにprivacy境界を緩めない。
+
+### 14. zero件・fallback・ジャンル選択肢数をseed推測なしで観測する検証境界
+
+reviewer R5とtesterの指摘は、新しい公開機能ではなく、決定6・11・12を決定的に観測できるGivenの不足と
+して扱う。実データ件数、providerの返却順、乱数seedから期待結果を推測してはならない。
+
+1. **ジャンル選択肢の件数条件**: `candidate-filter-genre-option`と
+   `candidate-filter-genre-overflow`は`response.availableGenres`に条件付く。0件なら両方不在、1〜4件なら
+   決定12の表示順で全optionが存在しoverflowは不在、5件以上なら折畳み時は先頭4件＋「ほか N件…」、
+   展開時は全option＋「閉じる」とする。パネルのclean／dirty状態だけを理由にgenre optionを必須にしない。
+2. **dirty一致件数0**: acceptance専用`ZERO_PENDING_MATCH`は、非除外の合成母集団に
+   `cardPaymentOnly=true`単独の一致行と`budgetTiers=[LOW]`単独の一致行を持つが、両方に一致する行を
+   持たない。したがって両controlを選ぶと、どのseedでも母集団一致件数は正確に0となる。公開UIはdirtyの
+   `candidate-filter-apply`を残して`data-match-count="0"`を示し、disabledにする。test-supportは件数の
+   overrideを受け取らず、公開APIにもtest hookを追加しない。
+3. **fallbackが明示soft filtersを緩めない**: acceptance専用`FALLBACK_PRESERVES_FILTERS`は、非除外
+   母集団に`nonSmokingOnly=true`・`cardPaymentOnly=true`・`budgetTiers=[LOW]`の全条件一致行を持たず、
+   既定除外母集団には全一致行と、各soft filterに対する確認済み非一致行を別々に持つ。全一致集合は表示
+   上限以下とし、どのseedでもfallback後の表示候補が全soft filtersに一致し、非一致行が存在したのに
+   採用されなかったことをidentity-free `populationAttributes`で観測できるようにする。
+4. **明示genreも緩めない**: 同じmodeは、非除外の`availableGenres`を1件だけ持ち、そのgenreの全行を
+   確認済み`nonSmokingStatus=NONE`とする。そのgenre＋`nonSmokingOnly=true`は、既定除外側にFULL行が
+   あっても空結果かつ`izakayaBarFallbackApplied=false`となる。これによりgenre条件を緩めないことも
+   public UI/APIだけで決定的に観測する。
+
+これらはacceptance専用の**母集団形状保証**である。候補IDとのjoin、店舗名、provider URL、座標、検索
+地点、範囲、距離、経路、徒歩時間、internal order tokenを公開応答へ追加しない。近い順の検証層割当は
+決定13のままであり、本決定を理由にprivacy境界を緩めない。
 
 ## 帰結
 
-- `candidate-search-api.yaml`（`v1.0.0`）・`candidate-search.feature`（TDR-CS-02/03/04/09/10を改訂、
+- `candidate-search-api.yaml`（`v1.0.2`）・`candidate-search.feature`（TDR-CS-02/03/04/09/10を改訂、
   TDR-CS-07廃止、新規TDR-CS-13追加、他は軽微な文言更新）・`candidate-search-browser-interface.yaml`
-  （`contractVersion: '1.0'`）・`test-support-api.yaml`（`v1.0.0`）が改訂対象になる。いずれも**人間の
+  （`contractVersion: '1.0.5'`）・`test-support-api.yaml`（`v1.0.2`）が改訂対象になる。いずれも**人間の
   再承認点**である。
 - `adr/0016-retire-genre-variety-for-try-again-and-fix-reproposal-capacity.md`に、決定4が定める
   日付入りの追記注記を1段落加える（本PRに同梱、決定本文は書き換えない）。
@@ -329,9 +422,10 @@ Mustを、**カードのラベル単位**で定めていた。本決定はこの
   5. `previouslyShownProviderPageUrls`関連のコード・Mustのログ非露出要件は、決定5の廃止に伴い削除
      すること。
   6. `availableGenres`（決定9）の算出は`web`側の派生値算出責務に置くことを推奨する。
-  7. `dinnerBudgetTier`の可視ラベル生成（決定10）を、カードは段階語のみ（低/中/高）、画面1箇所の
-     `candidate-budget-tier-note`は開示＋目盛りを両方含む文言へ改めること。絞り込みパネルの予算感
-     選択肢ラベルも同じ段階語を使うこと。
+  7. `dinnerBudgetTier`の可視ラベル生成（決定10）を、カードは段階語のみ（低/中/高）、展開中の
+     `candidate-filter-panel`内の`candidate-budget-tier-note`はディナー由来でランチ価格を示さないという
+     1行の開示だけに改めること。金額・円レンジ・段階から金額への対応は出さない。絞り込みパネルの
+     予算感選択肢ラベルも同じ段階語を使うこと。
 
 ## 私自身の留保（反対ではなく、再確認を求める2点）
 

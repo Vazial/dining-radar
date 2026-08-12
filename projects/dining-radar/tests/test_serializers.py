@@ -1,6 +1,6 @@
 from django.test import SimpleTestCase
 
-from dining_radar.recommendation.pipeline import NormalizedCandidate
+from dining_radar.recommendation.pipeline import NormalizedCandidate, PopulationAttribute
 from dining_radar.suggestions.service import ProposalResult
 from dining_radar.web.serializers import serialize_result
 
@@ -111,6 +111,37 @@ class SerializeResultTests(SimpleTestCase):
                 "location",
                 "providerPageUrl",
             },
+        )
+
+    def test_population_attributes_serialize_only_the_closed_filter_membership_shape(self):
+        result = ProposalResult(
+            (),
+            False,
+            (),
+            (
+                PopulationAttribute(
+                    genre="western",
+                    non_smoking_status="FULL",
+                    card_payment_available=True,
+                    dinner_budget_tier="LOW",
+                    default_excluded=False,
+                ),
+            ),
+        )
+
+        payload = serialize_result(result)
+
+        self.assertEqual(
+            payload["populationAttributes"],
+            [
+                {
+                    "genre": "western",
+                    "nonSmokingStatus": "FULL",
+                    "cardPaymentAvailable": True,
+                    "dinnerBudgetTier": "LOW",
+                    "defaultExcluded": False,
+                }
+            ],
         )
 
 

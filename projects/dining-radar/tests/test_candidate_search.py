@@ -79,6 +79,11 @@ class CandidateProposalsApiTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
 
+    def test_public_request_rejects_the_acceptance_only_random_seed(self):
+        response = self.post_proposal({"randomSeed": 42})
+
+        self.assertEqual(response.status_code, 403)
+
     def test_unexpected_filter_key_is_a_safe_403(self):
         response = self.post_proposal({"filters": {"genres": [], "notAFilter": True}})
 
@@ -173,6 +178,44 @@ class CandidateProposalsApiTests(TestCase):
         response = self.post_proposal()
 
         self.assertLessEqual(len(response.json()["candidates"]), 5)
+
+    def test_default_exclusion_visible_mode_makes_both_filter_outcomes_observable(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.DEFAULT_EXCLUSION_VISIBLE,
+            random_seed=7,
+        )
+
+        default_payload = self.post_proposal().json()
+        included_payload = self.post_proposal({"filters": {"includeIzakayaBar": True}}).json()
+        excluded_by_genre = {
+            row["genre"]: row["defaultExcluded"] for row in default_payload["populationAttributes"]
+        }
+
+        self.assertTrue(default_payload["candidates"])
+        self.assertTrue(
+            all(
+                not excluded_by_genre[candidate["genre"]]
+                for candidate in default_payload["candidates"]
+            )
+        )
+        self.assertTrue(
+            any(
+                excluded_by_genre[candidate["genre"]]
+                for candidate in included_payload["candidates"]
+            )
+        )
+
+    def test_card_payment_caution_visible_mode_displays_both_payment_states(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.CARD_PAYMENT_CAUTION_VISIBLE,
+            random_seed=7,
+        )
+
+        payload = self.post_proposal().json()
+        payment_values = {candidate["cardPaymentAvailable"] for candidate in payload["candidates"]}
+
+        self.assertIn(False, payment_values)
+        self.assertTrue(True in payment_values or None in payment_values)
 
     def test_include_izakaya_bar_filter_reaches_the_default_excluded_genre(self):
         acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL)
@@ -299,9 +342,7 @@ class CandidateProposalsApiTests(TestCase):
         )
         second = self.post_proposal().json()["candidates"]
 
-        self.assertEqual(
-            [c["providerPageUrl"] for c in first], [c["providerPageUrl"] for c in second]
-        )
+        self.assertEqual(first, second)
 
 
 class CandidateResponseSchemaTests(TestCase):
