@@ -449,6 +449,75 @@ principles: [P-01, P-06, P-08, P-10]
   機械的な検査（例えば同一PR内の差分行を根拠として引用していないかを検出するgovlintルール）は
   導入しない——単発の推論エラーであり、再発時に費用対効果を判断する（P-05、FR-010・FR-011と同じ判断）。
 
+## FR-013: ADR-0020のゲートが、非表示要素に対する未規定・環境依存のジオメトリ値に合否を乗せており、ローカルだけ緑になった
+
+```yaml
+id: FR-013
+date: 2026-08-12
+found_at: L5
+slice: UI-HARNESS
+agents: [developer]
+cause_category: new verification gate made pass/fail depend on a browser API whose value is unspecified for the state being measured
+cause_key: gate-depends-on-unspecified-browser-geometry
+pushed_to:
+  - projects/toyama-dining-radar/tests/ui_invariants/test_render_invariants.py
+status: 対応済み
+principles: [P-01, P-04, P-10]
+```
+
+- Situation: ADR-0020決定4(e)の44pxゲートは、`[data-candidate-control-purpose]`を持つ**すべての**要素を
+  `bounding_box()`で測っていた。この集合には、閉じた`<details class="candidate-account-menu">`の中にある
+  `auth-password-change-open`・`auth-sign-out`が含まれる（`renderModel`によりサーバレンダリングHTMLに
+  存在するため）。閉じた`<details>`の非レンダリング内容に対する`getBoundingClientRect()`の値は仕様上
+  規定されておらず、実測でWindowsは実寸（161×44）を返す実行とゼロを返す実行の両方があり、Ubuntu CIは
+  一貫してゼロを返した。結果、developerのローカル検証（3回緑）とorchestratorの独立再実行（緑）を
+  すり抜け、**PR #89のCIで初めて赤**になった。`is_visible()`は同じ状態に対し両環境で決定論的に`False`を
+  返しており、判定に使える安定した観測面は最初から存在していた。
+- AI contribution: developerは、新設するゲートの合否を、測ろうとしている状態（非レンダリング内容）に
+  対して値が規定されていないAPIに乗せた。ゲートは「何を正しいと判定するか」を定める機構であり
+  （`meta/permissions.md`）、その判定が環境依存であってよいかを設置時に確認しなかった。加えて、
+  44px規則が対象とするのは決定4(e)が言う**活性化可能な**操作面であるのに、その時点で開示されていない
+  操作面まで測っており、規則の対象範囲をテストが正しく写していなかった。orchestratorも、同一
+  Chromiumバージョンでのローカル緑をもって通し、環境差の可能性を事前に潰さなかった。
+- Downward push: `_assert_all_declared_controls_meet_44px`は、測定前に`is_visible()`で現に開示されて
+  いる操作面だけに絞る。除外ではなく**開示フェーズへの先送り**であり、同メソッドは再提案ダイアログ・
+  アカウントメニューを開いた後に同一テスト内で再度呼ばれるため、いずれの操作面もゲートから外れない。
+  絞り込みがゲートを空虚にしないよう、各フェーズで実際に測った件数が0でないことを検証する
+  （`checked > 0`）。orchestratorは、アカウントメニューのCSSを一時的に44px未満へ縮めて
+  `auth-password-change-open height 25.59px < 44px (account menu open ...)`で赤化することを独立に確認し、
+  先送り先で確かに測られていることを実証した。閾値の変更・アサーションの削除・恒久的な除外は行っていない。
+
+## FR-014: orchestratorが、CIの全ジョブ結果を見ないままPRを「完了」として人間へ報告した
+
+```yaml
+id: FR-014
+date: 2026-08-12
+found_at: 人間
+slice: UI-HARNESS
+agents: [orchestrator]
+cause_category: completion reported from a partial gate result instead of the full one
+cause_key: orchestrator-reports-completion-before-gate-result
+pushed_to:
+  - projects/toyama-dining-radar/friction-log.md
+status: 対応済み
+principles: [P-01, P-07, P-10]
+```
+
+- Situation: orchestratorはPR #89を作成した直後に`gh pr checks`を一度だけ実行し、L0が`pass`・L1が
+  `pending`・L2以降が未表示という**途中経過**を見た状態で、PRの内容と残課題を人間へ報告して締めた。
+  その時点で新設したL5ジョブはまだ実行されておらず、実際には落ちていた。人間が「L5エラー出てますよ
+  チェックしましたか」と指摘して初めて発覚した。
+- AI contribution: `meta/adr/0027`は「緑CI以外の独立した根拠なしにagent成果物を通さない」と定め、
+  `meta/adr/0039`決定1はorchestratorに機械検証の実行を義務づけている。orchestratorはローカルで全段を
+  独立再実行しており、その根拠自体は満たしていた——しかし**新設したゲートはCI環境で初めて実行される
+  ものであり、ローカルの緑はCIの緑を含意しない**。この非対称性が最も強く効く場面（環境が変わる新ゲートの
+  初回実行）で、orchestratorは未完了のCIを待たずに報告した。「後で確認しますか」と申し出たことは、
+  報告を完了として提示したことの免責にならない。
+- Downward push: 新設・変更したCIジョブを含むPRでは、orchestratorは全ジョブが終了状態
+  （`pass`/`fail`）になるまで完了報告をしない。本件は規程の新設ではなく既存規律（ADR-0027・0039決定1）の
+  適用漏れであるため、新しい機構は足さない（P-05）。同種の再発が観測された場合は、報告前に全ジョブの
+  終了を機械的に確認する手順の明文化を検討する。
+
 ## FR-015: ADR-0016が「人間がランダム性を却下した」と記録したが、同じ項に引用された人間自身の言葉はシャッフルの採用を提案していた
 
 ```yaml

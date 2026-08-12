@@ -409,6 +409,19 @@
       markerEl.addEventListener("click", function () {
         selectCandidate(candidate.candidateRef, true);
       });
+      // ADR-0020 decision 4(c): Leaflet's `keyboard: true` option only makes
+      // the marker's icon element focusable (tabIndex/role, see the vendored
+      // leaflet.js Marker#_initIcon) -- it does not itself translate an
+      // Enter/Space keypress into a "click" for a marker with no bound
+      // popup, unlike a native <button>. Without this handler the marker was
+      // Tab-reachable but not keyboard-activatable, mirroring the same
+      // explicit Enter/Space handling the candidate card already has above.
+      markerEl.addEventListener("keydown", function (event) {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          selectCandidate(candidate.candidateRef);
+        }
+      });
       markerElementsByRef[candidate.candidateRef] = markerEl;
     });
 
