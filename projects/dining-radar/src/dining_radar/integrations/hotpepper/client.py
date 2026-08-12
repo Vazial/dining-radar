@@ -7,9 +7,9 @@ exception message. Per ADR-0002 decision 7, this module is exercised in
 tests with an injected synthetic ``opener`` rather than a live credentialed
 call.
 
-Per adr/0020 decision 3-1 (Must), this module pages through the provider's
+Per adr/0023 decision 3-1 (Must), this module pages through the provider's
 ``start`` parameter whenever ``results_available`` exceeds
-``results_returned``, so filtering (adr/0020 decisions 1-3) always sees the
+``results_returned``, so filtering (adr/0023 decisions 1-3) always sees the
 full eligible population rather than a truncated first page. The current
 measured production population fits in a single 100-count page (see
 ``activeContext.md`` "Live provider measurements"), so this is a safety net
@@ -35,7 +35,7 @@ _REDACTED_QUERY_PARAMETERS = frozenset({"key"})
 # The current measured production population needs exactly one page (see
 # module docstring); this exists only to keep a misbehaving or misreporting
 # provider response from driving an unbounded request loop. Not required by
-# any contract Must -- a plain defensive bound on adr/0020 decision 3-1's
+# any contract Must -- a plain defensive bound on adr/0023 decision 3-1's
 # pagination loop.
 _MAX_PAGES = 10
 
@@ -120,7 +120,7 @@ def fetch_shops(config: HotPepperConfig, *, opener: Opener | None = None) -> dic
     tests with a synthetic callable; it must behave like a context manager
     whose ``read()`` returns bytes, matching ``http.client.HTTPResponse``.
 
-    Per adr/0020 decision 3-1 (Must), this pages through ``start`` whenever
+    Per adr/0023 decision 3-1 (Must), this pages through ``start`` whenever
     the first page reports ``results_available`` greater than the shop count
     actually accumulated so far, merging every page's ``results.shop`` list
     into the returned payload's ``results.shop``. Pagination stops as soon as

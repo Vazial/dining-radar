@@ -6,7 +6,7 @@ date: 2026-08-11
 approved_by: null
 supersedes: []
 superseded_by: null
-relates_to: [P-01, P-02, P-03, P-05, P-08, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-09, TDR-CS-10, TDR-CS-13, ADR-0005, ADR-0008, ADR-0015, ADR-0019, ADR-0020]
+relates_to: [P-01, P-02, P-03, P-05, P-08, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-09, TDR-CS-10, TDR-CS-13, ADR-0005, ADR-0008, ADR-0015, ADR-0019, ADR-0023]
 ---
 
 # ADR-0022: 保留中の絞り込み件数のため、識別子を持たない母集団属性を返す

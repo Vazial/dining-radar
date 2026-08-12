@@ -6,7 +6,7 @@ candidate display, and credit display; it must not reach ``integrations`` or
 adapter is invoked only from ``dining_radar.suggestions.hotpepper_source``;
 this module reaches it solely through ``suggestions``.
 
-Per adr/0020, the request body is a single optional ``filters`` object
+Per adr/0023, the request body is a single optional ``filters`` object
 (``CandidateFilters``) rather than a ``reproposalKind``/
 ``previouslyShownProviderPageUrls`` pair; the initial request, "try again",
 and "change filters" are all the same ``POST /candidate-proposals`` shape.
@@ -15,7 +15,7 @@ and "change filters" are all the same ``POST /candidate-proposals`` shape.
 ``candidate-search-api.yaml`` v1.0.0's ``/candidate-proposals`` operation
 defines only ``200``/``401``/``403``/``429``/``503`` responses -- no ``400``
 (the prior draft's only 400 response, ``PROPOSAL_REPROPOSAL_KIND_INVALID``,
-is retired by adr/0020 decision 8, and no replacement validation-error code
+is retired by adr/0023 decision 8, and no replacement validation-error code
 was added). The browser's own filter panel (``candidate-search-browser-
 interface.yaml``) only ever sends a well-formed body, since every filter
 control is a closed selection over a server-supplied or fixed enum

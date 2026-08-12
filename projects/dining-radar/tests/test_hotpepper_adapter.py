@@ -154,7 +154,7 @@ class FetchShopsTests(SimpleTestCase):
         with self.assertRaises(HotPepperResponseError):
             fetch_shops(_config(), opener=opener)
 
-    # Pagination (adr/0020 decision 3-1, Must) -------------------------------
+    # Pagination (adr/0023 decision 3-1, Must) -------------------------------
 
     def test_results_available_equal_to_returned_needs_no_second_page(self):
         calls = []

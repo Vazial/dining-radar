@@ -10,11 +10,11 @@ is enabled (mirrors the guard on
 ``CARD_PAYMENT_CAUTION_VISIBLE``, and ``IZAKAYA_BAR_ONLY`` drive the exact
 same production ``suggestions.service.propose_candidates`` pipeline with
 synthetic candidates, rather than a hand-written fake response, so those
-seams exercise real filtering/ordering/pool-sampling logic (adr/0020).
+seams exercise real filtering/ordering/pool-sampling logic (adr/0023).
 ``NO_RESULTS``, ``PROVIDER_UNAVAILABLE``, and ``RATE_LIMITED`` return a fixed
 synthetic outcome directly, without calling the pipeline.
 
-Per adr/0020 decision 4 hand-off item 4, this module also owns the seeded
+Per adr/0023 decision 4 hand-off item 4, this module also owns the seeded
 random-source injection this seam needs to make pool sampling deterministic
 and reproducible for acceptance testing: a pinned ``randomSeed`` (via
 ``set_mode``) is read back by ``active_random_source`` and passed straight
@@ -95,7 +95,7 @@ def set_mode(mode: AcceptanceCandidateProposalMode, random_seed: int | None = No
     """Select the synthetic mode and (optionally) pin the random pool-sampling seed.
 
     ``random_seed`` mirrors ``CandidateProposalAcceptanceState.randomSeed``
-    (adr/0020 decision 4): omitted or ``None`` leaves sampling
+    (adr/0023 decision 4): omitted or ``None`` leaves sampling
     non-deterministic, matching production.
     """
     _require_acceptance_profile()
@@ -161,7 +161,7 @@ def _synthetic_candidate(
 
 _ORIGIN = Origin(latitude=0.0, longitude=0.0)
 
-# A default-excluded-genre candidate (adr/0015/adr/0020), reused by both
+# A default-excluded-genre candidate (adr/0015/adr/0023), reused by both
 # NORMAL_WITH_POOL (as the sole excluded-genre member of its population) and
 # IZAKAYA_BAR_ONLY.
 _DEFAULT_EXCLUDED_CANDIDATE = _synthetic_candidate(
@@ -172,7 +172,7 @@ _DEFAULT_EXCLUDED_CANDIDATE = _synthetic_candidate(
     total_seats=25,
 )
 
-# test-support-api.yaml v1.0.0 (adr/0020): NORMAL_WITH_POOL must supply at
+# test-support-api.yaml v1.0.0 (adr/0023): NORMAL_WITH_POOL must supply at
 # least 40 lunch-eligible synthetic candidates in the default
 # (non-excluded-genre) population -- comfortably exceeding any reasonable
 # pool-size implementation choice (decision 4 recommends 20) -- spanning at

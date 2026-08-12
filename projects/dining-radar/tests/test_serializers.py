@@ -55,7 +55,7 @@ class SerializeResultTests(SimpleTestCase):
         self.assertIsNone(serialized_candidate["cardPaymentAvailable"])
         self.assertIsNone(serialized_candidate["dinnerBudgetTier"])
         self.assertEqual(serialized_candidate["location"], {"latitude": 35.0, "longitude": 139.0})
-        # adr/0020: the response no longer has a proposal/reProposalOptions
+        # adr/0023: the response no longer has a proposal/reProposalOptions
         # wrapper -- these keys must never appear.
         self.assertNotIn("businessHours", serialized_candidate)
         self.assertNotIn("access", serialized_candidate)
@@ -172,7 +172,7 @@ class CapacityTierTests(SimpleTestCase):
 
 
 class DinnerBudgetTierTests(SimpleTestCase):
-    """adr/0019 decision 8 / adr/0020 decision 10: coarse dinner-price-range reference."""
+    """adr/0019 decision 8 / adr/0023 decision 10: coarse dinner-price-range reference."""
 
     def _serialize_one(self, budget_average):
         candidate = _candidate(budget_average=budget_average)

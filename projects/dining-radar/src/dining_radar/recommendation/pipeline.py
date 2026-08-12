@@ -6,16 +6,16 @@ selects among already-normalized candidates. Provider communication lives in
 ``dining_radar.integrations.hotpepper``; request/response wiring lives in
 ``dining_radar.web`` and ``dining_radar.suggestions``.
 
-Per adr/0020, the prior ``ConceptKind`` lens model (``PROXIMITY``,
+Per adr/0023, the prior ``ConceptKind`` lens model (``PROXIMITY``,
 ``GENRE_FOCUS``, ``NON_SMOKING_REFERENCE``, ``IZAKAYA_BAR_INCLUDED``) is
-retired. adr/0020 decision 0 found every surviving lens decomposed into
+retired. adr/0023 decision 0 found every surviving lens decomposed into
 either a filter (``GENRE_FOCUS``'s narrowing, ``IZAKAYA_BAR_INCLUDED``'s
 default-exclusion inversion) or a sort (``PROXIMITY``'s and
 ``NON_SMOKING_REFERENCE``'s distance ordering). This module replaces that
 model with two operations plus one product decision the human made
 explicitly:
 
-1. **Filtering** (``filter_candidates``, adr/0020 decisions 1-3): ``genres``,
+1. **Filtering** (``filter_candidates``, adr/0023 decisions 1-3): ``genres``,
    ``includeIzakayaBar``, ``nonSmokingOnly``, ``cardPaymentOnly``, and
    ``budgetTiers`` are applied to the full retrieved, normalized, deduplicated
    population -- never to a display-truncated subset. ``nonSmokingOnly``,
@@ -74,7 +74,7 @@ from dataclasses import dataclass, field
 # for an individual shop (adr/0015 decision 2-3: the field only ever reports
 # "available" for a search already restricted to lunch, and free-text `open`
 # hours are not machine-judgeable). Excluded from the eligible population
-# unless `includeIzakayaBar` is true (adr/0020 decision 1, successor to
+# unless `includeIzakayaBar` is true (adr/0023 decision 1, successor to
 # ADR-0015's IZAKAYA_BAR_INCLUDED concept). This exclusion reflects
 # unconfirmed lunch status, not a confirmed absence of lunch service (no
 # rationale here may claim the latter).
@@ -88,19 +88,19 @@ from dataclasses import dataclass, field
 # field-name assumptions.
 DEFAULT_EXCLUDED_GENRES = frozenset({"居酒屋", "ダイニングバー・バル"})
 
-# Non-binding recommended pool size (adr/0020 decision 4 step 4): the nearest
+# Non-binding recommended pool size (adr/0023 decision 4 step 4): the nearest
 # min(population, this) candidates form the pool up to 5 are randomly sampled
 # from. Kept as a module constant so callers needn't hardcode it, but
 # `build_proposal`/`select_pool_and_sample` both accept an override.
 DEFAULT_POOL_SIZE = 20
 
 # Display cap: the maximum number of candidates ever returned to the browser
-# (adr/0020 decision 4 step 5). Unchanged in value from the prior
+# (adr/0023 decision 4 step 5). Unchanged in value from the prior
 # ConceptKind model's own display cap (ADR-0015 decision 1), but now also the
 # random sample size rather than a plain ranking truncation.
 DISPLAY_CAP = 5
 
-# adr/0020 decision 10 / adr/0019 decisions 4 and 8: coarse dinner-price-range
+# adr/0023 decision 10 / adr/0019 decisions 4 and 8: coarse dinner-price-range
 # reference derived from the provider's dinner-oriented budget figure.
 # Provisional thresholds from a one-time field survey (64 candidates, roughly
 # balanced 18/30/16 split). Never used to infer or imply a lunch price. This
@@ -114,7 +114,7 @@ _DINNER_BUDGET_MID_MAX_YEN = 4000
 def dinner_budget_tier(budget_average: float | None) -> str | None:
     """The coarse LOW/MID/HIGH dinner-budget tier for a raw yen figure.
 
-    ``None`` when ``budget_average`` is ``None`` -- never a guess (adr/0020
+    ``None`` when ``budget_average`` is ``None`` -- never a guess (adr/0023
     decision 2's "確認できないことを断定しない" principle applies here too:
     an unconfirmed budget figure must never be coerced into a tier).
     """
@@ -231,7 +231,7 @@ def _distance(origin: Origin, candidate: NormalizedCandidate) -> float:
     """A small-scale planar approximation used only to rank nearby candidates.
 
     The exact distance is never returned to the browser (ADR-0004/0005/0008,
-    unchanged by adr/0020), so geodesic precision is unnecessary; a locally
+    unchanged by adr/0023), so geodesic precision is unnecessary; a locally
     consistent ordering is sufficient.
     """
     latitude_scale = math.cos(math.radians(origin.latitude))
@@ -290,7 +290,7 @@ def available_genres(
 
     Computed from the population given only ``include_izakaya_bar`` -- never
     narrowed by ``genres`` or any other filter -- so the browser's offered
-    genre choices never shrink as the organizer narrows (adr/0020 decision
+    genre choices never shrink as the organizer narrows (adr/0023 decision
     9). Returned in a fixed, deterministic (sorted) order: the contract
     requires only that the filter panel's options match this order one-to-
     one, not any particular ordering rule.
@@ -308,7 +308,7 @@ def available_genres(
 def filter_candidates(
     candidates: Sequence[NormalizedCandidate], filters: CandidateFilters
 ) -> list[NormalizedCandidate]:
-    """Apply every filter to the full population (adr/0020 decisions 1-3).
+    """Apply every filter to the full population (adr/0023 decisions 1-3).
 
     ``genres`` and ``includeIzakayaBar`` (its default-exclusion inversion)
     are hard filters. ``nonSmokingOnly``, ``cardPaymentOnly``, and
@@ -354,7 +354,7 @@ def apply_izakaya_bar_fallback(
 ) -> tuple[list[NormalizedCandidate], bool]:
     """Filter, falling back to include izakaya/bar genres if that leaves none.
 
-    Returns ``(population, izakaya_bar_fallback_applied)``. Per adr/0020
+    Returns ``(population, izakaya_bar_fallback_applied)``. Per adr/0023
     decision 6 (successor to TDR-CS-10 / ADR-0015 decision 4): when
     ``includeIzakayaBar`` is false and filtering with it false leaves no
     candidate, this recomputes with only that one exclusion set aside --
@@ -398,7 +398,7 @@ def order_confirmed_then_unconfirmed(
 ) -> list[NormalizedCandidate]:
     """Confirmed-match candidates first, then unconfirmed; each nearest-first.
 
-    Per adr/0020 decision 4 steps 2-3 and 6 / TDR-CS-13: when at least one of
+    Per adr/0023 decision 4 steps 2-3 and 6 / TDR-CS-13: when at least one of
     ``nonSmokingOnly``, ``cardPaymentOnly``, or ``budgetTiers`` is active,
     every candidate unconfirmed for at least one of those active filters is
     placed after every candidate confirmed for all of them; within each
@@ -455,7 +455,7 @@ def build_proposal(
     random_source: random.Random,
     pool_size: int = DEFAULT_POOL_SIZE,
 ) -> Proposal:
-    """The complete adr/0020 decision 1-9 pipeline for one request.
+    """The complete adr/0023 decision 1-9 pipeline for one request.
 
     Composes deduplication, ``available_genres`` (decision 9, computed from
     the deduplicated population before any other filter),

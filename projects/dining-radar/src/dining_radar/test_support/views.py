@@ -159,7 +159,7 @@ def candidate_proposal_state(request):
 
     Implements ``CandidateProposalAcceptanceState`` from
     ``contracts/test-support-api.yaml``, including the ``randomSeed`` property
-    adr/0020 decision 4 adds to pin the server's random pool-sampling source.
+    adr/0023 decision 4 adds to pin the server's random pool-sampling source.
     """
     _acceptance_only()
 

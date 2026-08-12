@@ -3,7 +3,7 @@
 Field names and nesting mirror ``contracts/candidate-search-api.yaml``
 exactly (``additionalProperties: false``): no extra key is ever added.
 
-Per adr/0020, the response is no longer a single ``proposal`` concept plus
+Per adr/0023, the response is no longer a single ``proposal`` concept plus
 ``reProposalOptions``: it is a flat ``candidates`` array (already filtered,
 ordered, and randomly sampled by ``dining_radar.recommendation.pipeline``),
 ``izakayaBarFallbackApplied``, and ``availableGenres``.
@@ -12,10 +12,10 @@ Per ADR-0019 decision 4, this module derives ``capacityTier`` from
 ``totalSeats`` -- the one card-only coarse reference value that still lives
 here rather than in ``recommendation`` (it never participates in filtering or
 ordering, so `dining_radar.recommendation.pipeline` has no reason to compute
-it). ``dinnerBudgetTier`` (adr/0019 decision 8, adr/0020 decision 10) is
+it). ``dinnerBudgetTier`` (adr/0019 decision 8, adr/0023 decision 10) is
 computed by ``dining_radar.recommendation.pipeline.dinner_budget_tier``
 instead of being duplicated here, because ``recommendation`` also needs that
-same coarse tier for ``budgetTiers`` filtering and ordering (adr/0020 decision
+same coarse tier for ``budgetTiers`` filtering and ordering (adr/0023 decision
 3): keeping the threshold mapping in one place is what keeps the two from
 silently disagreeing.
 """

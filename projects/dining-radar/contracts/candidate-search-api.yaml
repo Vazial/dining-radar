@@ -1,10 +1,10 @@
-# ステータス: 承認待ち — adr/0020（ドラフト）が提案する組み替え。ConceptKindを廃し、絞り込み＋固定の
+# ステータス: 承認待ち — adr/0023（ドラフト）が提案する組み替え。ConceptKindを廃し、絞り込み＋固定の
 #   近い順並べ替え＋近傍プールからの無作為抽出へ置き換える破壊的変更（v1.0.0）。この変更は
 #   product-brief.md §2・§3・TDR-CS-04・ADR-0004決定1・TDR-CS-01・product-briefの表題と衝突する
-#   人間の再承認点を含む（adr/0020の矛盾報告を参照）。ここに書かれたスキーマは可決を前提にしたドラフト
+#   人間の再承認点を含む（adr/0023の矛盾報告を参照）。ここに書かれたスキーマは可決を前提にしたドラフト
 #   であり、承認されるまで拘束力を持たない。この行の形式はmeta/adr/0043の機械検証が要求する
 #
-# 2026-08-10 draft (adr/0020, 提案中・未承認):
+# 2026-08-10 draft (adr/0023, 提案中・未承認):
 # - ConceptKind, CandidateConcept, ReproposalOption, reproposalKind,
 #   reProposalOptions, previouslyShownProviderPageUrls をすべて削除する。
 # - CandidateProposalRequest は任意の filters オブジェクトだけを持つ
@@ -12,38 +12,38 @@
 #   budgetTiers)。初期表示・「もう一度探す」・「絞り込みを変更する」は
 #   いずれも同じ形の POST であり、API から見て区別しない。
 # - nonSmokingOnly / cardPaymentOnly / budgetTiers はソフトフィルタである
-#   (adr/0020 決定2, 人間の明示的な判断): 確認できた非該当だけを除き、
+#   (adr/0023 決定2, 人間の明示的な判断): 確認できた非該当だけを除き、
 #   情報なし (null) は候補集合に残る。除外ではなく表示順の後方配置で
 #   「情報なし」を扱う。
 # - candidates の並び順は「有効な絞り込みについて確認済み一致の候補が
 #   先、情報なしの候補は後ろ、各段は距離昇順」の固定規則である
-#   (adr/0020 決定4)。並べ替え基準を選ぶ操作は存在しない。
+#   (adr/0023 決定4)。並べ替え基準を選ぶ操作は存在しない。
 # - candidates は、絞り込み後の母集団を上記の順で並べ、近い方から
 #   min(母集団, 20) 件の近傍プールを作り、そこから無作為に最大5件を
 #   抽出したのち、表示直前に同じ規則へ並べ直したものである
-#   (adr/0020 決定4)。これは product-brief.md ・ ADR-0004 決定1 ・
+#   (adr/0023 決定4)。これは product-brief.md ・ ADR-0004 決定1 ・
 #   ADR-0005 ・ ADR-0008 ・ ADR-0016 が確立した「決定的ルールだけで
 #   選ぶ」という要求への明示的な違反であり、人間の再承認点である
-#   (adr/0020 矛盾4)。乱数のseedはこの公開APIに一切存在しない
+#   (adr/0023 矛盾4)。乱数のseedはこの公開APIに一切存在しない
 #   (test-support-api.yaml だけが持つ)。
-# - izakayaBarFallbackApplied を追加する (adr/0020 決定6, TDR-CS-10の
+# - izakayaBarFallbackApplied を追加する (adr/0023 決定6, TDR-CS-10の
 #   後継)。includeIzakayaBar が false のまま他の filters を適用して
 #   候補が尽きたときだけ、既定除外を取り下げて示したことを表す。
 #   ユーザーが明示的に選んだ他の filters は、これが原因で0件になっても
 #   自動で緩めない。
-# - availableGenres を追加する (adr/0020 決定9)。専用の filter
+# - availableGenres を追加する (adr/0023 決定9)。専用の filter
 #   taxonomy エンドポイントは復活させない。
-# - 400 PROPOSAL_REPROPOSAL_KIND_INVALID を廃止する (adr/0020 決定8;
+# - 400 PROPOSAL_REPROPOSAL_KIND_INVALID を廃止する (adr/0023 決定8;
 #   TDR-CS-07 廃止)。絞り込みモデルには「無効な切り口」という概念が
 #   存在しない。
 # - businessHours は引き続き存在しない (adr/0017 のまま、無変更)。
 #   capacityTier/nonSmokingStatus/cardPaymentAvailable/totalSeats/name/
 #   genre/description/regularHoliday/providerPageUrl/location/
-#   candidateRef は Must により無変更 (adr/0020 は adr/0019 が確立した
+#   candidateRef は Must により無変更 (adr/0023 は adr/0019 が確立した
 #   カード表示項目を変えない)。
 # - dinnerBudgetTier の可視表示は段階語（低/中/高）だけにする。ディナー
 #   基準である開示だけを、展開中の絞り込みパネル内の1行注記へ置き、金額・
-#   レンジ・段階から金額への対応は表示しない (adr/0020 決定10の2026-08-11
+#   レンジ・段階から金額への対応は表示しない (adr/0023 決定10の2026-08-11
 #   人間修正)。
 #   enum値 (LOW/MID/HIGH) 自体、しきい値、切り口にしないという扱いは
 #   adr/0019 決定8のまま無変更。これは adr/0019 決定8の「可視ラベルに
@@ -57,15 +57,15 @@ info:
   description: >-
     Produces up to 5 lunch candidates around one private runtime-configured
     location, after filtering and a randomized near-distance pool selection
-    (adr/0020). The location, configured radius, credentials, provider
+    (adr/0023). The location, configured radius, credentials, provider
     identifiers, and provider images are never accepted or returned by this
     browser-facing API. A response is held in current browser memory only; it
     is not a provider-response cache or a durable search session. This API
     carries no random seed and no comparison/history state of any kind
-    (adr/0020 decision 5 removes the previously-shown-candidate demotion
+    (adr/0023 decision 5 removes the previously-shown-candidate demotion
     mechanism adr/0008 decision 2 and adr/0017 established). DRAFT: this
     contract version is not yet human-approved; see
-    adr/0020-replace-concept-lenses-with-filters-sort-and-randomized-pool-selection.md
+    adr/0023-replace-concept-lenses-with-filters-sort-and-randomized-pool-selection.md
     and adr/0022-expose-identity-free-population-filter-attributes.md.
 servers:
   - url: https://app.example.invalid
@@ -79,19 +79,19 @@ paths:
       summary: Generate one displayed lunch-candidate proposal from the current filters
       description: >-
         Performs one fresh Hot Pepper search over the full eligible
-        population, applies the requested filters (adr/0020 decisions 1-3),
+        population, applies the requested filters (adr/0023 decisions 1-3),
         orders the result (confirmed matches before unconfirmed/unavailable
         values for any active nullable filter, each group nearest-first),
         selects a near-distance pool and randomly samples up to 5 candidates
         from it, then re-orders the sampled candidates by the same rule for
-        display (adr/0020 decision 4). Opening the authenticated screen sends
+        display (adr/0023 decision 4). Opening the authenticated screen sends
         an empty request. "Try again" and "change filters" are the same
         operation: both are a fresh POST with a `filters` body, identical
         (unchanged) or different from the previous request respectively. The
         configured search origin and its exact radius are server-only and are
         not request parameters. This operation carries no random seed on the
         public API; production responses are non-deterministic between
-        requests by design (adr/0020 decision 4). Acceptance testing pins
+        requests by design (adr/0023 decision 4). Acceptance testing pins
         determinism through contracts/test-support-api.yaml only.
       security:
         - organizerSession: []
@@ -201,7 +201,7 @@ components:
         filters whose normalized value equals the currently applied value;
         it need not repeat byte-for-byte the same JSON object. "Change
         filters" sends a normalized value that differs from the applied one.
-        Both use this request shape (adr/0020 decisions 1 and 13).
+        Both use this request shape (adr/0023 decisions 1 and 13).
       x-default-normalization:
         normalizedFilters:
           genres: []
@@ -227,7 +227,7 @@ components:
             Provider genre labels to include (OR match against each
             candidate's genre). Omit or send an empty array for no genre
             restriction beyond `includeIzakayaBar`. Not affected by, and does
-            not affect, `availableGenres` in the response (adr/0020 decision
+            not affect, `availableGenres` in the response (adr/0023 decision
             9): the offered genre choices never shrink as the organizer
             narrows.
         includeIzakayaBar:
@@ -248,7 +248,7 @@ components:
             When true, excludes only candidates whose `nonSmokingStatus` is
             the confirmed value NONE. Candidates with FULL, PARTIAL, or an
             unconfirmed (null) reference remain in the eligible population
-            (adr/0020 decision 2): unconfirmed information is never treated
+            (adr/0023 decision 2): unconfirmed information is never treated
             as a confirmed non-match. Unconfirmed candidates are ordered
             after confirmed matches in the response (see `candidates`).
         cardPaymentOnly:
@@ -257,7 +257,7 @@ components:
           description: >-
             When true, excludes only candidates whose `cardPaymentAvailable`
             is the confirmed value false. Candidates with true or an
-            unconfirmed (null) reference remain (adr/0020 decision 2), same
+            unconfirmed (null) reference remain (adr/0023 decision 2), same
             treatment as `nonSmokingOnly`.
         budgetTiers:
           type: array
@@ -268,14 +268,14 @@ components:
             When non-empty, excludes only candidates whose `dinnerBudgetTier`
             is a confirmed value not in this set. Candidates with an
             unconfirmed (null) reference remain regardless of the selection
-            (adr/0020 decision 2), same treatment as `nonSmokingOnly`. This
+            (adr/0023 decision 2), same treatment as `nonSmokingOnly`. This
             filter is never sent to the provider (its search-budget parameter
             cannot represent this three-tier scheme within its two-code
             limit); it is always evaluated locally. The browser-facing filter
             option labels for LOW/MID/HIGH must use the same 低/中/高
             terminology as the per-candidate visible label. The single
             dinner-basis disclosure appears only inside the expanded filter
-            panel and contains no tier-to-yen mapping (adr/0020 decision 10,
+            panel and contains no tier-to-yen mapping (adr/0023 decision 10,
             as amended 2026-08-11).
     CandidateProposalResponse:
       type: object
@@ -291,16 +291,16 @@ components:
             confirmed to match every active nullable filter come first, any
             candidate unconfirmed (null) for at least one active nullable
             filter comes after, and each group is ordered nearest-first
-            (adr/0020 decision 4). This ordering equals plain nearest-first
+            (adr/0023 decision 4). This ordering equals plain nearest-first
             when no nullable filter (`nonSmokingOnly`, `cardPaymentOnly`,
             `budgetTiers`) is active. An empty array is a successful
             no-match result for the applied filters, distinct from a fetch
             failure (503) or rate limiting (429). Filtering and pool
             selection are always performed over the full retrieved,
             normalized, deduplicated population, never over a
-            display-truncated subset (adr/0020 decision 3). The response
+            display-truncated subset (adr/0023 decision 3). The response
             carries no random seed; production sampling is non-deterministic
-            between requests (adr/0020 decision 4).
+            between requests (adr/0023 decision 4).
           items:
             $ref: '#/components/schemas/Candidate'
         izakayaBarFallbackApplied:
@@ -309,7 +309,7 @@ components:
             True only when the effective `includeIzakayaBar` was false but
             excluding that genre category, combined with the rest of the
             applied filters, left no candidate, so the server included that
-            category anyway (adr/0020 decision 6, the successor to
+            category anyway (adr/0023 decision 6, the successor to
             adr/0015's `IZAKAYA_BAR_INCLUDED` fallback). False whenever the
             exclusion was not the cause of an empty result, including
             whenever `includeIzakayaBar` was explicitly true. This never
@@ -324,7 +324,7 @@ components:
             The distinct provider genre labels present in the eligible
             population given only the current `includeIzakayaBar` value; not
             narrowed by the current `genres` selection or by any other active
-            filter (adr/0020 decision 9). Lets the browser offer genre
+            filter (adr/0023 decision 9). Lets the browser offer genre
             choices without a dedicated filter-taxonomy endpoint and without
             the offered choices shrinking as the organizer narrows.
         populationAttributes:
@@ -355,7 +355,7 @@ components:
         One anonymous filter-membership row for `populationAttributes`.
         It is not a candidate, a stable identity, or an association to any
         displayed candidate or marker. `null` is unavailable information, not
-        a negative value or confirmed non-match (adr/0020 decision 2).
+        a negative value or confirmed non-match (adr/0023 decision 2).
       properties:
         genre:
           type: string
@@ -441,7 +441,7 @@ components:
             exactly when totalSeats is null. It describes the shop's scale
             only -- it is not a claim about reservation ease, availability,
             or whether a given party size can be seated. Card-display only;
-            never a filter or a sort key (adr/0020: the organizer judged
+            never a filter or a sort key (adr/0023: the organizer judged
             sorting by exact seat count unhelpful, and this remains
             display-only reference information, unchanged from adr/0019).
         nonSmokingStatus:
@@ -478,7 +478,7 @@ components:
             alone (e.g. 低/中/高 for LOW/MID/HIGH); it does not itself
             restate that this is a dinner figure or any yen amount/range. The
             dinner-basis disclosure appears once, only in the expanded filter
-            panel, and does not include a tier-to-yen mapping (adr/0020
+            panel, and does not include a tier-to-yen mapping (adr/0023
             decision 10 as amended 2026-08-11). This changes the unit at
             which adr/0019 decision 8's "always disclose this is a dinner
             figure" requirement is satisfied, from per-card to the expanded
@@ -494,7 +494,7 @@ components:
             Provider page for the organizer's final menu, hours, and
             reservation confirmation. The browser must not persist this value
             outside current-screen memory or use it as a durable candidate
-            identity, and must not send it back to the server (adr/0020
+            identity, and must not send it back to the server (adr/0023
             decision 5 removes the previously-shown-candidate mechanism that
             once used this value for repeat demotion).
     ShopLocation:

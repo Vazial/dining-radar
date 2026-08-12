@@ -2,9 +2,9 @@
 
 Per ADR-0001 decision 2, ``suggestions`` mediates the provider search and the
 pure ``recommendation`` pipeline. It performs no persistence: every call is a
-fresh proposal (ADR-0008 decision 2, unchanged by adr/0020).
+fresh proposal (ADR-0008 decision 2, unchanged by adr/0023).
 
-Per adr/0020 decision 4 / hand-off item 4, this module owns the default
+Per adr/0023 decision 4 / hand-off item 4, this module owns the default
 non-deterministic random source for normal operation: when the caller does
 not inject a ``random.Random``, a fresh, unseeded ``random.Random()`` (system
 entropy) is created per call. Only ``dining_radar.suggestions.acceptance_state``
@@ -47,7 +47,7 @@ def propose_candidates(
 ) -> ProposalResult:
     """Perform one fresh search and select the displayed proposal.
 
-    ``filters`` (adr/0020 decision 1) is the parsed ``CandidateFilters`` for
+    ``filters`` (adr/0023 decision 1) is the parsed ``CandidateFilters`` for
     this request -- the same shape for the initial request, "try again", and
     "change filters" alike. ``random_source`` defaults to a fresh, unseeded
     ``random.Random()`` per call (non-deterministic, matching production

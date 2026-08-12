@@ -5,18 +5,18 @@
  * contracts/candidate-search-browser-interface.yaml against the public
  * contracts/candidate-search-api.yaml POST /candidate-proposals endpoint.
  *
- * Per adr/0020, the ConceptKind lens model (a re-proposal modal offering up
+ * Per adr/0023, the ConceptKind lens model (a re-proposal modal offering up
  * to three lenses, plus repeat demotion) is retired. This module instead
  * tracks one `currentFilters` object mirroring `CandidateFilters` and sends
  * it back unchanged for "try again" or updated for "change filters" -- both
  * are the same POST /candidate-proposals shape. The initial request omits
  * `filters` entirely (an empty body), per the contract's own
  * `CandidateProposalRequest` description. There is no shown-candidate
- * comparison state to track: adr/0020 decision 5 removes repeat demotion
+ * comparison state to track: adr/0023 decision 5 removes repeat demotion
  * outright (randomized pool sampling replaces it as the mechanism that keeps
  * responses from being identical every time).
  *
- * Per adr/0020 decision 10, the per-card dinnerBudgetTier label is the bare
+ * Per adr/0023 decision 10, the per-card dinnerBudgetTier label is the bare
  * tier word (低/中/高) only; the dinner-basis disclosure and yen-range
  * mapping live once in the static candidate-budget-tier-note element in
  * home.html, not here -- that element does not depend on any proposal
@@ -34,12 +34,12 @@
   var candidateCounter = null;
   var candidateOrderByRef = {};
 
-  // adr/0019 (unchanged by adr/0020): visible labels for the coarse card
+  // adr/0019 (unchanged by adr/0023): visible labels for the coarse card
   // reference enums. These exact strings are the browser-interface
   // contract's own non-binding examples, reused verbatim.
   var CAPACITY_TIER_LABELS = { SMALL: "少なめ", MEDIUM: "標準", LARGE: "多め" };
   var NON_SMOKING_LABELS = { FULL: "全席禁煙", PARTIAL: "一部禁煙", NONE: "禁煙席なし" };
-  // adr/0020 decision 10: the bare tier word only, used identically by the
+  // adr/0023 decision 10: the bare tier word only, used identically by the
   // card, the filter panel's budget-tier options, and (in home.html) the
   // screen-level candidate-budget-tier-note.
   var TIER_LABELS = { LOW: "低", MID: "中", HIGH: "高" };
@@ -203,7 +203,7 @@
         "data-testid": "candidate-card",
         "data-candidate-ref": candidate.candidateRef,
         "data-selection-state": selected ? "selected" : "unselected",
-        // adr/0020: unconditional on every card (unlike the conditional
+        // adr/0023: unconditional on every card (unlike the conditional
         // payment-caution element below), so TDR-CS-13's ordering assertion
         // can distinguish cardPaymentAvailable=null from =true even though
         // neither shows the caution.
@@ -292,7 +292,7 @@
         "禁煙"
       )
     );
-    // adr/0020 decision 10: the visible value is the bare tier word only
+    // adr/0023 decision 10: the visible value is the bare tier word only
     // (no yen range, no "ディナー" wording) -- that disclosure lives once in
     // the static candidate-budget-tier-note element (home.html).
     facts.appendChild(
@@ -437,7 +437,7 @@
 
   // Mirrors dining_radar.recommendation.pipeline.filter_candidates exactly,
   // including its soft-filter rule: a candidate whose value for an active
-  // filter is unknown is NOT removed (adr/0020 decision 2 / TDR-CS-13). This
+  // filter is unknown is NOT removed (adr/0023 decision 2 / TDR-CS-13). This
   // is the one place the server's predicate is duplicated in the browser; it
   // exists so a pending selection's match count can be shown before the
   // organizer commits it, without a provider request per toggle. If the two
@@ -809,7 +809,7 @@
     if (actions.length > 0) {
       panel.appendChild(el("div", { "class": "candidate-filter-actions" }, actions));
     }
-    // adr/0020 decision 10, revised on human instruction 2026-08-10: the
+    // adr/0023 decision 10, revised on human instruction 2026-08-10: the
     // dinner-basis disclosure stays (TDR-CS-02 requires the organizer be able
     // to tell the figure is a dinner one) but the yen mapping is gone and the
     // note now lives inside the filter panel, next to the budget control it
@@ -852,7 +852,7 @@
     // 変更するよう案内される" needs the controls to survive an empty result).
     var content = el("section", { "data-testid": "candidate-proposal-content" }, []);
 
-    // adr/0020 decision 6: disclose both that the default izakaya/bar
+    // adr/0023 decision 6: disclose both that the default izakaya/bar
     // exclusion was set aside for this response and that included shops'
     // lunch service is not confirmed.
     if (body.izakayaBarFallbackApplied) {

@@ -12,9 +12,9 @@
 # They never reveal or alter a private search origin, provider data or
 # credentials, runtime secrets, or any real account.
 #
-# 承認待ち — 2026-08-10 draft (adr/0020, 提案中・未承認): NORMAL_WITH_REPEAT is
+# 承認待ち — 2026-08-10 draft (adr/0023, 提案中・未承認): NORMAL_WITH_REPEAT is
 # removed (the previously-shown-candidate demotion mechanism it supported is
-# retired, adr/0020 decision 5) and replaced by NORMAL_WITH_POOL, which
+# retired, adr/0023 decision 5) and replaced by NORMAL_WITH_POOL, which
 # supplies a synthetic population large enough to make randomized pool
 # sampling observable and includes at least one candidate with a null
 # non_smoking/card/budget reference so TDR-CS-13's ordering rule is
@@ -23,14 +23,14 @@
 # no "invalid lens" concept in a filter model). A new randomSeed property on
 # CandidateProposalAcceptanceState pins the server's random pool-sampling
 # source for subsequent /candidate-proposals calls; it is never exposed on
-# the public candidate-search-api.yaml (adr/0020 decision 4).
+# the public candidate-search-api.yaml (adr/0023 decision 4).
 # DEFAULT_EXCLUSION_VISIBLE and CARD_PAYMENT_CAUTION_VISIBLE provide the two
 # deterministic displayed-result Givens required by TDR-CS-09 and TDR-CS-12;
 # they remain synthetic acceptance-only population shapes and add no public
-# identifier, location, distance, or ordering field (adr/0020 decision 13).
+# identifier, location, distance, or ordering field (adr/0023 decision 13).
 # ZERO_PENDING_MATCH and FALLBACK_PRESERVES_FILTERS provide seed-independent
 # public-UI/API evidence for reviewer R5 without adding a public test hook or
-# exposing an origin, distance, route, or internal order (adr/0020 decision 14).
+# exposing an origin, distance, route, or internal order (adr/0023 decision 14).
 openapi: 3.0.3
 info:
   title: Toyama Dining Radar acceptance test-support API
@@ -208,7 +208,7 @@ components:
             A closed synthetic state selection. NORMAL_WITH_POOL supplies at
             least 40 lunch-eligible synthetic candidates in the default
             (non-excluded-genre) population -- comfortably exceeding any
-            reasonable pool-size implementation choice (adr/0020 decision 4
+            reasonable pool-size implementation choice (adr/0023 decision 4
             recommends 20), so randomized pool sampling and its
             reproducibility under a pinned randomSeed are both observable.
             Its default population spans at least 3 distinct genre values
@@ -221,7 +221,7 @@ components:
             least one of nonSmokingStatus, cardPaymentAvailable, or
             dinnerBudgetTier, so TDR-CS-13's unconfirmed-information ordering
             rule is deterministically exercised (this null case is not
-            currently observed in real Hot Pepper data, per adr/0020's
+            currently observed in real Hot Pepper data, per adr/0023's
             measured-facts context, but the synthetic mode must still supply
             it as a safety-net path).
 
@@ -295,7 +295,7 @@ components:
           type: integer
           nullable: true
           description: >-
-            Pins the server's random pool-sampling source (adr/0020 decision
+            Pins the server's random pool-sampling source (adr/0023 decision
             4) for every /candidate-proposals call made while this state is
             active. Two calls with the same randomSeed, the same mode, and
             semantically equivalent filters after candidate-search API

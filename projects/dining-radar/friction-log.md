@@ -449,10 +449,10 @@ principles: [P-01, P-06, P-08, P-10]
   機械的な検査（例えば同一PR内の差分行を根拠として引用していないかを検出するgovlintルール）は
   導入しない——単発の推論エラーであり、再発時に費用対効果を判断する（P-05、FR-010・FR-011と同じ判断）。
 
-## FR-013: ADR-0016が「人間がランダム性を却下した」と記録したが、同じ項に引用された人間自身の言葉はシャッフルの採用を提案していた
+## FR-015: ADR-0016が「人間がランダム性を却下した」と記録したが、同じ項に引用された人間自身の言葉はシャッフルの採用を提案していた
 
 ```yaml
-id: FR-013
+id: FR-015
 date: 2026-08-10
 found_at: AI
 slice: TDR-CS-filter-model
@@ -461,13 +461,13 @@ cause_category: 人間の裁定として記録した内容が、同じ記録に�
 cause_key: adr-records-rejection-contradicting-human-quoted-words
 pushed_to:
   - projects/toyama-dining-radar/adr/0016-retire-genre-variety-and-add-same-lens-retry.md
-  - projects/toyama-dining-radar/adr/0020-replace-concept-lenses-with-filters-sort-and-randomized-pool-selection.md
+  - projects/toyama-dining-radar/adr/0023-replace-concept-lenses-with-filters-sort-and-randomized-pool-selection.md
 status: 対応済み
 principles: [P-01, P-04, P-06, P-08, P-10]
 ```
 
 - Situation: 2026-08-10、人間が「もう選び方の意義がないかもしれない」「ある程度ランダム性を持たせる
-  ことはできそう？」と述べ、切り口モデルの廃止と無作為性の導入を求めた。ADR-0020のドラフトを作成した
+  ことはできそう？」と述べ、切り口モデルの廃止と無作為性の導入を求めた。ADR-0023のドラフトを作成した
   architectは矛盾分析の中で、これを「ADR-0016で人間自身がほぼ同じ提案を明示的に却下している」と指摘し、
   人間に過去の却下を読み直すよう再確認を推奨した。orchestratorがADR-0016の原文を確認したところ、
   **その指摘は記録の表面だけを読んだものであり、記録自身の内部矛盾を見落としていた**。
@@ -483,7 +483,7 @@ principles: [P-01, P-04, P-06, P-08, P-10]
   記録されていない**。実際には、人間の2文目（既表示店舗の優先順位を下げる）だけが実装され、1文目
   （シャッフル）は実装されないまま「人間裁定による却下」として記録された。
 - Downward push: orchestratorがADR-0016の原文（人間の引用を含む）を読み、architectの指摘を人間へ
-  そのまま伝えず、記録の内部矛盾として提示した。ADR-0020は無作為性を導入する方向のまま進め、
+  そのまま伝えず、記録の内部矛盾として提示した。ADR-0023は無作為性を導入する方向のまま進め、
   「過去に却下された提案の蒸し返し」という枠組みでは人間に提示しない。
 - Result: FR-012（architectが自身のセッション内追記を独立した先行決定として自己引用した）と合わせ、
   **記録が人間の意思に反する権威を作り出す**という同じ結果を持つ2例目である。cause_keyは機構が

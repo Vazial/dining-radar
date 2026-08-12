@@ -4,20 +4,20 @@
 # observation SSoT for TDR-CS acceptance work. It neither creates a public API
 # nor changes the browser-facing candidate-proposal API.
 #
-# Status: 承認待ち — 2026-08-10 draft (adr/0020, 提案中・未承認). ConceptKind-based
+# Status: 承認待ち — 2026-08-10 draft (adr/0023, 提案中・未承認). ConceptKind-based
 # re-proposal (candidate-reproposal-open/-dialog/-option/-cancel/-try-again,
 # data-reproposal-kind, repeat-demotion data-repeat-status/
 # data-provider-page-href) is entirely removed and replaced by a filter panel
 # (candidate-filter-*) plus a renamed candidate-search-again control. The
 # forbidden-purposes machine enforcement that previously kept "filter" and
 # "secondary-condition" out of allowedPurposes is reversed -- this is the
-# contract-level embodiment of adr/0020's central, human-re-approval-requiring
-# change (see adr/0020's conflict report). requestUnavailableEnumLens and the
+# contract-level embodiment of adr/0023's central, human-re-approval-requiring
+# change (see adr/0023's conflict report). requestUnavailableEnumLens and the
 # invalidLens outcome are removed (TDR-CS-07 retired; there is no "invalid
 # lens" concept in a filter model). A new displayOrdering invariant and a new
 # per-card cardPaymentValueState attribute support TDR-CS-13's
 # unconfirmed-information-sorts-last observability. The 2026-08-11 human
-# amendment to adr/0020 decision 10 changes dinnerBudgetTier's visible card
+# amendment to adr/0023 decision 10 changes dinnerBudgetTier's visible card
 # label to the tier word alone (低/中/高), removes every yen amount/range,
 # and places exactly one dinner-basis disclosure inside the expanded filter
 # panel. The filter panel's budget-tier option labels use the same terms. The
@@ -27,7 +27,7 @@
 # is a compact, deterministic four-item preview with an explicit no-search
 # overflow toggle. All
 # prior content (2026-08-01 through 2026-08-09 amendments, superseded by this
-# draft) is summarized in adr/0020, not repeated here.
+# draft) is summarized in adr/0023, not repeated here.
 contractVersion: '1.0.5'
 kind: acceptance-browser-interface
 scope: candidate-search
@@ -122,7 +122,7 @@ browserControlSurface:
         per its own enum value -- "低"/"中"/"高" for LOW/MID/HIGH -- and
         must NOT itself restate a yen range or the word "ディナー"; the
         dinner-basis disclosure lives only in the expanded filter panel's
-        candidate-budget-tier-note (adr/0020 decision 10, as amended
+        candidate-budget-tier-note (adr/0023 decision 10, as amended
         2026-08-11) without itself being checked for exact equality against
         the raw value. The attribute is absent when that field is
         unavailable, since data-value-state=unavailable already expresses
@@ -173,7 +173,7 @@ browserControlSurface:
         data-card-payment-value-state is "unavailable"; for budgetTiers when
         its dinnerBudgetTier requiredFields entry has
         data-value-state=unavailable. When no such filter is active, this
-        invariant reduces to plain nearest-first (adr/0020 decision 4;
+        invariant reduces to plain nearest-first (adr/0023 decision 4;
         TDR-CS-13).
       verificationAllocation:
         L1: >-
@@ -215,7 +215,7 @@ browserControlSurface:
         true; absent otherwise. Where present, its visible text must
         disclose both that the default izakaya/bar exclusion was set aside
         for this response and that the lunch service of the included shops
-        is not confirmed (adr/0020 decision 6).
+        is not confirmed (adr/0023 decision 6).
     budgetTierNoteObservation:
       testId: candidate-budget-tier-note
       presenceRule: >-
@@ -223,7 +223,7 @@ browserControlSurface:
         absent on the collapsed authenticated screen and after the panel is
         closed. Its one-line visible text must disclose that the budget tiers
         are based on the provider's dinner-budget figure and do not state or
-        imply a lunch price (adr/0020 decision 10, as amended 2026-08-11).
+        imply a lunch price (adr/0023 decision 10, as amended 2026-08-11).
         It must not contain a yen amount, price range, or tier-to-yen mapping.
         No per-card element restates this disclosure.
   filterPanel:
@@ -293,7 +293,7 @@ browserControlSurface:
     constraints:
       - The panel is absent until candidate-filter-open is activated and opens without document navigation or URL change.
       - Each visible candidate-filter-genre-option carries its response.availableGenres genre string as data-genre-value. The browser must use genrePresentation's order, not the response order.
-      - One candidate-filter-budget-tier-option element exists per LOW/MID/HIGH, each carrying that enum string as data-budget-tier-value, and its visible label must use the same 低/中/高 terminology as candidate-card-dinner-budget (adr/0020 decision 10).
+      - One candidate-filter-budget-tier-option element exists per LOW/MID/HIGH, each carrying that enum string as data-budget-tier-value, and its visible label must use the same 低/中/高 terminology as candidate-card-dinner-budget (adr/0023 decision 10).
       - Exactly one candidate-budget-tier-note exists inside candidate-filter-panel. It is the one-line dinner-basis disclosure defined by budgetTierNoteObservation and contains no yen amount, range, or tier-to-yen mapping.
       - Changing any control inside the panel changes pending only: it makes the state dirty, does not perform a search, and does not change the displayed cards, markers, condition summary, or applied filters.
       - When pending equals applied, candidate-filter-pending-note, candidate-filter-revert, and candidate-filter-apply are all absent. The open panel therefore has no batch action for unchanged controls.
@@ -359,7 +359,7 @@ browserControlSurface:
       No form control may provide a manual sort/ordering capability or a
       free-text search input, whether or not it has a test id. Filters
       (genre, izakaya/bar inclusion, non-smoking, card payment, budget tier)
-      are allowed purposes as of adr/0020 -- this reverses the prior
+      are allowed purposes as of adr/0023 -- this reverses the prior
       contract's forbiddenPurposes entries "secondary-condition" and
       "filter", which adr/0015 relied on to justify representing
       IZAKAYA_BAR_INCLUDED as a "concept" rather than a toggle. That
@@ -514,7 +514,7 @@ browserActions:
         ordering: satisfies-proposal.displayOrdering.invariant
       randomness: >-
         The candidates array may differ from the immediately prior response
-        even though the normalized applied filters are unchanged (adr/0020
+        even though the normalized applied filters are unchanged (adr/0023
         decisions 4 and 13): the
         server samples up to 5 candidates at random from the near-distance
         pool on every request. Acceptance testing observes this by pinning

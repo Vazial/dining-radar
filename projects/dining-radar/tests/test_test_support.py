@@ -190,7 +190,7 @@ class CandidateProposalAcceptanceStateTests(TestCase):
         self.assertEqual(response.content, b"")
         self.assertIsNone(acceptance_state.active_mode())
 
-    # randomSeed (adr/0020 decision 4) -----------------------------------
+    # randomSeed (adr/0023 decision 4) -----------------------------------
 
     def test_put_accepts_a_random_seed_and_pins_a_deterministic_source(self):
         response = self.client.put(

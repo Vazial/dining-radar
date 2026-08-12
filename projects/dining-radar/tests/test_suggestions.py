@@ -13,7 +13,7 @@ from dining_radar.suggestions.service import propose_candidates
 
 ORIGIN = Origin(latitude=0.0, longitude=0.0)
 
-# Seeds swept when asserting that a candidate is *reachable* under adr/0020
+# Seeds swept when asserting that a candidate is *reachable* under adr/0023
 # decision 4's random pool sampling. Each seed makes one run reproducible; the
 # sweep makes reachability itself a deterministic property of the fixed set.
 _REACHABILITY_SEEDS = 20
@@ -99,7 +99,7 @@ class ProposeCandidatesTests(SimpleTestCase):
         self.assertEqual(result.available_genres, ("和食",))
 
     def test_no_random_source_defaults_to_a_fresh_non_deterministic_one(self):
-        # adr/0020 decision 4: production omits an injected random source, so
+        # adr/0023 decision 4: production omits an injected random source, so
         # this must not raise and must still return a well-formed result.
         candidates = [
             _candidate(provider_page_url=f"https://example.invalid/{i}", latitude=0.001 * i)
@@ -216,7 +216,7 @@ class ActiveRandomSourceTests(TestCase):
 
 
 class ProposeWithOverrideTests(SimpleTestCase):
-    """Direct unit coverage of the adr/0020 synthetic seams.
+    """Direct unit coverage of the adr/0023 synthetic seams.
 
     ``test_candidate_search.py`` covers the same behaviour through the public
     HTTP endpoint; these tests exercise ``propose_with_override`` itself so a
@@ -236,7 +236,7 @@ class ProposeWithOverrideTests(SimpleTestCase):
     def _normal_with_pool_genres_across_seeds(self, filters: CandidateFilters) -> list[set[str]]:
         """The displayed genres for each pinned seed in ``_REACHABILITY_SEEDS``.
 
-        adr/0020 decision 4 samples the displayed candidates at random from a
+        adr/0023 decision 4 samples the displayed candidates at random from a
         near-distance pool, so a single unseeded run cannot be asserted on:
         whether any one candidate is displayed is a draw, not an outcome.
         Pinning the seed makes each run reproducible, and sweeping a fixed
@@ -282,7 +282,7 @@ class ProposeWithOverrideTests(SimpleTestCase):
         self.assertTrue(any("居酒屋" in genres for genres in genres_per_seed))
 
     def test_normal_with_pool_population_exceeds_the_recommended_pool_size(self):
-        # test-support-api.yaml v1.0.0 / adr/0020 decision 4: NORMAL_WITH_POOL
+        # test-support-api.yaml v1.0.0 / adr/0023 decision 4: NORMAL_WITH_POOL
         # must supply at least 40 default-population candidates, comfortably
         # exceeding the recommended pool size of 20.
         self.assertGreaterEqual(

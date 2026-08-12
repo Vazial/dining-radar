@@ -329,7 +329,7 @@ class CandidateProposalsApiTests(TestCase):
         self.assertEqual(first.status_code, 200)
         self.assertEqual(second.status_code, 200)
 
-    # Randomness determinism seam (adr/0020 decision 4) -------------------
+    # Randomness determinism seam (adr/0023 decision 4) -------------------
 
     def test_random_seed_pins_a_reproducible_candidate_set(self):
         acceptance_state.set_mode(

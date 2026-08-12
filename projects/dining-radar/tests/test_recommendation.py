@@ -96,7 +96,7 @@ class AvailableGenresTests(SimpleTestCase):
         self.assertEqual(available_genres(candidates, include_izakaya_bar=True), ["和食", "居酒屋"])
 
     def test_not_narrowed_by_any_other_filter(self):
-        # adr/0020 decision 9: availableGenres reflects only includeIzakayaBar,
+        # adr/0023 decision 9: availableGenres reflects only includeIzakayaBar,
         # never the genres/nonSmokingOnly/cardPaymentOnly/budgetTiers filters
         # themselves -- this function does not even accept those, by design.
         candidates = [
@@ -671,7 +671,7 @@ class BuildProposalTests(SimpleTestCase):
         self.assertGreater(len(proposals), 1, "every seed produced the identical proposal")
 
     def test_filters_are_applied_before_pool_selection(self):
-        # adr/0020 decision 3: filtering must run on the full population, not
+        # adr/0023 decision 3: filtering must run on the full population, not
         # a display-truncated subset -- so a genre filter can eliminate
         # candidates the pool would otherwise have included.
         soba = candidate(provider_page_url="https://example.invalid/soba", genre="和食")
