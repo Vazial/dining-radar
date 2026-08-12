@@ -9,3 +9,7 @@ __pycache__/
 .coverage*
 .gremlins_cache/
 coverage/
+
+# ADR-0020 decision 1(1): the render-observation tool's screenshot output.
+# Non-gate, developer-eyes-only, and never committed (no images in git).
+.render-observations/
