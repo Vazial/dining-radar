@@ -162,6 +162,24 @@ class CandidateProposalAcceptanceStateTests(TestCase):
                 self.assertEqual(response.status_code, 204)
                 self.assertEqual(acceptance_state.active_mode(), mode)
 
+    def test_put_accepts_zero_pending_match_and_fallback_preserves_filters_with_a_random_seed(self):
+        for mode in ("ZERO_PENDING_MATCH", "FALLBACK_PRESERVES_FILTERS"):
+            with self.subTest(mode=mode):
+                response = self.client.put(
+                    "/test-support/candidate-proposals/state",
+                    data=json.dumps({"mode": mode, "randomSeed": 11}),
+                    content_type="application/json",
+                )
+
+                self.assertEqual(response.status_code, 204)
+                self.assertEqual(
+                    acceptance_state.active_mode(),
+                    acceptance_state.AcceptanceCandidateProposalMode(mode),
+                )
+                first = acceptance_state.active_random_source().random()
+                second = acceptance_state.active_random_source().random()
+                self.assertEqual(first, second)
+
     def test_put_rejects_an_unknown_mode(self):
         response = self.client.put(
             "/test-support/candidate-proposals/state",

@@ -40,6 +40,22 @@ if render_hostname and render_hostname not in ALLOWED_HOSTS:
 # keeps this enabled and must terminate TLS before the Django browser boundary.
 SECURE_SSL_REDIRECT = not DEBUG
 
+# Render's health check is sent directly to this service's port, bypassing
+# the edge that would otherwise set X-Forwarded-Proto, and it treats a 2xx or
+# 3xx response alike as healthy (reconfirmed from Render's own current
+# documentation, activeContext.md "Deployment platform terms and
+# measurements"). Without this exemption, GET /healthz without that header
+# would earn a 301 from SECURE_SSL_REDIRECT above -- a response Render still
+# counts as healthy -- so the probe's own SELECT 1 (dining_radar.health)
+# would never run and adr/0021 decision 5 / DEPLOYMENT.md section 3.6's
+# DB-only readiness probe would silently stop detecting a suspended or broken
+# database. SecurityMiddleware matches each pattern here with re.search
+# against request.path with its leading slash stripped, so this must match
+# only the exact "healthz" path (urls.py's own path("healthz", ...) has no
+# trailing slash) -- never as a prefix or substring match against any other
+# path, so no other path is exempted from the HTTPS redirect.
+SECURE_REDIRECT_EXEMPT = [r"^healthz$"]
+
 render_runtime = os.environ.get("RENDER", "").strip()
 if render_runtime:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")

@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import yaml
-from django.test import SimpleTestCase
+from django.test import Client, SimpleTestCase, TestCase, override_settings
 
 from dining_radar import settings_base
 
@@ -224,3 +224,73 @@ class ApplicationStructureTests(SimpleTestCase):
             set(),
             "env.example documents a variable src/dining_radar no longer reads at runtime",
         )
+
+
+class HealthCheckHttpsExemptionTests(TestCase):
+    """Measured defect (activeContext.md 2026-08-12): Render's health check is
+    sent directly to this service's port, carrying no X-Forwarded-Proto, and
+    a 2xx *or* 3xx response alike counts as healthy. Under the unpatched
+    production settings module, GET /healthz without that header earned a
+    301 -- a response Render still calls healthy -- so the probe's own
+    SELECT 1 (dining_radar.health) never ran and a suspended or broken
+    database went undetected (adr/0021 decision 5, DEPLOYMENT.md section
+    3.6). These tests load the real production settings module (the same
+    ``runpy.run_module`` technique ``ApplicationStructureTests`` above uses)
+    and then apply its exact computed SECURE_SSL_REDIRECT/
+    SECURE_REDIRECT_EXEMPT values to a live request through
+    dining_radar.urls, so the regression is caught at the HTTP boundary, not
+    only as a module-level attribute. This is a plain ``TestCase`` (not
+    ``SimpleTestCase`` like the class above) because /healthz genuinely
+    queries the database (``SELECT 1``); pytest-django's already-migrated
+    test database serves that query here, independent of the fake
+    ``DATABASE_URL`` the production settings module computes (never
+    connected to -- ``DATABASES`` itself is deliberately not among the
+    computed values applied via ``override_settings`` below).
+    """
+
+    def _production_https_redirect_settings(self, run_name):
+        environment = {
+            "DJANGO_SECRET_KEY": "synthetic-runtime-secret-long-enough-for-deploy-checks",
+            "RENDER": "true",
+            "RENDER_EXTERNAL_HOSTNAME": "synthetic-service.onrender.com",
+            "DATABASE_URL": "postgresql://synthetic:secret@db.invalid:5432/app",
+        }
+        with patch.dict(os.environ, environment, clear=True):
+            runtime = runpy.run_module("dining_radar.settings", run_name=run_name)
+        return {
+            "SECURE_SSL_REDIRECT": runtime["SECURE_SSL_REDIRECT"],
+            "SECURE_REDIRECT_EXEMPT": runtime["SECURE_REDIRECT_EXEMPT"],
+        }
+
+    def test_healthz_is_exempt_from_the_production_https_redirect(self):
+        computed = self._production_https_redirect_settings("dining_radar._healthz_exempt_probe")
+        self.assertTrue(computed["SECURE_SSL_REDIRECT"])
+        self.assertEqual(computed["SECURE_REDIRECT_EXEMPT"], [r"^healthz$"])
+
+        with override_settings(
+            ROOT_URLCONF="dining_radar.urls",
+            ALLOWED_HOSTS=["testserver"],
+            **computed,
+        ):
+            response = Client().get("/healthz")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"ok")
+
+    def test_other_protected_paths_still_redirect_to_https_under_the_healthz_exemption(self):
+        computed = self._production_https_redirect_settings(
+            "dining_radar._healthz_exemption_scope_probe"
+        )
+
+        with override_settings(
+            ROOT_URLCONF="dining_radar.urls",
+            ALLOWED_HOSTS=["testserver"],
+            **computed,
+        ):
+            client = Client()
+            for path in ("/", "/accounts/login/"):
+                with self.subTest(path=path):
+                    response = client.get(path)
+
+                    self.assertEqual(response.status_code, 301)
+                    self.assertTrue(response["Location"].startswith("https://"))

@@ -4,7 +4,12 @@ from unittest.mock import MagicMock
 from django.core.cache import cache
 from django.test import SimpleTestCase, TestCase, override_settings
 
-from dining_radar.recommendation.pipeline import CandidateFilters, NormalizedCandidate, Origin
+from dining_radar.recommendation.pipeline import (
+    CandidateFilters,
+    NormalizedCandidate,
+    Origin,
+    dinner_budget_tier,
+)
 from dining_radar.suggestions import acceptance_state
 from dining_radar.suggestions.errors import CandidateSourceUnavailableError
 from dining_radar.suggestions.hotpepper_source import fetch_real_candidates
@@ -434,5 +439,130 @@ class ProposeWithOverrideTests(SimpleTestCase):
 
                 self.assertIn(False, payment_values)
                 self.assertTrue(True in payment_values or None in payment_values)
+        finally:
+            acceptance_state.reset_mode()
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_zero_pending_match_mode_has_no_null_card_payment_or_budget_value(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.ZERO_PENDING_MATCH
+        )
+        try:
+            result = acceptance_state.propose_with_override(
+                acceptance_state.AcceptanceCandidateProposalMode.ZERO_PENDING_MATCH,
+                CandidateFilters(),
+            )
+
+            self.assertTrue(result.population_attributes)
+            self.assertTrue(
+                all(
+                    attribute.card_payment_available is not None
+                    and attribute.dinner_budget_tier is not None
+                    for attribute in result.population_attributes
+                )
+            )
+        finally:
+            acceptance_state.reset_mode()
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_zero_pending_match_mode_each_filter_alone_matches_but_combined_matches_nothing(self):
+        try:
+            for seed in range(_REACHABILITY_SEEDS):
+                acceptance_state.set_mode(
+                    acceptance_state.AcceptanceCandidateProposalMode.ZERO_PENDING_MATCH,
+                    random_seed=seed,
+                )
+                card_only = acceptance_state.propose_with_override(
+                    acceptance_state.AcceptanceCandidateProposalMode.ZERO_PENDING_MATCH,
+                    CandidateFilters(card_payment_only=True),
+                )
+                budget_only = acceptance_state.propose_with_override(
+                    acceptance_state.AcceptanceCandidateProposalMode.ZERO_PENDING_MATCH,
+                    CandidateFilters(budget_tiers=("LOW",)),
+                )
+                combined = acceptance_state.propose_with_override(
+                    acceptance_state.AcceptanceCandidateProposalMode.ZERO_PENDING_MATCH,
+                    CandidateFilters(card_payment_only=True, budget_tiers=("LOW",)),
+                )
+
+                self.assertTrue(card_only.candidates)
+                self.assertTrue(budget_only.candidates)
+                self.assertEqual(combined.candidates, ())
+        finally:
+            acceptance_state.reset_mode()
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_fallback_preserves_filters_mode_falls_back_to_the_all_matching_candidate_only(self):
+        try:
+            for seed in range(_REACHABILITY_SEEDS):
+                acceptance_state.set_mode(
+                    acceptance_state.AcceptanceCandidateProposalMode.FALLBACK_PRESERVES_FILTERS,
+                    random_seed=seed,
+                )
+                result = acceptance_state.propose_with_override(
+                    acceptance_state.AcceptanceCandidateProposalMode.FALLBACK_PRESERVES_FILTERS,
+                    CandidateFilters(
+                        non_smoking_only=True, card_payment_only=True, budget_tiers=("LOW",)
+                    ),
+                )
+
+                self.assertTrue(result.izakaya_bar_fallback_applied)
+                self.assertTrue(result.candidates)
+                self.assertTrue(
+                    all(
+                        candidate.non_smoking_status != "NONE"
+                        and candidate.card_payment_available is not False
+                        and dinner_budget_tier(candidate.budget_average) in (None, "LOW")
+                        for candidate in result.candidates
+                    )
+                )
+        finally:
+            acceptance_state.reset_mode()
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_fallback_preserves_filters_mode_keeps_non_matching_proof_rows_unadmitted(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.FALLBACK_PRESERVES_FILTERS
+        )
+        try:
+            result = acceptance_state.propose_with_override(
+                acceptance_state.AcceptanceCandidateProposalMode.FALLBACK_PRESERVES_FILTERS,
+                CandidateFilters(
+                    non_smoking_only=True, card_payment_only=True, budget_tiers=("LOW",)
+                ),
+            )
+
+            default_excluded_full = [
+                attribute
+                for attribute in result.population_attributes
+                if attribute.default_excluded and attribute.non_smoking_status == "FULL"
+            ]
+
+            self.assertGreater(len(default_excluded_full), len(result.candidates))
+        finally:
+            acceptance_state.reset_mode()
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_fallback_preserves_filters_mode_does_not_relax_an_explicit_genre_filter(self):
+        try:
+            for seed in range(_REACHABILITY_SEEDS):
+                acceptance_state.set_mode(
+                    acceptance_state.AcceptanceCandidateProposalMode.FALLBACK_PRESERVES_FILTERS,
+                    random_seed=seed,
+                )
+                default = acceptance_state.propose_with_override(
+                    acceptance_state.AcceptanceCandidateProposalMode.FALLBACK_PRESERVES_FILTERS,
+                    CandidateFilters(),
+                )
+                self.assertEqual(len(default.available_genres), 1)
+                genre = default.available_genres[0]
+
+                result = acceptance_state.propose_with_override(
+                    acceptance_state.AcceptanceCandidateProposalMode.FALLBACK_PRESERVES_FILTERS,
+                    CandidateFilters(genres=(genre,), non_smoking_only=True),
+                )
+
+                self.assertEqual(result.candidates, ())
+                self.assertFalse(result.izakaya_bar_fallback_applied)
         finally:
             acceptance_state.reset_mode()

@@ -50,7 +50,9 @@ DBへ一度も到達しないまま常にhealthyを報告する事故が起こ�
    `projects/toyama-dining-radar/render.yaml` を指定する。
 3. 公開対象は承認済み変更がmergeされたbranchを選ぶ。feature branchをproductionへ直結しない。
 4. Blueprint previewで `free`、`singapore`、root directory、build/start command、`/healthz`を確認する。
-5. `sync: false` の各項目へRender Dashboard上でsecretを入力する。
+5. `sync: false` の各項目へRender Dashboard上でsecretを入力する。**`sync: false` が入力を促すのは
+   Blueprintの初回作成時だけであり、既存Blueprintの更新時は無視される**——後から変数を足す場合は
+   Dashboardで直接設定する。
 
 | Render key | 入力元・扱い |
 |---|---|

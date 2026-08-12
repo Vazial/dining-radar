@@ -7,12 +7,13 @@ is enabled (mirrors the guard on
 ``dining_radar.authentication.throttle.LoginThrottle.seed_acceptance_limit``).
 
 ``NORMAL_WITH_POOL``, ``DEFAULT_EXCLUSION_VISIBLE``,
-``CARD_PAYMENT_CAUTION_VISIBLE``, and ``IZAKAYA_BAR_ONLY`` drive the exact
-same production ``suggestions.service.propose_candidates`` pipeline with
-synthetic candidates, rather than a hand-written fake response, so those
-seams exercise real filtering/ordering/pool-sampling logic (adr/0023).
-``NO_RESULTS``, ``PROVIDER_UNAVAILABLE``, and ``RATE_LIMITED`` return a fixed
-synthetic outcome directly, without calling the pipeline.
+``CARD_PAYMENT_CAUTION_VISIBLE``, ``ZERO_PENDING_MATCH``,
+``FALLBACK_PRESERVES_FILTERS``, and ``IZAKAYA_BAR_ONLY`` drive the exact same
+production ``suggestions.service.propose_candidates`` pipeline with synthetic
+candidates, rather than a hand-written fake response, so those seams exercise
+real filtering/ordering/pool-sampling logic (adr/0023). ``NO_RESULTS``,
+``PROVIDER_UNAVAILABLE``, and ``RATE_LIMITED`` return a fixed synthetic
+outcome directly, without calling the pipeline.
 
 Per adr/0023 decision 4 hand-off item 4, this module also owns the seeded
 random-source injection this seam needs to make pool sampling deterministic
@@ -66,6 +67,8 @@ class AcceptanceCandidateProposalMode(StrEnum):
     NORMAL_WITH_POOL = "NORMAL_WITH_POOL"
     DEFAULT_EXCLUSION_VISIBLE = "DEFAULT_EXCLUSION_VISIBLE"
     CARD_PAYMENT_CAUTION_VISIBLE = "CARD_PAYMENT_CAUTION_VISIBLE"
+    ZERO_PENDING_MATCH = "ZERO_PENDING_MATCH"
+    FALLBACK_PRESERVES_FILTERS = "FALLBACK_PRESERVES_FILTERS"
     IZAKAYA_BAR_ONLY = "IZAKAYA_BAR_ONLY"
     NO_RESULTS = "NO_RESULTS"
     PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"
@@ -268,6 +271,124 @@ _CARD_PAYMENT_CAUTION_VISIBLE_CANDIDATES: tuple[NormalizedCandidate, ...] = (
     ),
 )
 
+# test-support-api.yaml v1.0.2 (adr/0023 decision 14 point 2): ZERO_PENDING_MATCH
+# must supply a non-empty, non-excluded default population with no null
+# cardPaymentAvailable/dinnerBudgetTier value, where at least one row matches
+# cardPaymentOnly=true (confirmed true) and at least one row has
+# dinnerBudgetTier=LOW, but no single row matches both -- so the UI-selectable
+# pending combination cardPaymentOnly=true plus budgetTiers=[LOW] has an exact
+# population match count of zero for every randomSeed, while each control
+# remains independently meaningful (each alone matches at least one row).
+_ZERO_PENDING_MATCH_CANDIDATES: tuple[NormalizedCandidate, ...] = (
+    _synthetic_candidate(
+        name="Synthetic zero-match card-only one",
+        genre="和食",
+        provider_page_url="https://example.invalid/acceptance-zero-match-card-one",
+        latitude=0.0010,
+        card_payment_available=True,
+        budget_average=3500.0,  # MID: confirmed card-payment match, never budget LOW
+    ),
+    _synthetic_candidate(
+        name="Synthetic zero-match card-only two",
+        genre="和食",
+        provider_page_url="https://example.invalid/acceptance-zero-match-card-two",
+        latitude=0.0020,
+        card_payment_available=True,
+        budget_average=4500.0,  # HIGH: confirmed card-payment match, never budget LOW
+    ),
+    _synthetic_candidate(
+        name="Synthetic zero-match budget-only one",
+        genre="洋食",
+        provider_page_url="https://example.invalid/acceptance-zero-match-budget-one",
+        latitude=0.0030,
+        card_payment_available=False,
+        budget_average=1500.0,  # LOW: confirmed budget match, never card-payment match
+    ),
+    _synthetic_candidate(
+        name="Synthetic zero-match budget-only two",
+        genre="洋食",
+        provider_page_url="https://example.invalid/acceptance-zero-match-budget-two",
+        latitude=0.0040,
+        card_payment_available=False,
+        budget_average=3500.0,  # MID: confirmed non-match for both filters
+    ),
+)
+
+# test-support-api.yaml v1.0.2 (adr/0023 decision 14 points 3-4):
+# FALLBACK_PRESERVES_FILTERS must prove two things at once with a single
+# synthetic population. (1) TDR-CS-10's boundary: with a combination of
+# nonSmokingOnly/cardPaymentOnly/budgetTiers=[LOW] and includeIzakayaBar=false,
+# the non-excluded population matches none of them (both non-excluded
+# candidates below are confirmed nonSmokingStatus=NONE, which alone already
+# fails nonSmokingOnly), so the server must fall back to the default-excluded
+# genre to find the single candidate confirming all three -- while the three
+# other default-excluded candidates, each a confirmed non-match for exactly
+# one filter, prove the fallback does not silently admit them too.
+# (2) decision 14 point 4: the sole non-excluded genre, offered as the only
+# entry of availableGenres, has every member confirmed nonSmokingStatus=NONE,
+# so selecting that explicit genre plus nonSmokingOnly=true deterministically
+# empties the result without triggering the fallback (the genre filter alone
+# already excludes every default-excluded/fallback-eligible candidate).
+_FALLBACK_NON_EXCLUDED_GENRE = "うどん"
+assert _FALLBACK_NON_EXCLUDED_GENRE not in DEFAULT_EXCLUDED_GENRES
+
+_FALLBACK_PRESERVES_FILTERS_CANDIDATES: tuple[NormalizedCandidate, ...] = (
+    _synthetic_candidate(
+        name="Synthetic fallback non-excluded one",
+        genre=_FALLBACK_NON_EXCLUDED_GENRE,
+        provider_page_url="https://example.invalid/acceptance-fallback-non-excluded-one",
+        latitude=0.0005,
+        non_smoking_status="NONE",
+        card_payment_available=True,
+        budget_average=1500.0,
+    ),
+    _synthetic_candidate(
+        name="Synthetic fallback non-excluded two",
+        genre=_FALLBACK_NON_EXCLUDED_GENRE,
+        provider_page_url="https://example.invalid/acceptance-fallback-non-excluded-two",
+        latitude=0.0006,
+        non_smoking_status="NONE",
+        card_payment_available=False,
+        budget_average=4500.0,
+    ),
+    _synthetic_candidate(
+        name="Synthetic fallback all-match",
+        genre=_DEFAULT_EXCLUDED_SYNTHETIC_GENRE,
+        provider_page_url="https://example.invalid/acceptance-fallback-all-match",
+        latitude=0.0010,
+        non_smoking_status="FULL",
+        card_payment_available=True,
+        budget_average=1500.0,  # LOW: the only candidate confirming all three filters
+    ),
+    _synthetic_candidate(
+        name="Synthetic fallback fails non-smoking",
+        genre=_DEFAULT_EXCLUDED_SYNTHETIC_GENRE,
+        provider_page_url="https://example.invalid/acceptance-fallback-fails-non-smoking",
+        latitude=0.0015,
+        non_smoking_status="NONE",  # confirmed non-match for nonSmokingOnly only
+        card_payment_available=True,
+        budget_average=1500.0,
+    ),
+    _synthetic_candidate(
+        name="Synthetic fallback fails card payment",
+        genre=_DEFAULT_EXCLUDED_SYNTHETIC_GENRE,
+        provider_page_url="https://example.invalid/acceptance-fallback-fails-card-payment",
+        latitude=0.0020,
+        non_smoking_status="FULL",
+        card_payment_available=False,  # confirmed non-match for cardPaymentOnly only
+        budget_average=1500.0,
+    ),
+    _synthetic_candidate(
+        name="Synthetic fallback fails budget",
+        genre=_DEFAULT_EXCLUDED_SYNTHETIC_GENRE,
+        provider_page_url="https://example.invalid/acceptance-fallback-fails-budget",
+        latitude=0.0025,
+        non_smoking_status="FULL",
+        card_payment_available=True,
+        budget_average=3500.0,  # MID: confirmed non-match for budgetTiers=[LOW] only
+    ),
+)
+
 # Only default-excluded-genre candidates, so the default population (with
 # includeIzakayaBar=false) is empty and the response falls through to the
 # izakaya-bar-inclusive one instead of a successful no-results outcome
@@ -301,6 +422,14 @@ def _card_payment_caution_visible_source() -> tuple[tuple[NormalizedCandidate, .
     return _CARD_PAYMENT_CAUTION_VISIBLE_CANDIDATES, _ORIGIN
 
 
+def _zero_pending_match_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
+    return _ZERO_PENDING_MATCH_CANDIDATES, _ORIGIN
+
+
+def _fallback_preserves_filters_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
+    return _FALLBACK_PRESERVES_FILTERS_CANDIDATES, _ORIGIN
+
+
 def propose_with_override(
     mode: AcceptanceCandidateProposalMode, filters: CandidateFilters
 ) -> ProposalResult:
@@ -332,6 +461,18 @@ def propose_with_override(
         return propose_candidates(
             filters,
             fetch_candidates=_card_payment_caution_visible_source,
+            random_source=active_random_source(),
+        )
+    if mode is AcceptanceCandidateProposalMode.ZERO_PENDING_MATCH:
+        return propose_candidates(
+            filters,
+            fetch_candidates=_zero_pending_match_source,
+            random_source=active_random_source(),
+        )
+    if mode is AcceptanceCandidateProposalMode.FALLBACK_PRESERVES_FILTERS:
+        return propose_candidates(
+            filters,
+            fetch_candidates=_fallback_preserves_filters_source,
             random_source=active_random_source(),
         )
 

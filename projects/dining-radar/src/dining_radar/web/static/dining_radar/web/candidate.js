@@ -448,46 +448,55 @@
     );
   }
 
-  // Mirrors dining_radar.recommendation.pipeline.filter_candidates exactly,
-  // including its soft-filter rule: a candidate whose value for an active
-  // filter is unknown is NOT removed (adr/0023 decision 2 / TDR-CS-13). This
-  // is the one place the server's predicate is duplicated in the browser; it
-  // exists so a pending selection's match count can be shown before the
-  // organizer commits it, without a provider request per toggle. If the two
-  // ever disagree, the number on the apply control lies -- an acceptance test
-  // must compare this count against the count the server actually returns.
+  // Mirrors dining_radar.recommendation.pipeline.filter_candidates AND
+  // apply_izakaya_bar_fallback exactly, including the soft-filter rule: a
+  // candidate whose value for an active filter is unknown is NOT removed
+  // (adr/0023 decision 2 / TDR-CS-13), and the default izakaya/bar-exclusion
+  // fallback (adr/0023 decision 6 / TDR-CS-10): when includeIzakayaBar is
+  // false, a candidate outside the default-excluded genre category is
+  // preferred, but if excluding that category would leave nothing matching
+  // the other active filters, the count falls back to counting
+  // default-excluded rows too -- exactly mirroring what the server itself
+  // would return for the same filters, so this pending-filter preview count
+  // never disagrees with the response the organizer is about to receive.
+  // This is the one place the server's predicate is duplicated in the
+  // browser; it exists so a pending selection's match count can be shown
+  // before the organizer commits it, without a provider request per toggle.
+  // If the two ever disagree, the number on the apply control lies -- an
+  // acceptance test must compare this count against the count the server
+  // actually returns.
+  function passesNonExclusionFilters(filters, row) {
+    if (filters.genres.length && filters.genres.indexOf(row.genre) === -1) {
+      return false;
+    }
+    if (filters.nonSmokingOnly && row.nonSmokingStatus === "NONE") {
+      return false;
+    }
+    if (filters.cardPaymentOnly && row.cardPaymentAvailable === false) {
+      return false;
+    }
+    if (
+      filters.budgetTiers.length &&
+      row.dinnerBudgetTier !== null &&
+      row.dinnerBudgetTier !== undefined &&
+      filters.budgetTiers.indexOf(row.dinnerBudgetTier) === -1
+    ) {
+      return false;
+    }
+    return true;
+  }
+
   function countMatchingPopulation(filters) {
-    var rows = populationAttributes;
-    if (!filters.includeIzakayaBar) {
-      rows = rows.filter(function (row) {
-        return !row.defaultExcluded;
-      });
+    var matching = populationAttributes.filter(function (row) {
+      return passesNonExclusionFilters(filters, row);
+    });
+    if (filters.includeIzakayaBar) {
+      return matching.length;
     }
-    if (filters.genres.length) {
-      rows = rows.filter(function (row) {
-        return filters.genres.indexOf(row.genre) !== -1;
-      });
-    }
-    if (filters.nonSmokingOnly) {
-      rows = rows.filter(function (row) {
-        return row.nonSmokingStatus !== "NONE";
-      });
-    }
-    if (filters.cardPaymentOnly) {
-      rows = rows.filter(function (row) {
-        return row.cardPaymentAvailable !== false;
-      });
-    }
-    if (filters.budgetTiers.length) {
-      rows = rows.filter(function (row) {
-        return (
-          row.dinnerBudgetTier === null ||
-          row.dinnerBudgetTier === undefined ||
-          filters.budgetTiers.indexOf(row.dinnerBudgetTier) !== -1
-        );
-      });
-    }
-    return rows.length;
+    var withoutDefaultExcluded = matching.filter(function (row) {
+      return !row.defaultExcluded;
+    });
+    return withoutDefaultExcluded.length ? withoutDefaultExcluded.length : matching.length;
   }
 
   function filterSummaryText(filters) {

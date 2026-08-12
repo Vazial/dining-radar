@@ -217,6 +217,73 @@ class CandidateProposalsApiTests(TestCase):
         self.assertIn(False, payment_values)
         self.assertTrue(True in payment_values or None in payment_values)
 
+    def test_zero_pending_match_mode_makes_each_filter_meaningful_but_the_combination_empty(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.ZERO_PENDING_MATCH, random_seed=7
+        )
+
+        card_only = self.post_proposal({"filters": {"cardPaymentOnly": True}}).json()
+        budget_only = self.post_proposal({"filters": {"budgetTiers": ["LOW"]}}).json()
+        combined = self.post_proposal(
+            {"filters": {"cardPaymentOnly": True, "budgetTiers": ["LOW"]}}
+        ).json()
+
+        self.assertTrue(card_only["candidates"])
+        self.assertTrue(budget_only["candidates"])
+        self.assertEqual(combined["candidates"], [])
+        self.assertTrue(
+            all(
+                row["cardPaymentAvailable"] is not None and row["dinnerBudgetTier"] is not None
+                for row in combined["populationAttributes"]
+            )
+        )
+
+    def test_fallback_preserves_filters_mode_admits_only_the_all_matching_candidate(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.FALLBACK_PRESERVES_FILTERS,
+            random_seed=7,
+        )
+
+        response = self.post_proposal(
+            {
+                "filters": {
+                    "nonSmokingOnly": True,
+                    "cardPaymentOnly": True,
+                    "budgetTiers": ["LOW"],
+                }
+            }
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["izakayaBarFallbackApplied"])
+        self.assertTrue(payload["candidates"])
+        self.assertTrue(
+            all(
+                c["nonSmokingStatus"] != "NONE"
+                and c["cardPaymentAvailable"] is not False
+                and c["dinnerBudgetTier"] in (None, "LOW")
+                for c in payload["candidates"]
+            )
+        )
+
+    def test_fallback_preserves_filters_mode_does_not_relax_an_explicit_genre_filter(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.FALLBACK_PRESERVES_FILTERS,
+            random_seed=7,
+        )
+        available = self.post_proposal().json()["availableGenres"]
+        self.assertEqual(len(available), 1)
+
+        response = self.post_proposal(
+            {"filters": {"genres": [available[0]], "nonSmokingOnly": True}}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["candidates"], [])
+        self.assertFalse(payload["izakayaBarFallbackApplied"])
+
     def test_include_izakaya_bar_filter_reaches_the_default_excluded_genre(self):
         acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL)
 
