@@ -4,7 +4,8 @@ import runpy
 from pathlib import Path
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+import yaml
+from django.test import Client, SimpleTestCase, TestCase, override_settings
 
 from dining_radar import settings_base
 
@@ -13,6 +14,47 @@ SOURCE_ROOT = PROJECT_ROOT / "src" / "dining_radar"
 
 
 class ApplicationStructureTests(SimpleTestCase):
+    def test_render_blueprint_uses_the_agreed_free_stateless_topology(self):
+        blueprint = yaml.safe_load((PROJECT_ROOT / "render.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(len(blueprint["services"]), 1)
+
+        service = blueprint["services"][0]
+        self.assertEqual(service["type"], "web")
+        self.assertEqual(service["runtime"], "python")
+        self.assertEqual(service["plan"], "free")
+        self.assertEqual(service["region"], "singapore")
+        self.assertEqual(service["rootDir"], "projects/toyama-dining-radar")
+        self.assertEqual(service["healthCheckPath"], "/healthz")
+        self.assertEqual(service["autoDeployTrigger"], "checksPass")
+        self.assertIn("--workers 1", service["startCommand"])
+
+        env_vars = {item["key"]: item for item in service["envVars"]}
+        self.assertTrue(env_vars["DJANGO_SECRET_KEY"]["generateValue"])
+        for secret_name in (
+            "DATABASE_URL",
+            "HOTPEPPER_API_KEY",
+            "HOTPEPPER_SEARCH_LATITUDE",
+            "HOTPEPPER_SEARCH_LONGITUDE",
+            "HOTPEPPER_SEARCH_RANGE",
+            "DJANGO_BOOTSTRAP_ORGANIZER_USERNAME",
+            "DJANGO_BOOTSTRAP_ORGANIZER_PASSWORD",
+        ):
+            self.assertEqual(env_vars[secret_name], {"key": secret_name, "sync": False})
+
+    def test_render_build_is_reproducible_and_checks_the_deployed_configuration(self):
+        build_script = (PROJECT_ROOT / "build.sh").read_text(encoding="utf-8")
+
+        commands = [
+            "python -m pip install --disable-pip-version-check -e .",
+            "python manage.py collectstatic --no-input",
+            "python manage.py migrate --no-input",
+            "python manage.py provision_organizer --if-configured",
+            "python manage.py check --deploy",
+        ]
+        positions = [build_script.index(command) for command in commands]
+        self.assertEqual(positions, sorted(positions))
+        self.assertNotIn("DJANGO_BOOTSTRAP_ORGANIZER_PASSWORD=", build_script)
+
     def test_web_layer_does_not_reach_adapter_or_orm_layers_directly(self):
         forbidden_prefixes = ("dining_radar.integrations", "dining_radar.records")
 
@@ -51,6 +93,7 @@ class ApplicationStructureTests(SimpleTestCase):
         self.assertEqual(settings_base.SESSION_COOKIE_SAMESITE, "Lax")
         self.assertTrue(settings_base.CSRF_COOKIE_SECURE)
         self.assertEqual(settings_base.CSRF_COOKIE_SAMESITE, "Lax")
+        self.assertEqual(settings_base.SECURE_REFERRER_POLICY, "strict-origin-when-cross-origin")
 
     def test_authentication_routes_do_not_offer_signup_or_email_reset(self):
         route_source = (SOURCE_ROOT / "authentication" / "urls.py").read_text(encoding="utf-8")
@@ -77,6 +120,36 @@ class ApplicationStructureTests(SimpleTestCase):
             self.assertRaisesRegex(RuntimeError, "DJANGO_SECRET_KEY must be configured"),
         ):
             runpy.run_module("dining_radar.settings", run_name="dining_radar._missing_secret_probe")
+
+    def test_render_runtime_requires_postgres_and_trusts_only_its_https_proxy_signal(self):
+        base_environment = {
+            "DJANGO_SECRET_KEY": "synthetic-runtime-secret-long-enough-for-deploy-checks",
+            "RENDER": "true",
+            "RENDER_EXTERNAL_HOSTNAME": "synthetic-service.onrender.com",
+        }
+        with (
+            patch.dict(os.environ, base_environment, clear=True),
+            self.assertRaisesRegex(RuntimeError, "DATABASE_URL must be configured"),
+        ):
+            runpy.run_module("dining_radar.settings", run_name="dining_radar._render_no_db")
+
+        with patch.dict(
+            os.environ,
+            {
+                **base_environment,
+                "DATABASE_URL": "postgresql://synthetic:secret@db.invalid:5432/app",
+            },
+            clear=True,
+        ):
+            runtime = runpy.run_module(
+                "dining_radar.settings", run_name="dining_radar._render_probe"
+            )
+
+        self.assertIn("synthetic-service.onrender.com", runtime["ALLOWED_HOSTS"])
+        self.assertEqual(runtime["SECURE_PROXY_SSL_HEADER"], ("HTTP_X_FORWARDED_PROTO", "https"))
+        self.assertEqual(runtime["DATABASES"]["default"]["ENGINE"], "django.db.backends.postgresql")
+        self.assertEqual(runtime["DATABASES"]["default"]["OPTIONS"]["sslmode"], "require")
+        self.assertEqual(runtime["SECURE_HSTS_SECONDS"], 31_536_000)
 
     def test_env_example_documents_exactly_the_environment_variables_read_at_runtime(self):
         """A human must be able to configure this app without reading source.
@@ -151,3 +224,73 @@ class ApplicationStructureTests(SimpleTestCase):
             set(),
             "env.example documents a variable src/dining_radar no longer reads at runtime",
         )
+
+
+class HealthCheckHttpsExemptionTests(TestCase):
+    """Measured defect (activeContext.md 2026-08-12): Render's health check is
+    sent directly to this service's port, carrying no X-Forwarded-Proto, and
+    a 2xx *or* 3xx response alike counts as healthy. Under the unpatched
+    production settings module, GET /healthz without that header earned a
+    301 -- a response Render still calls healthy -- so the probe's own
+    SELECT 1 (dining_radar.health) never ran and a suspended or broken
+    database went undetected (adr/0021 decision 5, DEPLOYMENT.md section
+    3.6). These tests load the real production settings module (the same
+    ``runpy.run_module`` technique ``ApplicationStructureTests`` above uses)
+    and then apply its exact computed SECURE_SSL_REDIRECT/
+    SECURE_REDIRECT_EXEMPT values to a live request through
+    dining_radar.urls, so the regression is caught at the HTTP boundary, not
+    only as a module-level attribute. This is a plain ``TestCase`` (not
+    ``SimpleTestCase`` like the class above) because /healthz genuinely
+    queries the database (``SELECT 1``); pytest-django's already-migrated
+    test database serves that query here, independent of the fake
+    ``DATABASE_URL`` the production settings module computes (never
+    connected to -- ``DATABASES`` itself is deliberately not among the
+    computed values applied via ``override_settings`` below).
+    """
+
+    def _production_https_redirect_settings(self, run_name):
+        environment = {
+            "DJANGO_SECRET_KEY": "synthetic-runtime-secret-long-enough-for-deploy-checks",
+            "RENDER": "true",
+            "RENDER_EXTERNAL_HOSTNAME": "synthetic-service.onrender.com",
+            "DATABASE_URL": "postgresql://synthetic:secret@db.invalid:5432/app",
+        }
+        with patch.dict(os.environ, environment, clear=True):
+            runtime = runpy.run_module("dining_radar.settings", run_name=run_name)
+        return {
+            "SECURE_SSL_REDIRECT": runtime["SECURE_SSL_REDIRECT"],
+            "SECURE_REDIRECT_EXEMPT": runtime["SECURE_REDIRECT_EXEMPT"],
+        }
+
+    def test_healthz_is_exempt_from_the_production_https_redirect(self):
+        computed = self._production_https_redirect_settings("dining_radar._healthz_exempt_probe")
+        self.assertTrue(computed["SECURE_SSL_REDIRECT"])
+        self.assertEqual(computed["SECURE_REDIRECT_EXEMPT"], [r"^healthz$"])
+
+        with override_settings(
+            ROOT_URLCONF="dining_radar.urls",
+            ALLOWED_HOSTS=["testserver"],
+            **computed,
+        ):
+            response = Client().get("/healthz")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"ok")
+
+    def test_other_protected_paths_still_redirect_to_https_under_the_healthz_exemption(self):
+        computed = self._production_https_redirect_settings(
+            "dining_radar._healthz_exemption_scope_probe"
+        )
+
+        with override_settings(
+            ROOT_URLCONF="dining_radar.urls",
+            ALLOWED_HOSTS=["testserver"],
+            **computed,
+        ):
+            client = Client()
+            for path in ("/", "/accounts/login/"):
+                with self.subTest(path=path):
+                    response = client.get(path)
+
+                    self.assertEqual(response.status_code, 301)
+                    self.assertTrue(response["Location"].startswith("https://"))

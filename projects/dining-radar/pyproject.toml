@@ -9,6 +9,10 @@ description = "An invite-only lunch candidate organizer application."
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "Django>=5.2.16,<5.3",
+    "dj-database-url>=3.0,<4",
+    "gunicorn>=23,<24",
+    "psycopg[binary]>=3.2,<4",
+    "whitenoise[brotli]>=6.9,<7",
 ]
 
 [project.optional-dependencies]

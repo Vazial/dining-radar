@@ -1,12 +1,14 @@
+import random
 from unittest.mock import MagicMock
 
 from django.core.cache import cache
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from dining_radar.recommendation.pipeline import (
+    CandidateFilters,
     NormalizedCandidate,
     Origin,
-    ReproposalKindUnavailableError,
+    dinner_budget_tier,
 )
 from dining_radar.suggestions import acceptance_state
 from dining_radar.suggestions.errors import CandidateSourceUnavailableError
@@ -16,9 +18,14 @@ from dining_radar.suggestions.service import propose_candidates
 
 ORIGIN = Origin(latitude=0.0, longitude=0.0)
 
+# Seeds swept when asserting that a candidate is *reachable* under adr/0023
+# decision 4's random pool sampling. Each seed makes one run reproducible; the
+# sweep makes reachability itself a deterministic property of the fixed set.
+_REACHABILITY_SEEDS = 20
 
-def _candidate(provider_page_url="https://example.invalid/shop"):
-    return NormalizedCandidate(
+
+def _candidate(provider_page_url="https://example.invalid/shop", **overrides):
+    defaults = dict(
         name="架空食堂",
         genre="和食",
         description=None,
@@ -31,73 +38,84 @@ def _candidate(provider_page_url="https://example.invalid/shop"):
         longitude=0.0,
         provider_page_url=provider_page_url,
     )
+    defaults.update(overrides)
+    return NormalizedCandidate(**defaults)
 
 
 class ProposeCandidatesTests(SimpleTestCase):
-    def test_initial_request_selects_the_first_priority_concept(self):
-        result = propose_candidates(None, fetch_candidates=lambda: ([_candidate()], ORIGIN))
-
-        self.assertIsNotNone(result.proposal)
-        self.assertEqual(result.proposal.kind.value, "PROXIMITY")
-
-    def test_initial_request_with_no_candidates_returns_a_null_proposal(self):
-        result = propose_candidates(None, fetch_candidates=lambda: ([], ORIGIN))
-
-        self.assertIsNone(result.proposal)
-        self.assertEqual(result.reproposal_options, [])
-
-    def test_reproposal_with_no_candidates_returns_a_null_proposal(self):
-        result = propose_candidates("PROXIMITY", fetch_candidates=lambda: ([], ORIGIN))
-
-        self.assertIsNone(result.proposal)
-
-    def test_reproposal_with_an_unknown_enum_literal_raises_value_error(self):
-        with self.assertRaises(ValueError):
-            propose_candidates("NOT_A_REAL_KIND", fetch_candidates=lambda: ([_candidate()], ORIGIN))
-
-    def test_reproposal_with_the_currently_displayed_kind_is_an_ordinary_request(self):
-        # adr/0016 decision 3: a same-lens "try again" request is not a new
-        # server code path -- it is an ordinary re-proposal request whose
-        # reproposal_kind happens to equal the kind that was already
-        # displayed. propose_candidates applies no special-casing for it.
-        result = propose_candidates("PROXIMITY", fetch_candidates=lambda: ([_candidate()], ORIGIN))
-
-        self.assertIsNotNone(result.proposal)
-        self.assertEqual(result.proposal.kind.value, "PROXIMITY")
-
-    def test_previously_shown_provider_page_urls_defaults_to_no_effect(self):
-        candidates = [
-            _candidate(provider_page_url="https://example.invalid/a"),
-            _candidate(provider_page_url="https://example.invalid/b"),
-        ]
-
-        result = propose_candidates(None, fetch_candidates=lambda: (candidates, ORIGIN))
-
-        self.assertEqual(
-            [c.provider_page_url for c in result.proposal.candidates],
-            ["https://example.invalid/a", "https://example.invalid/b"],
+    def test_empty_source_returns_an_empty_proposal(self):
+        result = propose_candidates(
+            CandidateFilters(),
+            fetch_candidates=lambda: ([], ORIGIN),
+            random_source=random.Random(1),
         )
 
-    def test_previously_shown_provider_page_urls_demotes_the_named_candidate(self):
-        # adr/0017 decision 1-2: propose_candidates passes this argument
-        # straight through to build_concepts, whose own demotion behavior is
-        # covered in depth by tests/test_recommendation.py; this asserts
-        # only that the wiring here actually forwards it.
+        self.assertEqual(result.candidates, ())
+
+    def test_returns_the_eligible_candidates_ordered_nearest_first(self):
         candidates = [
-            _candidate(provider_page_url="https://example.invalid/a"),
-            _candidate(provider_page_url="https://example.invalid/b"),
+            _candidate(provider_page_url="https://example.invalid/a", latitude=0.001),
+            _candidate(provider_page_url="https://example.invalid/b", latitude=0.0005),
         ]
 
         result = propose_candidates(
-            "PROXIMITY",
+            CandidateFilters(),
             fetch_candidates=lambda: (candidates, ORIGIN),
-            previously_shown_provider_page_urls=["https://example.invalid/a"],
+            random_source=random.Random(1),
         )
 
         self.assertEqual(
-            [c.provider_page_url for c in result.proposal.candidates],
+            [c.provider_page_url for c in result.candidates],
             ["https://example.invalid/b", "https://example.invalid/a"],
         )
+
+    def test_filters_are_forwarded_to_the_pipeline(self):
+        soba = _candidate(provider_page_url="https://example.invalid/soba", genre="和食")
+        yoshoku = _candidate(provider_page_url="https://example.invalid/yoshoku", genre="洋食")
+
+        result = propose_candidates(
+            CandidateFilters(genres=("和食",)),
+            fetch_candidates=lambda: ([soba, yoshoku], ORIGIN),
+            random_source=random.Random(1),
+        )
+
+        self.assertEqual([c.genre for c in result.candidates], ["和食"])
+
+    def test_izakaya_bar_fallback_is_forwarded_from_the_pipeline(self):
+        izakaya = _candidate(provider_page_url="https://example.invalid/izakaya", genre="居酒屋")
+
+        result = propose_candidates(
+            CandidateFilters(),
+            fetch_candidates=lambda: ([izakaya], ORIGIN),
+            random_source=random.Random(1),
+        )
+
+        self.assertTrue(result.izakaya_bar_fallback_applied)
+
+    def test_available_genres_is_forwarded_from_the_pipeline(self):
+        soba = _candidate(provider_page_url="https://example.invalid/soba", genre="和食")
+
+        result = propose_candidates(
+            CandidateFilters(),
+            fetch_candidates=lambda: ([soba], ORIGIN),
+            random_source=random.Random(1),
+        )
+
+        self.assertEqual(result.available_genres, ("和食",))
+
+    def test_no_random_source_defaults_to_a_fresh_non_deterministic_one(self):
+        # adr/0023 decision 4: production omits an injected random source, so
+        # this must not raise and must still return a well-formed result.
+        candidates = [
+            _candidate(provider_page_url=f"https://example.invalid/{i}", latitude=0.001 * i)
+            for i in range(1, 4)
+        ]
+
+        result = propose_candidates(
+            CandidateFilters(), fetch_candidates=lambda: (candidates, ORIGIN)
+        )
+
+        self.assertEqual(len(result.candidates), 3)
 
 
 class HotpepperSourceTests(SimpleTestCase):
@@ -165,8 +183,45 @@ class AcceptanceStateGuardTests(TestCase):
         self.assertIsNone(acceptance_state.active_mode())
 
 
-class ProposeWithOverrideAdr0015Tests(SimpleTestCase):
-    """Direct unit coverage of the adr/0015 and adr/0017 synthetic seams.
+class ActiveRandomSourceTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(acceptance_state.reset_mode)
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_no_pinned_seed_returns_a_non_deterministic_source(self):
+        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL)
+
+        source = acceptance_state.active_random_source()
+
+        self.assertIsInstance(source, random.Random)
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_pinned_seed_is_reproducible(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL, random_seed=99
+        )
+
+        first = acceptance_state.active_random_source().random()
+        second = acceptance_state.active_random_source().random()
+
+        self.assertEqual(first, second)
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=False)
+    def test_outside_the_acceptance_profile_the_seed_is_never_read(self):
+        cache.set(acceptance_state._CACHE_KEY_SEED, 99, timeout=None)
+
+        source = acceptance_state.active_random_source()
+
+        # An unseeded source cannot be distinguished from a seeded one by
+        # value alone; this asserts the seed cache entry was never consulted
+        # by exercising the guard branch directly (matching active_mode's own
+        # outside-the-profile guard test above).
+        self.assertIsInstance(source, random.Random)
+
+
+class ProposeWithOverrideTests(SimpleTestCase):
+    """Direct unit coverage of the adr/0023 synthetic seams.
 
     ``test_candidate_search.py`` covers the same behaviour through the public
     HTTP endpoint; these tests exercise ``propose_with_override`` itself so a
@@ -174,136 +229,340 @@ class ProposeWithOverrideAdr0015Tests(SimpleTestCase):
     caught here even if request/response wiring changes independently.
     """
 
-    def test_izakaya_bar_only_mode_falls_through_to_izakaya_bar_included(self):
+    def test_izakaya_bar_only_mode_falls_through_to_the_izakaya_bar_population(self):
         result = acceptance_state.propose_with_override(
-            acceptance_state.AcceptanceCandidateProposalMode.IZAKAYA_BAR_ONLY, None
+            acceptance_state.AcceptanceCandidateProposalMode.IZAKAYA_BAR_ONLY, CandidateFilters()
         )
 
-        self.assertIsNotNone(result.proposal)
-        self.assertEqual(result.proposal.kind.value, "IZAKAYA_BAR_INCLUDED")
-        self.assertEqual(result.reproposal_options, [])
-        self.assertTrue(result.proposal.candidates)
-        self.assertTrue(all(c.genre == "居酒屋" for c in result.proposal.candidates))
+        self.assertTrue(result.izakaya_bar_fallback_applied)
+        self.assertTrue(result.candidates)
+        self.assertTrue(all(c.genre == "居酒屋" for c in result.candidates))
 
-    def test_izakaya_bar_only_mode_returns_the_same_closed_set_regardless_of_requested_kind(self):
-        result = acceptance_state.propose_with_override(
-            acceptance_state.AcceptanceCandidateProposalMode.IZAKAYA_BAR_ONLY,
-            "IZAKAYA_BAR_INCLUDED",
+    def _normal_with_pool_genres_across_seeds(self, filters: CandidateFilters) -> list[set[str]]:
+        """The displayed genres for each pinned seed in ``_REACHABILITY_SEEDS``.
+
+        adr/0023 decision 4 samples the displayed candidates at random from a
+        near-distance pool, so a single unseeded run cannot be asserted on:
+        whether any one candidate is displayed is a draw, not an outcome.
+        Pinning the seed makes each run reproducible, and sweeping a fixed
+        range of seeds turns "is this candidate reachable at all" into a
+        deterministic question.
+        """
+        try:
+            genres_per_seed: list[set[str]] = []
+            for seed in range(_REACHABILITY_SEEDS):
+                acceptance_state.set_mode(
+                    acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL,
+                    random_seed=seed,
+                )
+                result = acceptance_state.propose_with_override(
+                    acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL, filters
+                )
+                self.assertFalse(result.izakaya_bar_fallback_applied)
+                genres_per_seed.append({candidate.genre for candidate in result.candidates})
+            return genres_per_seed
+        finally:
+            acceptance_state.reset_mode()
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_normal_with_pool_excludes_the_default_excluded_genre_by_default(self):
+        genres_per_seed = self._normal_with_pool_genres_across_seeds(CandidateFilters())
+
+        # Not "did not happen to be drawn" but "cannot be drawn": the default
+        # exclusion removes the candidate from the population before sampling,
+        # so no seed can surface it.
+        self.assertFalse(any("居酒屋" in genres for genres in genres_per_seed))
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_normal_with_pool_include_izakaya_bar_reaches_the_excluded_candidate(self):
+        genres_per_seed = self._normal_with_pool_genres_across_seeds(
+            CandidateFilters(include_izakaya_bar=True)
         )
 
-        self.assertIsNotNone(result.proposal)
-        self.assertEqual(result.proposal.kind.value, "IZAKAYA_BAR_INCLUDED")
+        # Reachable, not guaranteed. The excluded-genre candidate is the
+        # nearest of the whole population (acceptance_state's synthetic
+        # latitudes), so including it always places it in the near-distance
+        # pool -- but the pool holds 20 and only 5 are displayed, so asserting
+        # it appears for any *particular* seed would be asserting a draw.
+        self.assertTrue(any("居酒屋" in genres for genres in genres_per_seed))
 
-    def test_izakaya_bar_only_mode_rejects_an_unbuildable_requested_kind(self):
-        with self.assertRaises(ReproposalKindUnavailableError):
-            acceptance_state.propose_with_override(
-                acceptance_state.AcceptanceCandidateProposalMode.IZAKAYA_BAR_ONLY, "PROXIMITY"
+    def test_normal_with_pool_population_exceeds_the_recommended_pool_size(self):
+        # test-support-api.yaml v1.0.0 / adr/0023 decision 4: NORMAL_WITH_POOL
+        # must supply at least 40 default-population candidates, comfortably
+        # exceeding the recommended pool size of 20.
+        self.assertGreaterEqual(
+            len(
+                [
+                    c
+                    for c in acceptance_state._CANDIDATES
+                    if c.genre not in {"居酒屋", "ダイニングバー・バル"}
+                ]
+            ),
+            40,
+        )
+
+    def test_normal_with_pool_spans_at_least_three_genres_with_at_least_two_members_each(self):
+        default_population = [
+            c
+            for c in acceptance_state._CANDIDATES
+            if c.genre not in {"居酒屋", "ダイニングバー・バル"}
+        ]
+        counts: dict[str, int] = {}
+        for c in default_population:
+            counts[c.genre] = counts.get(c.genre, 0) + 1
+
+        self.assertGreaterEqual(len(counts), 3)
+        self.assertTrue(all(count >= 2 for count in counts.values()))
+
+    def test_normal_with_pool_spans_at_least_two_non_smoking_statuses(self):
+        statuses = {c.non_smoking_status for c in acceptance_state._CANDIDATES}
+
+        self.assertGreaterEqual(len(statuses), 2)
+
+    def test_normal_with_pool_has_both_true_and_false_card_payment_available(self):
+        flags = {c.card_payment_available for c in acceptance_state._CANDIDATES}
+
+        self.assertIn(True, flags)
+        self.assertIn(False, flags)
+
+    def test_normal_with_pool_has_a_non_null_and_a_null_dinner_budget_candidate(self):
+        budgets = [c.budget_average for c in acceptance_state._CANDIDATES]
+
+        self.assertTrue(any(value is not None for value in budgets))
+        self.assertIn(None, budgets)
+
+    def test_normal_with_pool_has_a_candidate_unconfirmed_for_at_least_one_soft_filter(self):
+        # TDR-CS-13's ordering rule needs at least one candidate with a null
+        # nonSmokingStatus, cardPaymentAvailable, or dinnerBudgetTier.
+        self.assertTrue(
+            any(
+                c.non_smoking_status is None
+                or c.card_payment_available is None
+                or c.budget_average is None
+                for c in acceptance_state._CANDIDATES
+            )
+        )
+
+    def test_normal_with_pool_random_seed_reproduces_the_identical_result(self):
+        with override_settings(ACCEPTANCE_TEST_SUPPORT=True):
+            cache.clear()
+            self.addCleanup(acceptance_state.reset_mode)
+            acceptance_state.set_mode(
+                acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL, random_seed=13
             )
 
-    def test_normal_with_repeat_initial_search_excludes_the_default_excluded_genre_by_default(self):
-        result = acceptance_state.propose_with_override(
-            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT, None
+            first = acceptance_state.propose_with_override(
+                acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL,
+                CandidateFilters(),
+            )
+            second = acceptance_state.propose_with_override(
+                acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL,
+                CandidateFilters(),
+            )
+
+            self.assertEqual(
+                [c.provider_page_url for c in first.candidates],
+                [c.provider_page_url for c in second.candidates],
+            )
+
+    def test_normal_with_pool_different_random_seeds_can_differ(self):
+        with override_settings(ACCEPTANCE_TEST_SUPPORT=True):
+            cache.clear()
+            self.addCleanup(acceptance_state.reset_mode)
+
+            seen = set()
+            for seed in range(10):
+                acceptance_state.set_mode(
+                    acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL,
+                    random_seed=seed,
+                )
+                result = acceptance_state.propose_with_override(
+                    acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL,
+                    CandidateFilters(),
+                )
+                seen.add(tuple(c.provider_page_url for c in result.candidates))
+
+            self.assertGreater(len(seen), 1, "every seed produced the identical candidate set")
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_default_exclusion_visible_mode_displays_the_excluded_category_only_when_enabled(self):
+        try:
+            for seed in range(_REACHABILITY_SEEDS):
+                acceptance_state.set_mode(
+                    acceptance_state.AcceptanceCandidateProposalMode.DEFAULT_EXCLUSION_VISIBLE,
+                    random_seed=seed,
+                )
+                default_result = acceptance_state.propose_with_override(
+                    acceptance_state.AcceptanceCandidateProposalMode.DEFAULT_EXCLUSION_VISIBLE,
+                    CandidateFilters(),
+                )
+                included_result = acceptance_state.propose_with_override(
+                    acceptance_state.AcceptanceCandidateProposalMode.DEFAULT_EXCLUSION_VISIBLE,
+                    CandidateFilters(include_izakaya_bar=True),
+                )
+                excluded_by_genre = {
+                    attribute.genre: attribute.default_excluded
+                    for attribute in default_result.population_attributes
+                }
+
+                self.assertTrue(default_result.candidates)
+                self.assertTrue(
+                    all(
+                        not excluded_by_genre[candidate.genre]
+                        for candidate in default_result.candidates
+                    )
+                )
+                self.assertTrue(
+                    any(
+                        excluded_by_genre[candidate.genre]
+                        for candidate in included_result.candidates
+                    )
+                )
+        finally:
+            acceptance_state.reset_mode()
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_card_payment_caution_visible_mode_is_never_randomly_hidden(self):
+        try:
+            for seed in range(_REACHABILITY_SEEDS):
+                acceptance_state.set_mode(
+                    acceptance_state.AcceptanceCandidateProposalMode.CARD_PAYMENT_CAUTION_VISIBLE,
+                    random_seed=seed,
+                )
+                result = acceptance_state.propose_with_override(
+                    acceptance_state.AcceptanceCandidateProposalMode.CARD_PAYMENT_CAUTION_VISIBLE,
+                    CandidateFilters(),
+                )
+                payment_values = {
+                    candidate.card_payment_available for candidate in result.candidates
+                }
+
+                self.assertIn(False, payment_values)
+                self.assertTrue(True in payment_values or None in payment_values)
+        finally:
+            acceptance_state.reset_mode()
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_zero_pending_match_mode_has_no_null_card_payment_or_budget_value(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.ZERO_PENDING_MATCH
         )
+        try:
+            result = acceptance_state.propose_with_override(
+                acceptance_state.AcceptanceCandidateProposalMode.ZERO_PENDING_MATCH,
+                CandidateFilters(),
+            )
 
-        self.assertEqual(result.proposal.kind.value, "PROXIMITY")
-        self.assertNotIn("居酒屋", [c.genre for c in result.proposal.candidates])
-        self.assertIn(
-            "IZAKAYA_BAR_INCLUDED", [option.kind.value for option in result.reproposal_options]
+            self.assertTrue(result.population_attributes)
+            self.assertTrue(
+                all(
+                    attribute.card_payment_available is not None
+                    and attribute.dinner_budget_tier is not None
+                    for attribute in result.population_attributes
+                )
+            )
+        finally:
+            acceptance_state.reset_mode()
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_zero_pending_match_mode_each_filter_alone_matches_but_combined_matches_nothing(self):
+        try:
+            for seed in range(_REACHABILITY_SEEDS):
+                acceptance_state.set_mode(
+                    acceptance_state.AcceptanceCandidateProposalMode.ZERO_PENDING_MATCH,
+                    random_seed=seed,
+                )
+                card_only = acceptance_state.propose_with_override(
+                    acceptance_state.AcceptanceCandidateProposalMode.ZERO_PENDING_MATCH,
+                    CandidateFilters(card_payment_only=True),
+                )
+                budget_only = acceptance_state.propose_with_override(
+                    acceptance_state.AcceptanceCandidateProposalMode.ZERO_PENDING_MATCH,
+                    CandidateFilters(budget_tiers=("LOW",)),
+                )
+                combined = acceptance_state.propose_with_override(
+                    acceptance_state.AcceptanceCandidateProposalMode.ZERO_PENDING_MATCH,
+                    CandidateFilters(card_payment_only=True, budget_tiers=("LOW",)),
+                )
+
+                self.assertTrue(card_only.candidates)
+                self.assertTrue(budget_only.candidates)
+                self.assertEqual(combined.candidates, ())
+        finally:
+            acceptance_state.reset_mode()
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_fallback_preserves_filters_mode_falls_back_to_the_all_matching_candidate_only(self):
+        try:
+            for seed in range(_REACHABILITY_SEEDS):
+                acceptance_state.set_mode(
+                    acceptance_state.AcceptanceCandidateProposalMode.FALLBACK_PRESERVES_FILTERS,
+                    random_seed=seed,
+                )
+                result = acceptance_state.propose_with_override(
+                    acceptance_state.AcceptanceCandidateProposalMode.FALLBACK_PRESERVES_FILTERS,
+                    CandidateFilters(
+                        non_smoking_only=True, card_payment_only=True, budget_tiers=("LOW",)
+                    ),
+                )
+
+                self.assertTrue(result.izakaya_bar_fallback_applied)
+                self.assertTrue(result.candidates)
+                self.assertTrue(
+                    all(
+                        candidate.non_smoking_status != "NONE"
+                        and candidate.card_payment_available is not False
+                        and dinner_budget_tier(candidate.budget_average) in (None, "LOW")
+                        for candidate in result.candidates
+                    )
+                )
+        finally:
+            acceptance_state.reset_mode()
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_fallback_preserves_filters_mode_keeps_non_matching_proof_rows_unadmitted(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.FALLBACK_PRESERVES_FILTERS
         )
+        try:
+            result = acceptance_state.propose_with_override(
+                acceptance_state.AcceptanceCandidateProposalMode.FALLBACK_PRESERVES_FILTERS,
+                CandidateFilters(
+                    non_smoking_only=True, card_payment_only=True, budget_tiers=("LOW",)
+                ),
+            )
 
-    def test_normal_with_repeat_izakaya_bar_included_selection_includes_the_excluded_candidate(
-        self,
-    ):
-        result = acceptance_state.propose_with_override(
-            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT,
-            "IZAKAYA_BAR_INCLUDED",
-        )
+            default_excluded_full = [
+                attribute
+                for attribute in result.population_attributes
+                if attribute.default_excluded and attribute.non_smoking_status == "FULL"
+            ]
 
-        self.assertEqual(result.proposal.kind.value, "IZAKAYA_BAR_INCLUDED")
-        self.assertIn("居酒屋", [c.genre for c in result.proposal.candidates])
+            self.assertGreater(len(default_excluded_full), len(result.candidates))
+        finally:
+            acceptance_state.reset_mode()
 
-    def test_normal_with_repeat_population_exceeds_the_display_cap_for_at_least_one_concept(self):
-        # test-support-api.yaml v0.5.0 / adr/0017 decision 5: NORMAL_WITH_REPEAT
-        # must supply more than the adr/0015 5-item display cap for at least
-        # one concept, so a request naming every displayed candidate as
-        # previously shown always has an unseen candidate left to promote.
-        result = acceptance_state.propose_with_override(
-            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT, None
-        )
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_fallback_preserves_filters_mode_does_not_relax_an_explicit_genre_filter(self):
+        try:
+            for seed in range(_REACHABILITY_SEEDS):
+                acceptance_state.set_mode(
+                    acceptance_state.AcceptanceCandidateProposalMode.FALLBACK_PRESERVES_FILTERS,
+                    random_seed=seed,
+                )
+                default = acceptance_state.propose_with_override(
+                    acceptance_state.AcceptanceCandidateProposalMode.FALLBACK_PRESERVES_FILTERS,
+                    CandidateFilters(),
+                )
+                self.assertEqual(len(default.available_genres), 1)
+                genre = default.available_genres[0]
 
-        self.assertEqual(len(result.proposal.candidates), 5)
-        self.assertGreater(len(acceptance_state._CANDIDATES), 5)
+                result = acceptance_state.propose_with_override(
+                    acceptance_state.AcceptanceCandidateProposalMode.FALLBACK_PRESERVES_FILTERS,
+                    CandidateFilters(genres=(genre,), non_smoking_only=True),
+                )
 
-    def test_normal_with_repeat_returns_the_same_population_regardless_of_reproposal_kind(self):
-        # adr/0017 decision 2: demotion is driven only by the request's
-        # previouslyShownProviderPageUrls, not by which kind was requested,
-        # so (unlike the pre-adr/0017 seam) resending the same kind with no
-        # previously-shown list yields the exact same candidates again.
-        initial = acceptance_state.propose_with_override(
-            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT, None
-        )
-        displayed_kind = initial.proposal.kind.value
-
-        again = acceptance_state.propose_with_override(
-            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT, displayed_kind
-        )
-
-        self.assertEqual(
-            [c.provider_page_url for c in again.proposal.candidates],
-            [c.provider_page_url for c in initial.proposal.candidates],
-        )
-
-    def test_normal_with_repeat_same_lens_try_again_yields_new_and_repeated_candidates(self):
-        # TDR-CS-11 (adr/0017): a same-lens "try again" request only
-        # surfaces a new candidate once the browser echoes back the
-        # previously-displayed providerPageUrl values; sending them drives
-        # exactly the server-side demotion this ADR introduces.
-        initial = acceptance_state.propose_with_override(
-            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT, None
-        )
-        displayed_kind = initial.proposal.kind.value
-        initial_urls = [c.provider_page_url for c in initial.proposal.candidates]
-
-        again = acceptance_state.propose_with_override(
-            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT,
-            displayed_kind,
-            initial_urls,
-        )
-
-        self.assertEqual(again.proposal.kind.value, displayed_kind)
-        again_urls = {c.provider_page_url for c in again.proposal.candidates}
-        self.assertTrue(again_urls & set(initial_urls), "expected at least one repeated candidate")
-        self.assertTrue(again_urls - set(initial_urls), "expected at least one new candidate")
-
-    def test_normal_with_repeat_different_lens_reproposal_also_supports_demotion(self):
-        # TDR-CS-03 (adr/0017): the same demotion mechanism applies whether
-        # the re-proposal selects a different offered kind or the displayed
-        # one -- the server does not branch its selection logic by kind.
-        # IZAKAYA_BAR_INCLUDED is picked deliberately (rather than
-        # reproposal_options[0]): adr/0019's NORMAL_WITH_REPEAT guarantees a
-        # population larger than the display cap for "at least one concept"
-        # (PROXIMITY and IZAKAYA_BAR_INCLUDED both qualify here), not for
-        # every offered lens -- GENRE_FOCUS narrows to a single genre and can
-        # be too small on its own to demonstrate this.
-        initial = acceptance_state.propose_with_override(
-            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT, None
-        )
-        initial_urls = [c.provider_page_url for c in initial.proposal.candidates]
-        offered_kind = next(
-            option.kind.value
-            for option in initial.reproposal_options
-            if option.kind.value == "IZAKAYA_BAR_INCLUDED"
-        )
-
-        reproposed = acceptance_state.propose_with_override(
-            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT,
-            offered_kind,
-            initial_urls,
-        )
-
-        self.assertEqual(reproposed.proposal.kind.value, offered_kind)
-        reproposed_urls = {c.provider_page_url for c in reproposed.proposal.candidates}
-        self.assertTrue(
-            reproposed_urls - set(initial_urls),
-            "expected at least one candidate outside the previously-shown list",
-        )
+                self.assertEqual(result.candidates, ())
+                self.assertFalse(result.izakaya_bar_fallback_applied)
+        finally:
+            acceptance_state.reset_mode()

@@ -1,11 +1,89 @@
+import os
 import re
+from io import StringIO
+from unittest.mock import patch
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
+from django.core.management import CommandError, call_command
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
+
+
+class OrganizerProvisioningCommandTests(TestCase):
+    def test_if_configured_is_a_no_op_when_both_secrets_are_absent(self):
+        output = StringIO()
+        with patch.dict(os.environ, {}, clear=True):
+            call_command("provision_organizer", "--if-configured", stdout=output)
+
+        self.assertEqual(get_user_model().objects.count(), 0)
+        self.assertIn("nothing to do", output.getvalue())
+
+    def test_configured_organizer_is_created_without_operator_privileges(self):
+        environment = {
+            "DJANGO_BOOTSTRAP_ORGANIZER_USERNAME": "deployment-organizer",
+            "DJANGO_BOOTSTRAP_ORGANIZER_PASSWORD": "Synthetic-deploy-passphrase-123!",
+        }
+        output = StringIO()
+        with patch.dict(os.environ, environment, clear=True):
+            call_command("provision_organizer", stdout=output)
+
+        user = get_user_model().objects.get(username="deployment-organizer")
+        self.assertTrue(user.is_active)
+        self.assertFalse(user.is_staff)
+        self.assertFalse(user.is_superuser)
+        self.assertTrue(user.check_password(environment["DJANGO_BOOTSTRAP_ORGANIZER_PASSWORD"]))
+        self.assertIn("created", output.getvalue())
+
+    def test_existing_organizer_password_and_permissions_are_never_rewritten(self):
+        user = get_user_model().objects.create_user(
+            username="deployment-organizer",
+            password="Existing-passphrase-123!",
+            is_staff=True,
+        )
+        environment = {
+            "DJANGO_BOOTSTRAP_ORGANIZER_USERNAME": user.username,
+            "DJANGO_BOOTSTRAP_ORGANIZER_PASSWORD": "Replacement-passphrase-456!",
+        }
+        with patch.dict(os.environ, environment, clear=True):
+            call_command("provision_organizer")
+
+        user.refresh_from_db()
+        self.assertTrue(user.check_password("Existing-passphrase-123!"))
+        self.assertTrue(user.is_staff)
+
+    def test_partial_or_weak_bootstrap_configuration_is_rejected_without_echoing_secrets(self):
+        with (
+            patch.dict(
+                os.environ,
+                {"DJANGO_BOOTSTRAP_ORGANIZER_USERNAME": "deployment-organizer"},
+                clear=True,
+            ),
+            self.assertRaisesRegex(CommandError, "Both DJANGO_BOOTSTRAP"),
+        ):
+            call_command("provision_organizer")
+
+        with (
+            override_settings(
+                AUTH_PASSWORD_VALIDATORS=[
+                    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"}
+                ]
+            ),
+            patch.dict(
+                os.environ,
+                {
+                    "DJANGO_BOOTSTRAP_ORGANIZER_USERNAME": "deployment-organizer",
+                    "DJANGO_BOOTSTRAP_ORGANIZER_PASSWORD": "123",
+                },
+                clear=True,
+            ),
+            self.assertRaisesRegex(CommandError, "not acceptable") as error,
+        ):
+            call_command("provision_organizer")
+
+        self.assertNotIn("123", str(error.exception))
 
 
 class AuthenticationFlowTests(TestCase):

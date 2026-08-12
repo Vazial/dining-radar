@@ -91,50 +91,101 @@
     .candidate-account-menu-panel button:hover { background: #f4f5f1; }
     .candidate-account-menu-panel form { margin: 0; width: 100%; }
 
-    /* Concept banner: current lens heading + re-proposal starting point(s)
-       (ADR-0012 skeleton block 2). Point 3: the action group is always
-       pushed to the row's end (margin-left: auto on the wrapping group)
-       instead of relying on justify-content: space-between, which
-       left-aligned it once it wrapped onto its own line under the
-       rationale text -- that was the reported "左詰め" defect.
-       candidate-proposal-content also gets its own vertical rhythm (see
-       below) so this banner no longer sits flush against the map/cards
-       below it ("地図と接近"). candidate-concept-actions groups the
-       always-available "もう一度探す" (try again, adr/0016 decision 2) and
-       "別の選び方でもう一度探す" (open the lens-choice dialog) controls
-       together as one unit at the row's end, so the margin-left: auto only
-       needs to move once instead of being duplicated per button. */
-    .candidate-concept-banner {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: flex-start;
-      gap: 0.6rem;
+    /* Filter surface (human design review 2026-08-10). Replaces the
+       "絞り込む" button + modal dialog pair, which the reviewer rejected
+       outright ("なぜボタン？"). Collapsed it is one summary row naming the
+       conditions currently in effect; expanded it adds one labelled chip row
+       per category. The row label sits to the LEFT of its chips rather than
+       above them, which is what keeps each category to a single line at
+       375px. Genres overflow behind a "ほか N件…" control (candidate.js
+       GENRE_PREVIEW_COUNT) so this surface's height does not grow with the
+       number of genres the provider happens to return. */
+    .candidate-filter-bar {
+      background: #fff; border: 1px solid #dce3da; border-radius: 0.75rem;
+      overflow: hidden;
     }
-    .candidate-concept-copy { min-width: 0; }
-    [data-testid="candidate-concept-title"] { margin: 0 0 0.35rem; font-size: 1.2rem; line-height: 1.3; }
-    [data-testid="candidate-concept-rationale"] { margin: 0; color: #536057; font-size: 0.9rem; }
-    .candidate-concept-actions {
-      display: flex; flex-wrap: wrap; gap: 0.5rem; margin-left: auto;
+    .candidate-filter-head { display: flex; align-items: stretch; gap: 0.5rem; padding: 0.5rem 0.6rem; }
+    .candidate-filter-summary {
+      flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.5rem;
+      border: 0; background: transparent; font: inherit; text-align: left;
+      padding: 0.35rem 0.45rem; border-radius: 0.5rem; cursor: pointer; min-height: 2.75rem;
     }
-    [data-testid="candidate-reproposal-open"],
-    [data-testid="candidate-reproposal-try-again"] {
-      display: inline-flex; align-items: center; justify-content: center;
-      min-height: 2.75rem; padding: 0.55rem 1.1rem; border-radius: 0.5rem;
-      font: inherit; font-weight: 650; cursor: pointer; white-space: nowrap;
+    .candidate-filter-summary:hover { background: #f4f6f2; }
+    .candidate-filter-summary-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+    .candidate-filter-summary-text {
+      font-weight: 700; font-size: 0.95rem; color: #17201b;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
-    [data-testid="candidate-reproposal-open"] {
-      border: 0; background: #155c42; color: #fff;
+    /* The one thing a batch-apply filter must say out loud: the chips you are
+       looking at are not what produced the candidates below. */
+    .candidate-filter-pending { font-size: 0.75rem; color: #8a6d1f; font-weight: 650; }
+    .candidate-filter-caret { color: #68766c; font-size: 0.9rem; flex: 0 0 auto; }
+    .candidate-search-again {
+      flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+      min-height: 2.75rem; padding: 0 0.9rem; border-radius: 0.5rem;
+      border: 1px solid #14684a; background: #fff; color: #14684a;
+      font: inherit; font-weight: 700; font-size: 0.875rem; cursor: pointer; white-space: nowrap;
     }
-    [data-testid="candidate-reproposal-open"]:hover { background: #0e4933; }
-    /* "もう一度探す" reads as the lighter-weight action of the pair (it
-       repeats the same lens rather than opening a choice), so it uses an
-       outline treatment instead of the reproposal-open button's solid
-       fill. */
-    [data-testid="candidate-reproposal-try-again"] {
-      border: 1px solid #155c42; background: #fff; color: #155c42;
+    .candidate-search-again:hover { background: #e9f1eb; }
+
+    .candidate-filter-panel {
+      border-top: 1px solid #eceee9; padding: 0.75rem 0.85rem 0.85rem;
+      display: flex; flex-direction: column; gap: 0.7rem;
     }
-    [data-testid="candidate-reproposal-try-again"]:hover { background: #eaf3ee; }
+    .candidate-filter-row { display: flex; align-items: flex-start; gap: 0.7rem; }
+    .candidate-filter-row-label {
+      flex: 0 0 4rem; font-size: 0.8125rem; font-weight: 700; color: #68766c;
+      padding-top: 0.55rem;
+    }
+    .candidate-filter-row-chips { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 0.35rem; }
+    .candidate-chip {
+      display: inline-flex; align-items: center; min-height: 2.25rem; padding: 0 0.75rem;
+      border-radius: 999px; border: 1px solid #dfe4dc; background: #fff; color: #3d4a41;
+      font: inherit; font-size: 0.8125rem; font-weight: 650; cursor: pointer; white-space: nowrap;
+    }
+    .candidate-chip:hover { background: #f4f6f2; }
+    .candidate-chip[data-pressed="true"] {
+      background: #14684a; border-color: #14684a; color: #fff;
+    }
+    .candidate-chip[data-pressed="true"]::after { content: " ✓"; }
+    .candidate-chip-quiet { color: #68766c; border-style: dashed; }
+    .candidate-chip:focus-visible,
+    .candidate-filter-summary:focus-visible,
+    .candidate-search-again:focus-visible { outline: 2px solid #14684a; outline-offset: 2px; }
+
+    .candidate-filter-actions {
+      display: flex; align-items: center; gap: 0.6rem; padding-top: 0.15rem;
+    }
+    .candidate-filter-revert {
+      border: 0; background: transparent; color: #68766c; font: inherit; font-size: 0.8125rem;
+      font-weight: 650; cursor: pointer; min-height: 2.75rem; padding: 0 0.35rem;
+    }
+    .candidate-filter-revert:disabled { opacity: 0.4; cursor: default; }
+    .candidate-filter-apply {
+      margin-left: auto; border: 0; border-radius: 0.6rem; background: #14684a; color: #fff;
+      font: inherit; font-weight: 700; font-size: 0.9rem; cursor: pointer;
+      min-height: 2.75rem; padding: 0 1.4rem;
+    }
+    .candidate-filter-apply:hover { background: #0d4b35; }
+    .candidate-filter-apply:disabled { background: #b9c2ba; cursor: default; }
+    .candidate-budget-tier-note { margin: 0; font-size: 0.75rem; color: #85908a; line-height: 1.5; }
     [data-testid="candidate-proposal-content"] { display: flex; flex-direction: column; gap: 1.25rem; }
+
+    /* adr/0023 decision 6: disclosed only when the response's
+       izakayaBarFallbackApplied is true. Styled as a notice, not an error --
+       it explains a widened search, not a failure. */
+    .candidate-fallback-notice {
+      margin: 0; padding: 0.6rem 0.85rem; border-radius: 0.4rem;
+      background: #eef2ee; border: 1px solid #cddccf; color: #33402f;
+      font-size: 0.875rem; line-height: 1.5;
+    }
+
+    /* adr/0023 decision 10: the single screen-level budget-tier disclosure
+       and yen-range mapping. Static server-rendered content (not produced by
+       candidate.js), so it is present at all times on the authenticated
+       screen regardless of the current proposal/no-results/problem outcome
+       (candidate-search-browser-interface.yaml's own
+       budgetTierNoteObservation.presenceRule). */
 
     /* Candidate map + card list (ADR-0012 skeleton block 3). PC (human-
        approved 2026-08-06): cards are the primary column, the map is a
@@ -210,9 +261,6 @@
       margin: 0; background: #eef2ee; color: #43524a;
       font-size: 0.8125rem; font-weight: 650; padding: 0.15rem 0.55rem; border-radius: 999px;
     }
-    .candidate-chip { font-size: 0.75rem; font-weight: 650; padding: 0.1rem 0.5rem; border-radius: 999px; }
-    .candidate-chip-new { background: #eaf5ee; color: #1a6b45; border: 1px solid #bfe3cc; }
-    .candidate-chip-repeated { background: #f4f5f1; color: #62716a; border: 1px solid #dce3da; }
 
     [data-testid="candidate-card-name"] { margin: 0; font-size: 1.05rem; line-height: 1.35; }
 
@@ -322,26 +370,287 @@
       line-height: 2.75rem !important;
     }
 
-    /* Re-proposal modal (ADR-0012 skeleton block 4). z-index: 1000 is an
-       explicit stacking-context tiebreaker (orchestrator real-device
-       measurement, adr/0016 developer hand-off): #candidate-reproposal-
-       overlay is `position: fixed` and .leaflet-container is `position:
-       relative`, and neither previously declared a z-index, so Leaflet's
-       own internal panes (z-index 200-700, an implementation detail of
-       vendored Leaflet, not authored here) could end up painted above this
-       overlay depending on how the browser resolves the shared ancestor
-       stacking context. An explicit, clearly-higher z-index here removes
-       that ambiguity outright rather than depending on DOM order. */
-    #candidate-reproposal-overlay:not([hidden]) {
-      position: fixed; inset: 0; z-index: 1000; background: rgb(28 36 32 / 45%);
-      display: flex; align-items: center; justify-content: center; padding: 1rem;
+    /* The candidate surface is a map-led decision space. The cards form a
+       horizontally scrollable deck that overlaps the bottom edge of the map:
+       it keeps the shops and their relative locations in one visual unit
+       instead of turning the page into a map followed by a long list. */
+    .candidate-main-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: "map" "cards";
+      gap: 0;
     }
-    [data-testid="candidate-reproposal-dialog"] { background: #fff; border-radius: 0.75rem; padding: 1.25rem; max-width: 32rem; width: 100%; }
-    [data-testid="candidate-reproposal-option"] {
-      display: block; width: 100%; min-height: 2.75rem; text-align: left;
-      margin-bottom: 0.5rem; padding: 0.6rem 0.75rem; background: #f4f5f1; color: #1c2420; border-radius: 0.4rem;
+    .candidate-map-wrapper {
+      position: relative;
+      grid-area: map;
+      padding-bottom: 1.85rem;
+      z-index: 0;
+      isolation: isolate;
     }
-    [data-testid="candidate-reproposal-cancel"] { min-height: 2.75rem; padding: 0.55rem 1.1rem; }
+    [data-testid="candidate-map"] {
+      height: clamp(22rem, 58vh, 34rem);
+      border-radius: 0.9rem;
+    }
+    [data-testid="candidate-map-attribution"] {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.5rem;
+      z-index: 1000;
+      margin: 0;
+      padding: 0.3rem 0.45rem;
+      border-radius: 0.35rem;
+      background: rgb(255 255 255 / 92%);
+      box-shadow: 0 1px 3px rgb(23 49 36 / 18%);
+    }
+    [data-testid="candidate-proposal-cards"] {
+      grid-area: cards;
+      display: flex;
+      align-items: flex-start;
+      position: relative;
+      z-index: 2;
+      gap: 0.75rem;
+      overflow-x: auto;
+      overscroll-behavior-inline: contain;
+      scroll-snap-type: inline mandatory;
+      scroll-padding-inline: 1rem;
+      scrollbar-width: thin;
+      margin-top: -8.25rem;
+      padding: 0 1rem 1rem;
+    }
+    [data-testid="candidate-card"] {
+      box-sizing: border-box;
+      flex: 0 0 min(21rem, calc(100% - 2.5rem));
+      min-height: 14.5rem;
+      scroll-snap-align: center;
+      border-radius: 0.9rem;
+      box-shadow: 0 0.65rem 1.5rem rgb(23 49 36 / 16%);
+      gap: 0.45rem;
+    }
+    [data-testid="candidate-card"] dl.candidate-facts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem;
+      padding: 0;
+      background: transparent;
+      border: 0;
+    }
+    [data-testid="candidate-card"] dl.candidate-facts > div {
+      display: inline-flex;
+      align-items: baseline;
+      grid-template-columns: none;
+      column-gap: 0.25rem;
+      padding: 0.25rem 0.45rem;
+      border-radius: 0.45rem;
+      background: #f3f6f2;
+    }
+    [data-testid="candidate-card"] dl.candidate-facts dt,
+    [data-testid="candidate-card"] dl.candidate-facts dd { font-size: 0.75rem; }
+    [data-testid="candidate-card"] dl.candidate-facts dd { line-height: 1.35; }
+    [data-testid="candidate-card-description"] { line-height: 1.45; }
+    .candidate-filter-head { align-items: center; }
+    .candidate-search-again:disabled { opacity: 0.42; cursor: not-allowed; }
+    .candidate-filter-row-label { flex-basis: 4.6rem; }
+    .candidate-chip,
+    .candidate-filter-apply,
+    .candidate-filter-revert { min-height: 2.75rem; }
+    .candidate-chip { min-width: 2.75rem; }
+    .candidate-budget-tier-note { color: #536057; font-size: 0.8125rem; }
+
+    @media (max-width: 63.999rem) {
+      .app-shell { width: 100%; padding: 0; }
+      .app-card { padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+      header[data-testid="authenticated-application-shell"] { padding: 0.8rem 1rem; }
+      #candidate-filter-bar { margin: 0 0.75rem; }
+      [data-testid="candidate-proposal-content"] { gap: 0.35rem; }
+      .candidate-filter-panel { padding: 0.7rem; }
+      .candidate-filter-row { gap: 0.45rem; }
+      .candidate-filter-row-label { flex-basis: 3.85rem; }
+      [data-testid="candidate-map"] {
+        height: clamp(20rem, 52dvh, 28rem);
+        border-radius: 0;
+      }
+      .candidate-map-wrapper { padding-bottom: 1.6rem; }
+      [data-testid="candidate-proposal-cards"] {
+        margin-top: -8.25rem;
+        scrollbar-width: none;
+      }
+      [data-testid="candidate-proposal-cards"]::-webkit-scrollbar { display: none; }
+      [data-testid="candidate-card"] {
+        width: calc(100% - 2.5rem);
+        max-width: calc(100% - 2.5rem);
+        min-height: 0;
+        padding: 0.65rem 0.75rem;
+        gap: 0.35rem;
+      }
+      [data-testid="candidate-card"] dl.candidate-facts > div:nth-child(-n + 2) {
+        flex: 0 0 100%;
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        overflow: hidden;
+      }
+      [data-testid="candidate-card"] dl.candidate-facts > div:nth-child(-n + 2) dd {
+        display: block;
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        -webkit-line-clamp: unset;
+      }
+      .candidate-payment-caution {
+        padding: 0.4rem 0.55rem;
+        white-space: nowrap;
+      }
+    }
+
+    @media (min-width: 64rem) {
+      .app-shell { padding-bottom: 0.75rem; }
+      .candidate-main-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "map" "cards"; }
+      .candidate-map-wrapper { position: relative; top: auto; }
+      [data-testid="candidate-map"] { height: clamp(22rem, 50dvh, 34rem); }
+      [data-testid="candidate-proposal-cards"] {
+        margin-top: -9.25rem;
+        padding-inline: 1.5rem;
+      }
+      [data-testid="candidate-card"] { flex-basis: min(23rem, 30%); }
+    }
+
+    /* Human-approved mobile composition (2026-08-11). The map remains the
+       decision surface; controls and cards are deliberately compact layers
+       over it instead of separate full-width sections. */
+    .visually-hidden {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+    }
+    .candidate-filter-summary-icon,
+    .candidate-search-again-icon { font-size: 1.2rem; line-height: 1; }
+    .candidate-filter-summary-label {
+      font-size: 0.6875rem; line-height: 1; color: #738078; font-weight: 700;
+    }
+    .candidate-card-detail-footer {
+      display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
+    }
+    .candidate-main-layout { position: relative; }
+    .candidate-card-detail-footer .candidate-fact-row {
+      display: flex; align-items: baseline; min-width: 0; gap: 0.3rem;
+    }
+    .candidate-card-detail-footer dt { flex: 0 0 auto; color: #68766c; font-size: 0.75rem; font-weight: 650; }
+    .candidate-card-detail-footer dd {
+      margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      color: #29342e; font-size: 0.8125rem;
+    }
+    .candidate-deck-counter {
+      position: absolute; z-index: 4; right: 1rem; bottom: 15.1rem;
+      min-width: 2.75rem; padding: 0.28rem 0.55rem; border-radius: 999px;
+      background: rgb(28 36 32 / 88%); color: #fff; font-size: 0.75rem;
+      font-weight: 750; text-align: center; box-shadow: 0 2px 6px rgb(28 36 32 / 20%);
+    }
+
+    @media (max-width: 63.999rem) {
+      header[data-testid="authenticated-application-shell"] {
+        box-sizing: border-box; min-height: 3.25rem; padding: 0.25rem 0.75rem;
+        flex-wrap: nowrap; background: #fff;
+      }
+      header[data-testid="authenticated-application-shell"] .app-header h1 { font-size: 1.08rem; }
+      .candidate-account-note { width: 2.75rem; height: 2.75rem; background: transparent; }
+      .candidate-account-menu summary {
+        box-sizing: border-box; width: 2.75rem; min-height: 2.75rem; padding: 0;
+        justify-content: center; border: 0; font-size: 1.15rem;
+      }
+      .candidate-account-menu-label { display: none; }
+      #candidate-app { gap: 0; }
+      #candidate-filter-bar {
+        margin: 0; border-width: 1px 0; border-radius: 0; position: relative; z-index: 5;
+      }
+      .candidate-filter-head { box-sizing: border-box; height: 3.5rem; padding: 0.35rem 0.5rem; gap: 0.25rem; }
+      .candidate-filter-summary { min-height: 2.75rem; padding: 0 0.35rem; gap: 0.4rem; }
+      .candidate-filter-summary-body { flex-direction: row; align-items: center; gap: 0.4rem; }
+      .candidate-filter-summary-text { font-size: 0.875rem; }
+      .candidate-filter-pending {
+        width: 0.45rem; height: 0.45rem; overflow: hidden; color: transparent;
+        flex: 0 0 0.45rem; border-radius: 50%; background: #b77b18;
+      }
+      .candidate-search-again {
+        box-sizing: border-box; width: 2.75rem; min-height: 2.75rem; padding: 0;
+        border: 0; border-radius: 50%;
+      }
+      .candidate-filter-panel { padding: 0 0 0.45rem; gap: 0; }
+      .candidate-filter-row {
+        box-sizing: border-box; height: 3.25rem; align-items: center; gap: 0;
+        border-bottom: 1px solid #f0f1ed;
+      }
+      .candidate-filter-row-label {
+        flex: 0 0 3.9rem; padding: 0 0 0 0.75rem; font-size: 0.75rem;
+      }
+      .candidate-filter-row-chips {
+        flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-inline: contain;
+        scrollbar-width: none; gap: 0.35rem; padding: 0.25rem 0.75rem 0.25rem 0;
+      }
+      .candidate-filter-row-chips::-webkit-scrollbar { display: none; }
+      .candidate-chip { flex: 0 0 auto; min-width: 2.75rem; min-height: 2.75rem; padding: 0 0.75rem; }
+      .candidate-filter-actions { min-height: 3.25rem; padding: 0.25rem 0.75rem 0; }
+      .candidate-budget-tier-note { margin: 0.35rem 0.75rem 0; font-size: 0.7rem; line-height: 1.35; }
+      [data-testid="candidate-proposal-content"] { position: relative; gap: 0; }
+      .candidate-main-layout {
+        position: relative; display: block; height: calc(100dvh - 6.875rem); min-height: 32rem;
+      }
+      .candidate-map-wrapper { position: absolute; inset: 0; padding: 0; }
+      [data-testid="candidate-map"] { width: 100%; height: 100%; border-radius: 0; }
+      [data-testid="candidate-map-attribution"] { top: 0.4rem; right: 0.4rem; font-size: 0.65rem; }
+      [data-testid="candidate-proposal-cards"] {
+        position: absolute; z-index: 3; left: 0; right: 0; bottom: 1.55rem;
+        margin: 0; padding: 0.75rem 1rem; gap: 0.75rem; align-items: stretch;
+        scroll-padding-inline: 1rem;
+      }
+      [data-testid="candidate-card"] {
+        flex: 0 0 calc(100vw - 2rem); width: calc(100vw - 2rem); max-width: 25.625rem;
+        min-height: 12.9rem; max-height: 13.5rem; padding: 0.7rem 0.8rem; gap: 0.35rem;
+        overflow: hidden; scroll-snap-align: center;
+      }
+      [data-testid="candidate-card-name"] {
+        font-size: 1rem; line-height: 1.25; white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis;
+      }
+      [data-testid="candidate-card"] dl.candidate-facts {
+        flex-wrap: nowrap; gap: 0.3rem; overflow: hidden;
+      }
+      [data-testid="candidate-card"] dl.candidate-facts > div {
+        flex: 1 1 0; width: auto; max-width: none; min-width: 0; padding: 0.28rem 0.35rem;
+        display: flex; flex-direction: column; align-items: flex-start; gap: 0.05rem;
+        overflow: hidden;
+      }
+      [data-testid="candidate-card"] dl.candidate-facts > div:nth-child(-n + 2) {
+        flex: 1 1 0; width: auto; max-width: none;
+      }
+      [data-testid="candidate-card"] dl.candidate-facts > .candidate-fact-row--candidate-card-description {
+        display: none;
+      }
+      [data-testid="candidate-card"] dl.candidate-facts dt,
+      [data-testid="candidate-card"] dl.candidate-facts dd {
+        display: block; flex: 0 1 auto; max-width: 100%; overflow: hidden;
+        text-overflow: ellipsis; white-space: nowrap;
+      }
+      .candidate-payment-caution {
+        padding: 0.2rem 0.4rem; font-size: 0.7rem; line-height: 1.25; border: 0;
+      }
+      [data-testid="candidate-card-provider-page-link"] {
+        flex: 0 0 auto; align-self: center; min-height: 2.75rem; padding: 0 0.8rem;
+        font-size: 0.8125rem;
+      }
+      .candidate-deck-counter { right: 1rem; bottom: 15.15rem; }
+      [data-testid="candidate-provider-credit"] {
+        position: absolute; z-index: 4; left: 0.5rem; bottom: 0.1rem;
+        margin: 0; padding: 0.1rem 0.25rem; border-radius: 0.2rem;
+        background: rgb(255 255 255 / 88%); font-size: 0.65rem;
+      }
+    }
+
+    @media (min-width: 64rem) {
+      .candidate-deck-counter { right: 1.5rem; bottom: 16.25rem; }
+      .candidate-card-detail-footer { margin-top: auto; }
+    }
+
   </style>
 {% endblock %}
 
@@ -404,7 +713,7 @@
             data-testid="auth-account-menu-toggle"
             data-candidate-control-category="button"
             data-candidate-control-purpose="auth-account-menu-toggle"
-          ><span aria-hidden="true">☰</span> アカウント</summary>
+          ><span aria-hidden="true">☰</span><span class="candidate-account-menu-label">アカウント</span></summary>
           <div class="candidate-account-menu-panel">
             <a
               href="{% url 'authentication:password_change' %}"
@@ -427,10 +736,21 @@
     </header>
     <main>
       <div hidden>{% csrf_token %}</div>
+      {% comment %}
+        The filter surface (human design review, 2026-08-10). It sits outside
+        #candidate-app because candidate.js replaces that element's contents
+        per response: keeping the filter here is what lets the organizer
+        change conditions after an empty result or a provider problem, not
+        only after a successful proposal. The tier-to-yen mapping the earlier
+        draft printed at the top of the screen is gone on human instruction
+        ("予算感の注意書きはなくていいよ"); the dinner-basis disclosure that
+        TDR-CS-02 does require now renders inside the expanded panel, beside
+        the budget control it qualifies (candidate.js renderFilterBar).
+      {% endcomment %}
+      <div id="candidate-filter-bar" class="candidate-filter-bar" data-filter-expanded="false"></div>
       <div id="candidate-app"></div>
-      <div id="candidate-reproposal-overlay" hidden></div>
     </main>
 
     <script src="{% static 'dining_radar/web/vendor/leaflet/leaflet.js' %}"></script>
-    <script src="{% static 'dining_radar/web/candidate.js' %}"></script>
+    <script src="{% static 'dining_radar/web/candidate.js' %}?v=20260811-approved-layout"></script>
 {% endblock %}

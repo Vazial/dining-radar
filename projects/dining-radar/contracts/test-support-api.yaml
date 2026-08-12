@@ -12,60 +12,32 @@
 # They never reveal or alter a private search origin, provider data or
 # credentials, runtime secrets, or any real account.
 #
-# 2026-08-07 amendment (adr/0015): added the IZAKAYA_BAR_ONLY synthetic mode
-# and extended NORMAL_WITH_REPEAT's guarantee, so TDR-CS-09 and TDR-CS-10 are
-# deterministically reachable. No existing mode's prior guarantee changed.
-# 2026-08-08 amendment (adr/0016): extended NORMAL_WITH_REPEAT's guarantee so
-# a same-lens "try again" request (resending the displayed proposal's own
-# kind, not a different offered kind) also deterministically yields at least
-# one new candidate and one repeated candidate, for TDR-CS-11. No existing
-# mode's prior guarantee changed.
-# 2026-08-08 amendment #2 (adr/0017): repeat demotion moved server-side and
-# is now driven by the re-proposal request's previouslyShownProviderPageUrls.
-# The prior NORMAL_WITH_REPEAT guarantee ("at least one new candidate and one
-# repeated candidate") held regardless of the request's contents, which could
-# not distinguish a working demotion mechanism from a canned response that
-# ignores the request. NORMAL_WITH_REPEAT now supplies, for at least one
-# concept, more than 5 lunch-eligible synthetic candidates (a population
-# larger than the adr/0015 display cap), so a request whose
-# previouslyShownProviderPageUrls names every candidate most recently
-# returned deterministically yields at least one candidate outside that list,
-# ranked before any candidate inside it; omitting or emptying that field
-# leaves ordering unaffected. This makes TDR-CS-03 and TDR-CS-11 genuine
-# tests of the server-side selection adr/0017 introduces, not just of a fixed
-# response shape.
-# 2026-08-09 amendment (adr/0019): NORMAL_WITH_REPEAT's synthetic default
-# population (outside the adr/0015 default-excluded genre category) now
-# spans at least two distinct genres and at least two distinct non-smoking
-# references, so GENRE_FOCUS and NON_SMOKING_REFERENCE are deterministically
-# buildable and distinguishable from PROXIMITY. It also includes at least one
-# candidate with cardPaymentAvailable false and at least one with
-# cardPaymentAvailable true or null, so TDR-CS-12's presence/absence contrast
-# is deterministically reachable from one mode. The prior AMENITY_REFERENCE
-# reference (excluding it from the initial response's reProposalOptions to
-# make TDR-CS-07 deterministic) is replaced by NON_SMOKING_REFERENCE: this
-# mode deliberately gives every synthetic candidate in the default
-# population the same non-smoking reference (or none), so
-# NON_SMOKING_REFERENCE is unbuildable under adr/0019's own two-distinct-
-# values explainability rule, keeping the request for that valid enum
-# deterministically unavailable without a separate flag. No other existing
-# mode's prior guarantee changed.
-# 2026-08-09 amendment #2 (adr/0019 decision 8, same-day correction): the
-# first draft of this amendment carried no dinner-budget guarantee because
-# the corresponding API decision rejected any display; the human, on
-# re-confirmation after a reasoning error was found in that rejection, asked
-# for a coarse staged display instead. NORMAL_WITH_REPEAT now also includes
-# at least one candidate with a non-null dinnerBudgetTier and at least one
-# with dinnerBudgetTier null, so TDR-CS-02's dinner-budget-reference
-# assertion is deterministically observable in both states from this one
-# mode.
+# 承認待ち — 2026-08-10 draft (adr/0023, 提案中・未承認): NORMAL_WITH_REPEAT is
+# removed (the previously-shown-candidate demotion mechanism it supported is
+# retired, adr/0023 decision 5) and replaced by NORMAL_WITH_POOL, which
+# supplies a synthetic population large enough to make randomized pool
+# sampling observable and includes at least one candidate with a null
+# non_smoking/card/budget reference so TDR-CS-13's ordering rule is
+# deterministically exercised even though currently measured real data has no
+# such null. INVALID_REPROPOSAL_KIND is removed (TDR-CS-07 retired; there is
+# no "invalid lens" concept in a filter model). A new randomSeed property on
+# CandidateProposalAcceptanceState pins the server's random pool-sampling
+# source for subsequent /candidate-proposals calls; it is never exposed on
+# the public candidate-search-api.yaml (adr/0023 decision 4).
+# DEFAULT_EXCLUSION_VISIBLE and CARD_PAYMENT_CAUTION_VISIBLE provide the two
+# deterministic displayed-result Givens required by TDR-CS-09 and TDR-CS-12;
+# they remain synthetic acceptance-only population shapes and add no public
+# identifier, location, distance, or ordering field (adr/0023 decision 13).
+# ZERO_PENDING_MATCH and FALLBACK_PRESERVES_FILTERS provide seed-independent
+# public-UI/API evidence for reviewer R5 without adding a public test hook or
+# exposing an origin, distance, route, or internal order (adr/0023 decision 14).
 openapi: 3.0.3
 info:
   title: Toyama Dining Radar acceptance test-support API
-  version: 0.7.0
+  version: 1.0.2
   description: >-
     Acceptance-only setup and reset seams for TDR-AUTH-01 through TDR-AUTH-07
-    and TDR-CS-00 through TDR-CS-12.
+    and TDR-CS-00 through TDR-CS-13.
     Browser actions and outcomes under test must use the public same-origin
     authentication and candidate-search boundaries; these operations are only
     for deterministic Given state and scenario isolation.
@@ -75,15 +47,16 @@ paths:
       operationId: setCandidateProposalAcceptanceState
       summary: Select one deterministic synthetic candidate-proposal state
       description: >-
-        Selects the candidate-proposal state that the next public
-        /candidate-proposals operation observes. It supplies no provider-format
-        payload and accepts no location, coordinate, provider identifier,
-        credential, real URL, or browser-visible candidate data. The selected
-        state lasts only for the current isolated acceptance scenario and is
-        reset by resetCandidateProposalAcceptanceState.
+        Selects the candidate-proposal state, and optionally a random-pool
+        seed, that the next public /candidate-proposals operation(s) observe.
+        It supplies no provider-format payload and accepts no location,
+        coordinate, provider identifier, credential, real URL, or
+        browser-visible candidate data. The selected state lasts only for the
+        current isolated acceptance scenario and is reset by
+        resetCandidateProposalAcceptanceState.
       x-acceptance-scenarios:
         [TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05, TDR-CS-06,
-         TDR-CS-07, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12]
+         TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12, TDR-CS-13]
       requestBody:
         required: true
         content:
@@ -97,14 +70,15 @@ paths:
       operationId: resetCandidateProposalAcceptanceState
       summary: Reset candidate-proposal state owned by the acceptance harness
       description: >-
-        Removes only the selected synthetic candidate-proposal state and any
-        scenario-local request counter. It does not read, write, or reset a
-        provider, configured search origin, credential, runtime secret, browser
-        storage, real account, or production/deployment setting.
+        Removes only the selected synthetic candidate-proposal state
+        (including any pinned randomSeed) and any scenario-local request
+        counter. It does not read, write, or reset a provider, configured
+        search origin, credential, runtime secret, browser storage, real
+        account, or production/deployment setting.
       x-acceptance-scenarios:
         [TDR-CS-00, TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05,
-         TDR-CS-06, TDR-CS-07, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11,
-         TDR-CS-12]
+         TDR-CS-06, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12,
+         TDR-CS-13]
       responses:
         '204':
           description: Candidate-proposal acceptance state is reset.
@@ -226,58 +200,115 @@ components:
         mode:
           type: string
           enum:
-            [NORMAL_WITH_REPEAT, IZAKAYA_BAR_ONLY, NO_RESULTS,
-             PROVIDER_UNAVAILABLE, INVALID_REPROPOSAL_KIND, RATE_LIMITED]
+            [NORMAL_WITH_POOL, DEFAULT_EXCLUSION_VISIBLE,
+             CARD_PAYMENT_CAUTION_VISIBLE, ZERO_PENDING_MATCH,
+             FALLBACK_PRESERVES_FILTERS, IZAKAYA_BAR_ONLY, NO_RESULTS,
+             PROVIDER_UNAVAILABLE, RATE_LIMITED]
           description: >-
-            A closed synthetic state selection. NORMAL_WITH_REPEAT supplies,
-            for at least one concept, more than 5 lunch-eligible synthetic
-            candidates (a population larger than the adr/0015 5-item display
-            cap), an initial proposal, and deterministic server-side repeat
-            demotion (adr/0017): when a subsequent request's
-            previouslyShownProviderPageUrls names every candidate most
-            recently returned, the response includes at least one candidate
-            whose providerPageUrl is not in that list, ranked before any
-            candidate that is in it; when that field is omitted or empty,
-            ordering is unaffected. This same behavior holds whether the
-            request selects a different offered kind (TDR-CS-03) or resends
-            the displayed proposal's own kind (a same-lens "try again"
-            request, adr/0016; TDR-CS-11), so both scenarios are
-            deterministically reachable from this one mode without depending
-            on a canned response shape. Its default (non-excluded-genre)
-            population spans at least two distinct genre values and at least
-            two distinct non-smoking references (adr/0019), so GENRE_FOCUS
-            and NON_SMOKING_REFERENCE are each explainable and observably
-            distinct from PROXIMITY's own candidate set or order; it excludes
-            NON_SMOKING_REFERENCE from the initial response's
-            reProposalOptions by giving every default-population candidate
-            the same non-smoking reference (or none), so a public,
-            CSRF-protected request for that valid enum is deterministically
-            unavailable (replacing the removed AMENITY_REFERENCE reference,
-            adr/0019). It also includes at least one candidate with
-            cardPaymentAvailable false and at least one with
-            cardPaymentAvailable true or null, so TDR-CS-12's presence/
-            absence contrast is deterministically observable in one response
-            (adr/0019). It also includes at least one candidate with a
-            non-null dinnerBudgetTier and at least one with dinnerBudgetTier
-            null, so TDR-CS-02's dinner-budget-reference assertion is
-            deterministically observable in both states (adr/0019 decision
-            8). Per adr/0015, it also includes at least one synthetic
-            candidate in the default-excluded genre category and at least one
-            outside it, so an acceptance test can observe from this one mode
-            that the default proposal excludes the former, that
-            IZAKAYA_BAR_INCLUDED is offered as a re-proposal option, and that
-            selecting it includes the former (TDR-CS-09).
-            IZAKAYA_BAR_ONLY supplies only synthetic candidates in that
-            default-excluded genre category, so the initial proposal falls
-            through to IZAKAYA_BAR_INCLUDED instead of a successful null
-            proposal (TDR-CS-10); this is distinct from NO_RESULTS, which
-            supplies no lunch-eligible candidate at all. NO_RESULTS supplies a
-            successful null proposal. The remaining states produce the
-            corresponding public problem response. Synthetic display data is
-            implementation-owned, deterministic, and must satisfy the
-            candidate-search API schema (including its 5-candidate display
-            cap and its capacityTier/nonSmokingStatus/cardPaymentAvailable/
-            dinnerBudgetTier fields) without using real provider data.
+            A closed synthetic state selection. NORMAL_WITH_POOL supplies at
+            least 40 lunch-eligible synthetic candidates in the default
+            (non-excluded-genre) population -- comfortably exceeding any
+            reasonable pool-size implementation choice (adr/0023 decision 4
+            recommends 20), so randomized pool sampling and its
+            reproducibility under a pinned randomSeed are both observable.
+            Its default population spans at least 3 distinct genre values
+            (each with at least 2 members, so a genres filter narrows to a
+            strict, non-trivial subset) and at least 2 distinct
+            nonSmokingStatus values; it includes at least one candidate with
+            cardPaymentAvailable false and at least one with true; it
+            includes at least one candidate with a non-null dinnerBudgetTier
+            and, distinctly, at least one candidate with a null value for at
+            least one of nonSmokingStatus, cardPaymentAvailable, or
+            dinnerBudgetTier, so TDR-CS-13's unconfirmed-information ordering
+            rule is deterministically exercised (this null case is not
+            currently observed in real Hot Pepper data, per adr/0023's
+            measured-facts context, but the synthetic mode must still supply
+            it as a safety-net path).
+
+            DEFAULT_EXCLUSION_VISIBLE is the deterministic TDR-CS-09 Given.
+            Its synthetic population contains both default-excluded and
+            non-excluded genre categories. With semantically default filters,
+            every displayed candidate has a genre whose populationAttributes
+            rows classify it as defaultExcluded=false. With the otherwise
+            same normalized filters and includeIzakayaBar=true, at least one
+            displayed candidate has a genre classified as
+            defaultExcluded=true. The population and internal relative
+            ordering must make both display guarantees hold for every
+            randomSeed; no candidate identity or location is added to
+            populationAttributes.
+
+            CARD_PAYMENT_CAUTION_VISIBLE is the deterministic TDR-CS-12 Given.
+            Its default successful proposal displays at least one candidate
+            with cardPaymentAvailable=false and at least one candidate whose
+            value is true or null. Its eligible synthetic population is no
+            larger than the display cap, so both observable states are
+            displayed for every randomSeed rather than merely existing in a
+            larger random pool.
+
+            ZERO_PENDING_MATCH is the deterministic dirty-filter count Given.
+            Its non-empty, non-excluded default population has no null
+            card-payment or dinner-budget value. At least one row matches
+            cardPaymentOnly=true and at least one row has dinnerBudgetTier=LOW,
+            but no row matches both. Therefore the UI-selectable pending
+            combination cardPaymentOnly=true plus budgetTiers=[LOW] has an
+            exact population count of zero for every randomSeed, while each
+            control is independently meaningful. The public browser must
+            expose candidate-filter-apply with data-match-count="0" and keep
+            it disabled; this mode does not accept or return a count override.
+
+            FALLBACK_PRESERVES_FILTERS is the deterministic TDR-CS-10 boundary
+            Given. Its non-excluded population has no row matching the
+            combination nonSmokingOnly=true, cardPaymentOnly=true, and
+            budgetTiers=[LOW]. Its default-excluded population has at least
+            one confirmed row matching all three and, separately, at least
+            one confirmed non-matching row for each active soft filter; none
+            of these proof rows has a null soft-filter value. The all-matching
+            fallback-eligible set is no larger than the display cap. Thus a
+            public request with that combination and includeIzakayaBar=false
+            deterministically returns izakayaBarFallbackApplied=true and only
+            candidates that match all three selected soft filters, for every
+            randomSeed. populationAttributes proves that confirmed
+            non-matching default-excluded rows existed but were not admitted;
+            no identity join, location, distance, or internal order is
+            exposed.
+
+            The same mode also has exactly one non-excluded genre in
+            availableGenres, and every candidate of that genre has confirmed
+            nonSmokingStatus=NONE. A public request selecting that offered
+            genre plus nonSmokingOnly=true deterministically returns an empty
+            candidates array with izakayaBarFallbackApplied=false even though
+            default-excluded FULL rows exist. This separately proves that the
+            fallback does not loosen an explicit genres filter.
+
+            IZAKAYA_BAR_ONLY supplies only synthetic
+            candidates in the default-excluded genre category, so the
+            default (includeIzakayaBar=false) request yields izakayaBar
+            FallbackApplied=true rather than an empty result (TDR-CS-10);
+            this is distinct from NO_RESULTS, which supplies no
+            lunch-eligible candidate at all. NO_RESULTS supplies a
+            successful empty-candidates result. The remaining states produce
+            the corresponding public problem response. Synthetic display
+            data is implementation-owned, deterministic (given a fixed
+            randomSeed), and must satisfy the candidate-search API schema
+            without using real provider data.
+        randomSeed:
+          type: integer
+          nullable: true
+          description: >-
+            Pins the server's random pool-sampling source (adr/0023 decision
+            4) for every /candidate-proposals call made while this state is
+            active. Two calls with the same randomSeed, the same mode, and
+            semantically equivalent filters after candidate-search API
+            default normalization must return byte-identical
+            candidates arrays in the same order. Two calls with different
+            randomSeed values, the same mode, and semantically equivalent
+            normalized filters must return different candidates arrays whenever
+            the eligible population exceeds the implementation's pool size
+            (guaranteed reachable under NORMAL_WITH_POOL). Omit or set to
+            null for non-deterministic sampling matching production
+            behavior; this property is never exposed on the public
+            candidate-search-api.yaml and the production browser has no way
+            to send it.
     AcceptanceAccountState:
       type: object
       additionalProperties: false

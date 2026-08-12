@@ -4,26 +4,23 @@
  * Implements the browser control surface from
  * contracts/candidate-search-browser-interface.yaml against the public
  * contracts/candidate-search-api.yaml POST /candidate-proposals endpoint.
- * This file performs no persistence: the shown-candidate comparison state
- * (`shownProviderPageUrls`) lives only in this module's memory and is
- * cleared automatically on reload, tab close, or sign-out, because none of
- * those keep this JavaScript execution context alive (ADR-0008 decision 3).
  *
- * Per adr/0017, repeat demotion (ordering every new candidate before every
- * repeated one) is now computed server-side: on every re-proposal request
- * this module echoes `shownProviderPageUrls` back unchanged as
- * `previouslyShownProviderPageUrls`, and simply renders the response's
- * `proposal.candidates` in the order the server returned them, without
- * re-sorting locally. This module still tracks membership in
- * `shownProviderPageUrls` itself, purely to decide each rendered card's own
- * `data-repeat-status` badge.
+ * Per adr/0023, the ConceptKind lens model (a re-proposal modal offering up
+ * to three lenses, plus repeat demotion) is retired. This module instead
+ * tracks one `currentFilters` object mirroring `CandidateFilters` and sends
+ * it back unchanged for "try again" or updated for "change filters" -- both
+ * are the same POST /candidate-proposals shape. The initial request omits
+ * `filters` entirely (an empty body), per the contract's own
+ * `CandidateProposalRequest` description. There is no shown-candidate
+ * comparison state to track: adr/0023 decision 5 removes repeat demotion
+ * outright (randomized pool sampling replaces it as the mechanism that keeps
+ * responses from being identical every time).
  *
- * Per adr/0019, `access` is no longer a card field; `capacityTier`,
- * `nonSmokingStatus`, and `dinnerBudgetTier` are rendered through the same
- * rawValueAttribute mechanism ADR-0011 established for `totalSeats` (the
- * machine-checked value is the raw API value, the visible text is a coarse
- * label), and a conditional payment-caution element appears only when
- * `cardPaymentAvailable` is exactly `false`.
+ * Per adr/0023 decision 10, the per-card dinnerBudgetTier label is the bare
+ * tier word (低/中/高) only; the dinner-basis disclosure and yen-range
+ * mapping live once in the static candidate-budget-tier-note element in
+ * home.html, not here -- that element does not depend on any proposal
+ * response, so it is server-rendered rather than produced by this script.
  */
 (function () {
   "use strict";
@@ -33,26 +30,61 @@
     return;
   }
 
-  var overlay = document.getElementById("candidate-reproposal-overlay");
+  var filterBar = document.getElementById("candidate-filter-bar");
+  var candidateCounter = null;
+  var candidateOrderByRef = {};
 
-  // adr/0019: visible labels for the coarse card-reference enums. These
-  // exact strings are the browser-interface contract's own non-binding
-  // examples, reused verbatim so the dinner-budget label always discloses
-  // it is a dinner figure (Must) and the other two stay consistent with it.
+  // adr/0019 (unchanged by adr/0023): visible labels for the coarse card
+  // reference enums. These exact strings are the browser-interface
+  // contract's own non-binding examples, reused verbatim.
   var CAPACITY_TIER_LABELS = { SMALL: "少なめ", MEDIUM: "標準", LARGE: "多め" };
   var NON_SMOKING_LABELS = { FULL: "全席禁煙", PARTIAL: "一部禁煙", NONE: "禁煙席なし" };
-  var DINNER_BUDGET_LABELS = {
-    LOW: "ディナー目安 〜2,000円",
-    MID: "ディナー目安 2,001〜4,000円",
-    HIGH: "ディナー目安 4,001円〜",
-  };
+  // adr/0023 decision 10: the bare tier word only, used identically by the
+  // card, the filter panel's budget-tier options, and (in home.html) the
+  // screen-level candidate-budget-tier-note.
+  var TIER_LABELS = { LOW: "低", MID: "中", HIGH: "高" };
+  var BUDGET_TIERS = ["LOW", "MID", "HIGH"];
+  // Genres shown before the "ほか N件…" overflow control. Real data carries
+  // about ten genres, which cannot fit one row at 375px; four short labels plus the
+  // overflow keeps the filter row's height fixed no matter how many the
+  // provider returns.
+  var GENRE_PREVIEW_COUNT = 4;
+  // Mirrors recommendation.pipeline._DISPLAY_CAP, used only to phrase the
+  // apply control honestly when more candidates match than can be displayed.
+  var DISPLAY_CAP = 5;
 
-  var shownProviderPageUrls = new Set();
-  var currentOptions = [];
-  var currentProposalKind = null;
+  var currentFilters = defaultFilters();
+  // The organizer's working copy. Editing a chip changes only this; nothing
+  // is searched until the apply control is used, which is what the
+  // "変更中（まだ検索しません）" note tells the reader.
+  var pendingFilters = defaultFilters();
+  var filterExpanded = false;
+  var genreOverflowExpanded = false;
+  var populationAttributes = [];
+  var currentAvailableGenres = [];
   var cardElementsByRef = {};
   var markerElementsByRef = {};
   var leafletMap = null;
+
+  function defaultFilters() {
+    return {
+      genres: [],
+      includeIzakayaBar: false,
+      nonSmokingOnly: false,
+      cardPaymentOnly: false,
+      budgetTiers: [],
+    };
+  }
+
+  function cloneFilters(filters) {
+    return {
+      genres: filters.genres.slice(),
+      includeIzakayaBar: filters.includeIzakayaBar,
+      nonSmokingOnly: filters.nonSmokingOnly,
+      cardPaymentOnly: filters.cardPaymentOnly,
+      budgetTiers: filters.budgetTiers.slice(),
+    };
+  }
 
   function csrfToken() {
     var field = document.querySelector('input[name="csrfmiddlewaretoken"]');
@@ -77,18 +109,13 @@
     return node;
   }
 
-  function requestProposal(reproposalKind) {
-    // adr/0017 decision 1: a re-proposal request echoes back the exact
-    // providerPageUrl values this server has already returned to this
-    // browser this screen lifetime, unchanged and sourced only from this
-    // module's own in-memory Set -- never from storage, a cookie, or the
-    // URL. The initial request (reproposalKind omitted) sends an empty body,
-    // since nothing has been shown yet.
-    var body = {};
-    if (reproposalKind) {
-      body.reproposalKind = reproposalKind;
-      body.previouslyShownProviderPageUrls = Array.from(shownProviderPageUrls);
-    }
+  function requestProposal(filters) {
+    // The initial request (filters is null/undefined, nothing chosen yet)
+    // sends an empty body -- CandidateProposalRequest's own description
+    // ("Omit filters, or send it as {}, when opening the screen for the
+    // first time"). Every later request ("try again" or "change filters")
+    // sends the exact filters object currently in effect.
+    var body = filters ? { filters: filters } : {};
     return fetch("/candidate-proposals", {
       method: "POST",
       credentials: "same-origin",
@@ -98,31 +125,39 @@
       },
       body: JSON.stringify(body),
     }).then(function (response) {
-      return response.json().then(function (body) {
-        return { status: response.status, body: body };
+      return response.json().then(function (responseBody) {
+        return { status: response.status, body: responseBody };
       });
     });
   }
 
-  function fieldRow(label, testId, value, formatted, rawValueAttribute, unavailableText) {
+  function fieldRow(
+    label,
+    testId,
+    value,
+    formatted,
+    rawValueAttribute,
+    unavailableText,
+    compactLabel
+  ) {
     var provided = value !== null && value !== undefined && value !== "";
     var attrs = {
       "data-testid": testId,
       "data-field-label": label,
       "data-value-state": provided ? "provided" : "unavailable",
     };
-    // Per ADR-0011 / candidate-search-browser-interface.yaml v0.2: a field
-    // whose requiredFields entry declares rawValueAttribute (currently only
-    // totalSeats) carries the returned value's canonical decimal string on
-    // this same element when provided, kept exactly equal to the API value
-    // even though the visible text (`formatted`) may add display formatting
-    // (e.g. the "席" unit suffix) around it. The attribute is omitted when
-    // unavailable, since data-value-state=unavailable already expresses that.
+    // Per ADR-0011 / candidate-search-browser-interface.yaml: a field whose
+    // requiredFields entry declares rawValueAttribute carries the returned
+    // value's canonical string on this same element when provided, kept
+    // exactly equal to the API value even though the visible text
+    // (`formatted`) may show a wholly different coarse label instead. The
+    // attribute is omitted when unavailable, since data-value-state=
+    // unavailable already expresses that.
     if (provided && rawValueAttribute) {
       attrs[rawValueAttribute] = String(value);
     }
-    return el("div", {}, [
-      el("dt", {}, [label]),
+    return el("div", { "class": "candidate-fact-row candidate-fact-row--" + testId }, [
+      el("dt", {}, [compactLabel || label]),
       el(
         "dd",
         attrs,
@@ -139,7 +174,7 @@
     ]);
   }
 
-  function selectCandidate(candidateRef) {
+  function selectCandidate(candidateRef, revealCard) {
     Object.keys(cardElementsByRef).forEach(function (ref) {
       var state = ref === candidateRef ? "selected" : "unselected";
       cardElementsByRef[ref].setAttribute("data-selection-state", state);
@@ -147,37 +182,53 @@
         markerElementsByRef[ref].setAttribute("data-selection-state", state);
       }
     });
+    if (candidateCounter && candidateOrderByRef[candidateRef] !== undefined) {
+      candidateCounter.textContent =
+        String(candidateOrderByRef[candidateRef] + 1) + "/" +
+        String(Object.keys(cardElementsByRef).length);
+    }
+    if (revealCard && cardElementsByRef[candidateRef]) {
+      cardElementsByRef[candidateRef].scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+        inline: "center",
+      });
+    }
   }
 
-  function renderCard(candidate, repeated, selected, index, isReproposalRound) {
-    var card = el("article", {
-      "data-testid": "candidate-card",
-      "data-candidate-ref": candidate.candidateRef,
-      "data-selection-state": selected ? "selected" : "unselected",
-      "data-provider-page-href": candidate.providerPageUrl,
-      "data-repeat-status": repeated ? "repeated" : "new",
-      "data-candidate-control-category": "button",
-      "data-candidate-control-purpose": "candidate-card-selection",
-      role: "button",
-      tabindex: "0",
-    }, []);
+  function renderCard(candidate, selected, index) {
+    var card = el(
+      "article",
+      {
+        "data-testid": "candidate-card",
+        "data-candidate-ref": candidate.candidateRef,
+        "data-selection-state": selected ? "selected" : "unselected",
+        // adr/0023: unconditional on every card (unlike the conditional
+        // payment-caution element below), so TDR-CS-13's ordering assertion
+        // can distinguish cardPaymentAvailable=null from =true even though
+        // neither shows the caution.
+        "data-card-payment-value-state":
+          candidate.cardPaymentAvailable === null ? "unavailable" : "provided",
+        "data-candidate-control-category": "button",
+        "data-candidate-control-purpose": "candidate-card-selection",
+        role: "button",
+        tabindex: "0",
+      },
+      []
+    );
     card.addEventListener("click", function () {
       selectCandidate(candidate.candidateRef);
     });
     card.addEventListener("keydown", function (event) {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
-        selectCandidate(candidate.candidateRef);
+        selectCandidate(candidate.candidateRef, true);
       }
     });
 
     // Identification row: the same number the map marker shows (so a card
-    // and its marker are visually tied together), the genre as a small
-    // chip, and -- only once a re-proposal has actually happened, since the
-    // very first proposal has nothing to compare against -- whether this
-    // shop is newly offered or was already shown this screen lifetime
-    // (contract repeatPriority; the ordering itself is now computed
-    // server-side, adr/0017).
+    // and its marker are visually tied together) and the genre as a small
+    // chip.
     var idRow = el("div", { "class": "candidate-card-id-row" }, [
       el("span", { "class": "candidate-marker-badge", "aria-hidden": "true" }, [String(index + 1)]),
     ]);
@@ -193,17 +244,6 @@
         [candidate.genre]
       )
     );
-    if (isReproposalRound) {
-      idRow.appendChild(
-        el(
-          "span",
-          {
-            "class": repeated ? "candidate-chip candidate-chip-repeated" : "candidate-chip candidate-chip-new",
-          },
-          [repeated ? "前回も候補でした" : "今回はじめて"]
-        )
-      );
-    }
     card.appendChild(idRow);
 
     card.appendChild(
@@ -230,50 +270,47 @@
         "紹介文の登録はありません"
       )
     );
-    facts.appendChild(fieldRow("定休日", "candidate-card-regular-holiday", candidate.regularHoliday));
-    // adr/0019 decision 4 / ADR-0011's rawValueAttribute mechanism: the
-    // element's raw-value attribute and data-value-state still key off the
-    // exact returned totalSeats value, but the visible text is now
-    // capacityTier's coarse scale label rather than "38席".
     facts.appendChild(
       fieldRow(
         "総席数",
         "candidate-card-total-seats",
         candidate.totalSeats,
         CAPACITY_TIER_LABELS[candidate.capacityTier],
-        "data-raw-value"
+        "data-raw-value",
+        undefined,
+        "席数"
       )
     );
-    // adr/0019 decision 3: a second rawValueAttribute field. The raw enum
-    // string (e.g. "FULL") is the machine-checked value; the visible text is
-    // a fixed Japanese label per enum value.
     facts.appendChild(
       fieldRow(
         "禁煙対応",
         "candidate-card-non-smoking",
         candidate.nonSmokingStatus,
         NON_SMOKING_LABELS[candidate.nonSmokingStatus],
-        "data-raw-value"
+        "data-raw-value",
+        undefined,
+        "禁煙"
       )
     );
-    // adr/0019 decision 8: a third rawValueAttribute field. The visible
-    // label always states "ディナー" so it is never mistaken for a lunch
-    // price (Must) -- see DINNER_BUDGET_LABELS above.
+    // adr/0023 decision 10: the visible value is the bare tier word only
+    // (no yen range, no "ディナー" wording) -- that disclosure lives once in
+    // the static candidate-budget-tier-note element (home.html).
     facts.appendChild(
       fieldRow(
-        "予算",
+        "ディナー予算感",
         "candidate-card-dinner-budget",
         candidate.dinnerBudgetTier,
-        DINNER_BUDGET_LABELS[candidate.dinnerBudgetTier],
-        "data-raw-value"
+        TIER_LABELS[candidate.dinnerBudgetTier],
+        "data-raw-value",
+        undefined,
+        "夜予算"
       )
     );
     card.appendChild(facts);
 
-    // adr/0019 decision 5: present only when cardPaymentAvailable is exactly
-    // false, stating only the confirmed fact (credit-card payment is not
-    // accepted) -- never a "cash only" claim, since `card` tracks credit-card
-    // acceptance only.
+    // adr/0019 decision 5 (unchanged): present only when cardPaymentAvailable
+    // is exactly false, stating only the confirmed fact -- never a "cash
+    // only" claim.
     if (candidate.cardPaymentAvailable === false) {
       card.appendChild(
         el(
@@ -283,7 +320,7 @@
             "data-card-payment-available": "false",
             "class": "candidate-payment-caution",
           },
-          ["クレジットカードは利用できません。お支払い方法は店舗にご確認ください。"]
+          ["クレジットカードは利用できません"]
         )
       );
     }
@@ -304,7 +341,12 @@
     link.addEventListener("click", function (event) {
       event.stopPropagation();
     });
-    card.appendChild(link);
+    card.appendChild(
+      el("div", { "class": "candidate-card-detail-footer" }, [
+        fieldRow("定休日", "candidate-card-regular-holiday", candidate.regularHoliday),
+        link,
+      ])
+    );
 
     cardElementsByRef[candidate.candidateRef] = card;
     return card;
@@ -333,11 +375,7 @@
     // icon creation) until the map has an established view, via
     // Map#whenReady: https://leafletjs.com/reference.html#map-whenready.
     // A map created without initial center/zoom has no view until setView
-    // or fitBounds runs, so it must happen before any marker is added below
-    // -- otherwise marker.getElement() returns undefined for every
-    // candidate and the whole per-marker attribute/handler block silently
-    // never executes, even though the source lines below are unreachable
-    // only at runtime (see friction-log: silent-runtime-only-dom-failure).
+    // or fitBounds runs, so it must happen before any marker is added below.
     if (latLngs.length > 0) {
       map.fitBounds(window.L.latLngBounds(latLngs), { padding: [24, 24] });
     } else {
@@ -345,22 +383,6 @@
     }
 
     candidates.forEach(function (candidate, index) {
-      // The interactive box (iconSize) is a 44px hit area -- Leaflet binds
-      // its click/keyboard handling to this whole box, per
-      // https://leafletjs.com/reference.html#icon-iconsize, so this is what
-      // actually satisfies a >=44px touch target, not the visual size.
-      // A visually smaller circle (.candidate-map-marker-visual, 36px, see
-      // home.html) is centered inside it: on a map with several close
-      // candidates, keeping the painted badge compact avoids the pins
-      // themselves overlapping/obscuring each other, while the invisible
-      // 44px box around each one still gives a comfortable tap/click
-      // target (a common map-pin pattern; Leaflet's own 12px unstyled
-      // default had neither property).
-      // The number is not aria-hidden here (unlike the card's own repeat of
-      // it, .candidate-marker-badge): the map marker button carries no
-      // other text, so hiding it would leave the button's accessible name
-      // empty for assistive technology, even though the visual circle is
-      // deliberately smaller than the 44px hit box around it.
       var icon = window.L.divIcon({
         className: "candidate-map-marker-icon",
         html: '<span class="candidate-map-marker-visual"></span>',
@@ -385,7 +407,7 @@
         markerVisual.textContent = String(index + 1);
       }
       markerEl.addEventListener("click", function () {
-        selectCandidate(candidate.candidateRef);
+        selectCandidate(candidate.candidateRef, true);
       });
       // ADR-0020 decision 4(c): Leaflet's `keyboard: true` option only makes
       // the marker's icon element focusable (tabIndex/role, see the vendored
@@ -407,57 +429,426 @@
     leafletMap = map;
   }
 
-  function closeReproposalDialog() {
-    overlay.hidden = true;
-    overlay.innerHTML = "";
+  function setMembership(list, value, included) {
+    var index = list.indexOf(value);
+    if (included && index === -1) {
+      list.push(value);
+    } else if (!included && index !== -1) {
+      list.splice(index, 1);
+    }
   }
 
-  function renderReproposalDialog() {
-    // adr/0016 decision 5: selecting an option itself performs the
-    // re-proposal; there is no separate confirmation control (the removed
-    // candidate-reproposal-submit / reproposal-submit purpose).
-    var optionButtons = currentOptions.map(function (option) {
-      var button = el(
-        "button",
-        {
-          type: "button",
-          "data-testid": "candidate-reproposal-option",
-          "data-reproposal-kind": option.kind,
-          "data-candidate-control-category": "button",
-          "data-candidate-control-purpose": "reproposal-selection",
-        },
-        [el("strong", {}, [option.title]), el("p", {}, [option.rationale])]
-      );
-      button.addEventListener("click", function () {
-        requestProposal(option.kind).then(function (result) {
-          closeReproposalDialog();
-          handleProposalResponse(result.status, result.body);
-        });
-      });
-      return button;
-    });
+  function sameFilters(a, b) {
+    return (
+      a.includeIzakayaBar === b.includeIzakayaBar &&
+      a.nonSmokingOnly === b.nonSmokingOnly &&
+      a.cardPaymentOnly === b.cardPaymentOnly &&
+      a.genres.slice().sort().join("|") === b.genres.slice().sort().join("|") &&
+      a.budgetTiers.slice().sort().join("|") === b.budgetTiers.slice().sort().join("|")
+    );
+  }
 
-    var cancelButton = el(
+  // Mirrors dining_radar.recommendation.pipeline.filter_candidates AND
+  // apply_izakaya_bar_fallback exactly, including the soft-filter rule: a
+  // candidate whose value for an active filter is unknown is NOT removed
+  // (adr/0023 decision 2 / TDR-CS-13), and the default izakaya/bar-exclusion
+  // fallback (adr/0023 decision 6 / TDR-CS-10): when includeIzakayaBar is
+  // false, a candidate outside the default-excluded genre category is
+  // preferred, but if excluding that category would leave nothing matching
+  // the other active filters, the count falls back to counting
+  // default-excluded rows too -- exactly mirroring what the server itself
+  // would return for the same filters, so this pending-filter preview count
+  // never disagrees with the response the organizer is about to receive.
+  // This is the one place the server's predicate is duplicated in the
+  // browser; it exists so a pending selection's match count can be shown
+  // before the organizer commits it, without a provider request per toggle.
+  // If the two ever disagree, the number on the apply control lies -- an
+  // acceptance test must compare this count against the count the server
+  // actually returns.
+  function passesNonExclusionFilters(filters, row) {
+    if (filters.genres.length && filters.genres.indexOf(row.genre) === -1) {
+      return false;
+    }
+    if (filters.nonSmokingOnly && row.nonSmokingStatus === "NONE") {
+      return false;
+    }
+    if (filters.cardPaymentOnly && row.cardPaymentAvailable === false) {
+      return false;
+    }
+    if (
+      filters.budgetTiers.length &&
+      row.dinnerBudgetTier !== null &&
+      row.dinnerBudgetTier !== undefined &&
+      filters.budgetTiers.indexOf(row.dinnerBudgetTier) === -1
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  function countMatchingPopulation(filters) {
+    var matching = populationAttributes.filter(function (row) {
+      return passesNonExclusionFilters(filters, row);
+    });
+    if (filters.includeIzakayaBar) {
+      return matching.length;
+    }
+    var withoutDefaultExcluded = matching.filter(function (row) {
+      return !row.defaultExcluded;
+    });
+    return withoutDefaultExcluded.length ? withoutDefaultExcluded.length : matching.length;
+  }
+
+  function filterSummaryText(filters) {
+    var parts = [];
+    if (filters.genres.length) {
+      parts.push(filters.genres.join("・"));
+    }
+    if (filters.nonSmokingOnly) {
+      parts.push("禁煙");
+    }
+    if (filters.cardPaymentOnly) {
+      parts.push("カード利用不可を除く");
+    }
+    if (filters.budgetTiers.length) {
+      parts.push(
+        "ディナー予算 " +
+          BUDGET_TIERS.filter(function (tier) {
+            return filters.budgetTiers.indexOf(tier) !== -1;
+          })
+            .map(function (tier) {
+              return TIER_LABELS[tier];
+            })
+            .join("・")
+      );
+    }
+    if (filters.includeIzakayaBar) {
+      parts.push("居酒屋等も含む");
+    }
+    return parts.length ? parts.join("・") : "居酒屋・バーを除く";
+  }
+
+  // A pill-shaped toggle. `pressed` drives both the visual state and
+  // aria-pressed, so the control reports its own state rather than relying on
+  // colour alone.
+  function chip(options) {
+    var button = el(
       "button",
       {
         type: "button",
-        "data-testid": "candidate-reproposal-cancel",
+        "class": "candidate-chip",
+        "data-testid": options.testId,
         "data-candidate-control-category": "button",
-        "data-candidate-control-purpose": "reproposal-cancel",
+        "data-candidate-control-purpose": options.purpose,
+        "aria-pressed": options.pressed ? "true" : "false",
+        "data-pressed": options.pressed ? "true" : "false",
       },
-      ["閉じる"]
+      [options.label]
     );
-    cancelButton.addEventListener("click", closeReproposalDialog);
+    if (options.value !== undefined) {
+      button.setAttribute(options.valueAttribute, options.value);
+    }
+    button.addEventListener("click", function () {
+      options.onToggle(!options.pressed);
+    });
+    return button;
+  }
 
-    var dialog = el(
-      "section",
-      { "data-testid": "candidate-reproposal-dialog", role: "dialog", "aria-modal": "true" },
-      [el("div", {}, optionButtons), cancelButton]
+  function chipRow(label, chips) {
+    return el("div", { "class": "candidate-filter-row" }, [
+      el("span", { "class": "candidate-filter-row-label" }, [label]),
+      el("div", { "class": "candidate-filter-row-chips" }, chips),
+    ]);
+  }
+
+  function genreChips() {
+    // The provider order is not a presentation order. Surface the compact,
+    // familiar labels first so the closed preview remains useful on a phone.
+    var orderedGenres = currentAvailableGenres.slice().sort(function (left, right) {
+      return left.length - right.length || left.localeCompare(right, "ja");
+    });
+    var visible = genreOverflowExpanded
+      ? orderedGenres
+      : orderedGenres.slice(0, GENRE_PREVIEW_COUNT);
+    var chips = visible.map(function (genre) {
+      return chip({
+        testId: "candidate-filter-genre-option",
+        purpose: "candidate-filter-genre-selection",
+        label: genre,
+        pressed: pendingFilters.genres.indexOf(genre) !== -1,
+        value: genre,
+        valueAttribute: "data-genre-value",
+        onToggle: function (next) {
+          setMembership(pendingFilters.genres, genre, next);
+          renderFilterBar();
+        },
+      });
+    });
+    var hidden = orderedGenres.length - visible.length;
+    if (hidden > 0 || genreOverflowExpanded) {
+      var overflow = el(
+        "button",
+        {
+          type: "button",
+          "class": "candidate-chip candidate-chip-quiet",
+          "data-testid": "candidate-filter-genre-overflow",
+          "data-candidate-control-category": "button",
+          "data-candidate-control-purpose": "candidate-filter-genre-overflow-toggle",
+        },
+        [genreOverflowExpanded ? "閉じる" : "ほか " + hidden + "件…"]
+      );
+      overflow.addEventListener("click", function () {
+        genreOverflowExpanded = !genreOverflowExpanded;
+        renderFilterBar();
+      });
+      chips.push(overflow);
+    }
+    return chips;
+  }
+
+  function applyControlLabel(matchCount) {
+    if (matchCount === 0) {
+      return "該当なし";
+    }
+    if (matchCount <= DISPLAY_CAP) {
+      return matchCount + "件を表示";
+    }
+    return matchCount + "件中" + DISPLAY_CAP + "件を表示";
+  }
+
+  function applyPendingFilters() {
+    currentFilters = cloneFilters(pendingFilters);
+    filterExpanded = false;
+    genreOverflowExpanded = false;
+    renderFilterBar();
+    requestProposal(currentFilters).then(function (result) {
+      handleProposalResponse(result.status, result.body);
+    });
+  }
+
+  function filterFocusTarget() {
+    var active = document.activeElement;
+    if (!active || !filterBar.contains(active)) {
+      return null;
+    }
+    return {
+      testId: active.getAttribute("data-testid"),
+      genre: active.getAttribute("data-genre-value"),
+      tier: active.getAttribute("data-budget-tier-value"),
+    };
+  }
+
+  function restoreFilterFocus(target) {
+    if (!target || !target.testId) {
+      return;
+    }
+    var selector = '[data-testid="' + target.testId + '"]';
+    if (target.genre) {
+      selector += '[data-genre-value="' + target.genre + '"]';
+    }
+    if (target.tier) {
+      selector += '[data-budget-tier-value="' + target.tier + '"]';
+    }
+    var control = filterBar.querySelector(selector);
+    if (control) {
+      control.focus();
+    }
+  }
+
+  function renderFilterBar(restoreFocus) {
+    var focusTarget = restoreFocus || filterFocusTarget();
+    var dirty = !sameFilters(pendingFilters, currentFilters);
+    filterBar.innerHTML = "";
+    filterBar.setAttribute("data-filter-expanded", filterExpanded ? "true" : "false");
+    filterBar.setAttribute("data-filter-dirty", dirty ? "true" : "false");
+
+    var summaryTexts = [
+      el("span", { "class": "candidate-filter-summary-label" }, ["条件"]),
+      el("span", { "class": "candidate-filter-summary-text" }, [
+        filterSummaryText(currentFilters),
+      ]),
+    ];
+    if (dirty) {
+      summaryTexts.push(
+        el(
+          "span",
+          {
+            "class": "candidate-filter-pending",
+            "data-testid": "candidate-filter-pending-note",
+          },
+          ["変更中（まだ検索しません）"]
+        )
+      );
+    }
+
+    var summary = el(
+      "button",
+      {
+        type: "button",
+        "class": "candidate-filter-summary",
+        "data-testid": "candidate-filter-open",
+        "data-candidate-control-category": "button",
+        "data-candidate-control-purpose": "candidate-filter-open",
+        "aria-expanded": filterExpanded ? "true" : "false",
+      },
+      [
+        el("span", { "class": "candidate-filter-summary-icon", "aria-hidden": "true" }, ["☷"]),
+        el("span", { "class": "candidate-filter-summary-body" }, summaryTexts),
+        el("span", { "class": "candidate-filter-caret", "aria-hidden": "true" }, [
+          filterExpanded ? "⌃" : "⌄",
+        ]),
+      ]
+    );
+    summary.addEventListener("click", function () {
+      filterExpanded = !filterExpanded;
+      renderFilterBar();
+    });
+
+    var searchAgain = el(
+      "button",
+      {
+        type: "button",
+        "class": "candidate-search-again",
+        "data-testid": "candidate-search-again",
+        "data-candidate-control-category": "button",
+        "data-candidate-control-purpose": "candidate-search-again",
+      },
+      [
+        el("span", { "class": "candidate-search-again-icon", "aria-hidden": "true" }, ["↻"]),
+        el("span", { "class": "visually-hidden" }, ["もう一度探す"]),
+      ]
+    );
+    searchAgain.addEventListener("click", function () {
+      requestProposal(currentFilters).then(function (result) {
+        handleProposalResponse(result.status, result.body);
+      });
+    });
+    searchAgain.disabled = dirty;
+
+    filterBar.appendChild(
+      el("div", { "class": "candidate-filter-head" }, [summary, searchAgain])
     );
 
-    overlay.innerHTML = "";
-    overlay.appendChild(dialog);
-    overlay.hidden = false;
+    if (!filterExpanded) {
+      return;
+    }
+
+    var panel = el(
+      "div",
+      { "class": "candidate-filter-panel", "data-testid": "candidate-filter-panel" },
+      [
+        chipRow("ジャンル", genreChips()),
+        chipRow("こだわり", [
+          chip({
+            testId: "candidate-filter-non-smoking-only",
+            purpose: "candidate-filter-non-smoking-toggle",
+            label: "禁煙席あり",
+            pressed: pendingFilters.nonSmokingOnly,
+            onToggle: function (next) {
+              pendingFilters.nonSmokingOnly = next;
+              renderFilterBar();
+            },
+          }),
+          chip({
+            testId: "candidate-filter-card-payment-only",
+            purpose: "candidate-filter-card-payment-toggle",
+            label: "カード利用不可を除く",
+            pressed: pendingFilters.cardPaymentOnly,
+            onToggle: function (next) {
+              pendingFilters.cardPaymentOnly = next;
+              renderFilterBar();
+            },
+          }),
+          chip({
+            testId: "candidate-filter-include-izakaya-bar",
+            purpose: "candidate-filter-izakaya-bar-toggle",
+            label: "居酒屋等も含む",
+            pressed: pendingFilters.includeIzakayaBar,
+            onToggle: function (next) {
+              pendingFilters.includeIzakayaBar = next;
+              renderFilterBar();
+            },
+          }),
+        ]),
+        chipRow(
+          "夜予算",
+          BUDGET_TIERS.map(function (tier) {
+            return chip({
+              testId: "candidate-filter-budget-tier-option",
+              purpose: "candidate-filter-budget-tier-selection",
+              label: TIER_LABELS[tier],
+              pressed: pendingFilters.budgetTiers.indexOf(tier) !== -1,
+              value: tier,
+              valueAttribute: "data-budget-tier-value",
+              onToggle: function (next) {
+                setMembership(pendingFilters.budgetTiers, tier, next);
+                renderFilterBar();
+              },
+            });
+          })
+        ),
+      ]
+    );
+
+    var matchCount = countMatchingPopulation(pendingFilters);
+    var apply = el(
+      "button",
+      {
+        type: "button",
+        "class": "candidate-filter-apply",
+        "data-testid": "candidate-filter-apply",
+        "data-candidate-control-category": "button",
+        "data-candidate-control-purpose": "candidate-filter-apply",
+        "data-match-count": String(matchCount),
+      },
+      [applyControlLabel(matchCount)]
+    );
+    if (matchCount === 0 || !dirty) {
+      apply.disabled = true;
+    }
+    apply.addEventListener("click", applyPendingFilters);
+
+    var actions = [];
+    if (dirty) {
+      var revert = el(
+        "button",
+        {
+          type: "button",
+          "class": "candidate-filter-revert",
+          "data-testid": "candidate-filter-revert",
+          "data-candidate-control-category": "button",
+          "data-candidate-control-purpose": "candidate-filter-revert",
+        },
+        ["変更を戻す"]
+      );
+      revert.addEventListener("click", function () {
+        pendingFilters = cloneFilters(currentFilters);
+        renderFilterBar();
+      });
+      actions.unshift(revert);
+      actions.push(apply);
+    }
+    if (actions.length > 0) {
+      panel.appendChild(el("div", { "class": "candidate-filter-actions" }, actions));
+    }
+    // adr/0023 decision 10, revised on human instruction 2026-08-10: the
+    // dinner-basis disclosure stays (TDR-CS-02 requires the organizer be able
+    // to tell the figure is a dinner one) but the yen mapping is gone and the
+    // note now lives inside the filter panel, next to the budget control it
+    // qualifies, rather than occupying the top of the screen.
+    panel.appendChild(
+      el(
+        "p",
+        {
+          "class": "candidate-budget-tier-note",
+          "data-testid": "candidate-budget-tier-note",
+        },
+        ["ディナー予算をもとにした目安です。ランチ価格を示すものではありません。"]
+      )
+    );
+
+    filterBar.appendChild(panel);
+    restoreFilterFocus(focusTarget);
   }
 
   function renderProblem(code, message) {
@@ -471,85 +862,55 @@
     );
   }
 
-  function renderEmpty() {
-    root.innerHTML = "";
-    root.appendChild(
-      el("section", { "data-testid": "candidate-no-results" }, [
-        "この選び方に合うランチ候補が見つかりませんでした。",
-      ])
-    );
-  }
-
-  function renderProposal(proposal, providerCredit) {
+  function renderResult(body) {
     cardElementsByRef = {};
-    currentProposalKind = proposal.kind;
+    candidateOrderByRef = {};
+    candidateCounter = null;
     root.innerHTML = "";
 
+    // The filter bar is not part of this element: it lives outside the
+    // response-driven region so it stays reachable across the success,
+    // no-results, and problem outcomes alike (TDR-CS-05's "絞り込み条件を
+    // 変更するよう案内される" needs the controls to survive an empty result).
     var content = el("section", { "data-testid": "candidate-proposal-content" }, []);
 
-    // Concept banner: the current lens's heading and the re-proposal
-    // starting point, kept together as one visual block (ADR-0012 skeleton
-    // block 2: "現在の切り口の見出し＋再提案の起点").
-    var conceptBanner = el("div", { "class": "candidate-concept-banner" }, [
-      el("div", { "class": "candidate-concept-copy" }, [
-        el("h2", { "data-testid": "candidate-concept-title" }, [proposal.title]),
-        el("p", { "data-testid": "candidate-concept-rationale" }, [proposal.rationale]),
-      ]),
-    ]);
+    // adr/0023 decision 6: disclose both that the default izakaya/bar
+    // exclusion was set aside for this response and that included shops'
+    // lunch service is not confirmed.
+    if (body.izakayaBarFallbackApplied) {
+      content.appendChild(
+        el(
+          "p",
+          {
+            "data-testid": "candidate-izakaya-bar-fallback-notice",
+            "class": "candidate-fallback-notice",
+          },
+          [
+            "条件に合う候補がなかったため、居酒屋・バーなどランチ営業の実施を確認しづらい" +
+              "店舗も含めて表示しています。含まれた店舗が実際にランチ営業しているとは限らない" +
+              "ため、営業時間は店舗ページでご確認ください。",
+          ]
+        )
+      );
+    }
 
-    // adr/0016 decision 2: a single always-available "try again" control
-    // that resends the currently displayed proposal's own kind, relying
-    // only on the existing current-screen repeat demotion (ADR-0008
-    // decision 2). It is not one of the labeled reProposalOptions lenses
-    // and does not open the re-proposal dialog.
-    var tryAgainButton = el(
-      "button",
-      {
-        type: "button",
-        "data-testid": "candidate-reproposal-try-again",
-        "data-candidate-control-category": "button",
-        "data-candidate-control-purpose": "reproposal-try-again",
-      },
-      ["もう一度探す"]
-    );
-    tryAgainButton.addEventListener("click", function () {
-      requestProposal(currentProposalKind).then(function (result) {
-        handleProposalResponse(result.status, result.body);
-      });
-    });
+    if (!body.candidates || body.candidates.length === 0) {
+      content.appendChild(
+        el("section", { "data-testid": "candidate-no-results" }, [
+          "絞り込み条件に合うランチ候補が見つかりませんでした。絞り込み条件を変更してお試しください。",
+        ])
+      );
+      root.appendChild(content);
+      return;
+    }
 
-    var reproposalButton = el(
-      "button",
-      {
-        type: "button",
-        "data-testid": "candidate-reproposal-open",
-        "data-candidate-control-category": "button",
-        "data-candidate-control-purpose": "reproposal-open",
-      },
-      ["別の選び方でもう一度探す"]
-    );
-    reproposalButton.addEventListener("click", renderReproposalDialog);
-
-    var conceptActions = el("div", { "class": "candidate-concept-actions" }, [
-      tryAgainButton,
-      reproposalButton,
-    ]);
-    conceptBanner.appendChild(conceptActions);
-    content.appendChild(conceptBanner);
-
-    // Candidate map + card list, one visual block (ADR-0012 skeleton block
-    // 3). PC: cards are the primary column, the map is a narrower sticky
-    // column on the right (human-approved 2026-08-06). Narrow width: a
-    // single column with the map placed above the cards via CSS
-    // grid-template-areas only (see home.html) -- not the "order" property
-    // and not a DOM reorder -- so this is a presentational change only and
-    // does not alter keyboard/reader traversal order.
     var mainLayout = el("div", { "class": "candidate-main-layout" }, []);
 
-    var mapContainer = el("div", {
-      "data-testid": "candidate-map",
-      "data-map-tile-provider": "openstreetmap-standard",
-    }, []);
+    var mapContainer = el(
+      "div",
+      { "data-testid": "candidate-map", "data-map-tile-provider": "openstreetmap-standard" },
+      []
+    );
     var mapWrapper = el("div", { "class": "candidate-map-wrapper" }, [
       mapContainer,
       el(
@@ -564,35 +925,28 @@
       ),
     ]);
 
-    var decorated = proposal.candidates.map(function (candidate) {
-      return { candidate: candidate, repeated: shownProviderPageUrls.has(candidate.providerPageUrl) };
-    });
-    // Ordering (every new candidate precedes every repeated one; existing
-    // candidates are never excluded, only demoted) is computed server-side
-    // from the previouslyShownProviderPageUrls this module echoed back
-    // (adr/0017); this module renders proposal.candidates in exactly the
-    // order the response returned, without re-sorting locally.
-    // A repeat/new badge is only meaningful once at least one earlier
-    // proposal has been shown this screen lifetime; the very first
-    // proposal has nothing to compare against.
-    var isReproposalRound = shownProviderPageUrls.size > 0;
-    decorated.forEach(function (entry) {
-      shownProviderPageUrls.add(entry.candidate.providerPageUrl);
-    });
-
     var cardsContainer = el("div", { "data-testid": "candidate-proposal-cards" }, []);
-    decorated.forEach(function (entry, index) {
-      cardsContainer.appendChild(
-        renderCard(entry.candidate, entry.repeated, index === 0, index, isReproposalRound)
-      );
+    body.candidates.forEach(function (candidate, index) {
+      candidateOrderByRef[candidate.candidateRef] = index;
+      cardsContainer.appendChild(renderCard(candidate, index === 0, index));
     });
+    candidateCounter = el(
+      "output",
+      {
+        "class": "candidate-deck-counter",
+        "data-testid": "candidate-deck-counter",
+        "aria-live": "polite",
+        "aria-label": "選択中の候補",
+      },
+      ["1/" + String(body.candidates.length)]
+    );
     // DOM order is cards-then-map (matching the PC reading order, where
     // cards are primary) on purpose: CSS grid-template-areas is what moves
-    // the map above the cards at narrow widths, so this DOM order is what
-    // keyboard/reader users encounter at every width, regardless of which
-    // block is painted first.
+    // the map above the cards at narrow widths (see home.html), so this DOM
+    // order is what keyboard/reader users encounter at every width.
     mainLayout.appendChild(cardsContainer);
     mainLayout.appendChild(mapWrapper);
+    mainLayout.appendChild(candidateCounter);
     content.appendChild(mainLayout);
 
     content.appendChild(
@@ -600,29 +954,27 @@
         "a",
         {
           "data-testid": "candidate-provider-credit",
-          href: providerCredit.url,
+          href: body.providerCredit.url,
           target: "_blank",
           rel: "noopener noreferrer",
         },
-        [providerCredit.text]
+        [body.providerCredit.text]
       )
     );
 
     root.appendChild(content);
-    initializeMap(mapContainer, decorated.map(function (entry) { return entry.candidate; }));
+    initializeMap(mapContainer, body.candidates);
   }
 
   function handleProposalResponse(status, body) {
     if (status === 200) {
-      currentOptions = body.reProposalOptions || [];
-      if (body.proposal === null) {
-        renderEmpty();
-      } else {
-        renderProposal(body.proposal, body.providerCredit);
-      }
+      currentAvailableGenres = body.availableGenres || [];
+      populationAttributes = body.populationAttributes || [];
+      pendingFilters = cloneFilters(currentFilters);
+      renderFilterBar();
+      renderResult(body);
       return;
     }
-    currentOptions = [];
     renderProblem(body.code, body.message);
   }
 

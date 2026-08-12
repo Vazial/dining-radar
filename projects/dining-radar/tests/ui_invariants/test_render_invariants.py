@@ -42,6 +42,7 @@ from playwright.sync_api import Locator, expect, sync_playwright
 from tests.acceptance.dsl.candidate_search_browser import CandidateSearchBrowserDsl
 from tests.acceptance.dsl.js_browser_mechanics import (
     by_test_id,
+    is_candidate_proposal_request,
     is_candidate_proposal_response,
     wait_for_at_least_one,
 )
@@ -96,15 +97,14 @@ CONTROL_SIZE_ALLOWLIST_TEST_IDS = {
 # ADR-0020 decision 4(d): the closed, developer-maintained list of internal
 # enum tokens that must never appear as their own standalone visible text
 # node. Sourced from contracts/candidate-search-api.yaml's own enum
-# definitions (ConceptKind, Candidate.capacityTier, Candidate.nonSmokingStatus,
+# definitions (Candidate.capacityTier, Candidate.nonSmokingStatus,
 # Candidate.dinnerBudgetTier); update this list in the same change that adds,
-# renames, or removes an enum value in that contract.
+# renames, or removes an enum value in that contract. adr/0023 retires
+# ConceptKind entirely (its values PROXIMITY/GENRE_FOCUS/
+# NON_SMOKING_REFERENCE/IZAKAYA_BAR_INCLUDED no longer exist anywhere in the
+# contract), so they are removed from this list rather than left as dead
+# tokens that could never be exercised.
 FORBIDDEN_INTERNAL_ENUM_TOKENS = [
-    # ConceptKind
-    "PROXIMITY",
-    "GENRE_FOCUS",
-    "NON_SMOKING_REFERENCE",
-    "IZAKAYA_BAR_INCLUDED",
     # Candidate.capacityTier
     "SMALL",
     "MEDIUM",
@@ -120,10 +120,11 @@ FORBIDDEN_INTERNAL_ENUM_TOKENS = [
 ]
 
 # Scans only real DOM text nodes (never attribute values, so a
-# data-raw-value/data-reproposal-kind attribute's own raw enum string is
-# never itself examined here -- "outside data-raw-value" per decision 4(d) is
-# automatically true for a text-node walk) for a trimmed, standalone,
-# case-sensitive match against the developer-maintained token list above.
+# data-raw-value/data-genre-value/data-budget-tier-value attribute's own raw
+# enum string is never itself examined here -- "outside data-raw-value" per
+# decision 4(d) is automatically true for a text-node walk) for a trimmed,
+# standalone, case-sensitive match against the developer-maintained token
+# list above.
 _SCAN_VISIBLE_TEXT_FOR_TOKENS_JS = """
 (tokens) => {
   const tokenSet = new Set(tokens);
@@ -188,7 +189,7 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
 
     # Shared Given helper -------------------------------------------------
 
-    def _sign_in_with_candidates(self, mode: str = "NORMAL_WITH_REPEAT") -> None:
+    def _sign_in_with_candidates(self, mode: str = "NORMAL_WITH_POOL") -> None:
         self.dsl.reset_authentication_state()
         self.dsl.reset_candidate_state()
         self.dsl.enable_organizer(ORGANIZER_ACCOUNT_REF, ORGANIZER_IDENTIFIER, ORGANIZER_PASSWORD)
@@ -306,36 +307,82 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         self._assert_unselected(enter_target)
         self._assert_selected(self._card_for_ref(space_ref))
 
-    def test_c_reproposal_open_option_and_cancel_are_keyboard_operable(self) -> None:
+    def test_c_filter_panel_open_and_apply_are_keyboard_operable(self) -> None:
+        # ADR-0020 decision 4(c)'s original Given used the retired re-proposal
+        # modal (candidate-reproposal-open/-dialog/-option); this project's
+        # current control surface for "open a secondary condition surface,
+        # change something, and commit it" is the always-visible filter panel
+        # (adr/0023), so this test exercises the same invariant against
+        # candidate-filter-open/-panel/-apply instead. Every control here is
+        # a plain server-rendered <button>, which is natively keyboard-
+        # operable without a custom keydown handler (unlike the Leaflet
+        # marker case covered separately below) -- this test still presses
+        # Enter explicitly, rather than only asserting tabbability, so a
+        # future regression that intercepts/prevents the native activation
+        # would still be caught.
         self._sign_in_with_candidates()
         url_before = self.page.url
 
-        open_control = by_test_id(self.page, "candidate-reproposal-open")
-        self._assert_tabbable(open_control, "candidate-reproposal-open")
+        open_control = by_test_id(self.page, "candidate-filter-open")
+        self._assert_tabbable(open_control, "candidate-filter-open")
         open_control.press("Enter")
-        expect(by_test_id(self.page, "candidate-reproposal-dialog")).to_be_attached()
-        self.assertEqual(self.page.url, url_before, "opening the dialog must not navigate")
+        expect(by_test_id(self.page, "candidate-filter-panel")).to_be_attached()
+        self.assertEqual(self.page.url, url_before, "opening the filter panel must not navigate")
 
-        option = wait_for_at_least_one(self.page, "candidate-reproposal-option").first
-        self._assert_tabbable(option, "candidate-reproposal-option")
+        toggle = by_test_id(self.page, "candidate-filter-non-smoking-only")
+        self._assert_tabbable(toggle, "candidate-filter-non-smoking-only")
+        toggle.press("Enter")
+        expect(by_test_id(self.page, "candidate-filter-pending-note")).to_be_attached()
+
+        apply = by_test_id(self.page, "candidate-filter-apply")
+        self._assert_tabbable(apply, "candidate-filter-apply")
         with self.page.expect_response(is_candidate_proposal_response):
-            option.press("Enter")
-        expect(by_test_id(self.page, "candidate-reproposal-dialog")).to_have_count(0)
+            apply.press("Enter")
+        expect(by_test_id(self.page, "candidate-filter-panel")).to_have_count(0)
 
-        # Re-open (this time via the mouse, already covered above) so cancel
-        # can be exercised independently of the option-selection outcome.
-        open_control.click()
-        cancel = by_test_id(self.page, "candidate-reproposal-cancel")
-        self._assert_tabbable(cancel, "candidate-reproposal-cancel")
-        cancel.press("Enter")
-        expect(by_test_id(self.page, "candidate-reproposal-dialog")).to_have_count(0)
-
-    def test_c_try_again_is_keyboard_operable(self) -> None:
+    def test_c_filter_panel_revert_is_keyboard_operable_without_a_public_operation(self) -> None:
+        # The filter model's analogue of the retired re-proposal dialog's
+        # "cancel" control: candidate-filter-revert discards a pending change
+        # via the keyboard alone, keeps the panel open, and -- unlike
+        # apply -- never starts a public /candidate-proposals request
+        # (contracts/candidate-search-browser-interface.yaml's
+        # revertPendingFilters.requiredOutcome.publicOperation: none).
         self._sign_in_with_candidates()
-        try_again = by_test_id(self.page, "candidate-reproposal-try-again")
-        self._assert_tabbable(try_again, "candidate-reproposal-try-again")
+        by_test_id(self.page, "candidate-filter-open").click()
+        expect(by_test_id(self.page, "candidate-filter-panel")).to_be_attached()
+
+        toggle = by_test_id(self.page, "candidate-filter-non-smoking-only")
+        toggle.press("Enter")
+        expect(by_test_id(self.page, "candidate-filter-pending-note")).to_be_attached()
+
+        revert = by_test_id(self.page, "candidate-filter-revert")
+        self._assert_tabbable(revert, "candidate-filter-revert")
+
+        requests: list[object] = []
+
+        def record(request: object) -> None:
+            if is_candidate_proposal_request(request):
+                requests.append(request)
+
+        self.page.on("request", record)
+        try:
+            revert.press("Enter")
+        finally:
+            self.page.remove_listener("request", record)
+
+        self.assertEqual(requests, [], "revert must not send a public candidate-proposal request")
+        expect(by_test_id(self.page, "candidate-filter-panel")).to_be_attached()
+        expect(by_test_id(self.page, "candidate-filter-pending-note")).to_have_count(0)
+
+    def test_c_search_again_is_keyboard_operable(self) -> None:
+        # Renamed from the retired candidate-reproposal-try-again control
+        # (adr/0023): "search again with the same applied filters" is now
+        # candidate-search-again.
+        self._sign_in_with_candidates()
+        search_again = by_test_id(self.page, "candidate-search-again")
+        self._assert_tabbable(search_again, "candidate-search-again")
         with self.page.expect_response(is_candidate_proposal_response) as info:
-            try_again.press("Enter")
+            search_again.press("Enter")
         self.assertEqual(info.value.status, 200)
         expect(by_test_id(self.page, "candidate-proposal-content")).to_be_attached()
 
@@ -397,18 +444,21 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         self._assert_no_raw_value_element_shows_its_own_raw_value_as_text()
         self._assert_no_forbidden_enum_token_is_visible_standalone_text()
 
-        # Re-check with the re-proposal dialog open: its options render a
-        # ConceptKind-derived title/rationale (data-reproposal-kind carries
-        # the raw enum as an attribute, never as this element's own text).
-        by_test_id(self.page, "candidate-reproposal-open").click()
-        wait_for_at_least_one(self.page, "candidate-reproposal-option")
+        # Re-check with the filter panel open: its genre chips, soft-filter
+        # toggles, and budget-tier options (candidate-filter-budget-tier-
+        # option) render fixed labels/provider-supplied strings -- never the
+        # raw LOW/MID/HIGH dinnerBudgetTier enum (adr/0023 decision 10) --
+        # even though data-budget-tier-value carries that same raw string as
+        # an attribute, not as this element's own visible text.
+        by_test_id(self.page, "candidate-filter-open").click()
+        wait_for_at_least_one(self.page, "candidate-filter-budget-tier-option")
         self._assert_no_forbidden_enum_token_is_visible_standalone_text()
 
-        # Re-check once more after a real re-proposal response has rendered
-        # new cards (repeat-status badges, a different concept's fields).
-        option = by_test_id(self.page, "candidate-reproposal-option").first
+        # Re-check once more after a real filter-apply response has rendered
+        # new cards (a different nonSmokingStatus/dinnerBudgetTier mix).
+        by_test_id(self.page, "candidate-filter-non-smoking-only").click()
         with self.page.expect_response(is_candidate_proposal_response):
-            option.click()
+            by_test_id(self.page, "candidate-filter-apply").click()
         self._assert_no_raw_value_element_shows_its_own_raw_value_as_text()
         self._assert_no_forbidden_enum_token_is_visible_standalone_text()
 
@@ -483,17 +533,34 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         for width, height, label in CONTROL_SIZE_VIEWPORTS:
             self.page.set_viewport_size({"width": width, "height": height})
 
-            # Default screen: cards, markers, reproposal-open, try-again.
+            # Default screen: cards, markers, filter-open, search-again.
             wait_for_at_least_one(self.page, "candidate-card")
             wait_for_at_least_one(self.page, "candidate-map-marker")
             self._assert_all_declared_controls_meet_44px(f"default screen at {label}")
 
-            # Re-proposal dialog: option(s) and cancel.
-            by_test_id(self.page, "candidate-reproposal-open").click()
-            wait_for_at_least_one(self.page, "candidate-reproposal-option")
-            self._assert_all_declared_controls_meet_44px(f"reproposal dialog at {label}")
-            by_test_id(self.page, "candidate-reproposal-cancel").click()
-            expect(by_test_id(self.page, "candidate-reproposal-dialog")).to_have_count(0)
+            # Filter panel (clean): genre chips (plus overflow toggle, since
+            # NORMAL_WITH_POOL's synthetic population spans 5 non-excluded
+            # genres -- one more than genrePresentation's 4-item preview),
+            # the three soft-filter toggles, and the budget-tier options.
+            by_test_id(self.page, "candidate-filter-open").click()
+            wait_for_at_least_one(self.page, "candidate-filter-budget-tier-option")
+            self._assert_all_declared_controls_meet_44px(f"filter panel (clean) at {label}")
+
+            genre_overflow = by_test_id(self.page, "candidate-filter-genre-overflow")
+            if genre_overflow.count() > 0:
+                genre_overflow.first.click()
+                self._assert_all_declared_controls_meet_44px(
+                    f"filter panel (genre expanded) at {label}"
+                )
+                genre_overflow.first.click()
+
+            # Filter panel (dirty): adds candidate-filter-revert/-apply.
+            by_test_id(self.page, "candidate-filter-non-smoking-only").click()
+            expect(by_test_id(self.page, "candidate-filter-apply")).to_be_attached()
+            self._assert_all_declared_controls_meet_44px(f"filter panel (dirty) at {label}")
+            by_test_id(self.page, "candidate-filter-revert").click()
+            by_test_id(self.page, "candidate-filter-open").click()
+            expect(by_test_id(self.page, "candidate-filter-panel")).to_have_count(0)
 
             # Account menu: toggle, sign-out, password-change-open.
             by_test_id(self.page, "auth-account-menu-toggle").click()

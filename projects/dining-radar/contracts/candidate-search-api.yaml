@@ -1,96 +1,72 @@
-# Status: human content-approved in chat (2026-08-03 amendment; original
-# approval 2026-08-01), made durable by merged PR #76.
-# 2026-08-07 amendment: human review of a real Hot Pepper production run
-# produced two product rules -- cap displayed candidates per concept at 5
-# (a display cap over the ranked population, not a population-fetch limit),
-# and exclude genres whose lunch service cannot be confirmed from returned
-# provider fields (e.g. izakaya/bar) from the default candidate population
-# unless the organizer selects a dedicated re-proposal lens for them. See
-# adr/0015. This revision becomes durable when its PR merges.
-# 2026-08-08 amendment (adr/0016): a second real-data review found
-# GENRE_VARIETY converged to the same candidate set and order as PROXIMITY
-# (genre-diverse ranking has no effect once the nearest candidates already
-# span distinct genres), so it is removed from ConceptKind. reproposalKind
-# may now also repeat the currently displayed proposal's own kind, to
-# support a same-lens "try again" action that relies only on the existing
-# current-screen repeat demotion (adr/0008 decision 2) rather than any new
-# ranking criterion or randomness. Removing GENRE_VARIETY also resolves a
-# capacity defect from adr/0015: with GENRE_VARIETY, five ConceptKind values
-# minus the one displayed could exceed reProposalOptions.maxItems: 3,
-# silently dropping IZAKAYA_BAR_INCLUDED; with four remaining kinds, at most
-# three are ever offered, so no kind is ever dropped by this cap. This
-# revision becomes durable when its PR merges.
-# 2026-08-08 amendment #2 (adr/0017): a third real-data review found the
-# "try again" action structurally unable to surface a new candidate --
-# because adr/0015 already caps every response at exactly 5 candidates, the
-# browser-only repeat demotion adr/0008 decision 2 established never had an
-# unseen candidate to promote (the browser can only ever hold what it was
-# just given, and it was never given more than the display cap). The
-# browser may now echo back, on a re-proposal request, the providerPageUrl
-# values of candidates it has already been shown in this screen's lifetime
-# (a new optional previouslyShownProviderPageUrls request field); the server
-# uses them only to demote matching candidates, in ranked order, before
-# applying the existing 5-item display cap, and does not persist them. This
-# amends adr/0008 decision 2 and the "never sends state back to the server"
-# clause of decision 3; adr/0008's other decisions are unchanged (see
-# adr/0017 for the full boundary and why this is not durable history). The
-# same review also found business hours the single largest contributor to
-# mobile card height (measured 55px of 345px, 50 characters); the organizer
-# already cannot rely on it to infer real-time lunch availability (the
-# provider's `open` field is unparseable free text and its `lunch` field
-# only ever reports "available" once already lunch-filtered, per adr/0015),
-# so it is removed from the candidate card and from this API's Candidate
-# schema -- the server no longer returns it. The provider page link remains
-# the authoritative source for hours. This revision becomes durable when its
-# PR merges.
-# 2026-08-09 amendment (adr/0019): a field survey across the same 64 live
-# candidates found CAPACITY_REFERENCE and AMENITY_REFERENCE weak or
-# unwanted as comparison lenses (the human: sorting by the exact seat count
-# adds no value; AMENITY_REFERENCE's constituent fields other than
-# non_smoking are sparse or unusable in real data), while genre and
-# non-smoking status are well-populated and well-distributed. ConceptKind is
-# regrouped to PROXIMITY, GENRE_FOCUS (new -- ranks only the single most
-# common genre in the eligible population, a structural subset of
-# PROXIMITY's population so it cannot reproduce GENRE_VARIETY's exact-match
-# degeneracy), NON_SMOKING_REFERENCE (new, replacing AMENITY_REFERENCE --
-# ranks primarily by non-smoking reference), and IZAKAYA_BAR_INCLUDED
-# (unchanged); the total stays at four so reProposalOptions.maxItems: 3
-# remains satisfied without change (adr/0019 decision 1, responding to the
-# capacity-check follow-up recorded by adr/0016 decision 4). Candidate gains
-# capacityTier (a coarse SMALL/MEDIUM/LARGE seating-scale reference derived
-# from totalSeats, displayed instead of the raw number; it does not imply
-# reservation ease or availability), nonSmokingStatus (the provider-supplied
-# non-smoking reference), and cardPaymentAvailable (the provider-supplied
-# credit-card-acceptance reference, surfaced only as a caution when false;
-# it reflects card acceptance only, never a claim that a shop is
-# cash-only). access is removed from Candidate entirely -- the map already
-# shows shop location. This revision becomes durable when its PR merges.
-# 2026-08-09 amendment #2 (adr/0019 decision 8, same-day correction): the
-# first draft of this amendment rejected any dinner-budget display; the
-# human, on re-confirmation after a reasoning error was found in that
-# rejection, asked for a coarse staged display instead. Candidate gains
-# dinnerBudgetTier (a coarse LOW/MID/HIGH dinner-price-range reference
-# derived from the provider's budget data; null when not supplied). Its
-# visible label must always state it is a dinner reference, and no
-# rationale, label, or caution derived from it may state or imply a lunch
-# price. It is never a ConceptKind or ranking input. This revision becomes
-# durable when its PR merges.
+# ステータス: 承認待ち — adr/0023（ドラフト）が提案する組み替え。ConceptKindを廃し、絞り込み＋固定の
+#   近い順並べ替え＋近傍プールからの無作為抽出へ置き換える破壊的変更（v1.0.0）。この変更は
+#   product-brief.md §2・§3・TDR-CS-04・ADR-0004決定1・TDR-CS-01・product-briefの表題と衝突する
+#   人間の再承認点を含む（adr/0023の矛盾報告を参照）。ここに書かれたスキーマは可決を前提にしたドラフト
+#   であり、承認されるまで拘束力を持たない。この行の形式はmeta/adr/0043の機械検証が要求する
+#
+# 2026-08-10 draft (adr/0023, 提案中・未承認):
+# - ConceptKind, CandidateConcept, ReproposalOption, reproposalKind,
+#   reProposalOptions, previouslyShownProviderPageUrls をすべて削除する。
+# - CandidateProposalRequest は任意の filters オブジェクトだけを持つ
+#   (genres, includeIzakayaBar, nonSmokingOnly, cardPaymentOnly,
+#   budgetTiers)。初期表示・「もう一度探す」・「絞り込みを変更する」は
+#   いずれも同じ形の POST であり、API から見て区別しない。
+# - nonSmokingOnly / cardPaymentOnly / budgetTiers はソフトフィルタである
+#   (adr/0023 決定2, 人間の明示的な判断): 確認できた非該当だけを除き、
+#   情報なし (null) は候補集合に残る。除外ではなく表示順の後方配置で
+#   「情報なし」を扱う。
+# - candidates の並び順は「有効な絞り込みについて確認済み一致の候補が
+#   先、情報なしの候補は後ろ、各段は距離昇順」の固定規則である
+#   (adr/0023 決定4)。並べ替え基準を選ぶ操作は存在しない。
+# - candidates は、絞り込み後の母集団を上記の順で並べ、近い方から
+#   min(母集団, 20) 件の近傍プールを作り、そこから無作為に最大5件を
+#   抽出したのち、表示直前に同じ規則へ並べ直したものである
+#   (adr/0023 決定4)。これは product-brief.md ・ ADR-0004 決定1 ・
+#   ADR-0005 ・ ADR-0008 ・ ADR-0016 が確立した「決定的ルールだけで
+#   選ぶ」という要求への明示的な違反であり、人間の再承認点である
+#   (adr/0023 矛盾4)。乱数のseedはこの公開APIに一切存在しない
+#   (test-support-api.yaml だけが持つ)。
+# - izakayaBarFallbackApplied を追加する (adr/0023 決定6, TDR-CS-10の
+#   後継)。includeIzakayaBar が false のまま他の filters を適用して
+#   候補が尽きたときだけ、既定除外を取り下げて示したことを表す。
+#   ユーザーが明示的に選んだ他の filters は、これが原因で0件になっても
+#   自動で緩めない。
+# - availableGenres を追加する (adr/0023 決定9)。専用の filter
+#   taxonomy エンドポイントは復活させない。
+# - 400 PROPOSAL_REPROPOSAL_KIND_INVALID を廃止する (adr/0023 決定8;
+#   TDR-CS-07 廃止)。絞り込みモデルには「無効な切り口」という概念が
+#   存在しない。
+# - businessHours は引き続き存在しない (adr/0017 のまま、無変更)。
+#   capacityTier/nonSmokingStatus/cardPaymentAvailable/totalSeats/name/
+#   genre/description/regularHoliday/providerPageUrl/location/
+#   candidateRef は Must により無変更 (adr/0023 は adr/0019 が確立した
+#   カード表示項目を変えない)。
+# - dinnerBudgetTier の可視表示は段階語（低/中/高）だけにする。ディナー
+#   基準である開示だけを、展開中の絞り込みパネル内の1行注記へ置き、金額・
+#   レンジ・段階から金額への対応は表示しない (adr/0023 決定10の2026-08-11
+#   人間修正)。
+#   enum値 (LOW/MID/HIGH) 自体、しきい値、切り口にしないという扱いは
+#   adr/0019 決定8のまま無変更。これは adr/0019 決定8の「可視ラベルに
+#   必ずディナーである語を含める」というMustの適用単位をカード単位から
+#   画面単位へ変えるものであり、人間の再承認点である (adr/0019への
+#   追記注記を参照)。
 openapi: 3.0.3
 info:
   title: Toyama Dining Radar Candidate Proposal API
-  version: 0.9.0
+  version: 1.0.2
   description: >-
-    Produces deterministic lunch-candidate concepts around one private
-    runtime-configured location. The location, configured radius, credentials,
-    provider identifiers, and provider images are never accepted or returned by
-    this browser-facing API. A response is held in current browser memory only;
-    it is not a provider-response cache or a durable search session. During one
-    screen lifetime, the browser may retain a non-persistent shown-candidate
-    comparison state (the providerPageUrl values of candidates it has been
-    shown) and send it back on a re-proposal request so the server can lower
-    the display priority of repeats in that one response (adr/0017); neither
-    side persists this state beyond, respectively, current-screen memory and
-    the single request being handled.
+    Produces up to 5 lunch candidates around one private runtime-configured
+    location, after filtering and a randomized near-distance pool selection
+    (adr/0023). The location, configured radius, credentials, provider
+    identifiers, and provider images are never accepted or returned by this
+    browser-facing API. A response is held in current browser memory only; it
+    is not a provider-response cache or a durable search session. This API
+    carries no random seed and no comparison/history state of any kind
+    (adr/0023 decision 5 removes the previously-shown-candidate demotion
+    mechanism adr/0008 decision 2 and adr/0017 established). DRAFT: this
+    contract version is not yet human-approved; see
+    adr/0023-replace-concept-lenses-with-filters-sort-and-randomized-pool-selection.md
+    and adr/0022-expose-identity-free-population-filter-attributes.md.
 servers:
   - url: https://app.example.invalid
     description: >-
@@ -100,21 +76,23 @@ paths:
   /candidate-proposals:
     post:
       operationId: proposeCandidates
-      summary: Generate one displayed lunch-candidate proposal
+      summary: Generate one displayed lunch-candidate proposal from the current filters
       description: >-
-        Performs one fresh Hot Pepper search and returns the initial deterministic
-        proposal, or a newly chosen re-proposal lens, with its normalized candidate
-        set. Opening the authenticated screen sends an empty request and displays
-        the returned proposal immediately. Re-proposal is a separate fresh request
-        after the browser presents the response's available lenses in a modal and
-        the organizer selects one, or after the organizer asks to try the
-        currently displayed lens again. The configured search origin and its
-        exact radius are server-only and are not request parameters. For a
-        re-proposal request, the browser may include the providerPageUrl values
-        of candidates already shown in this screen's lifetime; the server uses
-        them only to lower those candidates' selection priority in this one
-        response's ranking, before its 5-item display cap, and does not persist
-        them (adr/0017).
+        Performs one fresh Hot Pepper search over the full eligible
+        population, applies the requested filters (adr/0023 decisions 1-3),
+        orders the result (confirmed matches before unconfirmed/unavailable
+        values for any active nullable filter, each group nearest-first),
+        selects a near-distance pool and randomly samples up to 5 candidates
+        from it, then re-orders the sampled candidates by the same rule for
+        display (adr/0023 decision 4). Opening the authenticated screen sends
+        an empty request. "Try again" and "change filters" are the same
+        operation: both are a fresh POST with a `filters` body, identical
+        (unchanged) or different from the previous request respectively. The
+        configured search origin and its exact radius are server-only and are
+        not request parameters. This operation carries no random seed on the
+        public API; production responses are non-deterministic between
+        requests by design (adr/0023 decision 4). Acceptance testing pins
+        determinism through contracts/test-support-api.yaml only.
       security:
         - organizerSession: []
       parameters:
@@ -128,21 +106,13 @@ paths:
       responses:
         '200':
           description: >-
-            A complete replacement displayed-proposal response. A null proposal
-            is a successful no-match result.
+            A complete replacement displayed-proposal response. An empty
+            `candidates` array is a successful no-match result for the
+            applied filters.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/CandidateProposalResponse'
-        '400':
-          description: A browser-visible re-proposal lens is invalid or unavailable.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProblemResponse'
-              example:
-                code: PROPOSAL_REPROPOSAL_KIND_INVALID
-                message: This proposal lens is not available. Choose another one.
         '401':
           $ref: '#/components/responses/AuthenticationRequired'
         '403':
@@ -221,165 +191,211 @@ components:
       type: object
       additionalProperties: false
       properties:
-        reproposalKind:
-          $ref: '#/components/schemas/ConceptKind'
-          description: >-
-            Omit when the authenticated screen first opens. For re-proposal,
-            send exactly one kind: either one selected from the current
-            response's reProposalOptions (a different comparison lens), or
-            the current response's own proposal.kind unchanged (a same-lens
-            "try again" request; adr/0016). A same-lens request relies only
-            on repeat demotion (adr/0017), not a new ranking criterion or
-            randomness, and is not guaranteed to return a different candidate
-            set. It is an application-owned comparison lens, not a provider
-            identifier, candidate reference, or durable history.
-        previouslyShownProviderPageUrls:
+        filters:
+          $ref: '#/components/schemas/CandidateFilters'
+      description: >-
+        Omit `filters`, or send it as `{}`, when opening the screen for the
+        first time. Before filtering, the server normalizes an omitted
+        `filters`, an empty `filters` object, and omitted properties within
+        `filters` to CandidateFilters' semantic defaults. "Try again" sends
+        filters whose normalized value equals the currently applied value;
+        it need not repeat byte-for-byte the same JSON object. "Change
+        filters" sends a normalized value that differs from the applied one.
+        Both use this request shape (adr/0023 decisions 1 and 13).
+      x-default-normalization:
+        normalizedFilters:
+          genres: []
+          includeIzakayaBar: false
+          nonSmokingOnly: false
+          cardPaymentOnly: false
+          budgetTiers: []
+        semanticallyEquivalentRequestBodies:
+          - {}
+          - {filters: {}}
+          - {filters: {genres: [], includeIzakayaBar: false,
+                       nonSmokingOnly: false, cardPaymentOnly: false,
+                       budgetTiers: []}}
+    CandidateFilters:
+      type: object
+      additionalProperties: false
+      properties:
+        genres:
           type: array
           items:
             type: string
-            format: uri
           description: >-
-            Present only on a re-proposal request. The exact providerPageUrl
-            values of candidates the server has already returned to this same
-            browser earlier in this screen's lifetime (adr/0017), echoed back
-            unchanged; the browser must not invent these values or source
-            them from storage, a cookie, or the URL. The server uses this
-            list only to lower the selection priority of matching candidates
-            in this one response's ranking, before the existing 5-candidate
-            display cap is applied (adr/0015); it does not exclude them, and
-            it is not stored, logged, or reused beyond computing this one
-            response. Omit or send an empty array when opening the screen for
-            the first time or when no candidate has been shown yet.
+            Provider genre labels to include (OR match against each
+            candidate's genre). Omit or send an empty array for no genre
+            restriction beyond `includeIzakayaBar`. Not affected by, and does
+            not affect, `availableGenres` in the response (adr/0023 decision
+            9): the offered genre choices never shrink as the organizer
+            narrows.
+        includeIzakayaBar:
+          type: boolean
+          default: false
+          description: >-
+            When false (the default), genres whose lunch service cannot be
+            confirmed from returned provider fields (adr/0015's
+            DEFAULT_EXCLUDED_GENRES) are excluded from the eligible
+            population. When true, they are included. This default exclusion
+            reflects unconfirmed lunch status, not a confirmed absence of
+            lunch service. See also `izakayaBarFallbackApplied` in the
+            response.
+        nonSmokingOnly:
+          type: boolean
+          default: false
+          description: >-
+            When true, excludes only candidates whose `nonSmokingStatus` is
+            the confirmed value NONE. Candidates with FULL, PARTIAL, or an
+            unconfirmed (null) reference remain in the eligible population
+            (adr/0023 decision 2): unconfirmed information is never treated
+            as a confirmed non-match. Unconfirmed candidates are ordered
+            after confirmed matches in the response (see `candidates`).
+        cardPaymentOnly:
+          type: boolean
+          default: false
+          description: >-
+            When true, excludes only candidates whose `cardPaymentAvailable`
+            is the confirmed value false. Candidates with true or an
+            unconfirmed (null) reference remain (adr/0023 decision 2), same
+            treatment as `nonSmokingOnly`.
+        budgetTiers:
+          type: array
+          items:
+            type: string
+            enum: [LOW, MID, HIGH]
+          description: >-
+            When non-empty, excludes only candidates whose `dinnerBudgetTier`
+            is a confirmed value not in this set. Candidates with an
+            unconfirmed (null) reference remain regardless of the selection
+            (adr/0023 decision 2), same treatment as `nonSmokingOnly`. This
+            filter is never sent to the provider (its search-budget parameter
+            cannot represent this three-tier scheme within its two-code
+            limit); it is always evaluated locally. The browser-facing filter
+            option labels for LOW/MID/HIGH must use the same 低/中/高
+            terminology as the per-candidate visible label. The single
+            dinner-basis disclosure appears only inside the expanded filter
+            panel and contains no tier-to-yen mapping (adr/0023 decision 10,
+            as amended 2026-08-11).
     CandidateProposalResponse:
       type: object
-      required: [proposal, reProposalOptions, providerCredit]
+      required: [candidates, izakayaBarFallbackApplied, availableGenres, populationAttributes, providerCredit]
       additionalProperties: false
       properties:
-        proposal:
-          allOf:
-            - $ref: '#/components/schemas/CandidateConcept'
-          nullable: true
-          description: >-
-            The one concept and candidate set to display immediately. It is null
-            when the selected lens has no matching lunch candidates. The browser
-            replaces the displayed cards and map on every successful response. It
-            may retain the shown candidates' providerPageUrl values in
-            current-screen memory and echo them back in a later re-proposal
-            request so the server can demote repeats there (adr/0017); the
-            browser does not persist this state outside current-screen memory,
-            and the server does not persist it beyond computing that one
-            response.
-        reProposalOptions:
-          type: array
-          maxItems: 3
-          description: >-
-            Application-owned lenses the browser may show only after the organizer
-            chooses to re-propose. For a non-null proposal, this array excludes the
-            displayed proposal's kind. It does not contain provider IDs, candidate
-            references, search-origin data, or a guarantee that a fresh search will
-            return candidates.
-          items:
-            $ref: '#/components/schemas/ReproposalOption'
-        providerCredit:
-          $ref: '#/components/schemas/ProviderCredit'
-    ReproposalOption:
-      type: object
-      required: [kind, title, rationale]
-      additionalProperties: false
-      properties:
-        kind:
-          $ref: '#/components/schemas/ConceptKind'
-        title:
-          type: string
-          description: >-
-            A plain-language label for the next comparison lens. For
-            GENRE_FOCUS this is generated per response and names the genre
-            it selected (adr/0019); it remains deterministic for a given
-            candidate set.
-        rationale:
-          type: string
-          description: >-
-            A plain-language explanation of the lens. It must not promise seats,
-            reservations, payment, or other unavailable facts.
-    CandidateConcept:
-      type: object
-      required: [conceptRef, kind, title, rationale, candidates]
-      additionalProperties: false
-      properties:
-        conceptRef:
-          type: string
-          description: >-
-            Opaque current-response UI identity. It is not a provider identifier
-            and must not be persisted or used as a durable reference.
-        kind:
-          $ref: '#/components/schemas/ConceptKind'
-        title:
-          type: string
-          description: An explainable, deterministic concept label.
-        rationale:
-          type: string
-          description: >-
-            A plain-language explanation based only on provider fields used for
-            this concept; it must not promise seats, reservations, payment, or
-            other unavailable facts.
         candidates:
           type: array
           maxItems: 5
           description: >-
-            The top-ranked candidates for this concept after ranking the full
-            retrieved eligible population and, for a re-proposal request,
-            demoting any candidate named in the request's
-            previouslyShownProviderPageUrls to the end of that ranking
-            (adr/0017); 5 is a display cap applied last, not a limit on the
-            population that was fetched, ranked, or demoted (adr/0015). The
-            browser may keep these candidates only in current-screen memory
-            while the response is being compared; it must not persist them
-            beyond that memory. It may echo only their providerPageUrl values
-            back to the server on a later re-proposal request (adr/0017); it
-            must not otherwise return this array or any other candidate field
-            to the server.
+            Up to 5 candidates from the near-distance pool, randomly sampled
+            and then ordered by the fixed display rule: candidates
+            confirmed to match every active nullable filter come first, any
+            candidate unconfirmed (null) for at least one active nullable
+            filter comes after, and each group is ordered nearest-first
+            (adr/0023 decision 4). This ordering equals plain nearest-first
+            when no nullable filter (`nonSmokingOnly`, `cardPaymentOnly`,
+            `budgetTiers`) is active. An empty array is a successful
+            no-match result for the applied filters, distinct from a fetch
+            failure (503) or rate limiting (429). Filtering and pool
+            selection are always performed over the full retrieved,
+            normalized, deduplicated population, never over a
+            display-truncated subset (adr/0023 decision 3). The response
+            carries no random seed; production sampling is non-deterministic
+            between requests (adr/0023 decision 4).
           items:
             $ref: '#/components/schemas/Candidate'
-    ConceptKind:
-      type: string
-      enum: [PROXIMITY, GENRE_FOCUS, NON_SMOKING_REFERENCE, IZAKAYA_BAR_INCLUDED]
+        izakayaBarFallbackApplied:
+          type: boolean
+          description: >-
+            True only when the effective `includeIzakayaBar` was false but
+            excluding that genre category, combined with the rest of the
+            applied filters, left no candidate, so the server included that
+            category anyway (adr/0023 decision 6, the successor to
+            adr/0015's `IZAKAYA_BAR_INCLUDED` fallback). False whenever the
+            exclusion was not the cause of an empty result, including
+            whenever `includeIzakayaBar` was explicitly true. This never
+            happens for any other filter (`genres`, `nonSmokingOnly`,
+            `cardPaymentOnly`, `budgetTiers`): those are never silently
+            loosened.
+        availableGenres:
+          type: array
+          items:
+            type: string
+          description: >-
+            The distinct provider genre labels present in the eligible
+            population given only the current `includeIzakayaBar` value; not
+            narrowed by the current `genres` selection or by any other active
+            filter (adr/0023 decision 9). Lets the browser offer genre
+            choices without a dedicated filter-taxonomy endpoint and without
+            the offered choices shrinking as the organizer narrows.
+        populationAttributes:
+          type: array
+          description: >-
+            Identity-free attributes for every retrieved, normalized,
+            deduplicated candidate before any request filter is applied,
+            including the default izakaya/bar exclusion. The browser uses
+            this only to count the effect of a pending filters selection
+            before it makes another proposal request (adr/0022). Rows do not
+            identify shops and their sequence has no public ranking, distance,
+            map, or candidate-correspondence meaning. They must not contain
+            or be extended with a name, candidateRef, provider identifier or
+            page URL, coordinates, search origin/range, distance, route,
+            walking time, current location, image, description, business
+            hours, seats, or any other identifying/location attribute.
+          items:
+            $ref: '#/components/schemas/PopulationAttribute'
+        providerCredit:
+          $ref: '#/components/schemas/ProviderCredit'
+    PopulationAttribute:
+      type: object
+      required:
+        [genre, nonSmokingStatus, cardPaymentAvailable, dinnerBudgetTier,
+         defaultExcluded]
+      additionalProperties: false
       description: >-
-        The deterministic selection lens. The server returns only kinds it can
-        explain from the current normalized provider data. PROXIMITY,
-        GENRE_FOCUS, and NON_SMOKING_REFERENCE rank only candidates outside a
-        default-excluded genre category whose lunch service cannot be
-        confirmed from returned provider fields (adr/0015). That default
-        exclusion reflects unconfirmed lunch status, not a confirmed absence
-        of lunch service, and no rationale may claim otherwise.
-        IZAKAYA_BAR_INCLUDED is the only kind whose candidate population
-        additionally includes that category; the organizer reaches it only by
-        selecting it as a re-proposal lens, the same way as any other kind,
-        never as an upfront filter or secondary condition. GENRE_FOCUS ranks
-        by proximity only the candidates sharing the single most common genre
-        in the eligible population, and is explainable only when that
-        population spans at least two distinct genres -- its candidate set is
-        therefore always a strict subset of PROXIMITY's own candidate set when
-        offered, which by construction differs from it (adr/0019; GENRE_VARIETY,
-        removed by adr/0016, instead reordered the same full population and
-        sometimes produced an identical set and order -- GENRE_FOCUS cannot
-        reproduce that exact failure because its population is always a
-        narrower subset when built). NON_SMOKING_REFERENCE ranks candidates
-        primarily by their provider-supplied non-smoking reference (full
-        non-smoking, then partial, then none, then unconfirmed), then by
-        proximity, and is explainable only when the population spans at least
-        two distinct non-smoking references; it replaces AMENITY_REFERENCE
-        (adr/0019), whose combined constituent fields (private_room, parking,
-        wifi, barrier_free) real-data review found too sparse or unusable to
-        compare by. CAPACITY_REFERENCE was also removed (adr/0019): the
-        organizer found sorting by the exact seat count added no comparison
-        value; every Candidate now instead carries a coarse capacityTier
-        reference shown regardless of the active lens. GENRE_VARIETY was
-        removed (adr/0016): under real data it produced the same candidate
-        set and order as PROXIMITY whenever the nearest candidates already
-        spanned distinct genres, so it no longer described a distinct,
-        explainable lens. dinnerBudgetTier (adr/0019 decision 8) is a
-        Candidate field, never a ConceptKind: dinner-price banding is never
-        offered as a comparison lens, only shown on every card.
+        One anonymous filter-membership row for `populationAttributes`.
+        It is not a candidate, a stable identity, or an association to any
+        displayed candidate or marker. `null` is unavailable information, not
+        a negative value or confirmed non-match (adr/0023 decision 2).
+      properties:
+        genre:
+          type: string
+          description: >-
+            Provider-supplied genre label used only for the closed `genres`
+            filter vocabulary and match count. It is not a shop identity.
+        nonSmokingStatus:
+          type: string
+          nullable: true
+          enum: [FULL, PARTIAL, NONE]
+          description: >-
+            The same coarse non-smoking reference used by
+            `CandidateFilters.nonSmokingOnly`; null means unavailable, never
+            `NONE`.
+        cardPaymentAvailable:
+          type: boolean
+          nullable: true
+          description: >-
+            The same credit-card-acceptance reference used by
+            `CandidateFilters.cardPaymentOnly`; null means unavailable. False
+            means only that credit cards are not accepted, not that payment is
+            cash-only.
+        dinnerBudgetTier:
+          type: string
+          nullable: true
+          enum: [LOW, MID, HIGH]
+          description: >-
+            The same coarse provider-derived dinner-budget reference used by
+            `CandidateFilters.budgetTiers`; null means unavailable. It never
+            represents or implies a lunch price.
+        defaultExcluded:
+          type: boolean
+          description: >-
+            Whether this row is in ADR-0015's default-excluded genre category.
+            It lets the browser count the effect of `includeIzakayaBar` without
+            asking the provider again. This is a genre-category property: all
+            rows with the same `genre` have the same value, so acceptance may
+            classify a displayed candidate's already-public genre for
+            TDR-CS-09. It still must not associate that candidate with any
+            particular populationAttributes row or reveal an identity.
     Candidate:
       type: object
       required:
@@ -414,17 +430,20 @@ components:
             Provider-supplied total-seat reference; null when not supplied.
             Retained for exact machine comparison only (see the browser
             interface's rawValueAttribute); the visible card value is
-            capacityTier's coarse label, not this number (adr/0019). This
-            value does not indicate reservation availability.
+            capacityTier's coarse label, not this number. This value does
+            not indicate reservation availability.
         capacityTier:
           type: string
           nullable: true
           enum: [SMALL, MEDIUM, LARGE]
           description: >-
-            A coarse seating-scale reference derived from totalSeats
-            (adr/0019); null exactly when totalSeats is null. It describes the
-            shop's scale only -- it is not a claim about reservation ease,
-            availability, or whether a given party size can be seated.
+            A coarse seating-scale reference derived from totalSeats; null
+            exactly when totalSeats is null. It describes the shop's scale
+            only -- it is not a claim about reservation ease, availability,
+            or whether a given party size can be seated. Card-display only;
+            never a filter or a sort key (adr/0023: the organizer judged
+            sorting by exact seat count unhelpful, and this remains
+            display-only reference information, unchanged from adr/0019).
         nonSmokingStatus:
           type: string
           nullable: true
@@ -433,7 +452,8 @@ components:
             Provider-supplied non-smoking reference (full non-smoking,
             partial, or no non-smoking seating); null when not supplied. Do
             not treat null as NONE -- an unconfirmed reference is not a claim
-            of no non-smoking seating.
+            of no non-smoking seating. See `CandidateFilters.nonSmokingOnly`
+            for how this drives filtering and ordering.
         cardPaymentAvailable:
           type: boolean
           nullable: true
@@ -442,34 +462,41 @@ components:
             supplied. This reflects credit-card acceptance only, not other
             payment methods (cash, e-money, or other cashless methods), and
             must not be presented as a claim that the shop accepts only cash.
+            See `CandidateFilters.cardPaymentOnly` for how this drives
+            filtering and ordering.
         dinnerBudgetTier:
           type: string
           nullable: true
           enum: [LOW, MID, HIGH]
           description: >-
             A coarse dinner-price-range reference derived from the provider's
-            budget data (adr/0019 decision 8); null when not supplied. This
-            is the provider's dinner-oriented budget figure only -- it must
-            never be presented as, or used to infer, a lunch price, and no
-            rationale, label, or caution derived from it may state or imply
-            a lunch price threshold. Its visible label must always make
-            clear it is a dinner reference (for example a "dinner" or
-            equivalent qualifier). It is never a ConceptKind or ranking
-            input; it is shown on every card regardless of the active lens.
+            budget data; null when not supplied. This is the provider's
+            dinner-oriented budget figure only -- it must never be presented
+            as, or used to infer, a lunch price, and no rationale, label, or
+            caution derived from it may state or imply a lunch price
+            threshold. The per-candidate visible label is the tier word
+            alone (e.g. 低/中/高 for LOW/MID/HIGH); it does not itself
+            restate that this is a dinner figure or any yen amount/range. The
+            dinner-basis disclosure appears once, only in the expanded filter
+            panel, and does not include a tier-to-yen mapping (adr/0023
+            decision 10 as amended 2026-08-11). This changes the unit at
+            which adr/0019 decision 8's "always disclose this is a dinner
+            figure" requirement is satisfied, from per-card to the expanded
+            filter panel. See `CandidateFilters.budgetTiers`
+            for how this drives filtering and ordering; this filter is never
+            sent to the provider.
         location:
           $ref: '#/components/schemas/ShopLocation'
         providerPageUrl:
           type: string
           format: uri
           description: >-
-            Provider page for the organizer's final menu, hours, and reservation
-            confirmation. During one screen lifetime only, the browser may
-            retain this value and echo it back in a later re-proposal request's
-            previouslyShownProviderPageUrls so the server can lower its repeat
-            display priority (adr/0017); the server uses it only for that one
-            request's candidate selection and does not persist it. The browser
-            must not persist this value outside current-screen memory or use it
-            as a durable candidate identity.
+            Provider page for the organizer's final menu, hours, and
+            reservation confirmation. The browser must not persist this value
+            outside current-screen memory or use it as a durable candidate
+            identity, and must not send it back to the server (adr/0023
+            decision 5 removes the previously-shown-candidate mechanism that
+            once used this value for repeat demotion).
     ShopLocation:
       type: object
       required: [latitude, longitude]
@@ -509,7 +536,7 @@ components:
         code:
           type: string
           enum:
-            [AUTHENTICATION_REQUIRED, REQUEST_REJECTED, PROPOSAL_REPROPOSAL_KIND_INVALID,
+            [AUTHENTICATION_REQUIRED, REQUEST_REJECTED,
              PROPOSAL_RATE_LIMITED, PROVIDER_UNAVAILABLE]
         message:
           type: string

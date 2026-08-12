@@ -1,8 +1,10 @@
 import json
 import urllib.error
+import urllib.parse
 
 from django.test import SimpleTestCase
 
+from dining_radar.integrations.hotpepper import client as client_module
 from dining_radar.integrations.hotpepper.client import fetch_shops, redact_query
 from dining_radar.integrations.hotpepper.config import HotPepperConfig
 from dining_radar.integrations.hotpepper.errors import (
@@ -111,6 +113,11 @@ def _config():
     )
 
 
+def _start_param(full_url: str) -> int:
+    query = urllib.parse.parse_qsl(urllib.parse.urlsplit(full_url).query)
+    return int(dict(query)["start"])
+
+
 class FetchShopsTests(SimpleTestCase):
     def test_returns_the_parsed_json_body(self):
         payload = {"results": {"shop": []}}
@@ -146,6 +153,135 @@ class FetchShopsTests(SimpleTestCase):
 
         with self.assertRaises(HotPepperResponseError):
             fetch_shops(_config(), opener=opener)
+
+    # Pagination (adr/0023 decision 3-1, Must) -------------------------------
+
+    def test_results_available_equal_to_returned_needs_no_second_page(self):
+        calls = []
+
+        def opener(request, timeout):
+            calls.append(request.full_url)
+            payload = {
+                "results": {
+                    "results_available": 2,
+                    "results_returned": 2,
+                    "shop": [{"id": "a"}, {"id": "b"}],
+                }
+            }
+            return _FakeHttpResponse(json.dumps(payload).encode("utf-8"))
+
+        result = fetch_shops(_config(), opener=opener)
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(result["results"]["shop"], [{"id": "a"}, {"id": "b"}])
+
+    def test_results_available_greater_than_returned_pages_through_start(self):
+        pages = {
+            1: {
+                "results": {
+                    "results_available": 3,
+                    "results_returned": 2,
+                    "shop": [{"id": "a"}, {"id": "b"}],
+                }
+            },
+            3: {
+                "results": {
+                    "results_available": 3,
+                    "results_returned": 1,
+                    "shop": [{"id": "c"}],
+                }
+            },
+        }
+        starts_requested = []
+
+        def opener(request, timeout):
+            start = _start_param(request.full_url)
+            starts_requested.append(start)
+            return _FakeHttpResponse(json.dumps(pages[start]).encode("utf-8"))
+
+        result = fetch_shops(_config(), opener=opener)
+
+        self.assertEqual(starts_requested, [1, 3])
+        self.assertEqual(result["results"]["shop"], [{"id": "a"}, {"id": "b"}, {"id": "c"}])
+
+    def test_pagination_stops_when_a_page_returns_no_shop(self):
+        pages = {
+            1: {
+                "results": {
+                    "results_available": 5,
+                    "results_returned": 2,
+                    "shop": [{"id": "a"}, {"id": "b"}],
+                }
+            },
+            3: {"results": {"results_available": 5, "results_returned": 0, "shop": []}},
+        }
+        starts_requested = []
+
+        def opener(request, timeout):
+            start = _start_param(request.full_url)
+            starts_requested.append(start)
+            return _FakeHttpResponse(json.dumps(pages[start]).encode("utf-8"))
+
+        result = fetch_shops(_config(), opener=opener)
+
+        self.assertEqual(starts_requested, [1, 3])
+        self.assertEqual(result["results"]["shop"], [{"id": "a"}, {"id": "b"}])
+
+    def test_missing_results_available_stops_pagination_without_raising(self):
+        def opener(request, timeout):
+            payload = {"results": {"shop": [{"id": "a"}]}}
+            return _FakeHttpResponse(json.dumps(payload).encode("utf-8"))
+
+        result = fetch_shops(_config(), opener=opener)
+
+        self.assertEqual(result["results"]["shop"], [{"id": "a"}])
+
+    def test_missing_results_available_stops_pagination_even_when_returned_is_present(self):
+        # The two type guards are independently necessary. The test above omits
+        # both counters, so it cannot tell whether either guard alone stops
+        # pagination. Here `results_returned` is a valid int and only
+        # `results_available` is absent -- the shape that would otherwise reach
+        # the `len(combined_shops) >= available` comparison against None.
+        starts_requested = []
+
+        def opener(request, timeout):
+            starts_requested.append(request.full_url)
+            payload = {"results": {"results_returned": 1, "shop": [{"id": "a"}]}}
+            return _FakeHttpResponse(json.dumps(payload).encode("utf-8"))
+
+        result = fetch_shops(_config(), opener=opener)
+
+        self.assertEqual(len(starts_requested), 1)
+        self.assertEqual(result["results"]["shop"], [{"id": "a"}])
+
+    def test_malformed_results_shape_is_returned_as_is_for_normalize_shops_to_reject(self):
+        def opener(request, timeout):
+            payload = {"results": {"shop": "not-a-list"}}
+            return _FakeHttpResponse(json.dumps(payload).encode("utf-8"))
+
+        result = fetch_shops(_config(), opener=opener)
+
+        self.assertEqual(result, {"results": {"shop": "not-a-list"}})
+
+    def test_pagination_is_capped_at_a_maximum_number_of_pages(self):
+        starts_requested = []
+
+        def opener(request, timeout):
+            start = _start_param(request.full_url)
+            starts_requested.append(start)
+            payload = {
+                "results": {
+                    "results_available": 10_000,
+                    "results_returned": 1,
+                    "shop": [{"id": str(start)}],
+                }
+            }
+            return _FakeHttpResponse(json.dumps(payload).encode("utf-8"))
+
+        result = fetch_shops(_config(), opener=opener)
+
+        self.assertEqual(len(starts_requested), client_module._MAX_PAGES)
+        self.assertEqual(len(result["results"]["shop"]), client_module._MAX_PAGES)
 
 
 class NormalizeShopsTests(SimpleTestCase):

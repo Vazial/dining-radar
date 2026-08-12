@@ -1,0 +1,1 @@
+"""Operator-only authentication commands."""

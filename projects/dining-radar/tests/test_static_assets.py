@@ -17,6 +17,16 @@ from django.urls import reverse
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 HOME_TEMPLATE = PROJECT_ROOT / "src" / "dining_radar" / "web" / "templates" / "web" / "home.html"
+CANDIDATE_SCRIPT = (
+    PROJECT_ROOT
+    / "src"
+    / "dining_radar"
+    / "web"
+    / "static"
+    / "dining_radar"
+    / "web"
+    / "candidate.js"
+)
 
 _VENDORED_LEAFLET_ASSETS = (
     "dining_radar/web/vendor/leaflet/leaflet.js",
@@ -59,6 +69,86 @@ class LeafletVendoringSourceTests(SimpleTestCase):
 
         license_text = Path(license_path).read_text(encoding="utf-8")
         self.assertIn("BSD 2-Clause License", license_text)
+
+    def test_vendored_leaflet_does_not_reference_an_unvendored_source_map(self):
+        script_path = finders.find("dining_radar/web/vendor/leaflet/leaflet.js")
+        self.assertIsNotNone(script_path)
+
+        script = Path(script_path).read_text(encoding="utf-8")
+        self.assertNotIn("sourceMappingURL=leaflet.js.map", script)
+
+
+class CandidateSurfaceSourceTests(SimpleTestCase):
+    """Guard the presentation boundaries that do not need live provider data."""
+
+    def test_map_led_deck_keeps_cards_and_map_in_the_same_surface(self):
+        source = HOME_TEMPLATE.read_text(encoding="utf-8")
+
+        self.assertIn('grid-template-areas: "map" "cards"', source)
+        self.assertIn("scroll-snap-type: inline mandatory", source)
+        self.assertIn("height: calc(100dvh - 6.875rem)", source)
+        self.assertIn("position: absolute; inset: 0", source)
+        self.assertIn("height: clamp(22rem, 50dvh, 34rem)", source)
+        self.assertIn("flex: 0 0 calc(100vw - 2rem)", source)
+        self.assertIn("max-height: 13.5rem", source)
+        self.assertIn("scrollbar-width: none", source)
+        self.assertIn("isolation: isolate", source)
+        self.assertIn("top: 0.5rem;\n      right: 0.5rem", source)
+        self.assertIn("background: rgb(255 255 255 / 92%)", source)
+
+    def test_mobile_layout_keeps_decision_controls_compact(self):
+        template = HOME_TEMPLATE.read_text(encoding="utf-8")
+        script = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("min-height: 3.25rem", template)
+        self.assertIn("height: 3.5rem", template)
+        self.assertIn("height: 3.25rem", template)
+        self.assertIn("flex-wrap: nowrap; overflow-x: auto", template)
+        self.assertIn("candidate-card-description", template)
+        self.assertIn("display: none", template)
+        self.assertIn('"data-testid": "candidate-deck-counter"', script)
+        self.assertIn('["1/" + String(body.candidates.length)]', script)
+
+    def test_unchanged_filter_panel_omits_batch_actions(self):
+        source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("var actions = [];", source)
+        self.assertIn("actions.push(apply);", source)
+        self.assertIn("if (actions.length > 0)", source)
+
+    def test_filter_opener_uses_the_contract_test_id_and_allowed_control_purpose(self):
+        source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn('"data-testid": "candidate-filter-open"', source)
+        self.assertIn('"data-candidate-control-purpose": "candidate-filter-open"', source)
+        self.assertNotIn('"data-testid": "candidate-filter-toggle"', source)
+        self.assertNotIn('"data-candidate-control-purpose": "candidate-filter-toggle"', source)
+
+    def test_pending_filter_text_cannot_replace_the_applied_summary(self):
+        source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("filterSummaryText(currentFilters)", source)
+        self.assertIn("searchAgain.disabled = dirty", source)
+        self.assertIn("if (matchCount === 0 || !dirty)", source)
+
+    def test_filter_controls_keep_a_44px_minimum_target(self):
+        source = HOME_TEMPLATE.read_text(encoding="utf-8")
+
+        self.assertIn(".candidate-chip,", source)
+        self.assertIn("min-height: 2.75rem", source)
+        self.assertIn(".candidate-chip { min-width: 2.75rem; }", source)
+
+    def test_soft_filter_labels_do_not_claim_unknown_values_are_confirmed(self):
+        source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("カード利用不可を除く", source)
+        self.assertIn("ディナー予算感", source)
+        self.assertIn("ディナー予算 ", source)
+        self.assertIn(
+            'fieldRow(\n        "ディナー予算感",\n        "candidate-card-dinner-budget"', source
+        )
+        self.assertIn('["クレジットカードは利用できません"]', source)
+        self.assertNotIn("お支払い方法は店舗にご確認ください", source)
 
 
 class LeafletVendoringRenderedPageTests(TestCase):

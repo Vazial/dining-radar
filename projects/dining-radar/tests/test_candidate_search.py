@@ -37,9 +37,33 @@ class CandidateProposalsApiTests(TestCase):
             HTTP_X_CSRFTOKEN=self.csrf_token,
         )
 
+    # Unauthenticated / CSRF -----------------------------------------------
+
+    def test_unauthenticated_request_is_a_safe_401(self):
+        anonymous_client = Client(enforce_csrf_checks=True)
+
+        response = anonymous_client.post(
+            reverse("web:candidate-proposals"),
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["code"], "AUTHENTICATION_REQUIRED")
+
+    def test_missing_csrf_token_is_a_safe_403(self):
+        response = self.client.post(
+            reverse("web:candidate-proposals"),
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], "REQUEST_REJECTED")
+
     # Malformed request -----------------------------------------------
 
-    def test_malformed_json_body_is_a_safe_400(self):
+    def test_malformed_json_body_is_a_safe_403(self):
         response = self.client.post(
             reverse("web:candidate-proposals"),
             data="not-json",
@@ -47,50 +71,55 @@ class CandidateProposalsApiTests(TestCase):
             HTTP_X_CSRFTOKEN=self.csrf_token,
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["code"], "PROPOSAL_REPROPOSAL_KIND_INVALID")
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], "REQUEST_REJECTED")
 
-    def test_unexpected_body_key_is_a_safe_400(self):
-        response = self.post_proposal({"reproposalKind": "PROXIMITY", "extra": "not-allowed"})
+    def test_unexpected_top_level_key_is_a_safe_403(self):
+        response = self.post_proposal({"filters": {}, "extra": "not-allowed"})
 
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 403)
 
-    def test_non_string_reproposal_kind_is_a_safe_400(self):
-        response = self.post_proposal({"reproposalKind": 123})
+    def test_public_request_rejects_the_acceptance_only_random_seed(self):
+        response = self.post_proposal({"randomSeed": 42})
 
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 403)
 
-    def test_unknown_reproposal_kind_literal_is_a_safe_400(self):
-        response = self.post_proposal({"reproposalKind": "NOT_A_REAL_KIND"})
+    def test_unexpected_filter_key_is_a_safe_403(self):
+        response = self.post_proposal({"filters": {"genres": [], "notAFilter": True}})
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["code"], "PROPOSAL_REPROPOSAL_KIND_INVALID")
+        self.assertEqual(response.status_code, 403)
 
-    # previouslyShownProviderPageUrls (adr/0017 decision 1) -------------
+    def test_non_list_genres_is_a_safe_403(self):
+        response = self.post_proposal({"filters": {"genres": "和食"}})
 
-    def test_non_list_previously_shown_provider_page_urls_is_a_safe_400(self):
-        response = self.post_proposal(
-            {"reproposalKind": "PROXIMITY", "previouslyShownProviderPageUrls": "not-a-list"}
-        )
+        self.assertEqual(response.status_code, 403)
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["code"], "PROPOSAL_REPROPOSAL_KIND_INVALID")
+    def test_non_string_genre_item_is_a_safe_403(self):
+        response = self.post_proposal({"filters": {"genres": [123]}})
 
-    def test_non_string_item_in_previously_shown_provider_page_urls_is_a_safe_400(self):
-        response = self.post_proposal(
-            {"reproposalKind": "PROXIMITY", "previouslyShownProviderPageUrls": [123]}
-        )
+        self.assertEqual(response.status_code, 403)
 
-        self.assertEqual(response.status_code, 400)
+    def test_non_boolean_include_izakaya_bar_is_a_safe_403(self):
+        response = self.post_proposal({"filters": {"includeIzakayaBar": "true"}})
 
-    def test_empty_previously_shown_provider_page_urls_is_accepted(self):
-        acceptance_state.set_mode(
-            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT
-        )
+        self.assertEqual(response.status_code, 403)
 
-        response = self.post_proposal(
-            {"reproposalKind": "PROXIMITY", "previouslyShownProviderPageUrls": []}
-        )
+    def test_unknown_budget_tier_literal_is_a_safe_403(self):
+        response = self.post_proposal({"filters": {"budgetTiers": ["NOT_A_REAL_TIER"]}})
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_empty_filters_object_is_accepted(self):
+        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL)
+
+        response = self.post_proposal({"filters": {}})
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_omitted_filters_key_is_accepted(self):
+        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL)
+
+        response = self.post_proposal({})
 
         self.assertEqual(response.status_code, 200)
 
@@ -125,25 +154,16 @@ class CandidateProposalsApiTests(TestCase):
 
     # Acceptance-seam-driven synthetic outcomes --------------------------
 
-    def test_normal_with_repeat_initial_proposal_excludes_non_smoking_reference(self):
-        # adr/0019: NORMAL_WITH_REPEAT's default population deliberately
-        # shares one non-smoking reference (unconfirmed) across every
-        # candidate, so NON_SMOKING_REFERENCE stays unbuildable here -- this
-        # keeps TDR-CS-07 (requesting an unavailable lens) deterministic,
-        # replacing the pre-adr/0019 AMENITY_REFERENCE exclusion.
-        acceptance_state.set_mode(
-            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT
-        )
+    def test_normal_with_pool_initial_proposal_excludes_the_default_excluded_genre(self):
+        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL)
 
         response = self.post_proposal()
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
-        self.assertIsNotNone(payload["proposal"])
-        self.assertLessEqual(len(payload["reProposalOptions"]), 3)
-        offered_kinds = [option["kind"] for option in payload["reProposalOptions"]]
-        self.assertNotIn("NON_SMOKING_REFERENCE", offered_kinds)
-        self.assertNotIn(payload["proposal"]["kind"], offered_kinds)
+        self.assertNotIn("居酒屋", [c["genre"] for c in payload["candidates"]])
+        self.assertFalse(payload["izakayaBarFallbackApplied"])
+        self.assertNotIn("居酒屋", payload["availableGenres"])
         self.assertEqual(
             payload["providerCredit"],
             {
@@ -152,165 +172,180 @@ class CandidateProposalsApiTests(TestCase):
             },
         )
 
-    def test_normal_with_repeat_initial_proposal_offers_genre_focus(self):
-        # adr/0019: the default population spans multiple genres, so
-        # GENRE_FOCUS is buildable and observably distinct from PROXIMITY.
-        acceptance_state.set_mode(
-            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT
-        )
+    def test_normal_with_pool_initial_proposal_has_at_most_five_candidates(self):
+        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL)
 
         response = self.post_proposal()
 
-        payload = response.json()
-        offered_kinds = [option["kind"] for option in payload["reProposalOptions"]]
-        self.assertIn("GENRE_FOCUS", offered_kinds)
+        self.assertLessEqual(len(response.json()["candidates"]), 5)
 
-    def test_requesting_the_unavailable_non_smoking_lens_is_deterministically_unavailable(self):
+    def test_default_exclusion_visible_mode_makes_both_filter_outcomes_observable(self):
         acceptance_state.set_mode(
-            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT
-        )
-        self.post_proposal()
-
-        response = self.post_proposal({"reproposalKind": "NON_SMOKING_REFERENCE"})
-
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["code"], "PROPOSAL_REPROPOSAL_KIND_INVALID")
-
-    def test_normal_with_repeat_initial_proposal_has_a_card_payment_caution_contrast(self):
-        # adr/0019 decision 5 / TDR-CS-12: the initial displayed proposal
-        # must include at least one candidate with cardPaymentAvailable
-        # false and at least one with true or null, all within the same
-        # response.
-        acceptance_state.set_mode(
-            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT
+            acceptance_state.AcceptanceCandidateProposalMode.DEFAULT_EXCLUSION_VISIBLE,
+            random_seed=7,
         )
 
-        response = self.post_proposal()
+        default_payload = self.post_proposal().json()
+        included_payload = self.post_proposal({"filters": {"includeIzakayaBar": True}}).json()
+        excluded_by_genre = {
+            row["genre"]: row["defaultExcluded"] for row in default_payload["populationAttributes"]
+        }
 
-        candidates = response.json()["proposal"]["candidates"]
-        card_flags = [candidate["cardPaymentAvailable"] for candidate in candidates]
-        self.assertIn(False, card_flags)
-        self.assertTrue(any(flag is not False for flag in card_flags))
-
-    def test_normal_with_repeat_initial_proposal_has_a_dinner_budget_tier_contrast(self):
-        # adr/0019 decision 8: at least one candidate with a non-null
-        # dinnerBudgetTier and at least one with dinnerBudgetTier null, both
-        # observable in the same response.
-        acceptance_state.set_mode(
-            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT
+        self.assertTrue(default_payload["candidates"])
+        self.assertTrue(
+            all(
+                not excluded_by_genre[candidate["genre"]]
+                for candidate in default_payload["candidates"]
+            )
+        )
+        self.assertTrue(
+            any(
+                excluded_by_genre[candidate["genre"]]
+                for candidate in included_payload["candidates"]
+            )
         )
 
-        response = self.post_proposal()
-
-        candidates = response.json()["proposal"]["candidates"]
-        tiers = [candidate["dinnerBudgetTier"] for candidate in candidates]
-        self.assertTrue(any(tier is not None for tier in tiers))
-        self.assertIn(None, tiers)
-
-    def test_normal_with_repeat_reproposal_with_previously_shown_urls_has_new_and_repeated(
-        self,
-    ):
-        # adr/0017 decision 1-2: the demotion this asserts is driven only by
-        # the request's own previouslyShownProviderPageUrls, so it is sent
-        # explicitly here (unlike the pre-adr/0017 seam, the server no
-        # longer varies its response just because a reproposalKind is
-        # present). This resends the displayed kind itself (a same-lens
-        # "try again" request, adr/0016) rather than picking an arbitrary
-        # offered kind: adr/0019's NORMAL_WITH_REPEAT guarantees a
-        # population larger than the 5-item display cap for "at least one
-        # concept" (PROXIMITY here, six default-population candidates), not
-        # for every offered lens -- GENRE_FOCUS in particular narrows to a
-        # single genre and can be too small on its own to demonstrate this.
+    def test_card_payment_caution_visible_mode_displays_both_payment_states(self):
         acceptance_state.set_mode(
-            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT
+            acceptance_state.AcceptanceCandidateProposalMode.CARD_PAYMENT_CAUTION_VISIBLE,
+            random_seed=7,
         )
-        initial = self.post_proposal().json()
-        initial_urls = [
-            candidate["providerPageUrl"] for candidate in initial["proposal"]["candidates"]
-        ]
-        displayed_kind = initial["proposal"]["kind"]
+
+        payload = self.post_proposal().json()
+        payment_values = {candidate["cardPaymentAvailable"] for candidate in payload["candidates"]}
+
+        self.assertIn(False, payment_values)
+        self.assertTrue(True in payment_values or None in payment_values)
+
+    def test_zero_pending_match_mode_makes_each_filter_meaningful_but_the_combination_empty(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.ZERO_PENDING_MATCH, random_seed=7
+        )
+
+        card_only = self.post_proposal({"filters": {"cardPaymentOnly": True}}).json()
+        budget_only = self.post_proposal({"filters": {"budgetTiers": ["LOW"]}}).json()
+        combined = self.post_proposal(
+            {"filters": {"cardPaymentOnly": True, "budgetTiers": ["LOW"]}}
+        ).json()
+
+        self.assertTrue(card_only["candidates"])
+        self.assertTrue(budget_only["candidates"])
+        self.assertEqual(combined["candidates"], [])
+        self.assertTrue(
+            all(
+                row["cardPaymentAvailable"] is not None and row["dinnerBudgetTier"] is not None
+                for row in combined["populationAttributes"]
+            )
+        )
+
+    def test_fallback_preserves_filters_mode_admits_only_the_all_matching_candidate(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.FALLBACK_PRESERVES_FILTERS,
+            random_seed=7,
+        )
 
         response = self.post_proposal(
-            {"reproposalKind": displayed_kind, "previouslyShownProviderPageUrls": initial_urls}
+            {
+                "filters": {
+                    "nonSmokingOnly": True,
+                    "cardPaymentOnly": True,
+                    "budgetTiers": ["LOW"],
+                }
+            }
         )
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
-        reproposed_urls = {
-            candidate["providerPageUrl"] for candidate in payload["proposal"]["candidates"]
-        }
-        self.assertTrue(reproposed_urls & set(initial_urls), "expected at least one repeated shop")
-        self.assertTrue(reproposed_urls - set(initial_urls), "expected at least one new shop")
-
-    def test_normal_with_repeat_reproposal_without_previously_shown_urls_leaves_ordering_unaffected(
-        self,
-    ):
-        # test-support-api.yaml v0.5.0: "omitting or emptying that field
-        # leaves ordering unaffected" -- resending the displayed kind with no
-        # previouslyShownProviderPageUrls returns the identical candidate set
-        # in the identical order.
-        acceptance_state.set_mode(
-            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT
-        )
-        initial = self.post_proposal().json()
-        displayed_kind = initial["proposal"]["kind"]
-        initial_urls = [
-            candidate["providerPageUrl"] for candidate in initial["proposal"]["candidates"]
-        ]
-
-        response = self.post_proposal({"reproposalKind": displayed_kind})
-
-        payload = response.json()
-        reproposed_urls = [
-            candidate["providerPageUrl"] for candidate in payload["proposal"]["candidates"]
-        ]
-        self.assertEqual(reproposed_urls, initial_urls)
-
-    # adr/0015: default genre exclusion and IZAKAYA_BAR_INCLUDED ----------
-
-    def test_normal_with_repeat_initial_proposal_excludes_the_default_excluded_genre(self):
-        acceptance_state.set_mode(
-            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT
+        self.assertTrue(payload["izakayaBarFallbackApplied"])
+        self.assertTrue(payload["candidates"])
+        self.assertTrue(
+            all(
+                c["nonSmokingStatus"] != "NONE"
+                and c["cardPaymentAvailable"] is not False
+                and c["dinnerBudgetTier"] in (None, "LOW")
+                for c in payload["candidates"]
+            )
         )
 
-        response = self.post_proposal()
-
-        payload = response.json()
-        self.assertEqual(payload["proposal"]["kind"], "PROXIMITY")
-        self.assertNotIn("居酒屋", [c["genre"] for c in payload["proposal"]["candidates"]])
-        offered_kinds = [option["kind"] for option in payload["reProposalOptions"]]
-        self.assertIn("IZAKAYA_BAR_INCLUDED", offered_kinds)
-
-    def test_selecting_izakaya_bar_included_lens_includes_the_default_excluded_genre(self):
+    def test_fallback_preserves_filters_mode_does_not_relax_an_explicit_genre_filter(self):
         acceptance_state.set_mode(
-            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT
+            acceptance_state.AcceptanceCandidateProposalMode.FALLBACK_PRESERVES_FILTERS,
+            random_seed=7,
         )
-        self.post_proposal()
+        available = self.post_proposal().json()["availableGenres"]
+        self.assertEqual(len(available), 1)
 
-        response = self.post_proposal({"reproposalKind": "IZAKAYA_BAR_INCLUDED"})
+        response = self.post_proposal(
+            {"filters": {"genres": [available[0]], "nonSmokingOnly": True}}
+        )
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
-        self.assertEqual(payload["proposal"]["kind"], "IZAKAYA_BAR_INCLUDED")
-        self.assertIn("居酒屋", [c["genre"] for c in payload["proposal"]["candidates"]])
-        self.assertNotIn("ランチ営業しています", payload["proposal"]["rationale"])
+        self.assertEqual(payload["candidates"], [])
+        self.assertFalse(payload["izakayaBarFallbackApplied"])
 
-    def test_izakaya_bar_only_mode_falls_through_instead_of_a_null_proposal(self):
+    def test_include_izakaya_bar_filter_reaches_the_default_excluded_genre(self):
+        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL)
+
+        response = self.post_proposal({"filters": {"includeIzakayaBar": True}})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("居酒屋", payload["availableGenres"])
+
+    def test_genre_filter_narrows_to_the_requested_genre(self):
+        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL)
+        available = self.post_proposal().json()["availableGenres"]
+        self.assertTrue(available)
+        chosen_genre = available[0]
+
+        response = self.post_proposal({"filters": {"genres": [chosen_genre]}})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["candidates"])
+        self.assertTrue(all(c["genre"] == chosen_genre for c in payload["candidates"]))
+
+    def test_non_smoking_only_filter_excludes_confirmed_none_candidates(self):
+        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL)
+
+        response = self.post_proposal({"filters": {"nonSmokingOnly": True}})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertNotIn("NONE", [c["nonSmokingStatus"] for c in payload["candidates"]])
+
+    def test_card_payment_only_filter_excludes_confirmed_false_candidates(self):
+        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL)
+
+        response = self.post_proposal({"filters": {"cardPaymentOnly": True}})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertNotIn(False, [c["cardPaymentAvailable"] for c in payload["candidates"]])
+
+    def test_budget_tiers_filter_excludes_confirmed_non_matching_tiers(self):
+        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL)
+
+        response = self.post_proposal({"filters": {"budgetTiers": ["LOW"]}})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        tiers = [c["dinnerBudgetTier"] for c in payload["candidates"]]
+        self.assertTrue(all(tier in (None, "LOW") for tier in tiers))
+
+    def test_izakaya_bar_only_mode_falls_through_instead_of_an_empty_result(self):
         acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.IZAKAYA_BAR_ONLY)
 
         response = self.post_proposal()
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
-        self.assertIsNotNone(payload["proposal"])
-        self.assertEqual(payload["proposal"]["kind"], "IZAKAYA_BAR_INCLUDED")
-        self.assertEqual(payload["reProposalOptions"], [])
-        self.assertTrue(payload["proposal"]["candidates"])
-        self.assertTrue(
-            all(c["genre"] == "居酒屋" for c in payload["proposal"]["candidates"]),
-        )
+        self.assertTrue(payload["candidates"])
+        self.assertTrue(payload["izakayaBarFallbackApplied"])
+        self.assertTrue(all(c["genre"] == "居酒屋" for c in payload["candidates"]))
 
-    def test_no_results_mode_returns_a_successful_null_proposal(self):
+    def test_no_results_mode_returns_a_successful_empty_candidates_result(self):
         acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NO_RESULTS)
 
         response = self.post_proposal()
@@ -319,8 +354,10 @@ class CandidateProposalsApiTests(TestCase):
         self.assertEqual(
             response.json(),
             {
-                "proposal": None,
-                "reProposalOptions": [],
+                "candidates": [],
+                "izakayaBarFallbackApplied": False,
+                "availableGenres": [],
+                "populationAttributes": [],
                 "providerCredit": {
                     "text": "Powered by ホットペッパーグルメ Webサービス",
                     "url": "http://webservice.recruit.co.jp/",
@@ -333,20 +370,10 @@ class CandidateProposalsApiTests(TestCase):
             acceptance_state.AcceptanceCandidateProposalMode.PROVIDER_UNAVAILABLE
         )
 
-        response = self.post_proposal({"reproposalKind": "PROXIMITY"})
+        response = self.post_proposal({"filters": {"genres": ["和食"]}})
 
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["code"], "PROVIDER_UNAVAILABLE")
-
-    def test_invalid_reproposal_kind_mode_returns_400(self):
-        acceptance_state.set_mode(
-            acceptance_state.AcceptanceCandidateProposalMode.INVALID_REPROPOSAL_KIND
-        )
-
-        response = self.post_proposal({"reproposalKind": "PROXIMITY"})
-
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["code"], "PROPOSAL_REPROPOSAL_KIND_INVALID")
 
     def test_rate_limited_mode_returns_429_with_retry_after(self):
         acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.RATE_LIMITED)
@@ -369,6 +396,21 @@ class CandidateProposalsApiTests(TestCase):
         self.assertEqual(first.status_code, 200)
         self.assertEqual(second.status_code, 200)
 
+    # Randomness determinism seam (adr/0023 decision 4) -------------------
+
+    def test_random_seed_pins_a_reproducible_candidate_set(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL, random_seed=7
+        )
+
+        first = self.post_proposal().json()["candidates"]
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL, random_seed=7
+        )
+        second = self.post_proposal().json()["candidates"]
+
+        self.assertEqual(first, second)
+
 
 class CandidateResponseSchemaTests(TestCase):
     """Structural checks on the serialized candidate shape."""
@@ -376,9 +418,7 @@ class CandidateResponseSchemaTests(TestCase):
     def setUp(self):
         cache.clear()
         self.addCleanup(acceptance_state.reset_mode)
-        acceptance_state.set_mode(
-            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_REPEAT
-        )
+        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL)
         self.password = "Synthetic-passphrase-123!"
         self.user = get_user_model().objects.create_user(
             username="candidate-schema-organizer", password=self.password
@@ -397,7 +437,7 @@ class CandidateResponseSchemaTests(TestCase):
         )
 
         payload = response.json()
-        candidates = payload["proposal"]["candidates"]
+        candidates = payload["candidates"]
         self.assertTrue(candidates)
         candidate_refs = [candidate["candidateRef"] for candidate in candidates]
         self.assertEqual(len(candidate_refs), len(set(candidate_refs)))
@@ -425,6 +465,12 @@ class CandidateResponseSchemaTests(TestCase):
             self.assertIsInstance(candidate["location"]["longitude"], (int, float))
 
         self.assertEqual(
-            set(payload["proposal"]),
-            {"conceptRef", "kind", "title", "rationale", "candidates"},
+            set(payload),
+            {
+                "candidates",
+                "izakayaBarFallbackApplied",
+                "availableGenres",
+                "populationAttributes",
+                "providerCredit",
+            },
         )

@@ -58,12 +58,20 @@ ORGANIZER_ACCOUNT_REF = "render-observer"
 ORGANIZER_IDENTIFIER = "synthetic-render-observer"
 ORGANIZER_PASSWORD = "synthetic-render-observer-secret"
 
+# Mirrors contracts/test-support-api.yaml v1.0.2's
+# CandidateProposalAcceptanceState.mode enum exactly (adr/0023 renames
+# NORMAL_WITH_REPEAT to NORMAL_WITH_POOL, drops INVALID_REPROPOSAL_KIND with
+# the retired ConceptKind re-proposal model, and adds ZERO_PENDING_MATCH /
+# FALLBACK_PRESERVES_FILTERS).
 VALID_MODES = [
-    "NORMAL_WITH_REPEAT",
+    "NORMAL_WITH_POOL",
+    "DEFAULT_EXCLUSION_VISIBLE",
+    "CARD_PAYMENT_CAUTION_VISIBLE",
+    "ZERO_PENDING_MATCH",
+    "FALLBACK_PRESERVES_FILTERS",
     "IZAKAYA_BAR_ONLY",
     "NO_RESULTS",
     "PROVIDER_UNAVAILABLE",
-    "INVALID_REPROPOSAL_KIND",
     "RATE_LIMITED",
 ]
 
@@ -98,7 +106,7 @@ def test_capture_render_observations(live_server) -> None:  # noqa: N802 - pytes
     content. Its only job is to produce files a developer can open with the
     ``Read`` tool (or any image viewer) and look at.
     """
-    mode = os.environ.get("RENDER_OBSERVATION_MODE", "NORMAL_WITH_REPEAT")
+    mode = os.environ.get("RENDER_OBSERVATION_MODE", "NORMAL_WITH_POOL")
     if mode not in VALID_MODES:
         raise SystemExit(
             f"RENDER_OBSERVATION_MODE={mode!r} is not one of {VALID_MODES} "

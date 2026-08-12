@@ -5,7 +5,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.db import DatabaseError
+from django.test import Client, SimpleTestCase, TestCase
+from django.urls import reverse
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 MANAGE_PATH = PROJECT_ROOT / "manage.py"
@@ -97,3 +99,23 @@ class ManageBootstrapTests(SimpleTestCase):
                 self.assertEqual(os.environ["HOTPEPPER_SEARCH_LATITUDE"], "36.0")
                 self.assertEqual(os.environ["HOTPEPPER_API_KEY"], "from-file-key")
                 self.assertNotIn("malformed line without an equals sign", os.environ)
+
+
+class DeploymentHealthCheckTests(TestCase):
+    def test_health_check_confirms_database_readiness_without_provider_access(self):
+        response = Client().get(reverse("health-check"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"ok")
+        self.assertEqual(
+            response.headers["Cache-Control"],
+            "max-age=0, no-cache, no-store, must-revalidate, private",
+        )
+
+    def test_health_check_returns_only_generic_unavailability_on_database_failure(self):
+        with patch("dining_radar.health.connection.cursor", side_effect=DatabaseError("secret")):
+            response = Client().get(reverse("health-check"))
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.content, b"unavailable")
+        self.assertNotIn(b"secret", response.content)
