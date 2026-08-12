@@ -561,3 +561,50 @@ principles: [P-01, P-04, P-06, P-08, P-10]
   起草者が確認し、(3)却下理由に人間自身の理由を必ず1つ以上含めること——却下理由が既存文書の引用
   だけで構成されている場合、それは人間の裁定ではなく起草者の推論である。機械的な検査は導入しない
   （P-05、FR-010〜FR-012と同じ判断）。
+
+## FR-016: ADR本文が「マージをもって承認」と宣言しているのにfrontmatterは`提案中`のまま提出され、記録を閉じるだけの2本目のPRが要った。同じcause_keyの5回目である
+
+```yaml
+id: FR-016
+date: 2026-08-12
+found_at: AI
+slice: TDR-CS-filter-model
+agents: [architect, orchestrator]
+cause_category: 承認記録が承認行為の時点に依存しており、1本のPRで閉じられない
+cause_key: record-update-needs-second-pr
+pushed_to:
+  - projects/toyama-dining-radar/adr/0021-adopt-free-render-neon-deployment-topology.md
+  - projects/toyama-dining-radar/adr/0022-expose-identity-free-population-filter-attributes.md
+  - projects/toyama-dining-radar/product-brief.md
+status: 未対応
+principles: [P-04, P-10, P-11]
+```
+
+- Situation: PR #90 は ADR-0021・0022・0023 の実装を`main`へ載せた。ADR-0021の本文は
+  「本ADRはPRのマージをもって承認とする（ADR-0035方式(i)）」と自ら宣言し、ADR-0022も
+  「承認記録はPR mergeまで作らない」と書いていた。ところが**両ADRのfrontmatterは
+  `status: 提案中` / `approved_by: null` のまま提出された**。マージは起きたのに記録は
+  閉じず、`status:`を書き換えるためだけの2本目のPR（本PR）が必要になった。ADR-0019は
+  同じ状況で`status: 承認済み` / `approved_by: "本PRのマージをもって承認"`と先に書いて
+  1本で閉じており、**その書き方はこのリポジトリに既に存在していた**。ADR-0043はまさに
+  「承認記録をPR1本で閉じる」ために作られている。
+- AI contribution: ADRの**本文とfrontmatterが食い違ったまま**提出されたこと。govlintが
+  読むのはfrontmatterなので、機械は両ADRを「提案中のまま滞留」と報告し続けた——本文を
+  読めば「マージ待ち」だと分かるのに、機械にはそれが見えない。起草者は宣言を散文で書いて
+  満足し、機械が読む場所へ同じ宣言を書かなかった。
+- あわせて記録する、より重い順序違反: **ADR-0023の実装が先に`main`へ載り、それと正面から
+  衝突する既承認文書（`product-brief.md`「初期のコンセプト生成と順位付けは、説明可能な
+  決定的ルールで行う」ほか）は、その時点で改訂されていなかった。** ADR-0023自身が方式(ii)
+  を選び「人間が個別に再承認するまで承認済みにしない」と宣言していたにもかかわらず、実装だけが
+  先行した。承認済み文書が実体と食い違う期間が実際に発生している。activeContextが既に
+  記録しているとおり「未承認の契約に対する実装を止める機械的な仕組みは無い」。
+- cause_keyの出現回数: リポジトリ全体で**5回目**（reservation-system FR-015・FR-021、
+  当プロジェクト FR-006・FR-008、本件）。**FR-008はこの5回目を名指しで予告していた**——
+  「5回目が起きたら規約ではなく機構（例: activeContextから承認ステータス節そのものを廃し、
+  承認記録をADRのfrontmatterに一本化する）を検討すべきである」。予告どおり5回目が起きた。
+- Downward push（人間の判断を要する）: 今回の形は機械検査に載る。**ADR本文が「マージをもって
+  承認」の意を宣言しているのにfrontmatterが`提案中`のままなら、それはPR提出時点で既に矛盾で
+  あり、govlintがERRORで落とせる**（本文の宣言文字列とfrontmatterの`status`の照合）。
+  これは「書き手の注意」に依存しない。ただし`meta/tools/**`は`meta/adr/0046`で施錠されており、
+  実装には人間の開錠コミットが要る。**この押し下げは提案であって実施ではない**——費用対効果と
+  開錠の是非は人間が判断する。実施しない場合、6回目は同じ形で起きると予想する。

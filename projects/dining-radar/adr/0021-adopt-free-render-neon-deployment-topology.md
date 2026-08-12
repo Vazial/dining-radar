@@ -1,9 +1,12 @@
 ---
 id: 0021
 scope: project/toyama-dining-radar
-status: 提案中
+status: 承認済み
 date: 2026-08-11
-approved_by: null
+approved_by: "PR #90 のマージをもって承認（ADR-0035方式(i)。本ADR本文が自ら宣言した方式である）。
+  人間裁定 2026-08-11 chat: 最初の公開先をRenderとし、無料で維持できる構成を採る。マージ時点で
+  Render/Neonのresourceは未作成であり、本承認は構成の選択を確定するものであって、外部accountの
+  変更とsecret投入の実施を承認するものではない（DEPLOYMENT.md の事前条件を参照）。"
 supersedes: []
 superseded_by: null
 relates_to: [P-01, P-02, P-04, P-05, P-08, P-10, ADR-0002, ADR-0006, ADR-0007, ADR-0008, ADR-0010, ADR-0018]
