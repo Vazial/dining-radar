@@ -1,10 +1,11 @@
-# ステータス: 承認待ち — adr/0023（ドラフト）が提案する組み替え。ConceptKindを廃し、絞り込み＋固定の
+# ステータス: 承認済み(2026-08-12) — PR #90 のマージをもって人間が承認した（meta/adr/0035 方式(i)）。
+#   adr/0023 の組み替え。ConceptKindを廃し、絞り込み＋固定の
 #   近い順並べ替え＋近傍プールからの無作為抽出へ置き換える破壊的変更（v1.0.0）。この変更は
-#   product-brief.md §2・§3・TDR-CS-04・ADR-0004決定1・TDR-CS-01・product-briefの表題と衝突する
-#   人間の再承認点を含む（adr/0023の矛盾報告を参照）。ここに書かれたスキーマは可決を前提にしたドラフト
-#   であり、承認されるまで拘束力を持たない。この行の形式はmeta/adr/0043の機械検証が要求する
+#   product-brief.md §2・§3・TDR-CS-04・ADR-0004決定1・TDR-CS-01・product-briefの表題と衝突して
+#   いた。この衝突はPR #91のproduct-brief改訂で解消され、adr/0023も同PRで承認条件を満たした
+#   （adr/0023の矛盾報告を参照）。この行の形式はmeta/adr/0043の機械検証が要求する
 #
-# 2026-08-10 draft (adr/0023, 提案中・未承認):
+# 2026-08-10 起草 (adr/0023):
 # - ConceptKind, CandidateConcept, ReproposalOption, reproposalKind,
 #   reProposalOptions, previouslyShownProviderPageUrls をすべて削除する。
 # - CandidateProposalRequest は任意の filters オブジェクトだけを持つ

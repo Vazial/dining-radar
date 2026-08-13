@@ -608,3 +608,48 @@ principles: [P-04, P-10, P-11]
   これは「書き手の注意」に依存しない。ただし`meta/tools/**`は`meta/adr/0046`で施錠されており、
   実装には人間の開錠コミットが要る。**この押し下げは提案であって実施ではない**——費用対効果と
   開錠の是非は人間が判断する。実施しない場合、6回目は同じ形で起きると予想する。
+
+## FR-017: FR-016で押し下げ案を書いたその同じPRの中で、唯一開いていたADRに対して同じ手落ちを犯し、3本目のPRを要した
+
+```yaml
+id: FR-017
+date: 2026-08-12
+found_at: AI
+slice: TDR-CS-filter-model
+agents: [orchestrator]
+cause_category: 承認記録が承認行為の時点に依存しており、1本のPRで閉じられない
+cause_key: record-update-needs-second-pr
+pushed_to:
+  - projects/toyama-dining-radar/adr/0023-replace-concept-lenses-with-filters-sort-and-randomized-pool-selection.md
+  - projects/toyama-dining-radar/activeContext.md
+status: 未対応
+principles: [P-04, P-06, P-10, P-11]
+```
+
+- Situation: PR #91 で orchestrator は FR-016 を記録し、「ADR-0019は`status: 承認済み` /
+  `approved_by: "本PRのマージをもって承認"`と先に書いて1本で閉じており、その書き方はこの
+  リポジトリに既に存在していた」と明示した。**その同じPRの中で、唯一まだ開いていた
+  ADR-0023 に対して、その書き方を使わなかった。** ADR-0023の保留条件は「product-brief改訂の
+  承認」であり、その改訂こそがPR #91の中身だったのだから、`approved_by: "PR #91のマージを
+  もって承認"`と先に書けば1本で閉じられた。結果、`status:`を書き換えるためだけの3本目のPR
+  （本PR #92）が必要になった。
+- あわせて記録する2つ目の手落ち: PR #91 で orchestrator は activeContext へ
+  「The brief's amendment **is in flight**」と書いた。**これはFR-008の押し下げ
+  「activeContextに進行中PRの承認ステータスを書かない」の直接違反である。** 予告どおり、
+  マージ成立と同時にこの一文は偽になった。
+- AI contribution: **欠陥を正確に記述する能力と、同じ文書内でそれを回避する能力は別物である。**
+  FR-016の本文は、正しい書き方・その所在（ADR-0019）・それが存在する理由（ADR-0043）まで
+  正しく特定していた。にもかかわらず、同じ書き手が同じPRの中で、同じ種類の判断を誤った。
+  FR-008は「規約は同じ書き手が同じ文脈で1スライス後に破っており、注意による是正が機能しない
+  ことを実測した」と書いたが、本件はさらに強い——**1スライス後ですらなく、同じPRの中で破った。**
+- cause_keyの出現回数: リポジトリ全体で**7回目**（reservation-system FR-015・FR-021、
+  当プロジェクト FR-006・FR-008・FR-016、本件で6・7回目相当。FR-016が5回目、本件が
+  6回目にあたる手落ちを2つ含むため、以後は件数ではなく「規約による是正は5回連続で失敗した」
+  という事実として扱うこと）。
+- Downward push: FR-016が提案した機械検査（ADR本文の宣言文字列とfrontmatterの`status`が
+  食い違ったらgovlintがERROR）を、**提案から要請へ格上げする**。本件は「注意深く書けば防げた」
+  という反証を自ら潰した——押し下げ案を書いている最中の書き手ですら防げないなら、規約に
+  残す意味は無い。実施には`meta/adr/0046`が施錠する`meta/tools/**`の人間による開錠コミットが
+  要るため、orchestratorは実装しない（施錠が防いでいる違反そのものになる）。**人間が開錠しない
+  という判断もありうる**——その場合、この種の記録の遅れは「起きるもの」として受け入れ、
+  friction-logへ数え続けるほうが、守られない規約を増やすより誠実である。

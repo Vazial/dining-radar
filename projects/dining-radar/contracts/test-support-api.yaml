@@ -12,7 +12,8 @@
 # They never reveal or alter a private search origin, provider data or
 # credentials, runtime secrets, or any real account.
 #
-# 承認待ち — 2026-08-10 draft (adr/0023, 提案中・未承認): NORMAL_WITH_REPEAT is
+# 承認済み(2026-08-12) — approved by merging PR #90 (meta/adr/0035 mode (i)).
+# 2026-08-10 起草 (adr/0023): NORMAL_WITH_REPEAT is
 # removed (the previously-shown-candidate demotion mechanism it supported is
 # retired, adr/0023 decision 5) and replaced by NORMAL_WITH_POOL, which
 # supplies a synthetic population large enough to make randomized pool
