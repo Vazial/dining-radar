@@ -4,7 +4,8 @@
 # observation SSoT for TDR-CS acceptance work. It neither creates a public API
 # nor changes the browser-facing candidate-proposal API.
 #
-# Status: 承認待ち — 2026-08-10 draft (adr/0023, 提案中・未承認). ConceptKind-based
+# Status: 承認済み(2026-08-12) — approved by merging PR #90 (meta/adr/0035 mode (i)).
+# 2026-08-10 起草 (adr/0023). ConceptKind-based
 # re-proposal (candidate-reproposal-open/-dialog/-option/-cancel/-try-again,
 # data-reproposal-kind, repeat-demotion data-repeat-status/
 # data-provider-page-href) is entirely removed and replaced by a filter panel
