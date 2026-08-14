@@ -876,6 +876,7 @@
       },
       [
         el("span", { "class": "candidate-search-again-icon", "aria-hidden": "true" }, ["↻"]),
+        el("span", { "class": "candidate-search-again-label", "aria-hidden": "true" }, ["もう一度探す"]),
         el("span", { "class": "visually-hidden" }, ["もう一度探す"]),
       ]
     );
