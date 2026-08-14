@@ -18,9 +18,10 @@ from dining_radar.suggestions.service import propose_candidates
 
 ORIGIN = Origin(latitude=0.0, longitude=0.0)
 
-# Seeds swept when asserting that a candidate is *reachable* under adr/0023
-# decision 4's random pool sampling. Each seed makes one run reproducible; the
-# sweep makes reachability itself a deterministic property of the fixed set.
+# Seeds swept when asserting that a candidate is *reachable* under
+# adr/0023/adr/0024's distance-weighted random selection. Each seed makes one
+# run reproducible; the sweep makes reachability itself a deterministic
+# property of the fixed set.
 _REACHABILITY_SEEDS = 20
 
 
@@ -117,6 +118,39 @@ class ProposeCandidatesTests(SimpleTestCase):
 
         self.assertEqual(len(result.candidates), 3)
 
+    # shown_provider_page_urls / shown_pool_exhausted (adr/0024 decision 4) --
+
+    def test_no_shown_provider_page_urls_defaults_to_treating_everything_as_unseen(self):
+        candidates = [
+            _candidate(provider_page_url=f"https://example.invalid/default-{i}", latitude=0.001 * i)
+            for i in range(1, 4)
+        ]
+
+        result = propose_candidates(
+            CandidateFilters(),
+            fetch_candidates=lambda: (candidates, ORIGIN),
+            random_source=random.Random(1),
+        )
+
+        self.assertFalse(result.shown_pool_exhausted)
+
+    def test_shown_provider_page_urls_is_forwarded_to_the_pipeline(self):
+        candidates = [
+            _candidate(provider_page_url=f"https://example.invalid/shown-{i}", latitude=0.001 * i)
+            for i in range(1, 4)
+        ]
+        shown = {c.provider_page_url for c in candidates}
+
+        result = propose_candidates(
+            CandidateFilters(),
+            fetch_candidates=lambda: (candidates, ORIGIN),
+            random_source=random.Random(1),
+            shown_provider_page_urls=shown,
+        )
+
+        self.assertTrue(result.shown_pool_exhausted)
+        self.assertEqual(len(result.candidates), 3)
+
 
 class HotpepperSourceTests(SimpleTestCase):
     def test_missing_configuration_raises_candidate_source_unavailable(self):
@@ -190,7 +224,9 @@ class ActiveRandomSourceTests(TestCase):
 
     @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
     def test_no_pinned_seed_returns_a_non_deterministic_source(self):
-        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL)
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING
+        )
 
         source = acceptance_state.active_random_source()
 
@@ -199,7 +235,8 @@ class ActiveRandomSourceTests(TestCase):
     @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
     def test_pinned_seed_is_reproducible(self):
         acceptance_state.set_mode(
-            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL, random_seed=99
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING,
+            random_seed=99,
         )
 
         first = acceptance_state.active_random_source().random()
@@ -238,25 +275,28 @@ class ProposeWithOverrideTests(SimpleTestCase):
         self.assertTrue(result.candidates)
         self.assertTrue(all(c.genre == "居酒屋" for c in result.candidates))
 
-    def _normal_with_pool_genres_across_seeds(self, filters: CandidateFilters) -> list[set[str]]:
+    def _normal_with_weighted_sampling_genres_across_seeds(
+        self, filters: CandidateFilters
+    ) -> list[set[str]]:
         """The displayed genres for each pinned seed in ``_REACHABILITY_SEEDS``.
 
-        adr/0023 decision 4 samples the displayed candidates at random from a
-        near-distance pool, so a single unseeded run cannot be asserted on:
-        whether any one candidate is displayed is a draw, not an outcome.
-        Pinning the seed makes each run reproducible, and sweeping a fixed
-        range of seeds turns "is this candidate reachable at all" into a
-        deterministic question.
+        adr/0024 decision 3 samples the displayed candidates at random,
+        weighted by distance, over the whole eligible population, so a
+        single unseeded run cannot be asserted on: whether any one candidate
+        is displayed is a draw, not an outcome. Pinning the seed makes each
+        run reproducible, and sweeping a fixed range of seeds turns "is this
+        candidate reachable at all" into a deterministic question.
         """
         try:
             genres_per_seed: list[set[str]] = []
             for seed in range(_REACHABILITY_SEEDS):
                 acceptance_state.set_mode(
-                    acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL,
+                    acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING,
                     random_seed=seed,
                 )
                 result = acceptance_state.propose_with_override(
-                    acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL, filters
+                    acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING,
+                    filters,
                 )
                 self.assertFalse(result.izakaya_bar_fallback_applied)
                 genres_per_seed.append({candidate.genre for candidate in result.candidates})
@@ -265,31 +305,37 @@ class ProposeWithOverrideTests(SimpleTestCase):
             acceptance_state.reset_mode()
 
     @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
-    def test_normal_with_pool_excludes_the_default_excluded_genre_by_default(self):
-        genres_per_seed = self._normal_with_pool_genres_across_seeds(CandidateFilters())
+    def test_normal_with_weighted_sampling_excludes_the_default_excluded_genre_by_default(self):
+        genres_per_seed = self._normal_with_weighted_sampling_genres_across_seeds(
+            CandidateFilters()
+        )
 
         # Not "did not happen to be drawn" but "cannot be drawn": the default
-        # exclusion removes the candidate from the population before sampling,
-        # so no seed can surface it.
+        # exclusion removes the candidate from the population before
+        # selection, so no seed can surface it.
         self.assertFalse(any("居酒屋" in genres for genres in genres_per_seed))
 
     @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
-    def test_normal_with_pool_include_izakaya_bar_reaches_the_excluded_candidate(self):
-        genres_per_seed = self._normal_with_pool_genres_across_seeds(
+    def test_normal_with_weighted_sampling_include_izakaya_bar_reaches_the_excluded_candidate(
+        self,
+    ):
+        genres_per_seed = self._normal_with_weighted_sampling_genres_across_seeds(
             CandidateFilters(include_izakaya_bar=True)
         )
 
-        # Reachable, not guaranteed. The excluded-genre candidate is the
-        # nearest of the whole population (acceptance_state's synthetic
-        # latitudes), so including it always places it in the near-distance
-        # pool -- but the pool holds 20 and only 5 are displayed, so asserting
-        # it appears for any *particular* seed would be asserting a draw.
+        # Reachable, not guaranteed. adr/0024 decision 3 removed the fixed
+        # near-distance pool, so every eligible candidate -- including the
+        # nearest, which is the excluded-genre candidate here -- has a
+        # nonzero selection probability (P2); only 5 are ever displayed, so
+        # asserting it appears for any *particular* seed would be asserting a
+        # draw.
         self.assertTrue(any("居酒屋" in genres for genres in genres_per_seed))
 
-    def test_normal_with_pool_population_exceeds_the_recommended_pool_size(self):
-        # test-support-api.yaml v1.0.0 / adr/0023 decision 4: NORMAL_WITH_POOL
-        # must supply at least 40 default-population candidates, comfortably
-        # exceeding the recommended pool size of 20.
+    def test_normal_with_weighted_sampling_population_exceeds_the_display_cap(self):
+        # test-support-api.yaml v1.1.0 / adr/0024 decision 3:
+        # NORMAL_WITH_WEIGHTED_SAMPLING must supply at least 40
+        # default-population candidates, comfortably exceeding the
+        # five-candidate display cap.
         self.assertGreaterEqual(
             len(
                 [
@@ -301,7 +347,7 @@ class ProposeWithOverrideTests(SimpleTestCase):
             40,
         )
 
-    def test_normal_with_pool_spans_at_least_three_genres_with_at_least_two_members_each(self):
+    def test_normal_with_weighted_sampling_spans_at_least_three_genres_with_two_members(self):
         default_population = [
             c
             for c in acceptance_state._CANDIDATES
@@ -314,24 +360,28 @@ class ProposeWithOverrideTests(SimpleTestCase):
         self.assertGreaterEqual(len(counts), 3)
         self.assertTrue(all(count >= 2 for count in counts.values()))
 
-    def test_normal_with_pool_spans_at_least_two_non_smoking_statuses(self):
+    def test_normal_with_weighted_sampling_spans_at_least_two_non_smoking_statuses(self):
         statuses = {c.non_smoking_status for c in acceptance_state._CANDIDATES}
 
         self.assertGreaterEqual(len(statuses), 2)
 
-    def test_normal_with_pool_has_both_true_and_false_card_payment_available(self):
+    def test_normal_with_weighted_sampling_has_both_true_and_false_card_payment_available(self):
         flags = {c.card_payment_available for c in acceptance_state._CANDIDATES}
 
         self.assertIn(True, flags)
         self.assertIn(False, flags)
 
-    def test_normal_with_pool_has_a_non_null_and_a_null_dinner_budget_candidate(self):
+    def test_normal_with_weighted_sampling_has_a_non_null_and_a_null_dinner_budget_candidate(
+        self,
+    ):
         budgets = [c.budget_average for c in acceptance_state._CANDIDATES]
 
         self.assertTrue(any(value is not None for value in budgets))
         self.assertIn(None, budgets)
 
-    def test_normal_with_pool_has_a_candidate_unconfirmed_for_at_least_one_soft_filter(self):
+    def test_normal_with_weighted_sampling_has_a_candidate_unconfirmed_for_at_least_one_soft_filter(
+        self,
+    ):
         # TDR-CS-13's ordering rule needs at least one candidate with a null
         # nonSmokingStatus, cardPaymentAvailable, or dinnerBudgetTier.
         self.assertTrue(
@@ -343,20 +393,21 @@ class ProposeWithOverrideTests(SimpleTestCase):
             )
         )
 
-    def test_normal_with_pool_random_seed_reproduces_the_identical_result(self):
+    def test_normal_with_weighted_sampling_random_seed_reproduces_the_identical_result(self):
         with override_settings(ACCEPTANCE_TEST_SUPPORT=True):
             cache.clear()
             self.addCleanup(acceptance_state.reset_mode)
             acceptance_state.set_mode(
-                acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL, random_seed=13
+                acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING,
+                random_seed=13,
             )
 
             first = acceptance_state.propose_with_override(
-                acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL,
+                acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING,
                 CandidateFilters(),
             )
             second = acceptance_state.propose_with_override(
-                acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL,
+                acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING,
                 CandidateFilters(),
             )
 
@@ -365,7 +416,7 @@ class ProposeWithOverrideTests(SimpleTestCase):
                 [c.provider_page_url for c in second.candidates],
             )
 
-    def test_normal_with_pool_different_random_seeds_can_differ(self):
+    def test_normal_with_weighted_sampling_different_random_seeds_can_differ(self):
         with override_settings(ACCEPTANCE_TEST_SUPPORT=True):
             cache.clear()
             self.addCleanup(acceptance_state.reset_mode)
@@ -373,11 +424,11 @@ class ProposeWithOverrideTests(SimpleTestCase):
             seen = set()
             for seed in range(10):
                 acceptance_state.set_mode(
-                    acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL,
+                    acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING,
                     random_seed=seed,
                 )
                 result = acceptance_state.propose_with_override(
-                    acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL,
+                    acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING,
                     CandidateFilters(),
                 )
                 seen.add(tuple(c.provider_page_url for c in result.candidates))
@@ -566,3 +617,98 @@ class ProposeWithOverrideTests(SimpleTestCase):
                 self.assertFalse(result.izakaya_bar_fallback_applied)
         finally:
             acceptance_state.reset_mode()
+
+    # GENRE_ORDER_BY_COUNT (adr/0024 decision 1, test-support-api.yaml v1.1.0) --
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_genre_order_by_count_default_population_has_the_documented_count_shape(self):
+        result = acceptance_state.propose_with_override(
+            acceptance_state.AcceptanceCandidateProposalMode.GENRE_ORDER_BY_COUNT,
+            CandidateFilters(),
+        )
+
+        counts: dict[str, int] = {}
+        for attribute in result.population_attributes:
+            if attribute.default_excluded:
+                continue
+            counts[attribute.genre] = counts.get(attribute.genre, 0) + 1
+
+        self.assertEqual(len(counts), 5)
+        ordered_counts = sorted(counts.values(), reverse=True)
+        # One strictly greatest count, two tied at the next-greatest, and two
+        # further strictly smaller and mutually distinct counts.
+        self.assertGreater(ordered_counts[0], ordered_counts[1])
+        self.assertEqual(ordered_counts[1], ordered_counts[2])
+        self.assertGreater(ordered_counts[1], ordered_counts[3])
+        self.assertGreater(ordered_counts[3], ordered_counts[4])
+        self.assertEqual(len({ordered_counts[3], ordered_counts[4]}), 2)
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_genre_order_by_count_tied_genres_have_different_string_lengths(self):
+        result = acceptance_state.propose_with_override(
+            acceptance_state.AcceptanceCandidateProposalMode.GENRE_ORDER_BY_COUNT,
+            CandidateFilters(),
+        )
+
+        counts: dict[str, int] = {}
+        for attribute in result.population_attributes:
+            if attribute.default_excluded:
+                continue
+            counts[attribute.genre] = counts.get(attribute.genre, 0) + 1
+
+        max_count = max(counts.values())
+        tied = [
+            genre for genre, count in counts.items() if count == sorted(set(counts.values()))[-2]
+        ]
+        self.assertEqual(len(tied), 2)
+        self.assertNotEqual(len(tied[0]), len(tied[1]))
+        # And the greatest count is not itself part of the tie.
+        self.assertNotIn(max_count, [counts[genre] for genre in tied])
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_genre_order_by_count_has_a_default_excluded_genre_with_its_own_distinct_count(self):
+        result = acceptance_state.propose_with_override(
+            acceptance_state.AcceptanceCandidateProposalMode.GENRE_ORDER_BY_COUNT,
+            CandidateFilters(include_izakaya_bar=True),
+        )
+
+        non_excluded_counts: set[int] = set()
+        excluded_counts: dict[str, int] = {}
+        for attribute in result.population_attributes:
+            if attribute.default_excluded:
+                excluded_counts[attribute.genre] = excluded_counts.get(attribute.genre, 0) + 1
+            else:
+                non_excluded_counts.add(attribute.genre)
+
+        self.assertTrue(excluded_counts)
+        for count in excluded_counts.values():
+            self.assertNotIn(count, {6, 4, 3, 2})
+
+    # SHOWN_POOL_PRIORITY (adr/0024 decision 4, TDR-CS-14) ------------------
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_shown_pool_priority_default_population_has_exactly_ten_distinct_candidates(self):
+        result = acceptance_state.propose_with_override(
+            acceptance_state.AcceptanceCandidateProposalMode.SHOWN_POOL_PRIORITY,
+            CandidateFilters(),
+        )
+
+        self.assertFalse(result.izakaya_bar_fallback_applied)
+        self.assertEqual(len(acceptance_state._SHOWN_POOL_PRIORITY_CANDIDATES), 10)
+        self.assertEqual(
+            len({c.provider_page_url for c in acceptance_state._SHOWN_POOL_PRIORITY_CANDIDATES}),
+            10,
+        )
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_shown_pool_priority_forwards_shown_provider_page_urls_to_the_pipeline(self):
+        all_urls = {c.provider_page_url for c in acceptance_state._SHOWN_POOL_PRIORITY_CANDIDATES}
+
+        result = acceptance_state.propose_with_override(
+            acceptance_state.AcceptanceCandidateProposalMode.SHOWN_POOL_PRIORITY,
+            CandidateFilters(),
+            all_urls,
+        )
+
+        self.assertTrue(result.shown_pool_exhausted)
+        self.assertEqual(len(result.candidates), 5)

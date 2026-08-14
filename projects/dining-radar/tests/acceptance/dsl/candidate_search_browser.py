@@ -69,6 +69,16 @@ PROBLEM = "candidate-proposal-problem"
 PROBLEM_GUIDANCE = "candidate-proposal-problem-guidance"
 MANUAL_ORDERING = "candidate-manual-ordering"
 
+# contracts/candidate-search-browser-interface.yaml shownCandidateMemory (adr/0024 decision 4).
+SHOWN_CANDIDATE_MEMORY_KEY = "dining-radar:shown-provider-page-urls"
+# test-support-api.yaml's SHOWN_POOL_PRIORITY Given (adr/0024 decision 4): exactly 10 candidates
+# against the 5-candidate display cap, so the not-yet-shown partition size is deterministic.
+SHOWN_POOL_SIZE = 10
+DISPLAY_CAP = 5
+# contracts/candidate-search-browser-interface.yaml shownCandidateMemory.expiry.maxAge (20 hours);
+# a stale entry must be strictly older than this to be pruned on the next read.
+SHOWN_MEMORY_MAX_AGE_HOURS = 20
+
 DISCLOSURE_FORBIDDEN_TEST_IDS = [
     "private-search-origin",
     "candidate-provider-internals",
@@ -179,6 +189,8 @@ class CandidateSearchBrowserDsl:
         self._expected_changed_filter: tuple[str, object] | None = None
         self._applied_filters: dict[str, object] = self._normalized_filters({})
         self._pending_filters: dict[str, object] | None = None
+        self._organizer_credentials: tuple[str, str] | None = None
+        self._shown_pool_rounds: dict[str, object] | None = None
 
     # Given seams ---------------------------------------------------------
 
@@ -204,6 +216,24 @@ class CandidateSearchBrowserDsl:
         )
         assert_no_content(self.assertions, response, f"candidate-proposal state set to {mode}")
 
+    def seed_shown_candidate_memory_from_observed_urls(self, urls: set[str]) -> None:
+        """Given-seam: construct shownCandidateMemory directly from providerPageUrl
+        values already observed through the public API.
+
+        test-support-api.yaml's SHOWN_POOL_PRIORITY description explicitly
+        sanctions this construction ("the acceptance test constructs [a
+        shownProviderPageUrls value] from previously observed providerPageUrl
+        values"), unlike a DB-direct Given, which meta/verification.md
+        reserves for explicitly declared seams. Only the *values* to seed are
+        this method's concern; how the caller obtained them (necessarily a
+        prior public "search again" call, since no dedicated fixture exists
+        for the partial not-yet-shown case) is a separate, When-level browser
+        action.
+        """
+        self._write_shown_candidate_memory(
+            [{"url": url, "storedAt": self._browser_now_ms()} for url in urls]
+        )
+
     def assert_no_active_session(self) -> None:
         self.assertions.assertFalse(
             any(cookie["name"] == "sessionid" for cookie in self.page.context.cookies())
@@ -218,6 +248,7 @@ class CandidateSearchBrowserDsl:
         by_test_id(self.page, AUTH_SIGN_IN_SUBMIT).click()
         assert_present(self.assertions, self.page, AUTHENTICATED_SHELL)
         self.page.wait_for_load_state("networkidle")
+        self._organizer_credentials = (identifier, password)
 
     def open_candidate_screen_unauthenticated(self) -> None:
         self.page.goto(f"{self.base_url}/")
@@ -379,6 +410,20 @@ class CandidateSearchBrowserDsl:
             self.search_again_response = response
         else:
             self.original_seed_response = response
+
+    def search_again_reproducing_original_seed(self) -> None:
+        """Search again after clearing shownCandidateMemory (adr/0024 decision 4).
+
+        Reproducing a pinned randomSeed now additionally requires an identical
+        shownProviderPageUrls (test-support-api.yaml's randomSeed description).
+        The very first captured response saw an empty shown-memory; without
+        clearing it here, the intervening different-seed search already
+        accumulated entries the first response never saw, breaking
+        byte-identical reproduction for a reason unrelated to this scenario's
+        own concern (pure seed-based sampling, TDR-CS-11).
+        """
+        self.clear_shown_candidate_memory()
+        self.search_again()
 
     # Then: initial/authenticated screen ---------------------------------
 
@@ -760,6 +805,151 @@ class CandidateSearchBrowserDsl:
                 assert_absent(self.assertions, card, CARD_PAYMENT_CAUTION_TEST_ID)
         self.assertions.assertTrue(other_seen)
 
+    # Given/Then: not-yet-shown priority and shownCandidateMemory (TDR-CS-14) --
+
+    def assert_eligible_population_greatly_exceeds_display_cap(self) -> None:
+        population = self._eligible_population_count(self._current_proposal())
+        self.assertions.assertGreaterEqual(population, DISPLAY_CAP * 2)
+
+    def repeat_search_again_through_shown_pool_cycle(self) -> None:
+        """Repeat "search again" through one whole not-yet-shown priority cycle.
+
+        Round A is the already-captured initial proposal; round B is the first
+        repeat, whose shownProviderPageUrls is exactly round A's 5 shown URLs,
+        so its not-yet-shown partition has exactly 5 members (SHOWN_POOL_SIZE
+        candidates minus round A's 5) -- the contract's second deterministic
+        case. The partial (1-4 not-yet-shown) case is then exercised directly
+        via the seed_shown_candidate_memory_from_observed_urls Given-seam,
+        fed with URLs already observed in rounds A and B, exactly as
+        test-support-api.yaml's SHOWN_POOL_PRIORITY description directs ("the
+        acceptance test constructs [it] from previously observed
+        providerPageUrl values"). The cycle finishes with one more repeat,
+        whose accumulated shownProviderPageUrls by then covers the full
+        population, exhausting it (adr/0024 decision 4).
+        """
+        round_a = require(self.initial, "initial proposal was not requested")
+        self.search_again()
+        round_b = require(self.current, "search-again response missing")
+
+        all_urls = sorted(set(self._urls(round_a)) | set(self._urls(round_b)))
+        self.assertions.assertEqual(len(all_urls), SHOWN_POOL_SIZE)
+        partial_seen = set(all_urls[: SHOWN_POOL_SIZE - 3])
+        self.seed_shown_candidate_memory_from_observed_urls(partial_seen)
+        self.search_again()
+        round_partial = require(self.current, "search-again response missing")
+
+        self.search_again()
+        round_exhausted = require(self.current, "search-again response missing")
+
+        self._shown_pool_rounds = {
+            "a": round_a,
+            "b": round_b,
+            "partial": round_partial,
+            "partial_seen": partial_seen,
+            "exhausted": round_exhausted,
+        }
+
+    def assert_not_yet_shown_candidates_are_prioritized(self) -> None:
+        rounds = require(self._shown_pool_rounds, "shown-pool cycle was not performed")
+        urls_a = set(self._urls(rounds["a"]))
+        urls_b = set(self._urls(rounds["b"]))
+        self.assertions.assertEqual(len(urls_a), DISPLAY_CAP)
+        self.assertions.assertEqual(len(urls_b), DISPLAY_CAP)
+        self.assertions.assertEqual(urls_a & urls_b, set())
+        self.assertions.assertFalse(rounds["b"].payload["shownPoolExhausted"])
+
+    def assert_previously_shown_candidates_are_postponed_not_excluded(self) -> None:
+        rounds = require(self._shown_pool_rounds, "shown-pool cycle was not performed")
+        partial_seen: set[str] = rounds["partial_seen"]
+        returned = set(self._urls(rounds["partial"]))
+        unseen_expected = (set(self._urls(rounds["a"])) | set(self._urls(rounds["b"]))) - (
+            partial_seen
+        )
+        self.assertions.assertEqual(len(unseen_expected), SHOWN_POOL_SIZE - len(partial_seen))
+        self.assertions.assertTrue(unseen_expected.issubset(returned))
+        self.assertions.assertEqual(
+            len(returned & partial_seen), DISPLAY_CAP - len(unseen_expected)
+        )
+        self.assertions.assertFalse(rounds["partial"].payload["shownPoolExhausted"])
+
+    def assert_previously_shown_candidates_can_reappear_after_a_full_cycle(self) -> None:
+        rounds = require(self._shown_pool_rounds, "shown-pool cycle was not performed")
+        self.assertions.assertTrue(rounds["exhausted"].payload["shownPoolExhausted"])
+        all_urls = set(self._urls(rounds["a"])) | set(self._urls(rounds["b"]))
+        self.assertions.assertEqual(len(all_urls), SHOWN_POOL_SIZE)
+        returned = set(self._urls(rounds["exhausted"]))
+        # By this point every eligible candidate (all SHOWN_POOL_SIZE of them)
+        # was already shown, so a response satisfying the schema could only
+        # ever be a subset of all_urls -- checking that alone is true even for
+        # an empty or short response and would not catch an implementation
+        # that (wrongly) treats "exhausted" as "nothing left to show".
+        # Requiring a full 5-candidate response, entirely drawn from the
+        # already-shown set, is what actually distinguishes "previously shown
+        # candidates reappear" from "previously shown candidates stayed
+        # excluded".
+        self.assertions.assertEqual(len(returned), DISPLAY_CAP)
+        self.assertions.assertEqual(returned, returned & all_urls)
+
+    def assert_shown_memory_survives_a_reload(self) -> None:
+        before = self._read_shown_candidate_memory()
+        self.assertions.assertTrue(before)
+        reloaded = capture_candidate_proposal_response(self.page, lambda: self.page.reload())
+        sent = set((reloaded.request_body or {}).get("shownProviderPageUrls") or [])
+        self.assertions.assertEqual(sent, {entry["url"] for entry in before})
+        self.current = reloaded
+        self._current_proposal()
+
+    def assert_shown_memory_fades_after_its_retention_period(self) -> None:
+        entries = self._read_shown_candidate_memory()
+        self.assertions.assertEqual(len(entries), SHOWN_POOL_SIZE)
+        stale_url = entries[0]["url"]
+        past_max_age_ms = (SHOWN_MEMORY_MAX_AGE_HOURS + 1) * 60 * 60 * 1000
+        aged = [
+            {"url": entry["url"], "storedAt": self._browser_now_ms() - past_max_age_ms}
+            if entry["url"] == stale_url
+            else entry
+            for entry in entries
+        ]
+        self._write_shown_candidate_memory(aged)
+        response = capture_candidate_proposal_response(
+            self.page, lambda: by_test_id(self.page, SEARCH_AGAIN).click()
+        )
+        self.current = response
+        self._current_proposal()
+        sent = set((response.request_body or {}).get("shownProviderPageUrls") or [])
+        self.assertions.assertNotIn(stale_url, sent)
+        # Pruning exactly one entry out of the otherwise-full SHOWN_POOL_SIZE
+        # population leaves a not-yet-shown partition of exactly 1 member
+        # (stale_url itself). proposal.shownPoolPriority's set-membership
+        # invariant guarantees that member is included in the response for
+        # every randomSeed, so this is a deterministic (not merely probable)
+        # observation that the pruned candidate is once again treated as
+        # not-yet-shown, closing the second half of
+        # shownCandidateMemory.expiry.verificationNote's required pair of
+        # observations (dropped from the request AND treated as unseen).
+        self.assertions.assertEqual(len(sent), SHOWN_POOL_SIZE - 1)
+        self.assertions.assertIn(stale_url, set(self._urls(response)))
+
+    def assert_shown_memory_is_not_shared_with_another_device(self) -> None:
+        identifier, password = require(
+            self._organizer_credentials, "no organizer credentials were captured yet"
+        )
+        other_context = self.page.context.browser.new_context()
+        try:
+            other_page = other_context.new_page()
+            other_page.goto(f"{self.base_url}/")
+
+            def sign_in_from_another_device() -> None:
+                by_test_id(other_page, AUTH_LOGIN_IDENTIFIER).fill(identifier)
+                by_test_id(other_page, AUTH_PASSWORD).fill(password)
+                by_test_id(other_page, AUTH_SIGN_IN_SUBMIT).click()
+
+            response = capture_candidate_proposal_response(other_page, sign_in_from_another_device)
+            sent = (response.request_body or {}).get("shownProviderPageUrls")
+            self.assertions.assertFalse(sent)
+        finally:
+            other_context.close()
+
     # Then: no-results and problem responses -----------------------------
 
     def assert_no_results_shown(self) -> None:
@@ -798,6 +988,47 @@ class CandidateSearchBrowserDsl:
             "#/components/schemas/CandidateProposalResponse",
         )
         return response.payload
+
+    @staticmethod
+    def _urls(response: CapturedApiResponse) -> list[str]:
+        return [candidate["providerPageUrl"] for candidate in response.payload["candidates"]]
+
+    @staticmethod
+    def _eligible_population_count(proposal: dict) -> int:
+        rows = proposal["populationAttributes"]
+        return len([row for row in rows if not row["defaultExcluded"]])
+
+    # shownCandidateMemory (sessionStorage) access -------------------------
+    #
+    # contracts/candidate-search-browser-interface.yaml's shownCandidateMemory
+    # is client-only state (adr/0024 decision 4): the server never receives,
+    # stores, or reasons about it beyond the one request field it is copied
+    # into. Reading/writing it directly here is the contract's own sanctioned
+    # technique for constructing an arbitrary shownProviderPageUrls value from
+    # previously observed URLs and for seeding a stale entry
+    # (shownCandidateMemory.expiry.verificationNote); it is not a shortcut
+    # around the public boundary, since this storage itself is the observable
+    # surface TDR-CS-14 verifies.
+
+    def _read_shown_candidate_memory(self) -> list[dict]:
+        raw = self.page.evaluate(
+            "(key) => window.sessionStorage.getItem(key)", SHOWN_CANDIDATE_MEMORY_KEY
+        )
+        return json.loads(raw) if raw else []
+
+    def _write_shown_candidate_memory(self, entries: list[dict]) -> None:
+        self.page.evaluate(
+            "([key, value]) => window.sessionStorage.setItem(key, value)",
+            [SHOWN_CANDIDATE_MEMORY_KEY, json.dumps(entries)],
+        )
+
+    def clear_shown_candidate_memory(self) -> None:
+        self.page.evaluate(
+            "(key) => window.sessionStorage.removeItem(key)", SHOWN_CANDIDATE_MEMORY_KEY
+        )
+
+    def _browser_now_ms(self) -> int:
+        return self.page.evaluate("() => Date.now()")
 
     def _assert_dirty_filter_actions(self) -> None:
         assert_all_present(
@@ -987,7 +1218,7 @@ class CandidateSearchBrowserDsl:
 
         if not configurations:
             raise AssertionError(
-                "NORMAL_WITH_POOL does not expose a <=5-member anonymous population "
+                "NORMAL_WITH_WEIGHTED_SAMPLING does not expose a <=5-member anonymous population "
                 "with an unavailable active soft-filter value for TDR-CS-13"
             )
         return min(configurations, key=lambda item: (item[0], item[1]))[2]

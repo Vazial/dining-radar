@@ -58,17 +58,23 @@ ORGANIZER_ACCOUNT_REF = "render-observer"
 ORGANIZER_IDENTIFIER = "synthetic-render-observer"
 ORGANIZER_PASSWORD = "synthetic-render-observer-secret"
 
-# Mirrors contracts/test-support-api.yaml v1.0.2's
-# CandidateProposalAcceptanceState.mode enum exactly (adr/0023 renames
-# NORMAL_WITH_REPEAT to NORMAL_WITH_POOL, drops INVALID_REPROPOSAL_KIND with
-# the retired ConceptKind re-proposal model, and adds ZERO_PENDING_MATCH /
-# FALLBACK_PRESERVES_FILTERS).
+# Mirrors contracts/test-support-api.yaml's
+# CandidateProposalAcceptanceState.mode enum exactly. adr/0023 replaced the
+# ConceptKind re-proposal model; adr/0024 renamed NORMAL_WITH_POOL to
+# NORMAL_WITH_WEIGHTED_SAMPLING (the fixed near-distance pool is gone) and
+# added GENRE_ORDER_BY_COUNT / SHOWN_POOL_PRIORITY. Nothing machine-checks
+# this list against the enum -- this tool is a non-gate observation aid
+# (adr/0020 decision 1), so a rename in the enum silently breaks it here
+# until someone runs the tool. Update this list in the same change that
+# renames a mode.
 VALID_MODES = [
-    "NORMAL_WITH_POOL",
+    "NORMAL_WITH_WEIGHTED_SAMPLING",
     "DEFAULT_EXCLUSION_VISIBLE",
     "CARD_PAYMENT_CAUTION_VISIBLE",
     "ZERO_PENDING_MATCH",
     "FALLBACK_PRESERVES_FILTERS",
+    "GENRE_ORDER_BY_COUNT",
+    "SHOWN_POOL_PRIORITY",
     "IZAKAYA_BAR_ONLY",
     "NO_RESULTS",
     "PROVIDER_UNAVAILABLE",
@@ -106,7 +112,7 @@ def test_capture_render_observations(live_server) -> None:  # noqa: N802 - pytes
     content. Its only job is to produce files a developer can open with the
     ``Read`` tool (or any image viewer) and look at.
     """
-    mode = os.environ.get("RENDER_OBSERVATION_MODE", "NORMAL_WITH_POOL")
+    mode = os.environ.get("RENDER_OBSERVATION_MODE", "NORMAL_WITH_WEIGHTED_SAMPLING")
     if mode not in VALID_MODES:
         raise SystemExit(
             f"RENDER_OBSERVATION_MODE={mode!r} is not one of {VALID_MODES} "

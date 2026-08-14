@@ -177,6 +177,124 @@ class CandidateSurfaceSourceTests(SimpleTestCase):
         self.assertNotIn("お支払い方法は店舗にご確認ください", source)
 
 
+class GenreOrderingAndFilterGroupingSourceTests(SimpleTestCase):
+    """adr/0024 decisions 1-2: genre count-descending order, izakaya/bar regrouping."""
+
+    def test_genre_order_no_longer_sorts_by_string_length_alone(self):
+        source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        # The retired sole ordering rule (adr/0023 decision 12) sorted
+        # currentAvailableGenres directly; that direct call must be gone.
+        self.assertNotIn(
+            "currentAvailableGenres.slice().sort(function (left, right) {\n"
+            "      return left.length - right.length",
+            source,
+        )
+
+    def test_genre_population_counts_are_scoped_like_available_genres(self):
+        source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("function genrePopulationCounts()", source)
+        self.assertIn("currentFilters.includeIzakayaBar", source)
+        self.assertIn("row.defaultExcluded", source)
+
+    def test_ordered_available_genres_uses_count_then_the_original_tie_break(self):
+        source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("function orderedAvailableGenres()", source)
+        self.assertIn("countDifference", source)
+        self.assertIn('left.length - right.length || left.localeCompare(right, "ja")', source)
+
+    def test_genre_chips_uses_the_new_ordering_function(self):
+        source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("var orderedGenres = orderedAvailableGenres();", source)
+
+    def test_izakaya_bar_toggle_renders_in_the_genre_row_not_the_preference_row(self):
+        source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        # It must render first within the "ジャンル" row -- ahead of the genre
+        # option chips and overflow toggle -- so it stays within the
+        # horizontally scrollable chip row's initially visible range on
+        # narrow viewports (contracts/candidate-search-browser-interface.yaml's
+        # controlGrouping.genreGroup requires membership only, not order).
+        self.assertIn('chipRow("ジャンル", [izakayaBarToggleChip()].concat(genreChips()))', source)
+        self.assertIn("function izakayaBarToggleChip()", source)
+
+        # The old placement -- as a member of the "こだわり" chip array --
+        # must be gone: candidate-filter-include-izakaya-bar's testId/purpose
+        # must only be defined once, inside izakayaBarToggleChip.
+        self.assertEqual(source.count('testId: "candidate-filter-include-izakaya-bar"'), 1)
+        self.assertEqual(source.count('"candidate-filter-izakaya-bar-toggle"'), 1)
+
+        preference_row_start = source.index('chipRow("こだわり", [')
+        preference_row_end = source.index("]),", preference_row_start)
+        preference_row_source = source[preference_row_start:preference_row_end]
+        self.assertNotIn("izakaya", preference_row_source)
+
+
+class ShownCandidateMemorySourceTests(SimpleTestCase):
+    """adr/0024 decision 4 (and item 8): browser-held shown-candidate priority."""
+
+    def test_session_storage_key_and_twenty_hour_max_age_are_present(self):
+        source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn(
+            'var SHOWN_CANDIDATE_MEMORY_KEY = "dining-radar:shown-provider-page-urls";', source
+        )
+        # 20 hours, never the regulatory 24-hour ceiling itself (adr/0024
+        # decision 4 item 8's stated safety margin).
+        self.assertIn("var SHOWN_CANDIDATE_MEMORY_MAX_AGE_MS = 20 * 60 * 60 * 1000;", source)
+        self.assertNotIn("24 * 60 * 60 * 1000", source)
+
+    def test_expiry_is_pruned_on_both_read_paths(self):
+        source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("function currentShownProviderPageUrls()", source)
+        self.assertIn("function updateShownCandidateMemory(body)", source)
+        self.assertIn("function readShownCandidateMemory()", source)
+        # requestRule: prune, then write back the surviving set before
+        # reading urls from it (not merely skip expired entries for one read).
+        self.assertIn(
+            "var surviving = readShownCandidateMemory();\n"
+            "    writeShownCandidateMemory(surviving);",
+            source,
+        )
+
+    def test_shown_pool_exhausted_clears_memory_before_re_adding(self):
+        source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("body.shownPoolExhausted ? [] : readShownCandidateMemory()", source)
+
+    def test_stored_at_is_never_sent_to_the_server(self):
+        source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        # currentShownProviderPageUrls returns url values only (entry.url),
+        # never the storedAt timestamp.
+        self.assertIn(
+            "return surviving.map(function (entry) {\n      return entry.url;\n    });", source
+        )
+
+    def test_request_proposal_attaches_shown_provider_page_urls_when_non_empty(self):
+        source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("var shownProviderPageUrls = currentShownProviderPageUrls();", source)
+        self.assertIn(
+            "if (shownProviderPageUrls.length > 0) {\n"
+            "      body.shownProviderPageUrls = shownProviderPageUrls;\n"
+            "    }",
+            source,
+        )
+
+    def test_handle_proposal_response_updates_memory_on_every_successful_response(self):
+        source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        success_branch_start = source.index("if (status === 200) {")
+        success_branch_end = source.index("return;", success_branch_start)
+        success_branch_source = source[success_branch_start:success_branch_end]
+        self.assertIn("updateShownCandidateMemory(body);", success_branch_source)
+
+
 class LeafletVendoringRenderedPageTests(TestCase):
     """The authenticated screen's rendered HTML must carry the same-origin URLs."""
 

@@ -110,14 +110,18 @@ class CandidateProposalsApiTests(TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_empty_filters_object_is_accepted(self):
-        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL)
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING
+        )
 
         response = self.post_proposal({"filters": {}})
 
         self.assertEqual(response.status_code, 200)
 
     def test_omitted_filters_key_is_accepted(self):
-        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL)
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING
+        )
 
         response = self.post_proposal({})
 
@@ -155,7 +159,9 @@ class CandidateProposalsApiTests(TestCase):
     # Acceptance-seam-driven synthetic outcomes --------------------------
 
     def test_normal_with_pool_initial_proposal_excludes_the_default_excluded_genre(self):
-        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL)
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING
+        )
 
         response = self.post_proposal()
 
@@ -173,7 +179,9 @@ class CandidateProposalsApiTests(TestCase):
         )
 
     def test_normal_with_pool_initial_proposal_has_at_most_five_candidates(self):
-        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL)
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING
+        )
 
         response = self.post_proposal()
 
@@ -285,7 +293,9 @@ class CandidateProposalsApiTests(TestCase):
         self.assertFalse(payload["izakayaBarFallbackApplied"])
 
     def test_include_izakaya_bar_filter_reaches_the_default_excluded_genre(self):
-        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL)
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING
+        )
 
         response = self.post_proposal({"filters": {"includeIzakayaBar": True}})
 
@@ -294,7 +304,9 @@ class CandidateProposalsApiTests(TestCase):
         self.assertIn("居酒屋", payload["availableGenres"])
 
     def test_genre_filter_narrows_to_the_requested_genre(self):
-        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL)
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING
+        )
         available = self.post_proposal().json()["availableGenres"]
         self.assertTrue(available)
         chosen_genre = available[0]
@@ -307,7 +319,9 @@ class CandidateProposalsApiTests(TestCase):
         self.assertTrue(all(c["genre"] == chosen_genre for c in payload["candidates"]))
 
     def test_non_smoking_only_filter_excludes_confirmed_none_candidates(self):
-        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL)
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING
+        )
 
         response = self.post_proposal({"filters": {"nonSmokingOnly": True}})
 
@@ -316,7 +330,9 @@ class CandidateProposalsApiTests(TestCase):
         self.assertNotIn("NONE", [c["nonSmokingStatus"] for c in payload["candidates"]])
 
     def test_card_payment_only_filter_excludes_confirmed_false_candidates(self):
-        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL)
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING
+        )
 
         response = self.post_proposal({"filters": {"cardPaymentOnly": True}})
 
@@ -325,7 +341,9 @@ class CandidateProposalsApiTests(TestCase):
         self.assertNotIn(False, [c["cardPaymentAvailable"] for c in payload["candidates"]])
 
     def test_budget_tiers_filter_excludes_confirmed_non_matching_tiers(self):
-        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL)
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING
+        )
 
         response = self.post_proposal({"filters": {"budgetTiers": ["LOW"]}})
 
@@ -362,6 +380,7 @@ class CandidateProposalsApiTests(TestCase):
                     "text": "Powered by ホットペッパーグルメ Webサービス",
                     "url": "http://webservice.recruit.co.jp/",
                 },
+                "shownPoolExhausted": False,
             },
         )
 
@@ -400,16 +419,99 @@ class CandidateProposalsApiTests(TestCase):
 
     def test_random_seed_pins_a_reproducible_candidate_set(self):
         acceptance_state.set_mode(
-            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL, random_seed=7
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING,
+            random_seed=7,
         )
 
         first = self.post_proposal().json()["candidates"]
         acceptance_state.set_mode(
-            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL, random_seed=7
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING,
+            random_seed=7,
         )
         second = self.post_proposal().json()["candidates"]
 
         self.assertEqual(first, second)
+
+    # shownProviderPageUrls / shownPoolExhausted (adr/0024 decision 4) -----
+
+    def test_shown_provider_page_urls_key_is_optional(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING
+        )
+
+        response = self.post_proposal({})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["shownPoolExhausted"])
+
+    def test_non_list_shown_provider_page_urls_is_a_safe_403(self):
+        response = self.post_proposal({"shownProviderPageUrls": "https://example.invalid/shop"})
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_non_string_shown_provider_page_urls_item_is_a_safe_403(self):
+        response = self.post_proposal({"shownProviderPageUrls": [123]})
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_shown_provider_page_urls_over_the_defensive_max_items_is_a_safe_403(self):
+        too_many = [f"https://example.invalid/shop-{i}" for i in range(201)]
+
+        response = self.post_proposal({"shownProviderPageUrls": too_many})
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_shown_provider_page_urls_at_the_defensive_max_items_is_accepted(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING
+        )
+        exactly_max = [f"https://example.invalid/shop-{i}" for i in range(200)]
+
+        response = self.post_proposal({"shownProviderPageUrls": exactly_max})
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_shown_pool_priority_mode_prioritizes_not_yet_shown_candidates(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.SHOWN_POOL_PRIORITY, random_seed=1
+        )
+
+        first = self.post_proposal().json()
+        self.assertFalse(first["shownPoolExhausted"])
+        first_urls = {c["providerPageUrl"] for c in first["candidates"]}
+        self.assertEqual(len(first_urls), 5)
+
+        # The 5 shown candidates and the SHOWN_POOL_PRIORITY population size
+        # (10) together mean the other 5 are exactly the not-yet-shown
+        # partition -- so the second response must be exactly disjoint from
+        # the first (adr/0024 decision 4's set-membership property 1).
+        second = self.post_proposal({"shownProviderPageUrls": list(first_urls)}).json()
+        self.assertFalse(second["shownPoolExhausted"])
+        second_urls = {c["providerPageUrl"] for c in second["candidates"]}
+        self.assertEqual(len(second_urls), 5)
+        self.assertEqual(first_urls.isdisjoint(second_urls), True)
+
+        # Once every candidate this mode can return has been sent back, the
+        # response must report shownPoolExhausted and fall back to the full
+        # population (set-membership property 3).
+        third = self.post_proposal({"shownProviderPageUrls": list(first_urls | second_urls)}).json()
+        self.assertTrue(third["shownPoolExhausted"])
+        self.assertEqual(len(third["candidates"]), 5)
+
+    def test_server_never_echoes_shown_provider_page_urls_back(self):
+        # adr/0024 decision 4: shownProviderPageUrls is priority information
+        # processed for this one request only -- it must never appear
+        # anywhere in the response body.
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.SHOWN_POOL_PRIORITY
+        )
+
+        response = self.post_proposal(
+            {"shownProviderPageUrls": ["https://example.invalid/acceptance-shown-pool-00"]}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("shownProviderPageUrls", response.json())
 
 
 class CandidateResponseSchemaTests(TestCase):
@@ -418,7 +520,9 @@ class CandidateResponseSchemaTests(TestCase):
     def setUp(self):
         cache.clear()
         self.addCleanup(acceptance_state.reset_mode)
-        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL)
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING
+        )
         self.password = "Synthetic-passphrase-123!"
         self.user = get_user_model().objects.create_user(
             username="candidate-schema-organizer", password=self.password
@@ -472,5 +576,6 @@ class CandidateResponseSchemaTests(TestCase):
                 "availableGenres",
                 "populationAttributes",
                 "providerCredit",
+                "shownPoolExhausted",
             },
         )

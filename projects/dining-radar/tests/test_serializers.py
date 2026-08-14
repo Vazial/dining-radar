@@ -80,6 +80,21 @@ class SerializeResultTests(SimpleTestCase):
 
         self.assertTrue(payload["izakayaBarFallbackApplied"])
 
+    def test_shown_pool_exhausted_true_is_passed_through(self):
+        # adr/0024 decision 4.
+        result = ProposalResult((), False, (), shown_pool_exhausted=True)
+
+        payload = serialize_result(result)
+
+        self.assertTrue(payload["shownPoolExhausted"])
+
+    def test_shown_pool_exhausted_false_is_passed_through(self):
+        result = ProposalResult((), False, (), shown_pool_exhausted=False)
+
+        payload = serialize_result(result)
+
+        self.assertFalse(payload["shownPoolExhausted"])
+
     def test_response_has_exactly_the_contract_shape(self):
         result = ProposalResult((_candidate(),), False, ())
 
@@ -93,6 +108,7 @@ class SerializeResultTests(SimpleTestCase):
                 "availableGenres",
                 "populationAttributes",
                 "providerCredit",
+                "shownPoolExhausted",
             },
         )
         self.assertEqual(
