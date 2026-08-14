@@ -145,6 +145,12 @@ class CandidateSurfaceSourceTests(SimpleTestCase):
         self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr))", template)
         self.assertIn("position: absolute; top: calc(100% + 0.5rem)", template)
         self.assertIn('[data-testid="candidate-proposal-cards"]::after', template)
+        self.assertIn("scrollbar-width: thin", template)
+        self.assertIn("scrollbar-color: #8da093 transparent", template)
+        self.assertIn(
+            '[data-testid="candidate-proposal-cards"]::-webkit-scrollbar { height: 0.5rem; }',
+            template,
+        )
         self.assertIn("candidate-search-again-label", template)
         self.assertIn('"class": "candidate-search-again-label"', script)
         self.assertIn('"aria-hidden": "true"', script)
