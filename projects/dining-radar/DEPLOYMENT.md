@@ -190,6 +190,40 @@ username側が空ならbuildが落ちる。消すときは完全に空にする�
 壊れないが、**ログインできる生のpasswordがRender Dashboardに残り続ける**——それが手順4の唯一かつ
 十分な理由である。
 
+### まとめて発行する（再deployなし）
+
+1人につき1回の再deployは、人数が増えると割に合わない。`manage.py`は`test`以外のコマンドでは本番
+settings module（`dining_radar.settings`）を使うため、**ローカルから同じcommandをNeonへ向けて実行
+できる**。Render側の環境変数は触らず、deployも起きない。
+
+```bash
+read -rsp 'DATABASE_URL: ' DATABASE_URL && export DATABASE_URL
+export DJANGO_SECRET_KEY='local-only-not-the-production-key'
+
+export DJANGO_BOOTSTRAP_ORGANIZER_USERNAME='<username>'
+read -rsp 'password: ' DJANGO_BOOTSTRAP_ORGANIZER_PASSWORD && export DJANGO_BOOTSTRAP_ORGANIZER_PASSWORD
+python manage.py provision_organizer
+```
+
+`read -rs`を使うのはshell履歴へ実値を残さないためである。`DJANGO_SECRET_KEY`はダミーでよい——
+**passwordのhash化に`SECRET_KEY`は使われない**（PBKDF2とuserごとのsalt）。3〜5行目をusernameと
+passwordを変えて繰り返す。
+
+**`DATABASE_URL`のexportを忘れると、警告なくローカルのSQLiteへ作られる。** `settings.py`は`RENDER`が
+無い環境ではDATABASE_URLを必須にせず、`settings_base`のSQLiteへ落ちるためである。実行前に接続先を
+確かめること。
+
+```bash
+python manage.py shell -c "from django.db import connection; print(connection.settings_dict['ENGINE'], connection.settings_dict.get('HOST'))"
+```
+
+`postgresql`とNeonのhost名が出れば正しい。`sqlite3`が出たらexportが効いていない。作成後は
+`python manage.py shell -c "from django.contrib.auth import get_user_model; print(get_user_model().objects.count())"`
+で件数を確認する。
+
+この経路は接続文字列をshellへ一時的に置く。§1-3が禁じているのは**ファイルへの保存**であり、
+`.env.local`へ書くのは方針から外れる。作業後はshellを閉じる。
+
 ### passwordを忘れたとき
 
 **アプリ側に回復手段は無い。** 意図的にそうなっている——公開signupもemail resetも提供せず
