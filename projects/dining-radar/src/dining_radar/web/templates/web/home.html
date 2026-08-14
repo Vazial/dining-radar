@@ -699,21 +699,26 @@
       .candidate-filter-actions { padding-top: 0.2rem; border-top: 1px solid #eceee9; }
       .candidate-budget-tier-note { margin-top: -0.15rem; }
       .candidate-search-again-label { display: inline; margin-left: 0.35rem; }
-      [data-testid="candidate-proposal-cards"] { scrollbar-width: none; isolation: isolate; }
-      [data-testid="candidate-proposal-cards"]::-webkit-scrollbar { display: none; }
+      [data-testid="candidate-proposal-cards"] {
+        padding-bottom: 0.25rem;
+        scrollbar-width: thin;
+        scrollbar-color: #8da093 transparent;
+        isolation: isolate;
+      }
+      [data-testid="candidate-proposal-cards"]::-webkit-scrollbar { height: 0.5rem; }
+      [data-testid="candidate-proposal-cards"]::-webkit-scrollbar-track { background: transparent; }
+      [data-testid="candidate-proposal-cards"]::-webkit-scrollbar-thumb {
+        background: #8da093;
+        border: 2px solid transparent;
+        border-radius: 999px;
+        background-clip: padding-box;
+      }
       [data-testid="candidate-proposal-cards"]::after {
         content: ""; position: sticky; right: 0; z-index: 3; flex: 0 0 3.5rem;
         margin-left: -3.5rem; align-self: stretch; pointer-events: none;
         background: linear-gradient(90deg, transparent, rgb(248 250 247 / 96%));
       }
       [data-testid="candidate-card"] { flex-basis: min(24rem, 31%); }
-      [data-testid="candidate-card"] dl.candidate-facts > .candidate-fact-row--candidate-card-description {
-        flex: 1 0 100%; padding: 0 0 0.3rem; background: transparent; color: #536057;
-      }
-      [data-testid="candidate-card"] dl.candidate-facts > div:not(.candidate-fact-row--candidate-card-description) {
-        flex: 1 1 30%; min-width: 6rem;
-      }
-      .candidate-payment-caution { padding: 0.3rem 0.55rem; font-size: 0.75rem; }
     }
 
   </style>
