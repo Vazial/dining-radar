@@ -197,6 +197,80 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         self.dsl.set_candidate_state(mode)
         self.dsl.open_candidate_screen()
 
+    def test_long_regular_holiday_wraps_inside_a_narrow_card_without_truncation(self) -> None:
+        """Regression coverage for the provider's free-text holiday reference.
+
+        This is intentionally a presentation regression, not an additional
+        ADR-0020 gate invariant: it intercepts only the already-synthetic
+        proposal response to give its first card a long free-text value.
+        The public API shape, acceptance steps, and state seam remain
+        unchanged.
+        """
+
+        long_regular_holiday = (
+            "毎週月曜日・第2火曜日・祝日の翌日・年末年始・臨時休業は店舗にご確認ください" * 3
+        )
+
+        def with_long_regular_holiday(route):
+            response = route.fetch()
+            body = response.json()
+            body["candidates"][0]["regularHoliday"] = long_regular_holiday
+            route.fulfill(response=response, json=body)
+
+        self._sign_in_with_candidates()
+        self.page.route("**/candidate-proposals", with_long_regular_holiday)
+        by_test_id(self.page, "candidate-search-again").click()
+        self.page.set_viewport_size({"width": 390, "height": 844})
+
+        regular_holiday = by_test_id(self.page, "candidate-card-regular-holiday").first
+        expect(regular_holiday).to_have_text(long_regular_holiday)
+
+        measurement = regular_holiday.evaluate(
+            """node => {
+              const card = node.closest('[data-testid="candidate-card"]');
+              const nodeBox = node.getBoundingClientRect();
+              const cardBox = card.getBoundingClientRect();
+              const nodeStyle = getComputedStyle(node);
+              const cardStyle = getComputedStyle(card);
+              return {
+                clientWidth: node.clientWidth,
+                scrollWidth: node.scrollWidth,
+                height: nodeBox.height,
+                width: nodeBox.width,
+                cardHeight: cardBox.height,
+                cardWidth: cardBox.width,
+                left: nodeBox.left,
+                right: nodeBox.right,
+                cardLeft: cardBox.left,
+                cardRight: cardBox.right,
+                whiteSpace: nodeStyle.whiteSpace,
+                textOverflow: nodeStyle.textOverflow,
+                overflowX: nodeStyle.overflowX,
+                cardOverflowY: cardStyle.overflowY,
+              };
+            }"""
+        )
+
+        self.assertEqual(measurement["whiteSpace"], "normal")
+        self.assertEqual(measurement["textOverflow"], "clip")
+        self.assertEqual(measurement["overflowX"], "visible")
+        self.assertLessEqual(measurement["scrollWidth"], measurement["clientWidth"])
+        self.assertGreaterEqual(
+            measurement["width"],
+            measurement["cardWidth"] * 0.7,
+            "regular-holiday value should keep most of the card width after "
+            "the link moves below it",
+        )
+        self.assertGreater(
+            measurement["height"], 32, "long text should wrap beyond two short lines"
+        )
+        self.assertGreater(
+            measurement["cardHeight"], 216, "card must grow beyond the retired max height"
+        )
+        self.assertGreaterEqual(measurement["left"], measurement["cardLeft"])
+        self.assertLessEqual(measurement["right"], measurement["cardRight"])
+        self.assertNotEqual(measurement["cardOverflowY"], "hidden")
+
     # (a) Narrow-width map reachability ------------------------------------
 
     def test_a_map_is_reachable_without_scrolling_at_narrow_widths(self) -> None:
