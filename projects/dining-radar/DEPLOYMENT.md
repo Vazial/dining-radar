@@ -107,7 +107,8 @@ buildはdependency install、`collectstatic`、migration、初回organizer作成
 
 sign in確認直後に、Renderから`DJANGO_BOOTSTRAP_ORGANIZER_USERNAME`と
 `DJANGO_BOOTSTRAP_ORGANIZER_PASSWORD`を削除して再deployする。既存accountのpasswordや権限は
-bootstrap commandでは上書きされない。
+bootstrap commandでは上書きされない。キーを残して値だけ空にしてもよい——同じ仕組みを2人目以降の
+招待にも使うため、詳細と注意点は§6にまとめてある。
 
 ## 4. 運用とrollback
 
@@ -155,3 +156,50 @@ Renderのdocumentationはこう定めている——**verifiedなcustom domain�
 
 自前のdomainを持つとHSTSの`includeSubDomains`とpreloadが初めて選択肢になる。ただしpreloadは取り消しが
 難しいため、採用するなら独立した判断とADRの対象にする。既定は現状どおり両方offである。
+
+## 6. organizerを追加する・ログインできなくなったときに戻す
+
+無料RenderにはShellが無く、`createsuperuser`を叩く場所が存在しない。そのため`build.sh`は毎回
+`manage.py provision_organizer --if-configured`を実行し、**環境変数からaccountを作る**。この仕組みは
+初回だけのものではなく、**2人目以降の招待手段としてそのまま使える**。
+
+### 挙動（`provision_organizer`）
+
+| `DJANGO_BOOTSTRAP_ORGANIZER_USERNAME` / `_PASSWORD` | 動作 |
+|---|---|
+| 両方が空（またはキーごと不在） | 何もせず正常終了する（`--if-configured`） |
+| 両方に値があり、同名accountが無い | 作成する（`is_staff=False` / `is_superuser=False`） |
+| 両方に値があり、同名accountが既にある | **何もしない。passwordも権限も上書きしない** |
+| 片方だけに値がある | `CommandError`。`build.sh`は`errexit`なのでbuildが落ちる |
+
+**キーを残して値を空にするのと、キーごと消すのは同じ挙動である**——実装は`os.environ.get(..., "")`で
+読むため、未設定と空文字を区別しない。キーを残すほうが次回の変数名を覚えずに済む。ただし
+`_PASSWORD`は`strip()`されないため、**空白文字を1つでも残すと「設定されている」と判定され**、
+username側が空ならbuildが落ちる。消すときは完全に空にする。
+
+### 2人目以降を招待する
+
+1. 2つの変数へ**新しい人のusernameとpassword**を入れる。passwordはDjangoの検証4種
+   （8文字以上・username非類似・一般的でない・数字のみでない）を通る必要がある。落ちる場合は
+   `python tools/check_organizer_password.py` が理由を出す（passwordはechoせずargvにも取らない）。
+2. 再deployする。buildの`provision_organizer`がaccountを作る。
+3. 本人に初回sign inしてもらい、画面のpassword変更で**本人だけが知る値へ変えてもらう**。
+4. **2つの値を空にして**再deployする。
+
+既存accountには一切触らないため、この4手順は何度繰り返しても安全である。手順4を忘れても機能は
+壊れないが、**ログインできる生のpasswordがRender Dashboardに残り続ける**——それが手順4の唯一かつ
+十分な理由である。
+
+### passwordを忘れたとき
+
+**アプリ側に回復手段は無い。** 意図的にそうなっている——公開signupもemail resetも提供せず
+（TDR-AUTH-03）、bootstrap accountは`is_staff=False`なのでDjango adminも使えず、無料RenderにShellも
+無い。**account発行や回復のためにaccountへ`is_staff`を与えないこと**——`/admin/`は公開originから
+到達でき、そのlogin formはこのアプリのlogin throttle（TDR-AUTH-07）を通らない。staff accountを1つ
+作ると、その未制限のlogin surfaceが特権入口に変わる。そして`provision_organizer`は同名accountのpasswordを**上書きしない**ため、変数へ新しいpasswordを
+入れ直しても何も起こらない。
+
+回復はDB側で行う。NeonのSQL Editorで当該userの行を消し（既定の`auth_user`テーブル）、上の招待手順で
+作り直す。その人のsessionは無効になり、他のaccountには影響しない。**この操作中も、passwordの実値を
+SQL、log、issue、PRへ書かないこと。** 行を消してから環境変数で作り直すのであって、SQLでpasswordを
+書き換えるのではない。
