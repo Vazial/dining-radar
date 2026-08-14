@@ -32,9 +32,11 @@ Renderの無料PostgreSQLは**作成から30日で失効**するため採用し�
 サービスのportへ直接**届くため `X-Forwarded-Proto` が付かない。`Host` はサービスの `onrender.com`
 subdomain（verified custom domainがあればそちら）。**`2xx`または`3xx`を5秒以内**に返せば成功と
 見なされる。**`3xx`が成功に含まれる**ため、HTTPS redirectがhealth checkを素通ししてしまい、probeが
-DBへ一度も到達しないまま常にhealthyを報告する事故が起こり得る——だから§3の確認では、redirectでは
-なく**本文`ok`の200**であることを確かめる。checkは起動時だけでなく**稼働中は数秒ごと**に送られ、
-15秒失敗するとtrafficのルーティングが外れ、60秒失敗するとinstanceが自動再起動される。
+DBへ一度も到達しないまま常にhealthyを報告する事故が起こり得る——`settings.py`が`/healthz`だけを
+`SECURE_REDIRECT_EXEMPT`に入れているのはこのためである。**この経路は公開インターネットからは観測
+できない**（Renderのedgeが平文HTTPを先に終端するため）。確認方法は§3-3を参照する。checkは起動時
+だけでなく**稼働中は数秒ごと**に送られ、15秒失敗するとtrafficのルーティングが外れ、60秒失敗すると
+instanceが自動再起動される。
 
 ## 1. Neonを作る
 
@@ -72,10 +74,29 @@ DBへ一度も到達しないまま常にhealthyを報告する事故が起こ�
 buildはdependency install、`collectstatic`、migration、初回organizer作成、Django deployment checkの
 順に失敗時停止で実行する。成功後、次を確認する。
 
-1. `https://<Render host>/healthz` が本文`ok`で200を返す。
-2. **`http://<Render host>/healthz` も、redirectではなく本文`ok`の200を返す**。ここが301だと、
-   Renderのhealth checkは`3xx`を成功と見なすためprobeがDBへ到達しないまま緑になる。
-3. `http://<Render host>/` がHTTPSへredirectされる（`/healthz`以外は従来どおり強制redirect）。
+1. `https://<host>/healthz` が本文`ok`で200を返す。
+2. `http://<host>/` がHTTPSへredirectされる。
+3. **`/healthz`の免除が効いているかは、公開インターネットからは確認できない。** Renderのedgeが平文
+   HTTPを先に終端して301を返すため、`http://<host>/healthz` は必ず301になり、リクエストはgunicornへ
+   届かない（実測: 301応答にはDjangoのヘッダが一つも無く `x-render-origin-server` も付かない。
+   200応答には両方ある）。**この301はDjangoの`SECURE_SSL_REDIRECT`ではないので、免除の失敗を意味
+   しない。** health checkはedgeを通らずportへ直接届くので、外形からは観測できない経路である。
+
+   **確認するにはgunicornのaccess logを一時的に出す。** Render → Settings → Start Command を編集して
+   末尾に `--access-logfile -` を足す（`render.yaml`を変えずDashboardの上書きで済む）。再deploy後、
+   Logsに数秒ごと`/healthz`の行が出る。見るのはステータスコードだけである。
+
+   - `"GET /healthz HTTP/1.1" 200 2` … 免除が効いている。応答2バイトは本文`ok`＝ビュー自身の応答で
+     あり、`SELECT 1`が実行されている。送信元がRFC1918のprivate addressでUAが`Render/1.0`であること
+     も併せて確認する（edgeを迂回している証拠になる）。
+   - `"GET /healthz HTTP/1.1" 301` … 免除が効いていない。probeは素通りしており、DBが落ちても
+     healthyと報告される。
+
+   確認後はStart Commandを元へ戻す。数秒ごとのログで無料枠のログ保持を埋めないためである。
+
+   **Neonのcompute表示で代用しようとしないこと。** 一度試して失敗している——グラフの時間解像度が粗く、
+   ユーザーのアクセス・orchestratorの検証アクセス・health checkが同じ線に混ざるため、ActiveとIdleの
+   切り替わりから5分閾値と15分閾値を区別できない。「接続していそう」以上の判定ができない。
 4. 初回organizerでsign inでき、候補画面、地図、同一origin static asset、OSM attributionが表示される。
 5. 候補画面に `Powered by ホットペッパーグルメ Webサービス` のクレジットが
    `http://webservice.recruit.co.jp/` へのリンクつきで出ている（provider側の必須要件）。
@@ -106,5 +127,31 @@ bootstrap commandでは上書きされない。
   migrationの後方互換性とDB復元方法を確認する。
 - `DATABASE_URL`、provider key、検索地点、初回passwordが漏えいした疑いがあれば、公開を止めて
   該当credentialをrotateする。git履歴へ入った場合は値の削除だけで解決したと扱わない。
-- custom domainを追加する場合は`DJANGO_ALLOWED_HOSTS`へhost名だけを追加し、HTTPS、CSRF、cookie、
-  HSTSを再確認する。
+
+## 5. custom domainを足す（順序を守らないとサイトが落ちる）
+
+Renderのdocumentationはこう定めている——**verifiedなcustom domainがあると、HTTP health checkの
+`Host`ヘッダはそのdomainになる**（無ければサービスの`onrender.com` subdomain）。一方、実測のとおり
+`ALLOWED_HOSTS`に無いHostは**400**を返す。
+
+`settings.py`の`ALLOWED_HOSTS`は`DJANGO_ALLOWED_HOSTS`とRenderが供給する`RENDER_EXTERNAL_HOSTNAME`
+だけで組まれ、**custom domainはどちらにも入らない**。したがってdomainを先にverifyすると、health check
+が全て400になり、15秒でrouting除外、60秒でinstance自動再起動——これが延々と続く。
+
+必ずこの順で行う。
+
+1. Render Dashboard → Environment → **`DJANGO_ALLOWED_HOSTS`** を追加する。値はhost名だけ（scheme・
+   port・pathを付けない。複数ならカンマ区切り）。`render.yaml`には無い変数なのでDashboardで足す。
+   `RENDER_EXTERNAL_HOSTNAME`は実装が別途追加するため、この変更は純粋な追加であり既存originを壊さない。
+2. 再deploy後、既存の`onrender.com` URLがまだ動くことを確認する。
+3. **その後で** Render → Settings → Custom Domains でdomainを追加する。Renderが向け先を表示するので、
+   その値を使う（推測しない）。
+4. DNSにレコードを作る。**subdomainを勧める**——CNAMEを向けるだけで済み、先方のIP変更にも自動で追従する。
+   apexはDNS仕様上CNAMEを置けず、Route 53のALIASはAWSリソース専用でRenderには向けられないため、
+   Renderが示すA レコードのIPを直書きすることになり、IP変更を自分で追う必要が生じる。
+5. verified後、TLS証明書はRenderが自動発行・更新する（Let's Encrypt）。wildcardでなければ
+   `_acme-challenge`の追加レコードは要らない。
+6. HTTPS、CSRF、cookie、HSTSを§3の手順で再確認する。
+
+自前のdomainを持つとHSTSの`includeSubDomains`とpreloadが初めて選択肢になる。ただしpreloadは取り消しが
+難しいため、採用するなら独立した判断とADRの対象にする。既定は現状どおり両方offである。
