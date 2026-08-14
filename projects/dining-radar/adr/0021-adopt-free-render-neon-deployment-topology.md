@@ -65,3 +65,23 @@ browserにも存在しないため、この変更で非公開地点を送信し�
 - NeonまたはRenderの無料条件が変わった場合は、費用発生前に停止し、paid化または移転を再判断する。
 - 実public HTTPS、redirect、cookie、OSM Referer、provider creditはdeploy後のL5で確認する。
 - 実リソース作成とsecret投入は外部状態変更であり、コードのマージとは別に人間確認を要する。
+
+## 追記（2026-08-14）: 公開originにcustom domainを採用する
+
+本ADRは公開originをRenderの生成する`onrender.com` subdomainとしていた。人間の判断により、初回公開の
+時点でRoute 53管理のsubdomainをcustom domainとして充てる。証明書はRenderが自動発行・更新する。
+apexではなくsubdomainを選ぶ——DNS仕様上apexにCNAMEを置けず、Route 53のALIASはAWSリソース専用で
+Renderには向けられないため、apexはRenderのIP直書きになりIP変更の追随義務が生じる。
+
+**この採用には、実測で判明した順序の制約が伴う。** Renderのdocumentationは「verifiedなcustom domainが
+あるとHTTP health checkの`Host`ヘッダはそのdomainになる」と定めており、一方`ALLOWED_HOSTS`に無いHost
+へのリクエストは400を返す（orchestratorが本番設定モジュールで実測）。`settings.py`の`ALLOWED_HOSTS`は
+`DJANGO_ALLOWED_HOSTS`と`RENDER_EXTERNAL_HOSTNAME`だけで組まれ、custom domainはどちらにも入らない。
+したがって**`DJANGO_ALLOWED_HOSTS`を先に設定せずにdomainをverifyすると、health checkが全て400になり、
+60秒ごとのinstance自動再起動が続く**。手順は`DEPLOYMENT.md` §5が定める。
+
+自前domainを持つことで`SECURE_HSTS_INCLUDE_SUBDOMAINS`とpreloadが初めて選択肢になるが、preloadは
+取り消しが難しいため本追記では採用しない。既定どおり両方offのままとし、変更するなら独立した判断とする。
+
+`activeContext.md`のOpen questionsが「custom domainは保留、初回公開はRenderの生成origin」と記録して
+いた点は、本追記で解消する。email deliveryとSSOは引き続き保留である。
