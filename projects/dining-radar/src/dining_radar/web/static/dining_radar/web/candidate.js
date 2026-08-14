@@ -422,7 +422,7 @@
             "data-card-payment-available": "false",
             "class": "candidate-payment-caution",
           },
-          ["クレジットカードは利用できません"]
+          ["クレジットカード非対応（支払い方法は要確認）"]
         )
       );
     }

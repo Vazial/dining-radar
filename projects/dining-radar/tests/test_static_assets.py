@@ -90,7 +90,7 @@ class CandidateSurfaceSourceTests(SimpleTestCase):
         self.assertIn("position: absolute; inset: 0", source)
         self.assertIn("height: clamp(22rem, 50dvh, 34rem)", source)
         self.assertIn("flex: 0 0 calc(100vw - 2rem)", source)
-        self.assertIn("max-height: 13.5rem", source)
+        self.assertIn("min-height: 12.9rem", source)
         self.assertIn("scrollbar-width: none", source)
         self.assertIn("isolation: isolate", source)
         self.assertIn("top: 0.5rem;\n      right: 0.5rem", source)
@@ -108,6 +108,18 @@ class CandidateSurfaceSourceTests(SimpleTestCase):
         self.assertIn("display: none", template)
         self.assertIn('"data-testid": "candidate-deck-counter"', script)
         self.assertIn('["1/" + String(body.candidates.length)]', script)
+
+    def test_card_payment_caution_and_regular_holiday_do_not_overstate_or_truncate(self):
+        template = HOME_TEMPLATE.read_text(encoding="utf-8")
+        script = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("クレジットカード非対応（支払い方法は要確認）", script)
+        self.assertIn("candidate-fact-row--candidate-card-regular-holiday", template)
+        self.assertIn("flex-direction: column; align-items: stretch", template)
+        self.assertIn("width: 100%", template)
+        self.assertIn("white-space: normal", template)
+        self.assertIn("overflow-wrap: anywhere", template)
+        self.assertNotIn("max-height: 13.5rem", template)
 
     def test_unchanged_filter_panel_omits_batch_actions(self):
         source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
@@ -173,7 +185,7 @@ class CandidateSurfaceSourceTests(SimpleTestCase):
         self.assertIn(
             'fieldRow(\n        "ディナー予算感",\n        "candidate-card-dinner-budget"', source
         )
-        self.assertIn('["クレジットカードは利用できません"]', source)
+        self.assertIn('["クレジットカード非対応（支払い方法は要確認）"]', source)
         self.assertNotIn("お支払い方法は店舗にご確認ください", source)
 
 

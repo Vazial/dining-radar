@@ -533,7 +533,7 @@
       font-size: 0.6875rem; line-height: 1; color: #738078; font-weight: 700;
     }
     .candidate-card-detail-footer {
-      display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
+      display: flex; flex-direction: column; align-items: stretch; gap: 0.35rem;
     }
     .candidate-main-layout { position: relative; }
     .candidate-card-detail-footer .candidate-fact-row {
@@ -543,6 +543,13 @@
     .candidate-card-detail-footer dd {
       margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       color: #29342e; font-size: 0.8125rem;
+    }
+    .candidate-card-detail-footer .candidate-fact-row--candidate-card-regular-holiday {
+      width: 100%;
+    }
+    .candidate-card-detail-footer .candidate-fact-row--candidate-card-regular-holiday dd {
+      overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere;
+      line-height: 1.35;
     }
     .candidate-deck-counter {
       position: absolute; z-index: 4; right: 1rem; bottom: 15.1rem;
@@ -619,8 +626,8 @@
       }
       [data-testid="candidate-card"] {
         flex: 0 0 calc(100vw - 2rem); width: calc(100vw - 2rem); max-width: 25.625rem;
-        min-height: 12.9rem; max-height: 13.5rem; padding: 0.7rem 0.8rem; gap: 0.35rem;
-        overflow: hidden; scroll-snap-align: center;
+        min-height: 12.9rem; padding: 0.7rem 0.8rem; gap: 0.35rem;
+        scroll-snap-align: center;
       }
       [data-testid="candidate-card-name"] {
         font-size: 1rem; line-height: 1.25; white-space: nowrap;
@@ -649,7 +656,7 @@
         padding: 0.2rem 0.4rem; font-size: 0.7rem; line-height: 1.25; border: 0;
       }
       [data-testid="candidate-card-provider-page-link"] {
-        flex: 0 0 auto; align-self: center; min-height: 2.75rem; padding: 0 0.8rem;
+        flex: 0 0 auto; align-self: flex-start; min-height: 2.75rem; padding: 0 0.8rem;
         font-size: 0.8125rem;
       }
       .candidate-deck-counter { right: 1rem; bottom: 15.15rem; }
