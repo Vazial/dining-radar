@@ -138,6 +138,26 @@ class CandidateSurfaceSourceTests(SimpleTestCase):
         self.assertIn("min-height: 2.75rem", source)
         self.assertIn(".candidate-chip { min-width: 2.75rem; }", source)
 
+    def test_desktop_visual_polish_keeps_filter_workflow_and_deck_cues(self):
+        template = HOME_TEMPLATE.read_text(encoding="utf-8")
+        script = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr))", template)
+        self.assertIn("position: absolute; top: calc(100% + 0.5rem)", template)
+        self.assertIn('[data-testid="candidate-proposal-cards"]::after', template)
+        self.assertIn("candidate-search-again-label", template)
+        self.assertIn('"class": "candidate-search-again-label"', script)
+        self.assertIn('"aria-hidden": "true"', script)
+
+    def test_mobile_filter_panel_overlays_and_selected_chips_have_a_checkmark(self):
+        template = HOME_TEMPLATE.read_text(encoding="utf-8")
+
+        self.assertIn("overflow: visible;", template)
+        self.assertIn("top: calc(100% + 0.4rem)", template)
+        self.assertIn("background: rgb(255 255 255 / 98%)", template)
+        self.assertIn('.candidate-chip[data-pressed="true"]::before', template)
+        self.assertIn('content: "✓"', template)
+
     def test_soft_filter_labels_do_not_claim_unknown_values_are_confirmed(self):
         source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
 
