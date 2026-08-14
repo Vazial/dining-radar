@@ -96,4 +96,8 @@ def serialize_result(result: ProposalResult) -> dict:
             serialize_population_attribute(attribute) for attribute in result.population_attributes
         ],
         "providerCredit": PROVIDER_CREDIT,
+        # adr/0024 decision 4: true only when this response's selection drew
+        # from the full eligible population because every eligible candidate
+        # was already present in the request's shownProviderPageUrls.
+        "shownPoolExhausted": result.shown_pool_exhausted,
     }

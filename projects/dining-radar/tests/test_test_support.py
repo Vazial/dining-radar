@@ -213,7 +213,7 @@ class CandidateProposalAcceptanceStateTests(TestCase):
     def test_put_accepts_a_random_seed_and_pins_a_deterministic_source(self):
         response = self.client.put(
             "/test-support/candidate-proposals/state",
-            data=json.dumps({"mode": "NORMAL_WITH_POOL", "randomSeed": 42}),
+            data=json.dumps({"mode": "NORMAL_WITH_WEIGHTED_SAMPLING", "randomSeed": 42}),
             content_type="application/json",
         )
 
@@ -225,7 +225,7 @@ class CandidateProposalAcceptanceStateTests(TestCase):
     def test_put_without_a_random_seed_leaves_sampling_non_deterministic(self):
         response = self.client.put(
             "/test-support/candidate-proposals/state",
-            data=json.dumps({"mode": "NORMAL_WITH_POOL"}),
+            data=json.dumps({"mode": "NORMAL_WITH_WEIGHTED_SAMPLING"}),
             content_type="application/json",
         )
 
@@ -235,7 +235,7 @@ class CandidateProposalAcceptanceStateTests(TestCase):
     def test_put_rejects_a_non_integer_random_seed(self):
         response = self.client.put(
             "/test-support/candidate-proposals/state",
-            data=json.dumps({"mode": "NORMAL_WITH_POOL", "randomSeed": "not-an-int"}),
+            data=json.dumps({"mode": "NORMAL_WITH_WEIGHTED_SAMPLING", "randomSeed": "not-an-int"}),
             content_type="application/json",
         )
 
@@ -244,7 +244,7 @@ class CandidateProposalAcceptanceStateTests(TestCase):
     def test_put_rejects_a_boolean_random_seed(self):
         response = self.client.put(
             "/test-support/candidate-proposals/state",
-            data=json.dumps({"mode": "NORMAL_WITH_POOL", "randomSeed": True}),
+            data=json.dumps({"mode": "NORMAL_WITH_WEIGHTED_SAMPLING", "randomSeed": True}),
             content_type="application/json",
         )
 
@@ -252,7 +252,8 @@ class CandidateProposalAcceptanceStateTests(TestCase):
 
     def test_delete_also_clears_the_pinned_random_seed(self):
         acceptance_state.set_mode(
-            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_POOL, random_seed=42
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING,
+            random_seed=42,
         )
 
         response = self.client.delete("/test-support/candidate-proposals/state")

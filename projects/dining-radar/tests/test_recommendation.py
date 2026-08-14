@@ -1,9 +1,11 @@
 import random
+from collections import Counter
 
 from django.test import SimpleTestCase
 
 from dining_radar.recommendation.pipeline import (
     DEFAULT_EXCLUDED_GENRES,
+    DISPLAY_CAP,
     CandidateFilters,
     NormalizedCandidate,
     Origin,
@@ -13,8 +15,10 @@ from dining_radar.recommendation.pipeline import (
     dinner_budget_tier,
     filter_candidates,
     order_confirmed_then_unconfirmed,
+    partition_by_shown,
     population_attributes,
     select_pool_and_sample,
+    select_with_shown_priority,
 )
 
 ORIGIN = Origin(latitude=0.0, longitude=0.0)
@@ -475,6 +479,18 @@ class OrderConfirmedThenUnconfirmedTests(SimpleTestCase):
 
 
 class SelectPoolAndSampleTests(SimpleTestCase):
+    """adr/0024 decision 3: distance-weighted sampling over the whole population.
+
+    The fixed near-distance pool (adr/0023 decision 4 steps 4-5) is retired;
+    ``select_pool_and_sample`` now takes ``origin`` directly and weighs every
+    candidate in the input by distance rather than truncating to a pool
+    first. The exact weighting formula is a non-binding implementation
+    choice (adr/0024 decision 3) -- these tests verify only the two
+    contractually-required statistical properties (P1, P2) plus the
+    seed-reproducibility/display-cap/empty-population behavior that does not
+    depend on the formula.
+    """
+
     def _ordered(self, count):
         return [
             candidate(
@@ -488,33 +504,22 @@ class SelectPoolAndSampleTests(SimpleTestCase):
     def test_population_at_or_below_the_display_cap_returns_everything(self):
         population = self._ordered(3)
 
-        sample = select_pool_and_sample(population, random_source=random.Random(1))
+        sample = select_pool_and_sample(population, ORIGIN, random_source=random.Random(1))
 
         self.assertEqual({c.name for c in sample}, {"店1", "店2", "店3"})
 
     def test_sample_is_bounded_by_the_display_cap(self):
         population = self._ordered(10)
 
-        sample = select_pool_and_sample(population, random_source=random.Random(1))
+        sample = select_pool_and_sample(population, ORIGIN, random_source=random.Random(1))
 
         self.assertEqual(len(sample), 5)
-
-    def test_pool_is_limited_to_the_nearest_pool_size_candidates(self):
-        population = self._ordered(10)
-
-        # pool_size=3 with display_cap=3: only the three nearest can ever be
-        # sampled, regardless of seed.
-        for seed in range(5):
-            sample = select_pool_and_sample(
-                population, random_source=random.Random(seed), pool_size=3, display_cap=3
-            )
-            self.assertEqual({c.name for c in sample}, {"店1", "店2", "店3"})
 
     def test_same_seed_reproduces_the_identical_sample(self):
         population = self._ordered(10)
 
-        first = select_pool_and_sample(population, random_source=random.Random(42))
-        second = select_pool_and_sample(population, random_source=random.Random(42))
+        first = select_pool_and_sample(population, ORIGIN, random_source=random.Random(42))
+        second = select_pool_and_sample(population, ORIGIN, random_source=random.Random(42))
 
         self.assertEqual([c.name for c in first], [c.name for c in second])
 
@@ -524,7 +529,9 @@ class SelectPoolAndSampleTests(SimpleTestCase):
         samples = {
             tuple(
                 c.name
-                for c in select_pool_and_sample(population, random_source=random.Random(seed))
+                for c in select_pool_and_sample(
+                    population, ORIGIN, random_source=random.Random(seed)
+                )
             )
             for seed in range(10)
         }
@@ -532,9 +539,205 @@ class SelectPoolAndSampleTests(SimpleTestCase):
         self.assertGreater(len(samples), 1, "every seed produced the identical sample")
 
     def test_empty_population_returns_an_empty_sample(self):
-        sample = select_pool_and_sample([], random_source=random.Random(1))
+        sample = select_pool_and_sample([], ORIGIN, random_source=random.Random(1))
 
         self.assertEqual(sample, [])
+
+    def test_no_pool_ceiling_the_farthest_candidate_is_reachable(self):
+        # adr/0023 decision 4's fixed pool (min(population, 20)) meant a
+        # candidate ranked beyond the pool size could never be drawn. That
+        # ceiling is gone: a population far larger than the old recommended
+        # pool size of 20 must still let its single farthest member surface
+        # over enough trials (this is a coarse smoke test; the statistical
+        # properties themselves are verified in
+        # DistanceWeightedSelectionStatisticalTests below).
+        population = self._ordered(30)
+        farthest = population[-1].name
+
+        seen_farthest = False
+        for seed in range(500):
+            sample = select_pool_and_sample(population, ORIGIN, random_source=random.Random(seed))
+            if farthest in {c.name for c in sample}:
+                seen_farthest = True
+                break
+
+        self.assertTrue(seen_farthest, "the farthest candidate was never selected in 500 trials")
+
+
+class DistanceWeightedSelectionStatisticalTests(SimpleTestCase):
+    """Statistical verification of P1/P2 (adr/0024 decision 3), many trials.
+
+    Per candidate-search-browser-interface.yaml's
+    ``proposal.distanceWeightedSelection`` invariant, this must not pin a
+    single seed (a single run is a draw, not a property) and must not assume
+    any particular weighting formula -- only that empirical selection
+    frequency is non-increasing in distance (P1) and that the single
+    farthest candidate is selected at least once across many trials (P2).
+    Mirrors the methodology orchestrator used to measure this project's real
+    duplication-rate improvement (adr/0024's cited 20000-trial measurement),
+    scaled down for test runtime.
+    """
+
+    TRIALS = 4000
+
+    def _population_by_distance(self, count):
+        # Distinct, strictly increasing distances from ORIGIN so "closer"
+        # and "farther" are unambiguous.
+        return [
+            candidate(
+                name=f"店{i}",
+                provider_page_url=f"https://example.invalid/weighted-{i}",
+                latitude=0.001 * i,
+            )
+            for i in range(1, count + 1)
+        ]
+
+    def test_selection_frequency_is_non_increasing_in_distance(self):
+        population = self._population_by_distance(10)
+        counts = Counter()
+        random_source = random.Random(12345)
+
+        for _ in range(self.TRIALS):
+            sample = select_pool_and_sample(population, ORIGIN, random_source=random_source)
+            counts.update(c.name for c in sample)
+
+        frequencies = [counts[c.name] for c in population]  # nearest first
+        # P1: closer candidates are never less likely than farther ones --
+        # allow small statistical slack between adjacent ranks (a strict
+        # non-increasing check across noisy empirical frequencies would be
+        # flaky), but the nearest must be clearly more frequent than the
+        # farthest overall.
+        for earlier, later in zip(frequencies, frequencies[1:]):
+            self.assertGreaterEqual(
+                earlier + self.TRIALS // 20,
+                later,
+                f"frequencies {frequencies} are not statistically non-increasing",
+            )
+        self.assertGreater(frequencies[0], frequencies[-1])
+
+    def test_farthest_candidate_is_selected_at_least_once(self):
+        # P2: no eligible candidate has a structurally zero selection
+        # probability, even the single farthest member of a population much
+        # larger than the display cap.
+        population = self._population_by_distance(25)
+        farthest = population[-1].name
+        random_source = random.Random(54321)
+
+        selected_farthest = False
+        for _ in range(self.TRIALS):
+            sample = select_pool_and_sample(population, ORIGIN, random_source=random_source)
+            if farthest in {c.name for c in sample}:
+                selected_farthest = True
+                break
+
+        self.assertTrue(
+            selected_farthest, f"the farthest candidate was never selected in {self.TRIALS} trials"
+        )
+
+
+class PartitionByShownTests(SimpleTestCase):
+    def test_splits_into_unseen_and_seen_by_provider_page_url(self):
+        seen_one = candidate(provider_page_url="https://example.invalid/seen-one")
+        seen_two = candidate(provider_page_url="https://example.invalid/seen-two")
+        unseen = candidate(provider_page_url="https://example.invalid/unseen")
+
+        unseen_result, seen_result = partition_by_shown(
+            [seen_one, unseen, seen_two],
+            {"https://example.invalid/seen-one", "https://example.invalid/seen-two"},
+        )
+
+        self.assertEqual([c.name for c in unseen_result], [unseen.name])
+        self.assertEqual(
+            {c.provider_page_url for c in seen_result},
+            {seen_one.provider_page_url, seen_two.provider_page_url},
+        )
+
+    def test_empty_shown_set_treats_every_candidate_as_unseen(self):
+        one = candidate(provider_page_url="https://example.invalid/one")
+
+        unseen_result, seen_result = partition_by_shown([one], set())
+
+        self.assertEqual(unseen_result, [one])
+        self.assertEqual(seen_result, [])
+
+
+class SelectWithShownPriorityTests(SimpleTestCase):
+    """adr/0024 decision 4's three set-membership properties.
+
+    Deterministic (never depends on a particular randomSeed or the weighting
+    formula) -- these test set membership only, matching
+    candidate-search-browser-interface.yaml's proposal.shownPoolPriority
+    invariant.
+    """
+
+    def _population(self, count):
+        return [
+            candidate(
+                name=f"店{i}",
+                provider_page_url=f"https://example.invalid/priority-{i}",
+                latitude=0.001 * i,
+            )
+            for i in range(1, count + 1)
+        ]
+
+    def test_unseen_at_or_above_display_cap_draws_only_from_unseen(self):
+        population = self._population(10)
+        shown = {c.provider_page_url for c in population[:2]}  # 8 remain unseen
+
+        for seed in range(20):
+            selected, exhausted = select_with_shown_priority(
+                population, ORIGIN, shown, random_source=random.Random(seed)
+            )
+            self.assertFalse(exhausted)
+            self.assertEqual(len(selected), DISPLAY_CAP)
+            self.assertTrue(
+                all(c.provider_page_url not in shown for c in selected),
+                "a shown candidate was selected while unseen still had >= display cap members",
+            )
+
+    def test_unseen_below_display_cap_includes_every_unseen_member_and_fills_from_seen(self):
+        population = self._population(10)
+        # Exactly 8 already shown, leaving 2 unseen (< DISPLAY_CAP=5).
+        shown = {c.provider_page_url for c in population[:8]}
+        unseen_urls = {c.provider_page_url for c in population[8:]}
+
+        for seed in range(20):
+            selected, exhausted = select_with_shown_priority(
+                population, ORIGIN, shown, random_source=random.Random(seed)
+            )
+            self.assertFalse(exhausted)
+            self.assertEqual(len(selected), DISPLAY_CAP)
+            selected_urls = {c.provider_page_url for c in selected}
+            self.assertTrue(
+                unseen_urls.issubset(selected_urls),
+                "every not-yet-shown candidate must be included",
+            )
+
+    def test_unseen_empty_falls_back_to_the_full_population_and_reports_exhausted(self):
+        population = self._population(7)
+        shown = {c.provider_page_url for c in population}
+
+        for seed in range(20):
+            selected, exhausted = select_with_shown_priority(
+                population, ORIGIN, shown, random_source=random.Random(seed)
+            )
+            self.assertTrue(exhausted)
+            self.assertEqual(len(selected), DISPLAY_CAP)
+            self.assertTrue(
+                {c.provider_page_url for c in selected}.issubset(
+                    {c.provider_page_url for c in population}
+                )
+            )
+
+    def test_omitted_shown_set_behaves_as_entirely_unseen(self):
+        population = self._population(3)
+
+        selected, exhausted = select_with_shown_priority(
+            population, ORIGIN, (), random_source=random.Random(1)
+        )
+
+        self.assertFalse(exhausted)
+        self.assertEqual({c.name for c in selected}, {"店1", "店2", "店3"})
 
 
 class BuildProposalTests(SimpleTestCase):
@@ -544,6 +747,9 @@ class BuildProposalTests(SimpleTestCase):
         self.assertEqual(proposal.candidates, ())
         self.assertFalse(proposal.izakaya_bar_fallback_applied)
         self.assertEqual(proposal.available_genres, ())
+        # adr/0024 decision 4: an empty eligible population trivially has no
+        # unseen member, so this is the exhausted case by definition.
+        self.assertTrue(proposal.shown_pool_exhausted)
 
     def test_duplicate_provider_page_urls_are_deduplicated(self):
         first = candidate(name="一号店", provider_page_url="https://example.invalid/shop-a")
@@ -592,8 +798,8 @@ class BuildProposalTests(SimpleTestCase):
         self.assertEqual([c.name for c in proposal.candidates], [izakaya.name])
 
     def test_display_order_is_reapplied_after_sampling(self):
-        # A population smaller than the pool means every candidate is
-        # sampled; the final display order must still be nearest-first
+        # A population at or below the display cap means every candidate is
+        # selected; the final display order must still be nearest-first
         # (decision 4 step 6), regardless of the random draw order.
         candidates = [
             candidate(
@@ -673,7 +879,7 @@ class BuildProposalTests(SimpleTestCase):
     def test_filters_are_applied_before_pool_selection(self):
         # adr/0023 decision 3: filtering must run on the full population, not
         # a display-truncated subset -- so a genre filter can eliminate
-        # candidates the pool would otherwise have included.
+        # candidates selection would otherwise have included.
         soba = candidate(provider_page_url="https://example.invalid/soba", genre="和食")
         yoshoku = candidate(provider_page_url="https://example.invalid/yoshoku", genre="洋食")
 
@@ -685,3 +891,98 @@ class BuildProposalTests(SimpleTestCase):
         )
 
         self.assertEqual([c.genre for c in proposal.candidates], ["和食"])
+
+    # adr/0024 decision 4: shown_provider_page_urls forwarding ------------
+
+    def test_shown_provider_page_urls_defaults_to_treating_everything_as_unseen(self):
+        candidates = [
+            candidate(
+                name=f"店{i}",
+                provider_page_url=f"https://example.invalid/default-unseen-{i}",
+                latitude=0.001 * i,
+            )
+            for i in range(1, 4)
+        ]
+
+        proposal = build_proposal(
+            candidates, ORIGIN, CandidateFilters(), random_source=random.Random(1)
+        )
+
+        self.assertFalse(proposal.shown_pool_exhausted)
+        self.assertEqual(len(proposal.candidates), 3)
+
+    def test_shown_provider_page_urls_are_deprioritized_not_excluded(self):
+        candidates = [
+            candidate(
+                name=f"店{i}",
+                provider_page_url=f"https://example.invalid/deprioritized-{i}",
+                latitude=0.001 * i,
+            )
+            for i in range(1, 8)
+        ]
+        shown = {c.provider_page_url for c in candidates[:6]}  # 1 unseen remains
+
+        proposal = build_proposal(
+            candidates,
+            ORIGIN,
+            CandidateFilters(),
+            random_source=random.Random(1),
+            shown_provider_page_urls=shown,
+        )
+
+        self.assertFalse(proposal.shown_pool_exhausted)
+        self.assertEqual(len(proposal.candidates), 5)
+        selected_urls = {c.provider_page_url for c in proposal.candidates}
+        unseen_url = {c.provider_page_url for c in candidates} - shown
+        # The sole unseen candidate must be included (adr/0024 decision 4's
+        # "every unseen member is returned" property); the remaining slots
+        # are filled from the already-shown candidates rather than the
+        # response being short -- proving shown candidates are deprioritized,
+        # not excluded from an otherwise-eligible population.
+        self.assertTrue(unseen_url.issubset(selected_urls))
+        self.assertTrue(selected_urls - unseen_url)
+
+    def test_shown_pool_exhausted_when_every_eligible_candidate_was_already_shown(self):
+        candidates = [
+            candidate(
+                name=f"店{i}",
+                provider_page_url=f"https://example.invalid/exhausted-{i}",
+                latitude=0.001 * i,
+            )
+            for i in range(1, 4)
+        ]
+        shown = {c.provider_page_url for c in candidates}
+
+        proposal = build_proposal(
+            candidates,
+            ORIGIN,
+            CandidateFilters(),
+            random_source=random.Random(1),
+            shown_provider_page_urls=shown,
+        )
+
+        self.assertTrue(proposal.shown_pool_exhausted)
+        self.assertEqual(len(proposal.candidates), 3)
+
+    def test_shown_provider_page_urls_do_not_affect_the_final_display_order(self):
+        # decision 4 step 6 (unchanged): the shown/unseen partition is a
+        # selection-stage concern only. Whatever gets selected must still be
+        # re-ordered nearest-first for display.
+        near = candidate(
+            name="近い店",
+            provider_page_url="https://example.invalid/order-near",
+            latitude=0.001,
+        )
+        far = candidate(
+            name="遠い店", provider_page_url="https://example.invalid/order-far", latitude=0.05
+        )
+
+        proposal = build_proposal(
+            [far, near],
+            ORIGIN,
+            CandidateFilters(),
+            random_source=random.Random(1),
+            shown_provider_page_urls={far.provider_page_url},
+        )
+
+        self.assertEqual([c.name for c in proposal.candidates], ["近い店", "遠い店"])

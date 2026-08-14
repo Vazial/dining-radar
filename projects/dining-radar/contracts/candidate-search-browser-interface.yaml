@@ -4,7 +4,14 @@
 # observation SSoT for TDR-CS acceptance work. It neither creates a public API
 # nor changes the browser-facing candidate-proposal API.
 #
-# Status: 承認済み(2026-08-12) — approved by merging PR #90 (meta/adr/0035 mode (i)).
+# Status: 承認待ち — adr/0024 のドラフト改訂（未マージ）。承認方式はADR-0035の(ii)（記録のみ・承認は
+# 後日）。人間はまだこの改訂を承認していない。
+#
+# Below is the content approved 2026-08-12 (PR #90, adr/0023) as v1.0.5, over
+# which the 2026-08-14 adr/0024 draft (see the blocks further below) layers its
+# changes.
+#
+# Status (v1.0.5, approved): 承認済み(2026-08-12) — approved by merging PR #90 (meta/adr/0035 mode (i)).
 # 2026-08-10 起草 (adr/0023). ConceptKind-based
 # re-proposal (candidate-reproposal-open/-dialog/-option/-cancel/-try-again,
 # data-reproposal-kind, repeat-demotion data-repeat-status/
@@ -29,7 +36,39 @@
 # overflow toggle. All
 # prior content (2026-08-01 through 2026-08-09 amendments, superseded by this
 # draft) is summarized in adr/0023, not repeated here.
-contractVersion: '1.0.5'
+#
+# 2026-08-14 起草 (adr/0024、未承認、本ファイルはこのドラフトを反映する):
+# - genrePresentation.presentationOrder を、文字数昇順から、
+#   populationAttributes由来の件数降順（同数のときだけ現行の文字数昇順→
+#   ja-locale照合順をtie-breakとして流用）へ変更する (adr/0024 決定1)。
+#   件数計算はブラウザが行い、availableGenres自体の応答順は引き続き無意味
+#   （contractVersion 1.0.5から不変）。previewLimit: 4は維持する。
+# - filterPanel.controlGrouping を新設し、
+#   candidate-filter-include-izakaya-bar を preferenceGroup から
+#   genreGroup へ移す (adr/0024 決定2)。allowedPurposesの値、
+#   data-candidate-control-category の値（"button"）はいずれも無変更——
+#   区分（グルーピング）は新設のcontrolGroupingだけが機械観測する。
+# - proposal.shownPoolPriority を新設し、shownProviderPageUrls・
+#   shownPoolExhausted に基づく未表示優先の3つの集合所属性質を機械観測
+#   可能にする (adr/0024 決定4)。
+# - shownCandidateMemory を新設し、sessionStorageの読み書き規則
+#   （キー・スコープ・更新規則・リクエスト規則）を機械観測可能にする
+#   (adr/0024 決定4)。
+# - initialProposal/applyFilters/searchAgain の publicOperation.requestBody
+#   を、shownProviderPageUrlsを現在のsessionStorage蓄積から添えるように
+#   更新する。とくにinitialProposalは、これまで常に{}だったが、同一タブの
+#   リロード後は蓄積を伴いうる——人間の不満1（リロードすると重複している
+#   気がする）への直接の対処である。
+#
+# 2026-08-14 追補 (adr/0024 決定4項目8、未承認): shownCandidateMemory に
+# 24時間以下（契約値20時間）の保持期限を追加する。Hot Pepperの利用規約が
+# 「アプリケーション上またはアプリケーション内」のキャッシュに24時間以内の
+# 更新・削除を義務づけているため（adr/0018が2026-08-09に引用済み）、「タブを
+# 閉じるまで」だけでは時間の境界にならないという穴をorchestratorが指摘した
+# （初回ドラフトはこの点を見落としていた）。各要素にstoredAtを持たせ、読み
+# 取りのたび（送信直前・更新直前の両方）に期限切れを蓄積から取り除いてから
+# 使う。サーバへはurl値だけを送り、storedAtは送らない。
+contractVersion: '1.1.0'
 kind: acceptance-browser-interface
 scope: candidate-search
 profiles:
@@ -39,7 +78,7 @@ profiles:
     verifiesScenarios:
       [TDR-CS-00, TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05,
        TDR-CS-06, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12,
-       TDR-CS-13]
+       TDR-CS-13, TDR-CS-14]
     invariant:
       - The profile is isolated and must never be selected by a public deployment.
       - Candidate state is supplied only through contracts/test-support-api.yaml.
@@ -175,12 +214,15 @@ browserControlSurface:
         its dinnerBudgetTier requiredFields entry has
         data-value-state=unavailable. When no such filter is active, this
         invariant reduces to plain nearest-first (adr/0023 decision 4;
-        TDR-CS-13).
+        TDR-CS-13). This ordering invariant governs the display order of
+        whichever 5 candidates selection returns; it is unaffected by
+        shownPoolPriority's selection-stage partitioning (adr/0024), which
+        happens before this re-ordering, not after it.
       verificationAllocation:
         L1: >-
           Pure recommendation tests independently prove that each confirmed
           or unavailable group is ordered by ascending synthetic internal
-          distance before and after pool sampling. These inputs and distances
+          distance before and after selection. These inputs and distances
           never cross the public API boundary.
         L3: >-
           Boundary tests prove that serialization preserves the pipeline
@@ -192,6 +234,69 @@ browserControlSurface:
           public response and that confirmed candidates precede unavailable
           candidates. It deliberately does not reconstruct nearest-first from
           a private origin or expose distance solely to make that assertion.
+    shownPoolPriority:
+      invariant: >-
+        Let "unseen" be the members of the request's eligible (filtered)
+        population absent from its shownProviderPageUrls, and "seen" be the
+        remaining eligible members (adr/0024 decision 4). (1) When unseen has
+        at least 5 members, every returned candidate is a member of unseen.
+        (2) When unseen has 1-4 members, every unseen member is among the
+        returned candidates, and the remaining slots are filled from seen.
+        (3) When unseen is empty, the response's shownPoolExhausted is true
+        and the returned candidates are drawn from the full eligible
+        population without regard to shownProviderPageUrls. These three
+        set-membership properties hold for every randomSeed and do not
+        depend on the distance-weighting formula (adr/0024 decision 3),
+        which is a separate, statistically-verified property (see
+        proposal.distanceWeightedSelection below). shownCandidateMemory's
+        expiry pruning (adr/0024 decision 4 item 8) can only shrink
+        shownProviderPageUrls before it is sent, which can only enlarge
+        "unseen"; it never violates these three properties.
+      verificationAllocation:
+        L1: >-
+          Pure recommendation tests independently prove all three
+          set-membership properties using synthetic population and
+          shown-set fixtures, without pinning any particular random seed or
+          weighting formula.
+        L3: >-
+          Boundary tests prove shownProviderPageUrls and shownPoolExhausted
+          round-trip through the schema exactly and that the server neither
+          logs nor retains shownProviderPageUrls beyond the current
+          request's processing.
+        L4: >-
+          Browser acceptance drives contracts/test-support-api.yaml's
+          SHOWN_POOL_PRIORITY population through the public API only,
+          asserting the same three set-membership properties from public
+          response data, and separately asserts shownCandidateMemory's
+          sessionStorage key updates per its updateRule after each
+          successful response, and its expiry.rule when a stale entry is
+          seeded directly (see shownCandidateMemory.expiry.verificationNote).
+    distanceWeightedSelection:
+      invariant: >-
+        Selection among a partition (unseen or, when needed, seen) draws
+        with a distance-based weight that is monotonically non-increasing in
+        distance from the search origin (closer candidates are never less
+        likely to be drawn than farther ones in the same partition) and
+        strictly positive for every member of the partition (no eligible
+        candidate has a structurally zero selection probability), replacing
+        the fixed near-distance pool that adr/0023 decision 4 originally
+        specified (adr/0024 decision 3). The exact weighting function is a
+        non-binding implementation choice; this contract requires only the
+        two statistically observable properties above.
+      verificationAllocation:
+        L1: >-
+          Pure recommendation tests run many trials (not seed-pinned) against
+          a synthetic population with known distances and assert that
+          empirical per-candidate selection frequency is non-increasing in
+          distance within a stated statistical tolerance, and that the
+          single farthest candidate is selected at least once across the
+          trials. This mirrors the methodology used to measure this
+          project's real duplication-rate improvement (adr/0024's cited
+          measurement) but runs against synthetic, not real, data.
+        L3 / L4: not applicable to this statistical property; L3/L4 verify
+          only the deterministic set-membership properties in
+          shownPoolPriority and the seed-pinned reproducibility already
+          required by test-support-api.yaml's randomSeed.
     mapObservations:
       fitStateAttribute: {testId: candidate-map, attribute: data-map-fit-state, value: displayed-candidates}
       tileProviderAttribute: {testId: candidate-map, attribute: data-map-tile-provider, value: openstreetmap-standard}
@@ -244,9 +349,58 @@ browserControlSurface:
     optionDataAttributes:
       genreValue: data-genre-value
       budgetTierValue: data-budget-tier-value
+    controlGrouping:
+      genreGroup:
+        members:
+          [candidate-filter-genre-option, candidate-filter-genre-overflow,
+           candidate-filter-include-izakaya-bar]
+        requirement: >-
+          These controls render inside one shared panel section/DOM group
+          (the existing "ジャンル" section), and no member of any other
+          group renders inside it. candidate-filter-include-izakaya-bar
+          moved here from preferenceGroup (adr/0024 decision 2) because it
+          changes the scope of the genre category rather than expressing a
+          value-confirmation preference; this is a DOM/visual placement
+          change only. Its allowedPurposes entry
+          (candidate-filter-izakaya-bar-toggle) and its
+          data-candidate-control-category value ("button") are both
+          unchanged (adr/0023). It is present whenever this group is
+          present, regardless of genrePresentation's compact/preview/
+          expanded state; it is never counted toward genreOptionCount, never
+          subject to previewLimit collapsing, and never a
+          candidate-filter-genre-overflow member.
+      preferenceGroup:
+        members: [candidate-filter-non-smoking-only, candidate-filter-card-payment-only]
+        requirement: >-
+          These controls render inside one shared panel section/DOM group
+          (the existing "こだわり" section), separate from genreGroup and
+          budgetGroup.
+      budgetGroup:
+        members: [candidate-filter-budget-tier-option]
+        requirement: >-
+          These controls render inside one shared panel section/DOM group
+          (the existing budget section), separate from genreGroup and
+          preferenceGroup.
     genrePresentation:
       source: response.availableGenres
-      presentationOrder: ascending-string-length-then-ja-locale-collation
+      populationSource: response.populationAttributes
+      presentationOrder: descending-population-count-then-ascending-string-length-then-ja-locale-collation
+      populationCountRule: >-
+        For each response.availableGenres genre string, its count is the
+        number of response.populationAttributes rows whose genre field
+        equals that string, restricted to rows where defaultExcluded is
+        false, or to every row when the response's effective
+        includeIzakayaBar was true (the same population scoping
+        availableGenres itself already uses, adr/0023 decision 9; adr/0024
+        decision 1). The count, and therefore the order, is computed once
+        from the response that produced the currently applied proposal and
+        does not change while a pending includeIzakayaBar edit is unapplied
+        -- the offered genre set itself already does not shrink or reorder
+        as the organizer narrows other pending filters (adr/0023 decision 9
+        preserved). Ties (equal counts) fall back to ascending string length,
+        then ja-locale collation, exactly as adr/0023 decision 12 originally
+        specified as the sole ordering rule; adr/0024 reuses this unchanged
+        as the tie-break rather than introducing a new rule.
       previewLimit: 4
       responseCountStates:
         empty:
@@ -274,7 +428,7 @@ browserControlSurface:
       value: >-
         Exact decimal count obtained by applying pending filters to every
         response.populationAttributes row with the public filter semantics,
-        before random pool selection and the five-card display cap.
+        before selection.
       zeroState: >-
         While pending differs from applied and the count is zero,
         candidate-filter-apply remains present with data-match-count="0" and
@@ -294,6 +448,7 @@ browserControlSurface:
     constraints:
       - The panel is absent until candidate-filter-open is activated and opens without document navigation or URL change.
       - Each visible candidate-filter-genre-option carries its response.availableGenres genre string as data-genre-value. The browser must use genrePresentation's order, not the response order.
+      - candidate-filter-include-izakaya-bar renders inside genreGroup, not preferenceGroup (adr/0024 decision 2; see controlGrouping).
       - One candidate-filter-budget-tier-option element exists per LOW/MID/HIGH, each carrying that enum string as data-budget-tier-value, and its visible label must use the same 低/中/高 terminology as candidate-card-dinner-budget (adr/0023 decision 10).
       - Exactly one candidate-budget-tier-note exists inside candidate-filter-panel. It is the one-line dinner-basis disclosure defined by budgetTierNoteObservation and contains no yen amount, range, or tier-to-yen mapping.
       - Changing any control inside the panel changes pending only: it makes the state dirty, does not perform a search, and does not change the displayed cards, markers, condition summary, or applied filters.
@@ -302,6 +457,81 @@ browserControlSurface:
       - candidate-filter-revert replaces pending with applied, keeps the panel open, changes neither the currently displayed candidates nor applied filters, and performs no public operation.
       - candidate-search-again is disabled while pending differs from applied, and is re-enabled only after candidate-filter-revert or a completed proposal rendering makes pending equal applied.
       - No free-text input control exists for genre, budget, or any other filter; every filter control is a closed selection (checkbox or toggle) over a server-supplied or fixed enum vocabulary.
+  shownCandidateMemory:
+    storage: sessionStorage
+    key: dining-radar:shown-provider-page-urls
+    scope: >-
+      Tab-lifetime only, and never longer than expiry.maxAge (adr/0024
+      decision 4, as amended by decision 4 item 8, 2026-08-14 addendum).
+      Survives a same-tab reload or in-tab navigation within this origin;
+      cleared when the tab or window closes, or when the browser clears
+      site data for this origin. Never sent to, or readable by, any other
+      origin, and never mirrored to localStorage, a cookie, or any storage
+      that outlives the tab.
+    valueShape: >-
+      A JSON array of {url, storedAt} pairs, deduplicated by url (the
+      newest storedAt wins when the same url is added again); storedAt is
+      a timestamp recorded, using the browser's own local clock, at the
+      moment url was added. Element order carries no meaning.
+    expiry:
+      maxAge: 20 hours
+      regulatoryCeiling: 24 hours
+      rationale: >-
+        Hot Pepper's terms of service require any cache remaining "on or
+        within the user's application" to be updated or deleted within 24
+        hours absent a more specific published rule (quoted and cited in
+        adr/0024 decision 4 item 8; adr/0018 first quoted this same clause
+        on 2026-08-09). "On or within the application" covers browser-side
+        retention, not only server-side retention -- adr/0024 decision 6
+        corrects an earlier, narrower reading that had treated this as a
+        server-only concern. maxAge is fixed below the regulatory ceiling
+        (20 of the permitted 24 hours) to absorb clock skew and processing
+        delay without depending on implementation precision to stay
+        compliant.
+      rule: >-
+        Every read of this key -- both when constructing a request's
+        shownProviderPageUrls (requestRule) and when applying updateRule
+        after a response -- first discards any entry whose storedAt is
+        older than maxAge, using the browser's current local time, and
+        writes back only the surviving entries. A discarded entry is
+        removed from the stored set itself, not merely skipped for one
+        read. This can only shrink shownProviderPageUrls, which can only
+        enlarge the not-yet-shown partition proposal.shownPoolPriority
+        reasons about; it never violates that invariant's three
+        set-membership properties.
+      verificationNote: >-
+        Expiry is entirely browser-local: the server never receives or
+        reasons about entry ages, only whatever shownProviderPageUrls array
+        the browser currently sends (adr/0024 decision 4). Deterministic
+        acceptance testing does not require a
+        contracts/test-support-api.yaml seam for this; it seeds an
+        already-stale sessionStorage entry directly (a storedAt older than
+        maxAge for a known providerPageUrl, e.g. one returned by
+        test-support-api.yaml's SHOWN_POOL_PRIORITY mode) through the
+        browser layer before the next action, then asserts that entry is
+        absent from the outgoing request's shownProviderPageUrls and that
+        its candidate is once again treated as not-yet-shown.
+    updateRule: >-
+      After every successful /candidate-proposals response, the browser
+      first prunes expired entries per expiry.rule, then adds that
+      response's candidates' providerPageUrl values (each with a fresh
+      storedAt) to the surviving set. If the response's shownPoolExhausted
+      is true, the browser clears the entire existing set (expired or not)
+      before adding them, so the values just added become the sole content
+      of a fresh cycle.
+    requestRule: >-
+      Every /candidate-proposals request (initialProposal, applyFilters,
+      searchAgain) first prunes expired entries per expiry.rule, then
+      includes the surviving set's url values (not their storedAt) as
+      shownProviderPageUrls, or omits the property when the surviving set
+      is empty.
+    disclosure: >-
+      The server never receives, stores, or logs this key, its raw
+      sessionStorage contents, or any storedAt timestamp, outside the one
+      shownProviderPageUrls request field (url values only, no timestamp)
+      it is copied into for the duration of one request (adr/0024 decision
+      4; see also candidate-search-api.yaml's Candidate.providerPageUrl and
+      CandidateProposalRequest.shownProviderPageUrls descriptions).
   unavailableControls:
     forbiddenFormControlCategories:
       [select, input, textarea, checkbox, radio, range, combobox, listbox,
@@ -383,7 +613,13 @@ browserActions:
     publicOperation:
       method: POST
       path: /candidate-proposals
-      requestBody: {}
+      requestBody: >-
+        {} when shownCandidateMemory is empty after expiry pruning (a fresh
+        sign-in, a fresh tab, or a tab that has sat idle past maxAge);
+        otherwise {shownProviderPageUrls: <the surviving shownCandidateMemory
+        url values>} (adr/0024 decision 4, decision 4 item 8) -- for example
+        after a same-tab reload that already accumulated shown candidates.
+        `filters` is always omitted or empty on this trigger.
       normalizedAppliedFilters:
         {genres: [], includeIzakayaBar: false, nonSmokingOnly: false,
          cardPaymentOnly: false, budgetTiers: []}
@@ -394,6 +630,7 @@ browserActions:
                candidate-filter-genre-overflow,
                candidate-filter-pending-note, candidate-filter-apply,
                candidate-filter-revert]
+      shownCandidateMemoryUpdate: satisfies-shownCandidateMemory.updateRule-for-this-response
   selectCard:
     input: candidate-card
     requiredOutcome:
@@ -462,7 +699,11 @@ browserActions:
     publicOperation:
       method: POST
       path: /candidate-proposals
-      requestBody: filters-object-reflecting-pending-panel-control-state
+      requestBody: >-
+        filters-object-reflecting-pending-panel-control-state, plus
+        shownProviderPageUrls from the surviving (post-expiry-pruning)
+        shownCandidateMemory set (omitted when empty) (adr/0024 decision 4,
+        decision 4 item 8).
     success:
       requiredOutcome:
         cards: exactly-current-success-response-candidates
@@ -472,6 +713,7 @@ browserActions:
         applied: equals-former-pending
         pending: equals-applied
         ordering: satisfies-proposal.displayOrdering.invariant
+        shownCandidateMemoryUpdate: satisfies-shownCandidateMemory.updateRule-for-this-response
     emptyResult:
       present: [candidate-no-results]
     rateLimited:
@@ -500,12 +742,19 @@ browserActions:
     publicOperation:
       method: POST
       path: /candidate-proposals
-      requestBody: filters-object-semantically-equal-after-default-normalization-to-the-currently-applied-one
+      requestBody: >-
+        filters-object-semantically-equal-after-default-normalization-to-the-currently-applied-one,
+        plus shownProviderPageUrls from the surviving (post-expiry-pruning)
+        shownCandidateMemory set (omitted when empty) (adr/0024 decision 4,
+        decision 4 item 8).
       defaultEquivalence: >-
         When the applied conditions are the defaults, the initial `{}` body,
         `{filters: {}}`, and a fully expanded default filters object are
         equivalent under candidate-search-api.yaml's x-default-normalization;
         exact JSON-object or byte equality is not required.
+        shownProviderPageUrls is independent of this equivalence (adr/0024
+        decision 4): it always reflects the current (post-expiry-pruning)
+        shownCandidateMemory state regardless of whether filters changed.
     success:
       requiredOutcome:
         cards: exactly-current-success-response-candidates
@@ -513,17 +762,22 @@ browserActions:
         removed: all-prior-card-and-marker-candidateRefs-not-in-current-response
         panel: absent
         ordering: satisfies-proposal.displayOrdering.invariant
+        shownCandidateMemoryUpdate: satisfies-shownCandidateMemory.updateRule-for-this-response
       randomness: >-
         The candidates array may differ from the immediately prior response
         even though the normalized applied filters are unchanged (adr/0023
-        decisions 4 and 13): the
-        server samples up to 5 candidates at random from the near-distance
-        pool on every request. Acceptance testing observes this by pinning
-        contracts/test-support-api.yaml's randomSeed to two different values
-        across two searchAgain calls against a synthetic population larger
-        than the pool and asserting the returned candidate sets differ; a
-        third call with the same randomSeed as the first must reproduce the
-        first response's candidates exactly, in the same order.
+        decisions 4 and 13, adr/0024 decisions 3 and 4): the
+        server draws up to 5 candidates by distance-weighted random selection
+        that prioritizes not-yet-shown candidates (per shownPoolPriority) on
+        every request. Acceptance testing observes plain seed-reproducibility
+        by pinning contracts/test-support-api.yaml's randomSeed to two
+        different values across two searchAgain calls against a synthetic
+        population larger than the display cap and asserting the returned
+        candidate sets differ; a third call with the same randomSeed as the
+        first must reproduce the first response's candidates exactly, in the
+        same order. The stronger not-yet-shown guarantee (TDR-CS-14) is
+        observed separately through shownPoolPriority, independent of any
+        particular randomSeed.
     emptyResult:
       present: [candidate-no-results]
     rateLimited:

@@ -189,7 +189,7 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
 
     # Shared Given helper -------------------------------------------------
 
-    def _sign_in_with_candidates(self, mode: str = "NORMAL_WITH_POOL") -> None:
+    def _sign_in_with_candidates(self, mode: str = "NORMAL_WITH_WEIGHTED_SAMPLING") -> None:
         self.dsl.reset_authentication_state()
         self.dsl.reset_candidate_state()
         self.dsl.enable_organizer(ORGANIZER_ACCOUNT_REF, ORGANIZER_IDENTIFIER, ORGANIZER_PASSWORD)
@@ -539,9 +539,11 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
             self._assert_all_declared_controls_meet_44px(f"default screen at {label}")
 
             # Filter panel (clean): genre chips (plus overflow toggle, since
-            # NORMAL_WITH_POOL's synthetic population spans 5 non-excluded
-            # genres -- one more than genrePresentation's 4-item preview),
-            # the three soft-filter toggles, and the budget-tier options.
+            # NORMAL_WITH_WEIGHTED_SAMPLING's synthetic population spans 5
+            # non-excluded genres -- one more than genrePresentation's
+            # 4-item preview -- and the izakaya/bar toggle, which now also
+            # renders in this row, adr/0024 decision 2), the two remaining
+            # soft-filter toggles, and the budget-tier options.
             by_test_id(self.page, "candidate-filter-open").click()
             wait_for_at_least_one(self.page, "candidate-filter-budget-tier-option")
             self._assert_all_declared_controls_meet_44px(f"filter panel (clean) at {label}")

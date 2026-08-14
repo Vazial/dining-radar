@@ -11,10 +11,16 @@
  * it back unchanged for "try again" or updated for "change filters" -- both
  * are the same POST /candidate-proposals shape. The initial request omits
  * `filters` entirely (an empty body), per the contract's own
- * `CandidateProposalRequest` description. There is no shown-candidate
- * comparison state to track: adr/0023 decision 5 removes repeat demotion
- * outright (randomized pool sampling replaces it as the mechanism that keeps
- * responses from being identical every time).
+ * `CandidateProposalRequest` description. adr/0023 decision 5 removed the
+ * former repeat-demotion mechanism outright, relying on randomized selection
+ * alone to keep responses from being identical every time; adr/0024 decision
+ * 4 partially restores shown-candidate tracking, but on the browser side and
+ * priority-only: `shownCandidateMemory` (a `sessionStorage`-held,
+ * tab-lifetime-and-20-hour-bounded set of previously shown
+ * `providerPageUrl` values, see `readShownCandidateMemory` /
+ * `writeShownCandidateMemory` / `updateShownCandidateMemory` below) is sent
+ * as `shownProviderPageUrls` on every request so the server can prioritize
+ * (never exclude) not-yet-shown candidates.
  *
  * Per adr/0023 decision 10, the per-card dinnerBudgetTier label is the bare
  * tier word (低/中/高) only; the dinner-basis disclosure and yen-range
@@ -52,6 +58,13 @@
   // Mirrors recommendation.pipeline._DISPLAY_CAP, used only to phrase the
   // apply control honestly when more candidates match than can be displayed.
   var DISPLAY_CAP = 5;
+
+  // adr/0024 decision 4 item 8: shownCandidateMemory's sessionStorage key and
+  // retention bound. 20 hours (not the regulatory ceiling of 24) leaves a
+  // margin for clock skew and request round-trip time -- see
+  // candidate-search-browser-interface.yaml's shownCandidateMemory.expiry.
+  var SHOWN_CANDIDATE_MEMORY_KEY = "dining-radar:shown-provider-page-urls";
+  var SHOWN_CANDIDATE_MEMORY_MAX_AGE_MS = 20 * 60 * 60 * 1000;
 
   var currentFilters = defaultFilters();
   // The organizer's working copy. Editing a chip changes only this; nothing
@@ -109,13 +122,102 @@
     return node;
   }
 
+  // adr/0024 decision 4 item 8 (shownCandidateMemory): reads sessionStorage's
+  // raw {url, storedAt} entries, discarding anything malformed or older than
+  // SHOWN_CANDIDATE_MEMORY_MAX_AGE_MS using the browser's own local clock.
+  // Never throws -- a missing/unavailable sessionStorage (private browsing,
+  // quota, a non-browser test harness) degrades to "no memory", which is
+  // safe: it only ever makes the not-yet-shown partition larger, never
+  // smaller (candidate-search-browser-interface.yaml's shownCandidateMemory
+  // .expiry.rule).
+  function readShownCandidateMemory() {
+    var raw;
+    try {
+      raw = window.sessionStorage.getItem(SHOWN_CANDIDATE_MEMORY_KEY);
+    } catch (error) {
+      return [];
+    }
+    if (!raw) {
+      return [];
+    }
+    var parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (error) {
+      return [];
+    }
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    var now = Date.now();
+    return parsed.filter(function (entry) {
+      return (
+        entry &&
+        typeof entry.url === "string" &&
+        typeof entry.storedAt === "number" &&
+        now - entry.storedAt < SHOWN_CANDIDATE_MEMORY_MAX_AGE_MS
+      );
+    });
+  }
+
+  function writeShownCandidateMemory(entries) {
+    try {
+      window.sessionStorage.setItem(SHOWN_CANDIDATE_MEMORY_KEY, JSON.stringify(entries));
+    } catch (error) {
+      // sessionStorage unavailable: the not-yet-shown priority feature
+      // silently degrades to "always empty memory", which never blocks a
+      // proposal request.
+    }
+  }
+
+  // requestRule (candidate-search-browser-interface.yaml shownCandidateMemory):
+  // every request first prunes expired entries -- discarding them from the
+  // stored set itself, not merely skipping them for this one read -- then
+  // sends only the surviving url values.
+  function currentShownProviderPageUrls() {
+    var surviving = readShownCandidateMemory();
+    writeShownCandidateMemory(surviving);
+    return surviving.map(function (entry) {
+      return entry.url;
+    });
+  }
+
+  // updateRule: after a successful response, prune expired entries, clear
+  // everything first if shownPoolExhausted is true (adr/0024 decision 4), then
+  // add this response's candidates' providerPageUrl values with a fresh
+  // storedAt, deduplicated by url (the newest storedAt wins).
+  function updateShownCandidateMemory(body) {
+    var surviving = body.shownPoolExhausted ? [] : readShownCandidateMemory();
+    var byUrl = {};
+    surviving.forEach(function (entry) {
+      byUrl[entry.url] = entry;
+    });
+    var now = Date.now();
+    (body.candidates || []).forEach(function (candidate) {
+      byUrl[candidate.providerPageUrl] = { url: candidate.providerPageUrl, storedAt: now };
+    });
+    writeShownCandidateMemory(
+      Object.keys(byUrl).map(function (url) {
+        return byUrl[url];
+      })
+    );
+  }
+
   function requestProposal(filters) {
     // The initial request (filters is null/undefined, nothing chosen yet)
     // sends an empty body -- CandidateProposalRequest's own description
     // ("Omit filters, or send it as {}, when opening the screen for the
     // first time"). Every later request ("try again" or "change filters")
-    // sends the exact filters object currently in effect.
+    // sends the exact filters object currently in effect. Every request
+    // additionally attaches the surviving shownCandidateMemory set as
+    // shownProviderPageUrls, omitted when empty (adr/0024 decision 4) -- this
+    // is what makes even the very first request after a same-tab reload
+    // shown-state aware.
     var body = filters ? { filters: filters } : {};
+    var shownProviderPageUrls = currentShownProviderPageUrls();
+    if (shownProviderPageUrls.length > 0) {
+      body.shownProviderPageUrls = shownProviderPageUrls;
+    }
     return fetch("/candidate-proposals", {
       method: "POST",
       credentials: "same-origin",
@@ -561,12 +663,43 @@
     ]);
   }
 
-  function genreChips() {
-    // The provider order is not a presentation order. Surface the compact,
-    // familiar labels first so the closed preview remains useful on a phone.
-    var orderedGenres = currentAvailableGenres.slice().sort(function (left, right) {
+  // adr/0024 decision 1: each offered genre's population count, restricted to
+  // defaultExcluded=false rows unless the response this population came from
+  // had includeIzakayaBar=true -- the same scoping availableGenres itself
+  // already uses (candidate-search-browser-interface.yaml's
+  // genrePresentation.populationCountRule). currentFilters, not
+  // pendingFilters, holds the includeIzakayaBar value that actually produced
+  // this response.
+  function genrePopulationCounts() {
+    var scopeAll = currentFilters.includeIzakayaBar;
+    var counts = {};
+    populationAttributes.forEach(function (row) {
+      if (!scopeAll && row.defaultExcluded) {
+        return;
+      }
+      counts[row.genre] = (counts[row.genre] || 0) + 1;
+    });
+    return counts;
+  }
+
+  // genrePresentation.presentationOrder (adr/0024 decision 1):
+  // descending-population-count-then-ascending-string-length-then-
+  // ja-locale-collation. The tie-break (string length, then locale
+  // collation) is unchanged from the prior sole ordering rule (adr/0023
+  // decision 12) -- it only now applies after, not instead of, the count.
+  function orderedAvailableGenres() {
+    var counts = genrePopulationCounts();
+    return currentAvailableGenres.slice().sort(function (left, right) {
+      var countDifference = (counts[right] || 0) - (counts[left] || 0);
+      if (countDifference !== 0) {
+        return countDifference;
+      }
       return left.length - right.length || left.localeCompare(right, "ja");
     });
+  }
+
+  function genreChips() {
+    var orderedGenres = orderedAvailableGenres();
     var visible = genreOverflowExpanded
       ? orderedGenres
       : orderedGenres.slice(0, GENRE_PREVIEW_COUNT);
@@ -604,6 +737,34 @@
       chips.push(overflow);
     }
     return chips;
+  }
+
+  // adr/0024 decision 2: "居酒屋等も含む" moved from the "こだわり" row into
+  // the "ジャンル" row (controlGrouping.genreGroup). It is present regardless
+  // of genrePresentation's compact/preview/expanded state, is never counted
+  // toward the genre option count, and is never a
+  // candidate-filter-genre-overflow member -- so it is prepended before
+  // genreChips() rather than folded into its preview/overflow logic. It is
+  // placed first because it toggles the scope of genre matching itself
+  // (rather than selecting an individual genre), which reads more naturally
+  // ahead of the individual genre options, and keeps it within the
+  // horizontally scrollable chip row's initially visible range on narrow
+  // viewports. contracts/candidate-search-browser-interface.yaml's
+  // controlGrouping.genreGroup only requires membership, not intra-group
+  // order. Its allowedPurposes value (candidate-filter-izakaya-bar-toggle)
+  // and data-candidate-control-category ("button") are unchanged; only its
+  // DOM placement moves.
+  function izakayaBarToggleChip() {
+    return chip({
+      testId: "candidate-filter-include-izakaya-bar",
+      purpose: "candidate-filter-izakaya-bar-toggle",
+      label: "居酒屋等も含む",
+      pressed: pendingFilters.includeIzakayaBar,
+      onToggle: function (next) {
+        pendingFilters.includeIzakayaBar = next;
+        renderFilterBar();
+      },
+    });
   }
 
   function applyControlLabel(matchCount) {
@@ -737,7 +898,10 @@
       "div",
       { "class": "candidate-filter-panel", "data-testid": "candidate-filter-panel" },
       [
-        chipRow("ジャンル", genreChips()),
+        // adr/0024 decision 2: candidate-filter-include-izakaya-bar renders
+        // inside this same "ジャンル" row/DOM group (controlGrouping.genreGroup),
+        // prepended before the genre option chips and overflow toggle.
+        chipRow("ジャンル", [izakayaBarToggleChip()].concat(genreChips())),
         chipRow("こだわり", [
           chip({
             testId: "candidate-filter-non-smoking-only",
@@ -756,16 +920,6 @@
             pressed: pendingFilters.cardPaymentOnly,
             onToggle: function (next) {
               pendingFilters.cardPaymentOnly = next;
-              renderFilterBar();
-            },
-          }),
-          chip({
-            testId: "candidate-filter-include-izakaya-bar",
-            purpose: "candidate-filter-izakaya-bar-toggle",
-            label: "居酒屋等も含む",
-            pressed: pendingFilters.includeIzakayaBar,
-            onToggle: function (next) {
-              pendingFilters.includeIzakayaBar = next;
               renderFilterBar();
             },
           }),
@@ -970,6 +1124,7 @@
     if (status === 200) {
       currentAvailableGenres = body.availableGenres || [];
       populationAttributes = body.populationAttributes || [];
+      updateShownCandidateMemory(body);
       pendingFilters = cloneFilters(currentFilters);
       renderFilterBar();
       renderResult(body);

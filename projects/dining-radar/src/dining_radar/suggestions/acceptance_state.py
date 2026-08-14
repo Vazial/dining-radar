@@ -6,26 +6,34 @@ This module implements the ``CandidateProposalAcceptanceState`` seam from
 is enabled (mirrors the guard on
 ``dining_radar.authentication.throttle.LoginThrottle.seed_acceptance_limit``).
 
-``NORMAL_WITH_POOL``, ``DEFAULT_EXCLUSION_VISIBLE``,
+``NORMAL_WITH_WEIGHTED_SAMPLING`` (renamed from ``NORMAL_WITH_POOL``,
+adr/0024 decision 3 -- the fixed near-distance pool it was named for no
+longer exists), ``DEFAULT_EXCLUSION_VISIBLE``,
 ``CARD_PAYMENT_CAUTION_VISIBLE``, ``ZERO_PENDING_MATCH``,
-``FALLBACK_PRESERVES_FILTERS``, and ``IZAKAYA_BAR_ONLY`` drive the exact same
-production ``suggestions.service.propose_candidates`` pipeline with synthetic
+``FALLBACK_PRESERVES_FILTERS``, ``GENRE_ORDER_BY_COUNT``,
+``SHOWN_POOL_PRIORITY`` (the latter two new, adr/0024 decisions 1 and 4),
+and ``IZAKAYA_BAR_ONLY`` drive the exact same production
+``suggestions.service.propose_candidates`` pipeline with synthetic
 candidates, rather than a hand-written fake response, so those seams exercise
-real filtering/ordering/pool-sampling logic (adr/0023). ``NO_RESULTS``,
+real filtering/ordering/selection logic (adr/0023, adr/0024). ``NO_RESULTS``,
 ``PROVIDER_UNAVAILABLE``, and ``RATE_LIMITED`` return a fixed synthetic
 outcome directly, without calling the pipeline.
 
 Per adr/0023 decision 4 hand-off item 4, this module also owns the seeded
-random-source injection this seam needs to make pool sampling deterministic
-and reproducible for acceptance testing: a pinned ``randomSeed`` (via
+random-source injection this seam needs to make selection deterministic and
+reproducible for acceptance testing: a pinned ``randomSeed`` (via
 ``set_mode``) is read back by ``active_random_source`` and passed straight
 into ``suggestions.service.propose_candidates``. It is never exposed on the
-public ``candidate-search-api.yaml``.
+public ``candidate-search-api.yaml``. ``propose_with_override`` also forwards
+the caller's ``shown_provider_page_urls`` (adr/0024 decision 4) straight
+through to the same pipeline call, for the same reason: this seam must
+exercise the real not-yet-shown-priority logic, not a hand-rolled copy of it.
 """
 
 from __future__ import annotations
 
 import random
+from collections.abc import Collection
 from enum import StrEnum
 
 from django.conf import settings
@@ -64,11 +72,13 @@ assert _DEFAULT_EXCLUDED_SYNTHETIC_GENRE in DEFAULT_EXCLUDED_GENRES
 
 
 class AcceptanceCandidateProposalMode(StrEnum):
-    NORMAL_WITH_POOL = "NORMAL_WITH_POOL"
+    NORMAL_WITH_WEIGHTED_SAMPLING = "NORMAL_WITH_WEIGHTED_SAMPLING"
     DEFAULT_EXCLUSION_VISIBLE = "DEFAULT_EXCLUSION_VISIBLE"
     CARD_PAYMENT_CAUTION_VISIBLE = "CARD_PAYMENT_CAUTION_VISIBLE"
     ZERO_PENDING_MATCH = "ZERO_PENDING_MATCH"
     FALLBACK_PRESERVES_FILTERS = "FALLBACK_PRESERVES_FILTERS"
+    GENRE_ORDER_BY_COUNT = "GENRE_ORDER_BY_COUNT"
+    SHOWN_POOL_PRIORITY = "SHOWN_POOL_PRIORITY"
     IZAKAYA_BAR_ONLY = "IZAKAYA_BAR_ONLY"
     NO_RESULTS = "NO_RESULTS"
     PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"
@@ -165,8 +175,8 @@ def _synthetic_candidate(
 _ORIGIN = Origin(latitude=0.0, longitude=0.0)
 
 # A default-excluded-genre candidate (adr/0015/adr/0023), reused by both
-# NORMAL_WITH_POOL (as the sole excluded-genre member of its population) and
-# IZAKAYA_BAR_ONLY.
+# NORMAL_WITH_WEIGHTED_SAMPLING (as the sole excluded-genre member of its
+# population) and IZAKAYA_BAR_ONLY.
 _DEFAULT_EXCLUDED_CANDIDATE = _synthetic_candidate(
     name="合成居酒屋 一号店",
     genre=_DEFAULT_EXCLUDED_SYNTHETIC_GENRE,
@@ -175,16 +185,17 @@ _DEFAULT_EXCLUDED_CANDIDATE = _synthetic_candidate(
     total_seats=25,
 )
 
-# test-support-api.yaml v1.0.0 (adr/0023): NORMAL_WITH_POOL must supply at
-# least 40 lunch-eligible synthetic candidates in the default
-# (non-excluded-genre) population -- comfortably exceeding any reasonable
-# pool-size implementation choice (decision 4 recommends 20) -- spanning at
-# least 3 distinct genres (each with at least 2 members), at least 2 distinct
-# nonSmokingStatus values, at least one candidate each with
-# cardPaymentAvailable true and false, and at least one candidate each with a
-# non-null dinnerBudgetTier and a null value for at least one of
-# nonSmokingStatus/cardPaymentAvailable/dinnerBudgetTier (TDR-CS-13's
-# ordering rule).
+# test-support-api.yaml v1.1.0 (adr/0023, renamed by adr/0024 decision 3):
+# NORMAL_WITH_WEIGHTED_SAMPLING must supply at least 40 lunch-eligible
+# synthetic candidates in the default (non-excluded-genre) population --
+# comfortably exceeding the five-candidate display cap, so distance-weighted
+# selection and its reproducibility under a pinned randomSeed are both
+# observable -- spanning at least 3 distinct genres (each with at least 2
+# members), at least 2 distinct nonSmokingStatus values, at least one
+# candidate each with cardPaymentAvailable true and false, and at least one
+# candidate each with a non-null dinnerBudgetTier and a null value for at
+# least one of nonSmokingStatus/cardPaymentAvailable/dinnerBudgetTier
+# (TDR-CS-13's ordering rule).
 #
 # Generated deterministically by cycling five genres, four non-smoking
 # references (including the unconfirmed/None bucket), three card-payment
@@ -193,31 +204,46 @@ _DEFAULT_EXCLUDED_CANDIDATE = _synthetic_candidate(
 # with longitude fixed at 0.0, see pipeline._distance) so ranking is
 # deterministic and every combination of "confirmed"/"unconfirmed" for every
 # soft filter is reachable.
-_POOL_GENRES: tuple[str, ...] = ("和食", "洋食", "中華", "エスニック", "カフェ・スイーツ")
-_POOL_NON_SMOKING_CYCLE: tuple[str | None, ...] = ("FULL", "PARTIAL", "NONE", None)
-_POOL_CARD_PAYMENT_CYCLE: tuple[bool | None, ...] = (True, False, None)
-_POOL_BUDGET_CYCLE: tuple[float | None, ...] = (1500.0, 2500.0, 3500.0, 4500.0, None)
-_POOL_SIZE = 40
+_WEIGHTED_SAMPLING_GENRES: tuple[str, ...] = (
+    "和食",
+    "洋食",
+    "中華",
+    "エスニック",
+    "カフェ・スイーツ",
+)
+_WEIGHTED_SAMPLING_NON_SMOKING_CYCLE: tuple[str | None, ...] = ("FULL", "PARTIAL", "NONE", None)
+_WEIGHTED_SAMPLING_CARD_PAYMENT_CYCLE: tuple[bool | None, ...] = (True, False, None)
+_WEIGHTED_SAMPLING_BUDGET_CYCLE: tuple[float | None, ...] = (1500.0, 2500.0, 3500.0, 4500.0, None)
+_WEIGHTED_SAMPLING_POPULATION_SIZE = 40
 
 
-def _pool_candidate(index: int) -> NormalizedCandidate:
+def _weighted_sampling_candidate(index: int) -> NormalizedCandidate:
     return _synthetic_candidate(
         name=f"合成母集団食堂 {index:02d}号店",
-        genre=_POOL_GENRES[index % len(_POOL_GENRES)],
+        genre=_WEIGHTED_SAMPLING_GENRES[index % len(_WEIGHTED_SAMPLING_GENRES)],
         provider_page_url=f"https://example.invalid/acceptance-pool-shop-{index:02d}",
         latitude=0.0010 + index * 0.0002,
         total_seats=20 + index,
-        non_smoking_status=_POOL_NON_SMOKING_CYCLE[index % len(_POOL_NON_SMOKING_CYCLE)],
-        card_payment_available=_POOL_CARD_PAYMENT_CYCLE[index % len(_POOL_CARD_PAYMENT_CYCLE)],
-        budget_average=_POOL_BUDGET_CYCLE[index % len(_POOL_BUDGET_CYCLE)],
+        non_smoking_status=_WEIGHTED_SAMPLING_NON_SMOKING_CYCLE[
+            index % len(_WEIGHTED_SAMPLING_NON_SMOKING_CYCLE)
+        ],
+        card_payment_available=_WEIGHTED_SAMPLING_CARD_PAYMENT_CYCLE[
+            index % len(_WEIGHTED_SAMPLING_CARD_PAYMENT_CYCLE)
+        ],
+        budget_average=_WEIGHTED_SAMPLING_BUDGET_CYCLE[
+            index % len(_WEIGHTED_SAMPLING_BUDGET_CYCLE)
+        ],
     )
 
 
-_POOL_CANDIDATES: tuple[NormalizedCandidate, ...] = tuple(
-    _pool_candidate(index) for index in range(_POOL_SIZE)
+_WEIGHTED_SAMPLING_CANDIDATES: tuple[NormalizedCandidate, ...] = tuple(
+    _weighted_sampling_candidate(index) for index in range(_WEIGHTED_SAMPLING_POPULATION_SIZE)
 )
 
-_CANDIDATES: tuple[NormalizedCandidate, ...] = (*_POOL_CANDIDATES, _DEFAULT_EXCLUDED_CANDIDATE)
+_CANDIDATES: tuple[NormalizedCandidate, ...] = (
+    *_WEIGHTED_SAMPLING_CANDIDATES,
+    _DEFAULT_EXCLUDED_CANDIDATE,
+)
 
 # The two focused TDR-CS Givens intentionally have an eligible population no
 # larger than DISPLAY_CAP. Their visible result is therefore independent of a
@@ -405,8 +431,89 @@ _IZAKAYA_BAR_ONLY_CANDIDATES: tuple[NormalizedCandidate, ...] = (
     ),
 )
 
+# test-support-api.yaml v1.1.0 (adr/0024 decision 1): GENRE_ORDER_BY_COUNT's
+# default (non-excluded) population spans exactly 5 distinct genre values
+# whose populationAttributes counts are strictly shaped so the
+# count-descending presentation order, and its ascending-string-length
+# tie-break, are both exercised deterministically:
+#   - 和食 (2 chars): 6 members -- the strictly greatest count.
+#   - 洋食 (2 chars): 4 members -- tied for next-greatest with イタリアン,
+#     but shorter, so it must sort first under the tie-break.
+#   - イタリアン (5 chars): 4 members -- tied with 洋食, but longer.
+#   - 中華 (2 chars): 3 members -- distinct, smaller than the tied pair.
+#   - エスニック (5 chars): 2 members -- distinct, the smallest.
+# Plus a default-excluded genre (居酒屋) with 5 members -- its own count, not
+# equal to any of 6/4/4/3/2 above -- so toggling includeIzakayaBar=true
+# deterministically changes both the offered genre set and its order.
+_GENRE_ORDER_BY_COUNT_COUNTS: tuple[tuple[str, int], ...] = (
+    ("和食", 6),
+    ("洋食", 4),
+    ("イタリアン", 4),
+    ("中華", 3),
+    ("エスニック", 2),
+)
+_GENRE_ORDER_BY_COUNT_EXCLUDED_COUNT = 5
 
-def _normal_with_pool_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
+
+def _genre_order_by_count_candidates() -> tuple[NormalizedCandidate, ...]:
+    candidates: list[NormalizedCandidate] = []
+    latitude = 0.0010
+    for genre, count in _GENRE_ORDER_BY_COUNT_COUNTS:
+        for member_index in range(count):
+            candidates.append(
+                _synthetic_candidate(
+                    name=f"合成{genre}店 {member_index:02d}",
+                    genre=genre,
+                    provider_page_url=(
+                        f"https://example.invalid/acceptance-genre-order-{genre}-{member_index:02d}"
+                    ),
+                    latitude=latitude,
+                )
+            )
+            latitude += 0.0002
+    for member_index in range(_GENRE_ORDER_BY_COUNT_EXCLUDED_COUNT):
+        candidates.append(
+            _synthetic_candidate(
+                name=f"合成居酒屋 order-{member_index:02d}",
+                genre=_DEFAULT_EXCLUDED_SYNTHETIC_GENRE,
+                provider_page_url=(
+                    f"https://example.invalid/acceptance-genre-order-excluded-{member_index:02d}"
+                ),
+                latitude=latitude,
+            )
+        )
+        latitude += 0.0002
+    return tuple(candidates)
+
+
+_GENRE_ORDER_BY_COUNT_CANDIDATES: tuple[NormalizedCandidate, ...] = (
+    _genre_order_by_count_candidates()
+)
+
+# test-support-api.yaml v1.1.0 (adr/0024 decision 4, TDR-CS-14):
+# SHOWN_POOL_PRIORITY's default (non-excluded) population has exactly 10
+# lunch-eligible candidates with 10 distinct providerPageUrl values and
+# distinct internal distances, comfortably below any real population size,
+# so shownProviderPageUrls set-membership can be checked exhaustively
+# (proposal.shownPoolPriority's three properties).
+_SHOWN_POOL_PRIORITY_SIZE = 10
+
+
+def _shown_pool_priority_candidate(index: int) -> NormalizedCandidate:
+    return _synthetic_candidate(
+        name=f"合成優先度食堂 {index:02d}号店",
+        genre="和食",
+        provider_page_url=f"https://example.invalid/acceptance-shown-pool-{index:02d}",
+        latitude=0.0010 + index * 0.0003,
+    )
+
+
+_SHOWN_POOL_PRIORITY_CANDIDATES: tuple[NormalizedCandidate, ...] = tuple(
+    _shown_pool_priority_candidate(index) for index in range(_SHOWN_POOL_PRIORITY_SIZE)
+)
+
+
+def _normal_with_weighted_sampling_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
     return _CANDIDATES, _ORIGIN
 
 
@@ -430,14 +537,26 @@ def _fallback_preserves_filters_source() -> tuple[tuple[NormalizedCandidate, ...
     return _FALLBACK_PRESERVES_FILTERS_CANDIDATES, _ORIGIN
 
 
+def _genre_order_by_count_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
+    return _GENRE_ORDER_BY_COUNT_CANDIDATES, _ORIGIN
+
+
+def _shown_pool_priority_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
+    return _SHOWN_POOL_PRIORITY_CANDIDATES, _ORIGIN
+
+
 def propose_with_override(
-    mode: AcceptanceCandidateProposalMode, filters: CandidateFilters
+    mode: AcceptanceCandidateProposalMode,
+    filters: CandidateFilters,
+    shown_provider_page_urls: Collection[str] = (),
 ) -> ProposalResult:
     """The deterministic (or seeded-random) synthetic outcome for ``mode``.
 
-    ``filters`` is passed straight through to ``propose_candidates`` for the
-    two modes that run the real pipeline; it is otherwise unused, matching
-    the other modes' fixed synthetic outcomes.
+    ``filters`` and ``shown_provider_page_urls`` (adr/0024 decision 4) are
+    passed straight through to ``propose_candidates`` for every mode that
+    runs the real pipeline; both are otherwise unused, matching the fixed
+    synthetic outcomes of ``NO_RESULTS``, ``PROVIDER_UNAVAILABLE``, and
+    ``RATE_LIMITED``.
     """
     if mode is AcceptanceCandidateProposalMode.PROVIDER_UNAVAILABLE:
         raise AcceptanceProviderUnavailable
@@ -450,34 +569,54 @@ def propose_with_override(
             filters,
             fetch_candidates=_izakaya_bar_only_source,
             random_source=active_random_source(),
+            shown_provider_page_urls=shown_provider_page_urls,
         )
     if mode is AcceptanceCandidateProposalMode.DEFAULT_EXCLUSION_VISIBLE:
         return propose_candidates(
             filters,
             fetch_candidates=_default_exclusion_visible_source,
             random_source=active_random_source(),
+            shown_provider_page_urls=shown_provider_page_urls,
         )
     if mode is AcceptanceCandidateProposalMode.CARD_PAYMENT_CAUTION_VISIBLE:
         return propose_candidates(
             filters,
             fetch_candidates=_card_payment_caution_visible_source,
             random_source=active_random_source(),
+            shown_provider_page_urls=shown_provider_page_urls,
         )
     if mode is AcceptanceCandidateProposalMode.ZERO_PENDING_MATCH:
         return propose_candidates(
             filters,
             fetch_candidates=_zero_pending_match_source,
             random_source=active_random_source(),
+            shown_provider_page_urls=shown_provider_page_urls,
         )
     if mode is AcceptanceCandidateProposalMode.FALLBACK_PRESERVES_FILTERS:
         return propose_candidates(
             filters,
             fetch_candidates=_fallback_preserves_filters_source,
             random_source=active_random_source(),
+            shown_provider_page_urls=shown_provider_page_urls,
+        )
+    if mode is AcceptanceCandidateProposalMode.GENRE_ORDER_BY_COUNT:
+        return propose_candidates(
+            filters,
+            fetch_candidates=_genre_order_by_count_source,
+            random_source=active_random_source(),
+            shown_provider_page_urls=shown_provider_page_urls,
+        )
+    if mode is AcceptanceCandidateProposalMode.SHOWN_POOL_PRIORITY:
+        return propose_candidates(
+            filters,
+            fetch_candidates=_shown_pool_priority_source,
+            random_source=active_random_source(),
+            shown_provider_page_urls=shown_provider_page_urls,
         )
 
     return propose_candidates(
         filters,
-        fetch_candidates=_normal_with_pool_source,
+        fetch_candidates=_normal_with_weighted_sampling_source,
         random_source=active_random_source(),
+        shown_provider_page_urls=shown_provider_page_urls,
     )

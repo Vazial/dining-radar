@@ -15,7 +15,7 @@ injects a seeded source, and only from ``contracts/test-support-api.yaml``'s
 from __future__ import annotations
 
 import random
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 
 from dining_radar.recommendation.pipeline import (
@@ -37,6 +37,7 @@ class ProposalResult:
     izakaya_bar_fallback_applied: bool
     available_genres: tuple[str, ...]
     population_attributes: tuple[PopulationAttribute, ...] = ()
+    shown_pool_exhausted: bool = False
 
 
 def propose_candidates(
@@ -44,6 +45,7 @@ def propose_candidates(
     *,
     fetch_candidates: CandidateSource,
     random_source: random.Random | None = None,
+    shown_provider_page_urls: Collection[str] = (),
 ) -> ProposalResult:
     """Perform one fresh search and select the displayed proposal.
 
@@ -52,6 +54,10 @@ def propose_candidates(
     "change filters" alike. ``random_source`` defaults to a fresh, unseeded
     ``random.Random()`` per call (non-deterministic, matching production
     behavior); acceptance testing injects a seeded one.
+    ``shown_provider_page_urls`` (adr/0024 decision 4) is the browser's
+    current not-yet-shown/already-shown priority state for this request; it
+    is forwarded to ``build_proposal`` and never persisted here or anywhere
+    downstream beyond this one call.
     """
     candidates, origin = fetch_candidates()
     proposal = build_proposal(
@@ -59,10 +65,12 @@ def propose_candidates(
         origin,
         filters,
         random_source=random_source or random.Random(),
+        shown_provider_page_urls=shown_provider_page_urls,
     )
     return ProposalResult(
         candidates=proposal.candidates,
         izakaya_bar_fallback_applied=proposal.izakaya_bar_fallback_applied,
         available_genres=proposal.available_genres,
         population_attributes=proposal.population_attributes,
+        shown_pool_exhausted=proposal.shown_pool_exhausted,
     )

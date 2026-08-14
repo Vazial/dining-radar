@@ -12,7 +12,13 @@
 # They never reveal or alter a private search origin, provider data or
 # credentials, runtime secrets, or any real account.
 #
-# 承認済み(2026-08-12) — approved by merging PR #90 (meta/adr/0035 mode (i)).
+# ステータス: 承認待ち — adr/0024 のドラフト改訂（未マージ）。承認方式はADR-0035の(ii)（記録のみ・
+#   承認は後日）。人間はまだこの改訂を承認していない。
+#
+# 以下は2026-08-12に承認済み(PR #90、adr/0023)だったv1.0.2の内容である。この上に2026-08-14の
+# adr/0024ドラフト差分（さらに下のブロック）が重なる。
+#
+# ステータス（v1.0.2、承認済み）: 承認済み(2026-08-12) — approved by merging PR #90 (meta/adr/0035 mode (i)).
 # 2026-08-10 起草 (adr/0023): NORMAL_WITH_REPEAT is
 # removed (the previously-shown-candidate demotion mechanism it supported is
 # retired, adr/0023 decision 5) and replaced by NORMAL_WITH_POOL, which
@@ -32,13 +38,39 @@
 # ZERO_PENDING_MATCH and FALLBACK_PRESERVES_FILTERS provide seed-independent
 # public-UI/API evidence for reviewer R5 without adding a public test hook or
 # exposing an origin, distance, route, or internal order (adr/0023 decision 14).
+#
+# 2026-08-14 起草 (adr/0024、未承認、本ファイルはこのドラフトを反映する):
+# - NORMAL_WITH_POOL を NORMAL_WITH_WEIGHTED_SAMPLING へ改称する（テスト
+#   インフラ限定の破壊的変更、adr/0024決定3）。近傍プールの固定サイズ
+#   （推奨20）という前提が無くなったため、その前提に基づく記述を除き、
+#   「母集団が表示上限5件を上回る」という条件へ言い換える。
+# - GENRE_ORDER_BY_COUNT を新設する。ジャンルの提示順が件数降順（同数の
+#   ときだけ現行の文字数昇順→ja-locale照合順のtie-break）であることを、
+#   特定のジャンル文字列やseedに依存せず決定的に観測するためのGiven
+#   （adr/0024決定1）。
+# - SHOWN_POOL_PRIORITY を新設する。shownProviderPageUrls・
+#   shownPoolExhaustedに基づく未表示優先の3つの集合所属性質
+#   （candidate-search-browser-interface.yamlのproposal.shownPoolPriority）
+#   を決定的に観測するためのGiven（adr/0024決定4、TDR-CS-14）。
+# - randomSeedのdescriptionから「実装のプールサイズ」という語を除き、
+#   「表示上限5件」という条件に置き換える（adr/0024決定3。プール概念の
+#   廃止により、この性質が成立する条件はより緩くなる）。
+#
+# 2026-08-14 追補 (adr/0024 決定4項目8、未承認・本ファイルへの変更なし):
+# shownCandidateMemoryの24時間以下の保持期限（Hot Pepper利用規約対応）は、
+# 完全にブラウザ側sessionStorageの責務であり、サーバはshownProviderPageUrls
+# の各要素がいつ保存されたかを一切知らない。したがって本ファイルへ専用の
+# Givenを追加する必要はないと判断した——決定的な観測はL4がブラウザ層へ
+# 直接、期限切れ相当のタイムスタンプを持つ既知のproviderPageUrl（例えば
+# SHOWN_POOL_PRIORITYモードが返す候補）を注入して行う。判断の理由は
+# adr/0024決定4「期限切れの検証」を参照。
 openapi: 3.0.3
 info:
   title: Toyama Dining Radar acceptance test-support API
-  version: 1.0.2
+  version: 1.1.0
   description: >-
     Acceptance-only setup and reset seams for TDR-AUTH-01 through TDR-AUTH-07
-    and TDR-CS-00 through TDR-CS-13.
+    and TDR-CS-00 through TDR-CS-14.
     Browser actions and outcomes under test must use the public same-origin
     authentication and candidate-search boundaries; these operations are only
     for deterministic Given state and scenario isolation.
@@ -57,7 +89,8 @@ paths:
         resetCandidateProposalAcceptanceState.
       x-acceptance-scenarios:
         [TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05, TDR-CS-06,
-         TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12, TDR-CS-13]
+         TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12, TDR-CS-13,
+         TDR-CS-14]
       requestBody:
         required: true
         content:
@@ -79,7 +112,7 @@ paths:
       x-acceptance-scenarios:
         [TDR-CS-00, TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05,
          TDR-CS-06, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12,
-         TDR-CS-13]
+         TDR-CS-13, TDR-CS-14]
       responses:
         '204':
           description: Candidate-proposal acceptance state is reset.
@@ -201,20 +234,22 @@ components:
         mode:
           type: string
           enum:
-            [NORMAL_WITH_POOL, DEFAULT_EXCLUSION_VISIBLE,
+            [NORMAL_WITH_WEIGHTED_SAMPLING, DEFAULT_EXCLUSION_VISIBLE,
              CARD_PAYMENT_CAUTION_VISIBLE, ZERO_PENDING_MATCH,
-             FALLBACK_PRESERVES_FILTERS, IZAKAYA_BAR_ONLY, NO_RESULTS,
+             FALLBACK_PRESERVES_FILTERS, GENRE_ORDER_BY_COUNT,
+             SHOWN_POOL_PRIORITY, IZAKAYA_BAR_ONLY, NO_RESULTS,
              PROVIDER_UNAVAILABLE, RATE_LIMITED]
           description: >-
-            A closed synthetic state selection. NORMAL_WITH_POOL supplies at
+            A closed synthetic state selection. NORMAL_WITH_WEIGHTED_SAMPLING
+            (renamed from NORMAL_WITH_POOL, adr/0024 decision 3 -- the fixed
+            near-distance pool it was named for no longer exists) supplies at
             least 40 lunch-eligible synthetic candidates in the default
-            (non-excluded-genre) population -- comfortably exceeding any
-            reasonable pool-size implementation choice (adr/0023 decision 4
-            recommends 20), so randomized pool sampling and its
-            reproducibility under a pinned randomSeed are both observable.
-            Its default population spans at least 3 distinct genre values
-            (each with at least 2 members, so a genres filter narrows to a
-            strict, non-trivial subset) and at least 2 distinct
+            (non-excluded-genre) population -- comfortably exceeding the
+            five-candidate display cap, so distance-weighted selection and
+            its reproducibility under a pinned randomSeed are both
+            observable. Its default population spans at least 3 distinct
+            genre values (each with at least 2 members, so a genres filter
+            narrows to a strict, non-trivial subset) and at least 2 distinct
             nonSmokingStatus values; it includes at least one candidate with
             cardPaymentAvailable false and at least one with true; it
             includes at least one candidate with a non-null dinnerBudgetTier
@@ -281,6 +316,60 @@ components:
             default-excluded FULL rows exist. This separately proves that the
             fallback does not loosen an explicit genres filter.
 
+            GENRE_ORDER_BY_COUNT is the deterministic genre-presentation-order
+            Given (adr/0024 decision 1). Its default (non-excluded) synthetic
+            population spans exactly 5 distinct genre values, so
+            genrePresentation's preview/overflow mechanics (adr/0023 decision
+            12) and the new count-based order (adr/0024 decision 1) are both
+            exercised together. Their populationAttributes counts, each
+            restricted to defaultExcluded=false rows, are strictly shaped so:
+            one genre has a strictly greatest count (at least 6); two genres
+            are tied at the next-greatest count (at least 4 each) but have
+            different string lengths, so the ascending-string-length
+            tie-break is the only thing that distinguishes their order; the
+            remaining two genres have strictly smaller, mutually distinct
+            counts. Every randomSeed and every default request must therefore
+            produce the same availableGenres set and the same
+            count-descending, tie-broken-by-ascending-string-length-then-
+            ja-locale-collation order. The population additionally has at
+            least one defaultExcluded=true genre with its own distinct count,
+            not among the 5 above, so a follow-up request with
+            includeIzakayaBar=true deterministically changes both the
+            offered genre set and its order.
+
+            SHOWN_POOL_PRIORITY is the deterministic TDR-CS-14 Given
+            (adr/0024 decision 4). Its default (non-excluded) synthetic
+            population has exactly 10 lunch-eligible candidates with 10
+            distinct providerPageUrl values and distinct internal distances,
+            comfortably below any real population size, so
+            shownProviderPageUrls set-membership can be checked exhaustively.
+            For every randomSeed: a request with an empty or omitted
+            shownProviderPageUrls returns 5 candidates and
+            shownPoolExhausted=false; a request whose shownProviderPageUrls
+            is exactly the 5 providerPageUrl values from any prior response
+            against this mode returns shownPoolExhausted=false and exactly
+            the other 5 candidates (those absent from shownProviderPageUrls),
+            because the not-yet-shown partition's size exactly equals the
+            display cap; a request whose shownProviderPageUrls is the union
+            of all 10 providerPageUrl values this mode can return returns
+            shownPoolExhausted=true, with candidates drawn from the full
+            10-member population without regard to shownProviderPageUrls.
+            This mode does not, by itself, exercise the partial case (1-4
+            not-yet-shown members); that follows from the same
+            set-membership properties
+            (candidate-search-browser-interface.yaml's
+            proposal.shownPoolPriority invariant) applied to any
+            shownProviderPageUrls value the acceptance test constructs from
+            previously observed providerPageUrl values, and does not require
+            a dedicated fixture. This mode carries no timestamp/expiry
+            concept of its own -- retention expiry (adr/0024 decision 4 item
+            8) is entirely a browser-side sessionStorage concern
+            (candidate-search-browser-interface.yaml's
+            shownCandidateMemory.expiry) that this server-side Given does not
+            need to model; a test exercising expiry seeds a stale timestamp
+            directly into sessionStorage using providerPageUrl values this
+            mode already returns.
+
             IZAKAYA_BAR_ONLY supplies only synthetic
             candidates in the default-excluded genre category, so the
             default (includeIzakayaBar=false) request yields izakayaBar
@@ -296,16 +385,20 @@ components:
           type: integer
           nullable: true
           description: >-
-            Pins the server's random pool-sampling source (adr/0023 decision
-            4) for every /candidate-proposals call made while this state is
-            active. Two calls with the same randomSeed, the same mode, and
-            semantically equivalent filters after candidate-search API
-            default normalization must return byte-identical
-            candidates arrays in the same order. Two calls with different
-            randomSeed values, the same mode, and semantically equivalent
-            normalized filters must return different candidates arrays whenever
-            the eligible population exceeds the implementation's pool size
-            (guaranteed reachable under NORMAL_WITH_POOL). Omit or set to
+            Pins the server's random selection source (adr/0023 decision 4,
+            adr/0024 decision 3) for every /candidate-proposals call made
+            while this state is active. Two calls with the same randomSeed,
+            the same mode, semantically equivalent filters after
+            candidate-search API default normalization, and the same
+            shownProviderPageUrls must return byte-identical candidates
+            arrays in the same order. Two calls with different randomSeed
+            values, the same mode, semantically equivalent normalized
+            filters, and the same shownProviderPageUrls must return different
+            candidates arrays whenever the eligible not-yet-shown population
+            exceeds the five-candidate display cap (guaranteed reachable
+            under NORMAL_WITH_WEIGHTED_SAMPLING; this replaces the former
+            "exceeds the implementation's pool size" condition now that no
+            fixed pool size exists, adr/0024 decision 3). Omit or set to
             null for non-deterministic sampling matching production
             behavior; this property is never exposed on the public
             candidate-search-api.yaml and the production browser has no way

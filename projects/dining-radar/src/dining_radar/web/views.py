@@ -10,6 +10,11 @@ Per adr/0023, the request body is a single optional ``filters`` object
 (``CandidateFilters``) rather than a ``reproposalKind``/
 ``previouslyShownProviderPageUrls`` pair; the initial request, "try again",
 and "change filters" are all the same ``POST /candidate-proposals`` shape.
+Per adr/0024 decision 4, the request body may additionally carry an optional
+``shownProviderPageUrls`` array (the browser's current
+``shownCandidateMemory`` snapshot); it is priority information forwarded to
+the pipeline for this one request only and is never persisted, logged, or
+echoed back.
 
 **Interpretation note (developer discretion, not a contract conflict):**
 ``candidate-search-api.yaml`` v1.0.0's ``/candidate-proposals`` operation
@@ -75,6 +80,11 @@ _ALLOWED_FILTER_KEYS = frozenset(
     {"genres", "includeIzakayaBar", "nonSmokingOnly", "cardPaymentOnly", "budgetTiers"}
 )
 _ALLOWED_BUDGET_TIERS = frozenset({"LOW", "MID", "HIGH"})
+_ALLOWED_REQUEST_KEYS = frozenset({"filters", "shownProviderPageUrls"})
+# candidate-search-api.yaml CandidateProposalRequest.shownProviderPageUrls:
+# maxItems 200 (adr/0024 decision 4) -- a defensive schema bound, not an
+# expected operating size.
+_MAX_SHOWN_PROVIDER_PAGE_URLS = 200
 
 
 @login_required
@@ -131,17 +141,37 @@ def _parse_filters(raw: object) -> CandidateFilters:
     )
 
 
-def _parse_request_body(raw_body: bytes) -> CandidateFilters:
-    """Parse ``CandidateProposalRequest`` into a ``CandidateFilters``."""
+def _parse_shown_provider_page_urls(value: object) -> tuple[str, ...]:
+    """Parse ``CandidateProposalRequest.shownProviderPageUrls`` (adr/0024 decision 4).
+
+    Omitted or ``None`` means "no shown-set exists yet" (an empty tuple);
+    every element must be a string, and the array may not exceed the
+    contract's defensive ``maxItems: 200``. This value is priority
+    information only -- it is forwarded to the pipeline and discarded once
+    this request finishes; it is never validated against, or stored in, any
+    durable state.
+    """
+    if value is None:
+        return ()
+    urls = _parse_string_list(value)
+    if len(urls) > _MAX_SHOWN_PROVIDER_PAGE_URLS:
+        raise MalformedProposalRequestError
+    return urls
+
+
+def _parse_request_body(raw_body: bytes) -> tuple[CandidateFilters, tuple[str, ...]]:
+    """Parse ``CandidateProposalRequest`` into ``(CandidateFilters, shownProviderPageUrls)``."""
     try:
         body = json.loads(raw_body or b"{}")
     except (TypeError, ValueError) as error:
         raise MalformedProposalRequestError from error
 
-    if not isinstance(body, dict) or (set(body) - {"filters"}):
+    if not isinstance(body, dict) or (set(body) - _ALLOWED_REQUEST_KEYS):
         raise MalformedProposalRequestError
 
-    return _parse_filters(body.get("filters"))
+    filters = _parse_filters(body.get("filters"))
+    shown_provider_page_urls = _parse_shown_provider_page_urls(body.get("shownProviderPageUrls"))
+    return filters, shown_provider_page_urls
 
 
 def _problem(status: int, code_and_message: tuple[str, str]) -> JsonResponse:
@@ -160,14 +190,14 @@ def candidate_proposals(request):
         return _problem(403, _REQUEST_REJECTED)
 
     try:
-        filters = _parse_request_body(request.body)
+        filters, shown_provider_page_urls = _parse_request_body(request.body)
     except MalformedProposalRequestError:
         return _problem(403, _REQUEST_REJECTED)
 
     override = active_mode()
     if override is not None:
         try:
-            result = propose_with_override(override, filters)
+            result = propose_with_override(override, filters, shown_provider_page_urls)
         except AcceptanceProviderUnavailable:
             return _problem(503, _PROVIDER_UNAVAILABLE)
         except AcceptanceRateLimited as limited:
@@ -184,7 +214,11 @@ def candidate_proposals(request):
     throttle.record_request()
 
     try:
-        result = propose_candidates(filters, fetch_candidates=fetch_real_candidates)
+        result = propose_candidates(
+            filters,
+            fetch_candidates=fetch_real_candidates,
+            shown_provider_page_urls=shown_provider_page_urls,
+        )
     except CandidateSourceUnavailableError:
         return _problem(503, _PROVIDER_UNAVAILABLE)
 

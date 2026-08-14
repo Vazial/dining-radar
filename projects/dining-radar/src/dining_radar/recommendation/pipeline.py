@@ -1,4 +1,4 @@
-"""Pure candidate filtering, ordering, and randomized pool selection.
+"""Pure candidate filtering, ordering, and distance-weighted random selection.
 
 Per ADR-0001 decision 3 and ``ARCHITECTURE.md``, this module has no Django,
 HTTP, ORM, or Hot Pepper-specific dependency. It only filters, orders, and
@@ -29,21 +29,32 @@ explicitly:
    (``nonSmokingOnly``, ``cardPaymentOnly``, ``budgetTiers``) are placed
    before every candidate unconfirmed for at least one of them; within each
    group, candidates are ordered nearest-first. When no nullable filter is
-   active, this reduces to plain nearest-first. This same ordering rule is
-   applied twice: once to the filtered population before pool selection, and
-   again to the final sampled candidates immediately before display (decision
-   4 step 6), so the browser always sees the same fixed display order
-   regardless of the random sample drawn.
-3. **Randomized pool selection** (``select_pool_and_sample``, decision 4
-   steps 4-5): the nearest ``min(population, pool_size)`` candidates (a
-   non-binding recommended ``pool_size`` of 20) form a pool, and up to 5
-   candidates are drawn from it at random via an injected ``random.Random``
-   source. Per decision 4's "決定性としての要求", the exact distance value
-   feeding this ordering is never returned to the browser (unchanged from the
-   prior ``ConceptKind`` model's own non-disclosure of distance), and the
-   random source itself is never seeded from anything the public API
-   accepts -- only ``dining_radar.suggestions`` may inject a seeded source,
-   and only via ``contracts/test-support-api.yaml``.
+   active, this reduces to plain nearest-first. ``build_proposal`` applies
+   this rule once, to the final selected candidates, immediately before
+   display (decision 4 step 6), so the browser always sees the same fixed
+   display order regardless of which candidates selection happened to draw.
+3. **Distance-weighted selection with not-yet-shown priority**
+   (``select_pool_and_sample`` / ``select_with_shown_priority``, adr/0024
+   decisions 3-4, superseding adr/0023 decision 4 steps 4-5's fixed
+   near-distance pool plus uniform draw): the filtered/fallback-applied
+   population is first partitioned into "not-yet-shown" and "already-shown"
+   using the caller-supplied ``shown_provider_page_urls`` (adr/0024 decision
+   4 -- priority, never exclusion), then up to 5 candidates are drawn by
+   distance-weighted random sampling (adr/0024 decision 3) that draws
+   exclusively from the not-yet-shown partition while it has at least 5
+   members, fills any remaining slots from the already-shown partition when
+   the not-yet-shown partition is smaller, and draws from the full
+   population without regard to ``shown_provider_page_urls`` when the
+   not-yet-shown partition is empty (reported back as
+   ``shown_pool_exhausted``). Per decision 4's "決定性としての要求", the
+   exact distance value feeding the weighting is never returned to the
+   browser (unchanged from the prior ``ConceptKind`` model's own
+   non-disclosure of distance), and the random source itself is never seeded
+   from anything the public API accepts -- only ``dining_radar.suggestions``
+   may inject a seeded source, and only via
+   ``contracts/test-support-api.yaml``. ``shown_provider_page_urls`` is
+   likewise never persisted by this module or any caller beyond the current
+   request's processing.
 4. **The default izakaya/bar-genre exclusion fallback**
    (``apply_izakaya_bar_fallback``, decision 6, successor to ADR-0015 decision
    4 / ``IZAKAYA_BAR_INCLUDED``): when ``includeIzakayaBar`` is false and
@@ -67,7 +78,7 @@ from __future__ import annotations
 
 import math
 import random
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 
 # Genres whose Hot Pepper `lunch` response field cannot confirm lunch service
@@ -87,12 +98,6 @@ from dataclasses import dataclass, field
 # ``integrations/hotpepper/normalize.py`` already documents for its own
 # field-name assumptions.
 DEFAULT_EXCLUDED_GENRES = frozenset({"居酒屋", "ダイニングバー・バル"})
-
-# Non-binding recommended pool size (adr/0023 decision 4 step 4): the nearest
-# min(population, this) candidates form the pool up to 5 are randomly sampled
-# from. Kept as a module constant so callers needn't hardcode it, but
-# `build_proposal`/`select_pool_and_sample` both accept an override.
-DEFAULT_POOL_SIZE = 20
 
 # Display cap: the maximum number of candidates ever returned to the browser
 # (adr/0023 decision 4 step 5). Unchanged in value from the prior
@@ -210,6 +215,7 @@ class Proposal:
     izakaya_bar_fallback_applied: bool
     available_genres: tuple[str, ...]
     population_attributes: tuple[PopulationAttribute, ...]
+    shown_pool_exhausted: bool
 
 
 def _dedupe(candidates: Sequence[NormalizedCandidate]) -> list[NormalizedCandidate]:
@@ -426,25 +432,164 @@ def order_confirmed_then_unconfirmed(
     return confirmed + unconfirmed
 
 
+def _selection_scale(distances: Sequence[float]) -> float:
+    """A robust, always-positive scale for ``_distance_weight`` (adr/0024 decision 3).
+
+    The median of the strictly positive input distances, or ``1.0`` when
+    every distance is exactly ``0`` (a degenerate population entirely
+    colocated with the search origin, for which every candidate's weight is
+    equal regardless of scale -- ``1.0`` is an arbitrary but harmless choice
+    in that case).
+    """
+    positive = sorted(distance for distance in distances if distance > 0)
+    if not positive:
+        return 1.0
+    midpoint = len(positive) // 2
+    if len(positive) % 2:
+        return positive[midpoint]
+    return (positive[midpoint - 1] + positive[midpoint]) / 2.0
+
+
+def _distance_weight(distance: float, scale: float) -> float:
+    """The distance-based selection weight (adr/0024 decision 3).
+
+    ``w(d) = exp(-d / scale)`` is one of the contract's own non-binding
+    example weight functions ("d0 は母集団の距離の中央値等から定める" -- d0
+    determined from the population's own distance median or similar). It is
+    monotonically non-increasing in ``d`` (P1: a candidate at least as close
+    is never less likely to be drawn) and strictly positive for every
+    finite, non-negative ``d`` (P2: no eligible candidate ever has a
+    structurally zero selection probability). It is chosen over the
+    contract's other example, ``1 / (1 + d)``, because that fixed-form
+    reciprocal only differentiates meaningfully when ``d`` is on the order
+    of ``1`` -- this application's ``d`` is the small-angle planar
+    approximation ``_distance`` computes directly from latitude/longitude
+    *degrees* (see its own docstring), which for any real search radius is
+    much smaller than ``1`` (a few kilometers is on the order of ``0.01``-
+    ``0.05`` degrees), so ``1 / (1 + d)`` would collapse to a nearly uniform
+    weight regardless of who is actually closer. Scaling by ``scale`` (see
+    ``_selection_scale``, computed per call from the population actually
+    being drawn from) keeps the weight meaningfully differentiated at
+    whatever numeric magnitude the input distances happen to be in, without
+    this module hardcoding a unit assumption it otherwise deliberately
+    avoids (see ``_distance``'s own "locally consistent ordering is
+    sufficient" rationale).
+    """
+    return math.exp(-distance / scale)
+
+
 def select_pool_and_sample(
-    ordered_population: Sequence[NormalizedCandidate],
+    population: Sequence[NormalizedCandidate],
+    origin: Origin,
     *,
     random_source: random.Random,
-    pool_size: int = DEFAULT_POOL_SIZE,
     display_cap: int = DISPLAY_CAP,
 ) -> list[NormalizedCandidate]:
-    """A random up-to-``display_cap`` sample from the nearest ``pool_size`` (decision 4 steps 4-5).
+    """A distance-weighted, without-replacement sample of up to ``display_cap``.
 
-    ``ordered_population`` must already be ordered nearest-first (optionally
-    confirmed-before-unconfirmed) by ``order_confirmed_then_unconfirmed``,
-    since the pool is defined as its nearest prefix. The returned list's own
-    order is not meaningful -- the caller must re-apply
-    ``order_confirmed_then_unconfirmed`` to it before display (decision 4
-    step 6).
+    Replaces adr/0023 decision 4 steps 4-5's fixed near-distance pool
+    (nearest ``min(population, 20)``) plus uniform draw with a single draw
+    over the *entire* ``population`` argument, weighted by
+    ``_distance_weight`` (adr/0024 decision 3) -- there is no pool concept
+    left, so (unlike the retired implementation) this accepts an unordered
+    population and computes distance itself.
+
+    Uses the Efraimidis-Spirakis "A-ES" weighted-sampling-without-
+    replacement algorithm: each candidate draws an independent uniform
+    ``u`` in ``[0, 1)`` from ``random_source`` and receives a priority key
+    ``u ** (1 / weight)``; the ``display_cap`` candidates with the largest
+    keys are returned. This reproduces an exact weighted-without-replacement
+    draw using only one uniform variate per candidate (no rejection
+    sampling, no population-wide normalization pass), and its "largest key
+    wins" structure is what gives both required properties directly: a
+    strictly positive weight always yields a finite, well-defined key (P2),
+    and for two candidates compared under the same random draw, the one
+    with the greater-or-equal weight has a greater-or-equal expected key, so
+    it is never less likely to be among the top ``display_cap`` (P1). See
+    ``tests/test_recommendation.py`` for the multi-trial statistical
+    verification of both properties.
+
+    The returned list's own order is not meaningful -- the caller must
+    re-apply ``order_confirmed_then_unconfirmed`` to it before display
+    (decision 4 step 6).
     """
-    pool = ordered_population[: min(len(ordered_population), pool_size)]
-    sample_size = min(display_cap, len(pool))
-    return random_source.sample(list(pool), sample_size)
+    if not population:
+        return []
+    distances = [_distance(origin, candidate) for candidate in population]
+    scale = _selection_scale(distances)
+    scored = []
+    for candidate, distance in zip(population, distances):
+        weight = _distance_weight(distance, scale)
+        key = random_source.random() ** (1.0 / weight)
+        scored.append((key, candidate))
+    scored.sort(key=lambda scored_candidate: scored_candidate[0], reverse=True)
+    return [candidate for _, candidate in scored[:display_cap]]
+
+
+def partition_by_shown(
+    population: Sequence[NormalizedCandidate], shown_provider_page_urls: Collection[str]
+) -> tuple[list[NormalizedCandidate], list[NormalizedCandidate]]:
+    """Split ``population`` into (not-yet-shown, already-shown) (adr/0024 decision 4).
+
+    Membership is by exact ``provider_page_url`` match against
+    ``shown_provider_page_urls``. This is priority information, not an
+    exclusion filter: both returned lists remain part of the eligible
+    population that ``select_with_shown_priority`` draws from.
+    """
+    shown = set(shown_provider_page_urls)
+    unseen = [candidate for candidate in population if candidate.provider_page_url not in shown]
+    seen = [candidate for candidate in population if candidate.provider_page_url in shown]
+    return unseen, seen
+
+
+def select_with_shown_priority(
+    population: Sequence[NormalizedCandidate],
+    origin: Origin,
+    shown_provider_page_urls: Collection[str],
+    *,
+    random_source: random.Random,
+    display_cap: int = DISPLAY_CAP,
+) -> tuple[list[NormalizedCandidate], bool]:
+    """Distance-weighted selection that prioritizes not-yet-shown candidates.
+
+    Returns ``(selected, shown_pool_exhausted)`` (adr/0024 decision 4). Per
+    ``candidate-search-browser-interface.yaml``'s ``proposal.shownPoolPriority``
+    invariant, exactly one of three cases applies, using ``population`` split
+    by ``partition_by_shown`` into not-yet-shown ("unseen") and already-shown
+    ("seen"):
+
+    1. ``len(unseen) >= display_cap``: every returned candidate is drawn from
+       ``unseen`` only; ``shown_pool_exhausted`` is ``False``.
+    2. ``0 < len(unseen) < display_cap``: every member of ``unseen`` is
+       returned, and the remaining slots are drawn from ``seen``;
+       ``shown_pool_exhausted`` is ``False``.
+    3. ``unseen`` is empty: the draw falls back to the full ``population``
+       without regard to ``shown_provider_page_urls``, and
+       ``shown_pool_exhausted`` is ``True``.
+
+    The returned list's own order is not meaningful, matching
+    ``select_pool_and_sample`` (the caller must re-apply
+    ``order_confirmed_then_unconfirmed`` before display).
+    """
+    unseen, seen = partition_by_shown(population, shown_provider_page_urls)
+
+    if not unseen:
+        selected = select_pool_and_sample(
+            population, origin, random_source=random_source, display_cap=display_cap
+        )
+        return selected, True
+
+    if len(unseen) >= display_cap:
+        selected = select_pool_and_sample(
+            unseen, origin, random_source=random_source, display_cap=display_cap
+        )
+        return selected, False
+
+    remaining = display_cap - len(unseen)
+    filler = select_pool_and_sample(
+        seen, origin, random_source=random_source, display_cap=remaining
+    )
+    return list(unseen) + filler, False
 
 
 def build_proposal(
@@ -453,26 +598,31 @@ def build_proposal(
     filters: CandidateFilters,
     *,
     random_source: random.Random,
-    pool_size: int = DEFAULT_POOL_SIZE,
+    shown_provider_page_urls: Collection[str] = (),
 ) -> Proposal:
-    """The complete adr/0023 decision 1-9 pipeline for one request.
+    """The complete adr/0023/adr/0024 decision 1-9 pipeline for one request.
 
     Composes deduplication, ``available_genres`` (decision 9, computed from
     the deduplicated population before any other filter),
     ``apply_izakaya_bar_fallback`` (decisions 1-3 and 6),
-    ``order_confirmed_then_unconfirmed`` (decision 4 steps 2-3), and
-    ``select_pool_and_sample`` (decision 4 steps 4-5), then re-orders the
-    sample for display (decision 4 step 6).
+    ``select_with_shown_priority`` (adr/0024 decisions 3-4, superseding
+    adr/0023 decision 4 steps 4-5), then re-orders the selected candidates
+    for display via ``order_confirmed_then_unconfirmed`` (decision 4 step 6).
     """
     deduped = _dedupe(candidates)
     genres = available_genres(deduped, filters.include_izakaya_bar)
     population, izakaya_bar_fallback_applied = apply_izakaya_bar_fallback(deduped, filters)
-    ordered = order_confirmed_then_unconfirmed(population, origin, filters)
-    sampled = select_pool_and_sample(ordered, random_source=random_source, pool_size=pool_size)
-    display = order_confirmed_then_unconfirmed(sampled, origin, filters)
+    selected, shown_pool_exhausted = select_with_shown_priority(
+        population,
+        origin,
+        shown_provider_page_urls,
+        random_source=random_source,
+    )
+    display = order_confirmed_then_unconfirmed(selected, origin, filters)
     return Proposal(
         candidates=tuple(display),
         izakaya_bar_fallback_applied=izakaya_bar_fallback_applied,
         available_genres=tuple(genres),
         population_attributes=tuple(population_attributes(deduped)),
+        shown_pool_exhausted=shown_pool_exhausted,
     )

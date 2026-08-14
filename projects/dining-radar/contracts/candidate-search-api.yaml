@@ -1,4 +1,10 @@
-# ステータス: 承認済み(2026-08-12) — PR #90 のマージをもって人間が承認した（meta/adr/0035 方式(i)）。
+# ステータス: 承認待ち — adr/0024 のドラフト改訂（未マージ）。承認方式はADR-0035の(ii)（記録のみ・
+#   承認は後日）。人間はまだこの改訂を承認していない。この行の形式はmeta/adr/0043の機械検証が要求する
+#
+# 以下は2026-08-12に承認済み(PR #90、adr/0023)だったv1.0.2の内容である。この上に2026-08-14の
+# adr/0024ドラフト差分（下記ブロック）が重なる。
+#
+# ステータス（v1.0.2、承認済み）: 承認済み(2026-08-12) — PR #90 のマージをもって人間が承認した（meta/adr/0035 方式(i)）。
 #   adr/0023 の組み替え。ConceptKindを廃し、絞り込み＋固定の
 #   近い順並べ替え＋近傍プールからの無作為抽出へ置き換える破壊的変更（v1.0.0）。この変更は
 #   product-brief.md §2・§3・TDR-CS-04・ADR-0004決定1・TDR-CS-01・product-briefの表題と衝突して
@@ -51,23 +57,68 @@
 #   必ずディナーである語を含める」というMustの適用単位をカード単位から
 #   画面単位へ変えるものであり、人間の再承認点である (adr/0019への
 #   追記注記を参照)。
+#
+# 2026-08-14 起草 (adr/0024、未承認、本ファイルはこのドラフトを反映する):
+# - 近傍プールからの一様抽出（旧手順4・5、固定プールサイズ min(母集団,20)）を
+#   廃止し、絞り込み後の母集団全体から距離に応じた重み付き抽出へ改める
+#   (adr/0024 決定3)。近いほど選ばれやすく（P1）、母集団の裾（最も遠い
+#   候補）も常に0でない確率を持つ（P2）。重み関数の具体形は非拘束の
+#   推奨とする。表示直前の並べ替え（確認済み一致→情報なし、各段は
+#   距離昇順）は無変更。
+# - `shownProviderPageUrls`（任意のrequestフィールド、providerPageUrlの
+#   URI文字列配列、最大200件）を追加する。ブラウザがsessionStorageへ
+#   蓄積した「このタブで既に表示したproviderPageUrl」を任意で送る
+#   (adr/0024 決定4)。これは除外ではなく優先度の引き下げであり、絞り込み
+#   後の母集団のうち未送付（未表示）の候補を優先して抽出する。
+# - `shownPoolExhausted`（新規必須responseフィールド、真偽値）を追加する。
+#   今回の絞り込み後母集団の全員が`shownProviderPageUrls`に含まれていた
+#   （出し切った）場合にだけtrueになる。ブラウザはこれを受け取ったら
+#   sessionStorageの蓄積をリセットし、この応答のcandidatesから新しい
+#   蓄積を始める (adr/0024 決定4)。
+# - `providerPageUrl`のdescriptionから「サーバへ送り返してはならない」と
+#   いうMustを外し、`shownProviderPageUrls`の要素としてのみ送り返して
+#   よいという限定Mustに置き換える。
+# - これはadr/0023決定5（既表示降格の廃止）の部分的な巻き戻しである。
+#   supersedeはしない——巻き戻すのは「機能」であって「メカニズムの主体・
+#   範囲」ではない。サーバは相変わらず何も永続化しない。乱数のseedと
+#   合成母集団の形は引き続きtest-support-api.yamlだけが持つ。
+#   詳細はadr/0024を参照。
+#
+# 2026-08-14 追補 (adr/0024 決定4項目8、未承認): shownProviderPageUrlsは
+# ブラウザ側のsessionStorage（candidate-search-browser-interface.yamlの
+# shownCandidateMemory）で24時間以下（契約値20時間）の期限管理下にある。
+# これはHot Pepper利用規約の「アプリケーション上またはアプリケーション内の
+# キャッシュは24時間以内に更新・削除する」という条項に対応するためであり、
+# サーバ側のこのフィールド自体のスキーマは変わらない——期限管理は完全に
+# ブラウザ側の責務であり、サーバはタイムスタンプを一切受け取らない。
 openapi: 3.0.3
 info:
   title: Toyama Dining Radar Candidate Proposal API
-  version: 1.0.2
+  version: 1.1.0
   description: >-
     Produces up to 5 lunch candidates around one private runtime-configured
-    location, after filtering and a randomized near-distance pool selection
-    (adr/0023). The location, configured radius, credentials, provider
-    identifiers, and provider images are never accepted or returned by this
-    browser-facing API. A response is held in current browser memory only; it
-    is not a provider-response cache or a durable search session. This API
-    carries no random seed and no comparison/history state of any kind
-    (adr/0023 decision 5 removes the previously-shown-candidate demotion
-    mechanism adr/0008 decision 2 and adr/0017 established). DRAFT: this
-    contract version is not yet human-approved; see
-    adr/0023-replace-concept-lenses-with-filters-sort-and-randomized-pool-selection.md
-    and adr/0022-expose-identity-free-population-filter-attributes.md.
+    location, after filtering, distance-weighted random selection that
+    prioritizes candidates the browser has not yet shown during the current
+    tab (adr/0023, adr/0024), and a fixed display re-ordering. The location,
+    configured radius, credentials, provider identifiers, and provider images
+    are never accepted or returned by this browser-facing API. A response is
+    held in current browser memory only; it is not a provider-response cache
+    or a durable search session. This API carries no random seed. It carries
+    browser-supplied, browser-held shown-candidate state
+    (`shownProviderPageUrls`, adr/0024) that the server neither stores beyond
+    the current request's processing nor uses for any cross-session or
+    cross-device identification; the server remains stateless (adr/0023
+    decision 3, adr/0024 decision 4 and its relationship to adr/0023 decision
+    5 and adr/0018). The browser bounds its own retention of this
+    provider-derived state to no more than 24 hours, per Hot Pepper's terms
+    of service (see `Candidate.providerPageUrl` and
+    `CandidateProposalRequest.shownProviderPageUrls` below; the bound is
+    enforced entirely client-side and this API's schema carries no
+    timestamp). DRAFT: this contract version is not yet human-approved; see
+    adr/0023-replace-concept-lenses-with-filters-sort-and-randomized-pool-selection.md,
+    adr/0022-expose-identity-free-population-filter-attributes.md, and
+    adr/0024-refine-candidate-diversity-and-filter-discoverability-from-live-feedback.md
+    (draft, 2026-08-14, including its 2026-08-14 addendum on retention limits).
 servers:
   - url: https://app.example.invalid
     description: >-
@@ -83,17 +134,30 @@ paths:
         population, applies the requested filters (adr/0023 decisions 1-3),
         orders the result (confirmed matches before unconfirmed/unavailable
         values for any active nullable filter, each group nearest-first),
-        selects a near-distance pool and randomly samples up to 5 candidates
-        from it, then re-orders the sampled candidates by the same rule for
-        display (adr/0023 decision 4). Opening the authenticated screen sends
-        an empty request. "Try again" and "change filters" are the same
-        operation: both are a fresh POST with a `filters` body, identical
-        (unchanged) or different from the previous request respectively. The
-        configured search origin and its exact radius are server-only and are
-        not request parameters. This operation carries no random seed on the
-        public API; production responses are non-deterministic between
-        requests by design (adr/0023 decision 4). Acceptance testing pins
-        determinism through contracts/test-support-api.yaml only.
+        partitions the ordered population into not-yet-shown and
+        already-shown using the request's `shownProviderPageUrls` (adr/0024
+        decision 4; empty or omitted `shownProviderPageUrls` behaves as an
+        entirely not-yet-shown population), then draws up to 5 candidates by
+        distance-weighted random sampling (adr/0024 decision 3) that draws
+        exclusively from the not-yet-shown partition while it has at least 5
+        members, fills any remaining slots from the already-shown partition
+        when the not-yet-shown partition is smaller than the display cap, and
+        draws from the full eligible population without regard to
+        `shownProviderPageUrls` when the not-yet-shown partition is empty
+        (reporting this as `shownPoolExhausted: true`). The sampled
+        candidates are then re-ordered by the same confirmed/unconfirmed-
+        then-nearest-first rule for display (adr/0023 decision 4, as amended
+        by adr/0024 decision 3). Opening the authenticated screen sends an
+        empty or shown-state-only request. "Try again" and "change filters"
+        are the same operation: both are a fresh POST with a `filters` body,
+        identical (unchanged) or different from the previous request
+        respectively, each optionally carrying the browser's current
+        `shownProviderPageUrls`. The configured search origin and its exact
+        radius are server-only and are not request parameters. This
+        operation carries no random seed on the public API; production
+        responses are non-deterministic between requests by design (adr/0023
+        decision 4, adr/0024 decision 3). Acceptance testing pins determinism
+        through contracts/test-support-api.yaml only.
       security:
         - organizerSession: []
       parameters:
@@ -194,6 +258,39 @@ components:
       properties:
         filters:
           $ref: '#/components/schemas/CandidateFilters'
+        shownProviderPageUrls:
+          type: array
+          items:
+            type: string
+            format: uri
+          maxItems: 200
+          description: >-
+            Provider page URLs this browser has already displayed to the
+            organizer during the current tab lifetime, held in the browser's
+            `sessionStorage` only (adr/0024 decision 4). Every value must be
+            a `providerPageUrl` this same API has previously returned to this
+            browser in an earlier response; the server does not validate
+            membership against any durable store, because it keeps none.
+            Omit this property, or send an empty array, when no shown-set
+            exists yet (a fresh tab, a fresh sign-in, or after the browser
+            cleared its accumulated set in response to a prior
+            `shownPoolExhausted: true`, or after the browser pruned every
+            entry older than its own 24-hour-or-less retention bound --
+            adr/0024 decision 4 item 8, 2026-08-14 addendum; see
+            candidate-search-browser-interface.yaml's
+            `shownCandidateMemory.expiry`). This is priority information, not
+            an exclusion filter: every candidate in this list remains
+            eligible under `filters` and may still be returned (see
+            `CandidateProposalResponse.shownPoolExhausted` and the
+            `candidates` ordering/selection rule). The server discards this
+            value once the current request finishes; it is never written to
+            a log, a database, a trace, or any storage the server retains
+            between requests. This field carries only URL values, never a
+            timestamp -- the 24-hour-or-less retention bound is enforced
+            entirely by the browser before it builds this array, not by the
+            server. `maxItems: 200` is a defensive schema bound far above
+            this product's measured real population size, not an expected
+            operating size.
       description: >-
         Omit `filters`, or send it as `{}`, when opening the screen for the
         first time. Before filtering, the server normalizes an omitted
@@ -203,6 +300,11 @@ components:
         it need not repeat byte-for-byte the same JSON object. "Change
         filters" sends a normalized value that differs from the applied one.
         Both use this request shape (adr/0023 decisions 1 and 13).
+        `shownProviderPageUrls` is independent of this normalization/
+        equivalence rule: it always reflects the browser's current
+        `sessionStorage` snapshot at request time and does not affect
+        whether two `filters` values are considered the same request for
+        "try again" purposes (adr/0024 decision 4).
       x-default-normalization:
         normalizedFilters:
           genres: []
@@ -241,7 +343,12 @@ components:
             population. When true, they are included. This default exclusion
             reflects unconfirmed lunch status, not a confirmed absence of
             lunch service. See also `izakayaBarFallbackApplied` in the
-            response.
+            response. Its browser-facing control renders alongside the genre
+            filter options (adr/0024 decision 2), since it changes the scope
+            of the genre category rather than expressing a value-confirmation
+            preference like `nonSmokingOnly` or `cardPaymentOnly`; this is a
+            control-placement change only and does not alter this property's
+            request semantics.
         nonSmokingOnly:
           type: boolean
           default: false
@@ -280,28 +387,39 @@ components:
             as amended 2026-08-11).
     CandidateProposalResponse:
       type: object
-      required: [candidates, izakayaBarFallbackApplied, availableGenres, populationAttributes, providerCredit]
+      required:
+        [candidates, izakayaBarFallbackApplied, availableGenres,
+         populationAttributes, providerCredit, shownPoolExhausted]
       additionalProperties: false
       properties:
         candidates:
           type: array
           maxItems: 5
           description: >-
-            Up to 5 candidates from the near-distance pool, randomly sampled
-            and then ordered by the fixed display rule: candidates
-            confirmed to match every active nullable filter come first, any
-            candidate unconfirmed (null) for at least one active nullable
-            filter comes after, and each group is ordered nearest-first
-            (adr/0023 decision 4). This ordering equals plain nearest-first
-            when no nullable filter (`nonSmokingOnly`, `cardPaymentOnly`,
-            `budgetTiers`) is active. An empty array is a successful
-            no-match result for the applied filters, distinct from a fetch
-            failure (503) or rate limiting (429). Filtering and pool
+            Up to 5 candidates, distance-weighted-randomly sampled with
+            not-yet-shown priority and then ordered by the fixed display
+            rule: candidates confirmed to match every active nullable filter
+            come first, any candidate unconfirmed (null) for at least one
+            active nullable filter comes after, and each group is ordered
+            nearest-first (adr/0023 decision 4). This ordering equals plain
+            nearest-first when no nullable filter (`nonSmokingOnly`,
+            `cardPaymentOnly`, `budgetTiers`) is active. An empty array is a
+            successful no-match result for the applied filters, distinct
+            from a fetch failure (503) or rate limiting (429). Filtering and
             selection are always performed over the full retrieved,
             normalized, deduplicated population, never over a
-            display-truncated subset (adr/0023 decision 3). The response
+            display-truncated subset (adr/0023 decision 3). Selection draws,
+            with a distance-based weighting that favors closer candidates
+            without ever reducing a farther candidate's selection
+            probability to zero, from the subset of the eligible population
+            absent from the request's `shownProviderPageUrls`; only when
+            that not-yet-shown subset is smaller than 5 are already-shown
+            candidates drawn to fill the remaining slots, and only when it
+            is empty does selection draw from the full eligible population
+            without regard to `shownProviderPageUrls` (see
+            `shownPoolExhausted`) (adr/0024 decisions 3 and 4). The response
             carries no random seed; production sampling is non-deterministic
-            between requests (adr/0023 decision 4).
+            between requests (adr/0023 decision 4, adr/0024 decision 3).
           items:
             $ref: '#/components/schemas/Candidate'
         izakayaBarFallbackApplied:
@@ -327,25 +445,58 @@ components:
             narrowed by the current `genres` selection or by any other active
             filter (adr/0023 decision 9). Lets the browser offer genre
             choices without a dedicated filter-taxonomy endpoint and without
-            the offered choices shrinking as the organizer narrows.
+            the offered choices shrinking as the organizer narrows. This
+            array's own order carries no meaning (unchanged since adr/0023):
+            the browser derives its own presentation order, including the
+            count-descending order defined by
+            contracts/candidate-search-browser-interface.yaml's
+            `genrePresentation` (adr/0024 decision 1), from this array
+            together with `populationAttributes`; the server is not required
+            to, and need not, return this array in any particular order.
         populationAttributes:
           type: array
           description: >-
             Identity-free attributes for every retrieved, normalized,
             deduplicated candidate before any request filter is applied,
             including the default izakaya/bar exclusion. The browser uses
-            this only to count the effect of a pending filters selection
-            before it makes another proposal request (adr/0022). Rows do not
-            identify shops and their sequence has no public ranking, distance,
-            map, or candidate-correspondence meaning. They must not contain
-            or be extended with a name, candidateRef, provider identifier or
-            page URL, coordinates, search origin/range, distance, route,
-            walking time, current location, image, description, business
-            hours, seats, or any other identifying/location attribute.
+            this to count the effect of a pending filters selection before
+            it makes another proposal request (adr/0022), and to compute
+            each offered genre's population count for `genrePresentation`'s
+            count-descending presentation order (adr/0024 decision 1): for a
+            given `availableGenres` entry, its count is the number of
+            `populationAttributes` rows whose `genre` equals that string,
+            restricted to rows with `defaultExcluded=false` when the
+            response's effective `includeIzakayaBar` was false, or to every
+            such row when it was true -- the same population scoping
+            `availableGenres` itself already uses. Rows do not identify shops
+            and their sequence has no public ranking, distance, map, or
+            candidate-correspondence meaning. They must not contain or be
+            extended with a name, candidateRef, provider identifier or page
+            URL, coordinates, search origin/range, distance, route, walking
+            time, current location, image, description, business hours,
+            seats, or any other identifying/location attribute.
           items:
             $ref: '#/components/schemas/PopulationAttribute'
         providerCredit:
           $ref: '#/components/schemas/ProviderCredit'
+        shownPoolExhausted:
+          type: boolean
+          description: >-
+            True only when every candidate in the filtered, eligible
+            population for this request was already present in the
+            request's `shownProviderPageUrls`, so this response's selection
+            drew from the full eligible population exactly as if
+            `shownProviderPageUrls` had been empty (adr/0024 decision 4).
+            The browser must respond to `true` by clearing its accumulated
+            `sessionStorage` shown-set and starting a new one from this
+            response's `candidates`, so that not-yet-shown priority resumes
+            on the next request instead of remaining permanently exhausted.
+            `false` whenever at least one eligible candidate was absent from
+            `shownProviderPageUrls`, regardless of whether that candidate
+            was actually selected this time (the eligible population may
+            still have more not-yet-shown members than the five-candidate
+            display cap can show). This field carries no location, distance,
+            or identity information beyond the boolean itself.
     PopulationAttribute:
       type: object
       required:
@@ -362,7 +513,9 @@ components:
           type: string
           description: >-
             Provider-supplied genre label used only for the closed `genres`
-            filter vocabulary and match count. It is not a shop identity.
+            filter vocabulary, match count, and (with `defaultExcluded`) the
+            count-descending genre presentation order (adr/0023 decision 9,
+            adr/0024 decision 1). It is not a shop identity.
         nonSmokingStatus:
           type: string
           nullable: true
@@ -391,8 +544,10 @@ components:
           type: boolean
           description: >-
             Whether this row is in ADR-0015's default-excluded genre category.
-            It lets the browser count the effect of `includeIzakayaBar` without
-            asking the provider again. This is a genre-category property: all
+            It lets the browser count the effect of `includeIzakayaBar`
+            without asking the provider again, and lets it scope a genre's
+            population count for `genrePresentation`'s ordering the same way
+            (adr/0024 decision 1). This is a genre-category property: all
             rows with the same `genre` have the same value, so acceptance may
             classify a displayed candidate's already-public genre for
             TDR-CS-09. It still must not associate that candidate with any
@@ -493,11 +648,25 @@ components:
           format: uri
           description: >-
             Provider page for the organizer's final menu, hours, and
-            reservation confirmation. The browser must not persist this value
-            outside current-screen memory or use it as a durable candidate
-            identity, and must not send it back to the server (adr/0023
-            decision 5 removes the previously-shown-candidate mechanism that
-            once used this value for repeat demotion).
+            reservation confirmation. The browser may hold this value in
+            `sessionStorage` for the sole purpose of later sending it back as
+            a member of a request's `shownProviderPageUrls` (adr/0024
+            decision 4); it must not be persisted anywhere else (browser
+            `localStorage`, a cookie, any other request field, a log, or any
+            storage surviving the current tab), must not be used as a
+            durable candidate identity across sign-in sessions or devices,
+            and must not be retained for longer than
+            candidate-search-browser-interface.yaml's
+            `shownCandidateMemory.expiry.maxAge` (no more than 24 hours,
+            per Hot Pepper's terms of service; adr/0024 decision 4 item 8,
+            2026-08-14 addendum). adr/0023 decision 5 removed the
+            previously-shown-candidate mechanism that once demoted repeats
+            within a single response's processing using this value; adr/0024
+            reintroduces a bounded, browser-held, tab-lifetime-and-24-hour-
+            or-less use of the same value for selection priority -- see
+            adr/0024 for how this differs from, and why it does not reopen,
+            adr/0023 decision 5 or adr/0018's deferral of durable
+            provider-identifier and cache adoption.
     ShopLocation:
       type: object
       required: [latitude, longitude]
