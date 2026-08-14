@@ -157,7 +157,7 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.search_again_reuses_the_same_filters_and_replaces_the_display()
         self.steps.new_seed_changes_the_candidate_sample()
         self.steps.candidate_state_reuses_the_original_random_seed(7)
-        self.steps.organizer_searches_again()
+        self.steps.organizer_searches_again_to_reproduce_the_original_sample()
         self.steps.original_seed_reproduces_the_original_candidate_sample()
 
     def test_tdr_cs_12_payment_caution_shown_only_when_card_payment_is_unavailable(self) -> None:
@@ -177,3 +177,16 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.confirmed_non_matching_candidates_are_excluded()
         self.steps.unknown_candidates_remain_with_an_unknown_state()
         self.steps.unknown_candidates_follow_confirmed_matches()
+
+    def test_tdr_cs_14_previously_shown_candidates_are_postponed_not_excluded(self) -> None:
+        self._sign_in()
+        self.steps.a_large_pool_of_candidates_can_be_proposed()
+        self.steps.organizer_has_filtered_candidates()
+        self.steps.candidates_greatly_outnumber_the_display_count()
+        self.steps.organizer_repeats_search_again_with_the_same_filters()
+        self.steps.not_yet_shown_candidates_are_shown_first()
+        self.steps.previously_shown_candidates_are_postponed_not_excluded()
+        self.steps.previously_shown_candidates_can_reappear_after_a_full_cycle()
+        self.steps.shown_memory_survives_a_reload_within_the_tab()
+        self.steps.shown_memory_fades_after_its_retention_period()
+        self.steps.shown_memory_is_not_shared_across_accounts_or_devices()

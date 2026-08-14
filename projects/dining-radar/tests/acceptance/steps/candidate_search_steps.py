@@ -21,19 +21,19 @@ class CandidateSearchSteps:
         self.dsl.sign_in(identifier, password)
 
     def lunch_candidates_can_be_proposed(self) -> None:
-        self.dsl.set_candidate_state("NORMAL_WITH_POOL")
+        self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING")
 
     def zero_pending_match_can_be_observed(self) -> None:
         self.dsl.set_candidate_state("ZERO_PENDING_MATCH")
 
     def seeded_lunch_candidates_can_be_proposed(self, seed: int) -> None:
-        self.dsl.set_candidate_state("NORMAL_WITH_POOL", random_seed=seed)
+        self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING", random_seed=seed)
 
     def candidate_state_uses_a_different_random_seed(self, seed: int) -> None:
-        self.dsl.set_candidate_state("NORMAL_WITH_POOL", random_seed=seed)
+        self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING", random_seed=seed)
 
     def candidate_state_reuses_the_original_random_seed(self, seed: int) -> None:
-        self.dsl.set_candidate_state("NORMAL_WITH_POOL", random_seed=seed)
+        self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING", random_seed=seed)
 
     def no_candidates_match_applied_filters(self) -> None:
         self.dsl.set_candidate_state("NO_RESULTS")
@@ -52,6 +52,9 @@ class CandidateSearchSteps:
 
     def candidates_include_a_shop_without_card_payment(self) -> None:
         self.dsl.set_candidate_state("CARD_PAYMENT_CAUTION_VISIBLE")
+
+    def a_large_pool_of_candidates_can_be_proposed(self) -> None:
+        self.dsl.set_candidate_state("SHOWN_POOL_PRIORITY")
 
     def visitor_opens_candidate_proposal_screen(self) -> None:
         self.dsl.open_candidate_screen_unauthenticated()
@@ -100,6 +103,12 @@ class CandidateSearchSteps:
 
     def organizer_searches_again(self) -> None:
         self.dsl.search_again()
+
+    def organizer_searches_again_to_reproduce_the_original_sample(self) -> None:
+        self.dsl.search_again_reproducing_original_seed()
+
+    def organizer_repeats_search_again_with_the_same_filters(self) -> None:
+        self.dsl.repeat_search_again_through_shown_pool_cycle()
 
     def visitor_is_guided_to_sign_in_without_candidate_surface(self) -> None:
         self.dsl.assert_visitor_guided_to_sign_in_without_candidate_surface()
@@ -218,3 +227,24 @@ class CandidateSearchSteps:
 
     def unknown_candidates_follow_confirmed_matches(self) -> None:
         self.dsl.assert_current_display_ordering()
+
+    def candidates_greatly_outnumber_the_display_count(self) -> None:
+        self.dsl.assert_eligible_population_greatly_exceeds_display_cap()
+
+    def not_yet_shown_candidates_are_shown_first(self) -> None:
+        self.dsl.assert_not_yet_shown_candidates_are_prioritized()
+
+    def previously_shown_candidates_are_postponed_not_excluded(self) -> None:
+        self.dsl.assert_previously_shown_candidates_are_postponed_not_excluded()
+
+    def previously_shown_candidates_can_reappear_after_a_full_cycle(self) -> None:
+        self.dsl.assert_previously_shown_candidates_can_reappear_after_a_full_cycle()
+
+    def shown_memory_survives_a_reload_within_the_tab(self) -> None:
+        self.dsl.assert_shown_memory_survives_a_reload()
+
+    def shown_memory_fades_after_its_retention_period(self) -> None:
+        self.dsl.assert_shown_memory_fades_after_its_retention_period()
+
+    def shown_memory_is_not_shared_across_accounts_or_devices(self) -> None:
+        self.dsl.assert_shown_memory_is_not_shared_with_another_device()
