@@ -653,3 +653,41 @@ principles: [P-04, P-06, P-10, P-11]
   要るため、orchestratorは実装しない（施錠が防いでいる違反そのものになる）。**人間が開錠しない
   という判断もありうる**——その場合、この種の記録の遅れは「起きるもの」として受け入れ、
   friction-logへ数え続けるほうが、守られない規約を増やすより誠実である。
+
+## FR-018: FR-016・FR-017が特定した書き方が目の前にあったのに使わず、同じcause_keyで記録を閉じるだけのPRをまた要した
+
+```yaml
+id: FR-018
+date: 2026-08-20
+found_at: AI
+slice: TDR-CS-origin-and-walking-time
+agents: [orchestrator]
+cause_category: 承認記録が承認行為の時点に依存しており、1本のPRで閉じられない
+cause_key: record-update-needs-second-pr
+pushed_to:
+  - projects/toyama-dining-radar/adr/0025-disclose-search-origin-and-walking-time-to-the-authenticated-screen.md
+status: 未対応
+principles: [P-04, P-06, P-10]
+```
+
+- Situation: orchestrator は ADR-0025 を `status: 提案中` / `approved_by: null` で起草し、PR #106
+  として提出した。PRはマージされたが、ADRは「提案中」のまま残り、frontmatterを書き換えるだけの
+  2本目のPRが要った。`meta/adr/0006` は「PRで提案するADRは、status を『承認済み』・approved_by を
+  『本PRのマージをもって承認』と書いてよい」と明示しており、ADR-0016・ADR-0019・ADR-0023 に実例が
+  あり、**FR-016 と FR-017 がまさにこの手落ちを2件連続で記録していた**。回避手段は規約・実例・
+  直前の failure log の3方向から利用可能だった。
+- AI contribution: FR-017 は「規約による是正は5回連続で失敗した」と結論し、以後は件数ではなく
+  その事実として扱えと書いた。**本件はその宣言後の最初の機会で、6回目の失敗になった。** 本件に
+  情状酌量の余地は無い——FR-017 が「押し下げ案を書いている最中の書き手ですら防げない」ことを
+  示したのに対し、本件の書き手は friction-log を**読んでいなかった**。ADRを起草する前に
+  friction-log を読む手順が存在しないことが、規約が届かない経路として実測された。
+- cause_keyの出現回数: 規約による是正は**6回連続で失敗した**。
+- Downward push: FR-016・FR-017 が提案し要請へ格上げした機械検査（frontmatterの`status`と
+  ADR本文の宣言・マージ状態の食い違いをgovlintがERRORにする）を繰り返す。実施には
+  `meta/adr/0046` が施錠する `meta/tools/**` の人間による開錠コミットが要るため、orchestratorは
+  実装しない。**本件が付け加える情報は1点だけである**——FR-017 は「注意深く書けば防げる」の
+  反証を提示したが、本件は**書き手が過去の記録に到達すらしない**経路を示した。したがって
+  「ADR起草時にfriction-logを読む」という手順を足しても、その手順自体が同じ経路で忘れられる。
+  人間が開錠しない判断もありうるが、その場合この種の記録の遅れは恒久的なものとして扱うべきで
+  あり、規約側の文言追加はもう試すべきではない。
+
