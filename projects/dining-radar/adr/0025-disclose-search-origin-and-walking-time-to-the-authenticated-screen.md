@@ -120,7 +120,15 @@ Git への非開示は、この検討とは**独立に有効である**。実座
 
 - `product-brief.md` §1・§3 の改訂が要る。`ADR-0035` 方式(ii)に倣い、本ADRの承認はその改訂が同一PRで
   成立することを条件とする。§4 の公開リポジトリ境界は無変更のまま残る。
-- `contracts/candidate-search.feature` と `contracts/candidate-search-api.yaml` の改訂が要る。徒歩上限
+- 契約の改訂は**実装スライスで実装・テストと同時に行う**。本ADRの承認PRには含めない——L4は稼働中の
+  実装の応答を契約スキーマと突き合わせて検証するため、契約だけを先に進めると、応答に無い必須項目と、
+  実装されていない画面挙動を検証するシナリオの両方でL4が落ちる。既存シナリオに実装待ちの印を付けて
+  回避すると、いま守れている検査まで止まる。したがってこの製品では「契約だけ先にマージする」は成立
+  しない（`ADR-0024` の実績も契約・実装・テストを同一コミットで動かしている）。起草済みのドラフトは
+  ブランチ `docs/tdr-cs-contract-draft-adr-0025` に退避してある。改訂の内容は
+  `adr-0025-candidate-search-contract-notes.md` が持つ。
+- 改訂対象は `contracts/candidate-search.feature`・`candidate-search-api.yaml`・
+  `candidate-search-browser-interface.yaml`・`test-support-api.yaml` の4本である。徒歩上限
   フィルタの追加、候補への徒歩時間フィールドの追加、`Candidate` の description にある「基点・徒歩時間を
   返さない」旨の記述の改訂、`populationAttributes` の禁止属性列から徒歩時間・距離を外すかの判断が含ま
   れる。既存の `TDR-CS` シナリオのうち、基点非表示を観測しているものは改訂対象になる。

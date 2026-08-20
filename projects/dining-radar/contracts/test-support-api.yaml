@@ -12,11 +12,11 @@
 # They never reveal or alter a private search origin, provider data or
 # credentials, runtime secrets, or any real account.
 #
-# ステータス: 承認待ち — adr/0024 と adr/0025 のドラフト改訂（いずれも未マージ）が重なっている。承認方式
-#   はいずれもADR-0035の(ii)（記録のみ・承認は後日）。人間はまだこれらの改訂を承認していない。
+# ステータス: 承認待ち — adr/0024 のドラフト改訂（未マージ）。承認方式はADR-0035の(ii)（記録のみ・
+#   承認は後日）。人間はまだこの改訂を承認していない。
 #
 # 以下は2026-08-12に承認済み(PR #90、adr/0023)だったv1.0.2の内容である。この上に2026-08-14の
-# adr/0024ドラフト差分、続けて2026-08-20のadr/0025ドラフト差分（いずれも下記ブロック）が重なる。
+# adr/0024ドラフト差分（さらに下のブロック）が重なる。
 #
 # ステータス（v1.0.2、承認済み）: 承認済み(2026-08-12) — approved by merging PR #90 (meta/adr/0035 mode (i)).
 # 2026-08-10 起草 (adr/0023): NORMAL_WITH_REPEAT is
@@ -39,7 +39,7 @@
 # public-UI/API evidence for reviewer R5 without adding a public test hook or
 # exposing an origin, distance, route, or internal order (adr/0023 decision 14).
 #
-# 2026-08-14 起草 (adr/0024、未承認):
+# 2026-08-14 起草 (adr/0024、未承認、本ファイルはこのドラフトを反映する):
 # - NORMAL_WITH_POOL を NORMAL_WITH_WEIGHTED_SAMPLING へ改称する（テスト
 #   インフラ限定の破壊的変更、adr/0024決定3）。近傍プールの固定サイズ
 #   （推奨20）という前提が無くなったため、その前提に基づく記述を除き、
@@ -64,31 +64,13 @@
 # 直接、期限切れ相当のタイムスタンプを持つ既知のproviderPageUrl（例えば
 # SHOWN_POOL_PRIORITYモードが返す候補）を注入して行う。判断の理由は
 # adr/0024決定4「期限切れの検証」を参照。
-#
-# 2026-08-20 起草 (adr/0025、未承認、本ファイルはこのドラフトを反映する):
-# - candidate-search-api.yaml v1.2.0で`CandidateProposalResponse.searchOrigin`
-#   と`Candidate.walkingTimeMinutes`が新規必須フィールドになったため、既存の
-#   すべてのmodeが返す合成レスポンスもこれらを満たす必要がある。ただし
-#   `searchOrigin`の値そのものをこのGiven APIで選択可能にする必要はないと
-#   判断した——L4は「地図上の検索基点マーカーが、その回のレスポンスの
-#   `searchOrigin`と一致するか」という自己整合性だけを検証すれば足り
-#   （TDR-CS-01・02）、独立に既知の定数と突き合わせる必要が無いため。既存
-#   modeの説明文で`walkingTimeMinutes`の具体値まで規定する必要があるのは、
-#   新設のWALKING_TIME_LIMIT_EXCLUDESだけである——他の既存TDR-CSシナリオは
-#   徒歩時間の値そのものを主張しないため。
-# - WALKING_TIME_LIMIT_EXCLUDES を新設する。TDR-CS-15（徒歩の上限による
-#   絞り込み、adr/0025決定3）の決定的Given。しきい値ちょうどの境界と、
-#   しきい値超過の両方を、任意のrandomSeedで確定的に観測できるようにする。
-# - 既存mode（NORMAL_WITH_WEIGHTED_SAMPLING等）の合成`walkingTimeMinutes`
-#   値そのものはこのファイルでは規定しない——実装が任意の正の整数を割り
-#   当てれば足り、どのTDR-CSシナリオもその具体値を主張しないため。
 openapi: 3.0.3
 info:
   title: Toyama Dining Radar acceptance test-support API
-  version: 1.2.0
+  version: 1.1.0
   description: >-
     Acceptance-only setup and reset seams for TDR-AUTH-01 through TDR-AUTH-07
-    and TDR-CS-00 through TDR-CS-15.
+    and TDR-CS-00 through TDR-CS-14.
     Browser actions and outcomes under test must use the public same-origin
     authentication and candidate-search boundaries; these operations are only
     for deterministic Given state and scenario isolation.
@@ -108,7 +90,7 @@ paths:
       x-acceptance-scenarios:
         [TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05, TDR-CS-06,
          TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12, TDR-CS-13,
-         TDR-CS-14, TDR-CS-15]
+         TDR-CS-14]
       requestBody:
         required: true
         content:
@@ -130,7 +112,7 @@ paths:
       x-acceptance-scenarios:
         [TDR-CS-00, TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05,
          TDR-CS-06, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12,
-         TDR-CS-13, TDR-CS-14, TDR-CS-15]
+         TDR-CS-13, TDR-CS-14]
       responses:
         '204':
           description: Candidate-proposal acceptance state is reset.
@@ -255,26 +237,10 @@ components:
             [NORMAL_WITH_WEIGHTED_SAMPLING, DEFAULT_EXCLUSION_VISIBLE,
              CARD_PAYMENT_CAUTION_VISIBLE, ZERO_PENDING_MATCH,
              FALLBACK_PRESERVES_FILTERS, GENRE_ORDER_BY_COUNT,
-             SHOWN_POOL_PRIORITY, WALKING_TIME_LIMIT_EXCLUDES,
-             IZAKAYA_BAR_ONLY, NO_RESULTS,
+             SHOWN_POOL_PRIORITY, IZAKAYA_BAR_ONLY, NO_RESULTS,
              PROVIDER_UNAVAILABLE, RATE_LIMITED]
           description: >-
-            A closed synthetic state selection. Every mode's synthetic
-            response satisfies candidate-search-api.yaml v1.2.0's schema in
-            full, including its `searchOrigin` and per-candidate
-            `walkingTimeMinutes` (adr/0025) -- these are present and
-            well-formed under every mode below even where a mode's own
-            description does not discuss their values, because no existing
-            TDR-CS-00 through TDR-CS-14 scenario asserts a specific
-            `searchOrigin` or `walkingTimeMinutes` value. `searchOrigin`'s
-            value need not be independently known to acceptance: TDR-CS-01
-            and TDR-CS-02 verify the map's origin marker against whatever
-            `searchOrigin` the response under test actually returned (a
-            self-consistency check), not against a separately pinned
-            constant, so no mode-selectable search-origin coordinate is
-            defined here.
-
-            NORMAL_WITH_WEIGHTED_SAMPLING
+            A closed synthetic state selection. NORMAL_WITH_WEIGHTED_SAMPLING
             (renamed from NORMAL_WITH_POOL, adr/0024 decision 3 -- the fixed
             near-distance pool it was named for no longer exists) supplies at
             least 40 lunch-eligible synthetic candidates in the default
@@ -403,38 +369,6 @@ components:
             need to model; a test exercising expiry seeds a stale timestamp
             directly into sessionStorage using providerPageUrl values this
             mode already returns.
-
-            WALKING_TIME_LIMIT_EXCLUDES is the deterministic TDR-CS-15 Given
-            (adr/0025 decision 3). Its eligible, non-excluded synthetic
-            population is no larger than the display cap, so every member is
-            displayed for every randomSeed without depending on selection
-            (mirroring CARD_PAYMENT_CAUTION_VISIBLE's approach, rather than
-            NORMAL_WITH_WEIGHTED_SAMPLING's large-population approach). This
-            mode fixes a synthetic walking-time limit value of exactly 12 --
-            an arbitrary synthetic minute count chosen only for test
-            determinism, not a claim about the real product's eventual
-            offered walkingTimeMaxMinutes presets (those remain
-            UI-implementation-owned and unfixed by candidate-search-api.yaml,
-            see CandidateFilters.walkingTimeMaxMinutes). Against that fixed
-            limit, the population supplies: at least one candidate with
-            walkingTimeMinutes strictly less than 12; at least one candidate
-            with walkingTimeMinutes exactly equal to 12 (the boundary --
-            "greater than the maximum" excludes only strictly-greater
-            values, so this candidate must remain eligible); and at least
-            one candidate with walkingTimeMinutes strictly greater than 12.
-            A public request with filters.walkingTimeMaxMinutes=12
-            deterministically returns every candidate at or below the limit
-            (including the boundary candidate) and excludes every candidate
-            above it, for every randomSeed, since the eligible set is no
-            larger than the display cap. The same request with
-            walkingTimeMaxMinutes omitted or null deterministically returns
-            every eligible candidate regardless of walkingTimeMinutes. This
-            mode does not exercise PopulationAttribute.walkingTimeBand's
-            bucketing beyond what the public schema already requires it to
-            carry -- the browser's local match-count prediction accuracy for
-            a pending walkingTimeMaxMinutes selection is verified
-            independently at L1 against the pure recommendation module, not
-            through this acceptance-only seam.
 
             IZAKAYA_BAR_ONLY supplies only synthetic
             candidates in the default-excluded genre category, so the

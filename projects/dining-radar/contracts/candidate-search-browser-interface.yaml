@@ -4,12 +4,12 @@
 # observation SSoT for TDR-CS acceptance work. It neither creates a public API
 # nor changes the browser-facing candidate-proposal API.
 #
-# Status: 承認待ち — adr/0024 と adr/0025 のドラフト改訂（いずれも未マージ）が重なっている。承認方式は
-# いずれもADR-0035の(ii)（記録のみ・承認は後日）。人間はまだこれらの改訂を承認していない。
+# Status: 承認待ち — adr/0024 のドラフト改訂（未マージ）。承認方式はADR-0035の(ii)（記録のみ・承認は
+# 後日）。人間はまだこの改訂を承認していない。
 #
 # Below is the content approved 2026-08-12 (PR #90, adr/0023) as v1.0.5, over
-# which the 2026-08-14 adr/0024 draft, and then the 2026-08-20 adr/0025 draft
-# (see the blocks further below), layer their changes.
+# which the 2026-08-14 adr/0024 draft (see the blocks further below) layers its
+# changes.
 #
 # Status (v1.0.5, approved): 承認済み(2026-08-12) — approved by merging PR #90 (meta/adr/0035 mode (i)).
 # 2026-08-10 起草 (adr/0023). ConceptKind-based
@@ -37,7 +37,7 @@
 # prior content (2026-08-01 through 2026-08-09 amendments, superseded by this
 # draft) is summarized in adr/0023, not repeated here.
 #
-# 2026-08-14 起草 (adr/0024、未承認):
+# 2026-08-14 起草 (adr/0024、未承認、本ファイルはこのドラフトを反映する):
 # - genrePresentation.presentationOrder を、文字数昇順から、
 #   populationAttributes由来の件数降順（同数のときだけ現行の文字数昇順→
 #   ja-locale照合順をtie-breakとして流用）へ変更する (adr/0024 決定1)。
@@ -68,44 +68,7 @@
 # （初回ドラフトはこの点を見落としていた）。各要素にstoredAtを持たせ、読み
 # 取りのたび（送信直前・更新直前の両方）に期限切れを蓄積から取り除いてから
 # 使う。サーバへはurl値だけを送り、storedAtは送らない。
-#
-# 2026-08-20 起草 (adr/0025、未承認、本ファイルはこのドラフトを反映する):
-# - mapObservations.forbiddenTestIdsから candidate-origin-marker と
-#   candidate-walking-time を外す。前者は検索基点マーカーとして許可側の
-#   requiredTestIdsへ移し（decision 1）、後者はカード内フィールド
-#   candidate-card-walking-timeへ置き換わる（トップレベルの裸のIDとしては
-#   もう存在しない）。disclosureObservations.bodyMustNotExposeTestIdsからも
-#   candidate-origin-markerを外す。candidate-route・candidate-current-location・
-#   private-search-originはいずれも無変更のまま禁止を維持する (decision 6)。
-# - mapObservationsに searchOriginMarker（candidate-origin-marker）と
-#   walkingRadiusRings（candidate-walking-radius-ring、0件以上）を追加する。
-#   いずれも表示専用要素であり、活性化しても状態を一切変えないことを
-#   明示する。
-# - unavailableControls.locationRangeControlProhibitionに
-#   displayOnlyOriginExceptionを新設する。この禁止が守る性質は「幹事が
-#   基点・探索範囲を*変更*できないこと」であり、表示専用マーカーを禁じる
-#   意図ではなかった——orchestratorの指摘どおり、線は要素の種類
-#   （tabindexの有無・DOMタグ・test id）ではなく、**活性化しても状態が
-#   変わらないという振る舞い**で引く。Leafletのマーカーが既定で
-#   tabindex="0"を持つ（adr/0020が別の欠陥で実測済み）ことを理由に例外を
-#   狭めない——フォーカス可能であること自体はこの例外の対象外条件では
-#   ない。
-# - cardDataAttributes.requiredFieldsに walkingTimeMinutes
-#   (candidate-card-walking-time) を追加し、新設の
-#   walkingTimeEstimateWordingで「推定であり実測経路ではない」ことが
-#   分かる文言をMustにする (decision 2)。rawValueAttributeは持たない——
-#   可視値と生の応答値は同じ数値であり、totalSeats/nonSmokingStatus/
-#   dinnerBudgetTierのような粗い表示への変換が無いため。
-# - filterPanelに徒歩の上限コントロール
-#   (candidate-filter-walking-time-max-option、data-walking-time-max-value、
-#   専用のwalkingTimeGroup) を追加する (decision 3)。changePendingFilterの
-#   inputにこのコントロールを加える。genres同様、プリセットの具体的な値・
-#   個数はこの契約では固定しない。
-# - displayOrdering.invariantに、walkingTimeMaxMinutesが
-#   nullable-filterのグルーピング（確認済み一致→情報なし）に一切参加
-#   しないことを明記する——ハードフィルタとしてこの並べ替えより前段で
-#   適用されるため (decision 3)。
-contractVersion: '1.2.0'
+contractVersion: '1.1.0'
 kind: acceptance-browser-interface
 scope: candidate-search
 profiles:
@@ -115,7 +78,7 @@ profiles:
     verifiesScenarios:
       [TDR-CS-00, TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05,
        TDR-CS-06, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12,
-       TDR-CS-13, TDR-CS-14, TDR-CS-15]
+       TDR-CS-13, TDR-CS-14]
     invariant:
       - The profile is isolated and must never be selected by a public deployment.
       - Candidate state is supplied only through contracts/test-support-api.yaml.
@@ -142,7 +105,7 @@ browserEntry:
   authenticatedInitialOutcome:
     present: [candidate-proposal-content, candidate-proposal-cards, candidate-map,
               candidate-provider-credit, candidate-filter-open,
-              candidate-search-again, candidate-origin-marker]
+              candidate-search-again]
     absent: [candidate-budget-tier-note, candidate-filter-genre-overflow,
              candidate-filter-pending-note,
              candidate-filter-apply, candidate-filter-revert,
@@ -156,7 +119,6 @@ browserControlSurface:
       card: candidate-card
       map: candidate-map
       mapMarker: candidate-map-marker
-      searchOriginMarker: candidate-origin-marker
       providerCredit: candidate-provider-credit
       filterOpen: candidate-filter-open
       searchAgain: candidate-search-again
@@ -172,7 +134,6 @@ browserControlSurface:
         totalSeats: {testId: candidate-card-total-seats, rawValueAttribute: data-raw-value}
         nonSmokingStatus: {testId: candidate-card-non-smoking, rawValueAttribute: data-raw-value}
         dinnerBudgetTier: {testId: candidate-card-dinner-budget, rawValueAttribute: data-raw-value}
-        walkingTimeMinutes: {testId: candidate-card-walking-time}
         providerPageLink: {testId: candidate-card-provider-page-link}
       labelObservation:
         semanticAttribute: data-field-label
@@ -209,15 +170,6 @@ browserControlSurface:
         returned value exactly. providerPageLink is always provided, is
         exempt from rawValueAttribute because its href is already the exact
         machine-readable value, and its href equals providerPageUrl.
-        walkingTimeMinutes is likewise always provided -- never
-        data-value-state=unavailable, per candidate-search-api.yaml's
-        Candidate.walkingTimeMinutes description (adr/0025 decision 2) -- and,
-        like providerPageLink, carries no rawValueAttribute, because its
-        visible value and the raw response value are the same number and
-        there is no coarse-label translation to check separately. Unlike
-        providerPageLink, its visible value is not exempt from a content
-        requirement: see walkingTimeEstimateWording below for the
-        estimate-wording Must adr/0025 decision 2 requires.
       cardPaymentCaution:
         testId: candidate-card-payment-caution
         attribute: data-card-payment-available
@@ -242,21 +194,6 @@ browserControlSurface:
           filter, since cardPaymentCaution alone cannot distinguish
           cardPaymentAvailable=null from cardPaymentAvailable=true (both are
           absent).
-      walkingTimeEstimateWording:
-        testId: candidate-card-walking-time
-        requirement: >-
-          The element's visible text must include an approximation marker
-          (e.g. 約, 推定, or another implementation-chosen wording that reads
-          as an estimate) and must not read as a measured or guaranteed
-          time (adr/0025 decision 2). This is a content requirement on the
-          same element as the walkingTimeMinutes requiredFields entry above,
-          not a separate element -- there is no coarse/raw split for this
-          field the way there is for totalSeats/nonSmokingStatus/
-          dinnerBudgetTier (the raw response minutes and the visible number
-          are the same value; only the surrounding wording carries the
-          estimate signal). The exact wording is an implementation choice
-          this contract does not fix, mirroring how the dinner-basis
-          disclosure's exact phrasing is also left to implementation.
     markerDataAttributes:
       candidateRef: data-candidate-ref
       selectionState: data-selection-state
@@ -277,13 +214,7 @@ browserControlSurface:
         its dinnerBudgetTier requiredFields entry has
         data-value-state=unavailable. When no such filter is active, this
         invariant reduces to plain nearest-first (adr/0023 decision 4;
-        TDR-CS-13). `walkingTimeMaxMinutes` never participates in this
-        unconfirmed/confirmed grouping: it is applied as a hard pre-filter
-        (adr/0025 decision 3) before this ordering step runs, so every card
-        that reaches this ordering already satisfies it (or the filter was
-        unset/null) -- there is no "unconfirmed for walkingTimeMaxMinutes"
-        card, because `Candidate.walkingTimeMinutes` is never null. This
-        ordering invariant governs the display order of
+        TDR-CS-13). This ordering invariant governs the display order of
         whichever 5 candidates selection returns; it is unaffected by
         shownPoolPriority's selection-stage partitioning (adr/0024), which
         happens before this re-ordering, not after it.
@@ -297,11 +228,7 @@ browserControlSurface:
           Boundary tests prove that serialization preserves the pipeline
           candidate order exactly and that origin, range, distance, route,
           walking-time, and internal ordering evidence are absent from the
-          public response and logs, except for the fields adr/0025
-          deliberately makes public (`searchOrigin`,
-          `Candidate.walkingTimeMinutes`, `PopulationAttribute.walkingTimeBand`)
-          -- see candidate-search-api.yaml for what those fields do and do
-          not carry.
+          public response and logs.
         L4: >-
           Browser acceptance proves that card and marker order matches the
           public response and that confirmed candidates precede unavailable
@@ -379,38 +306,9 @@ browserControlSurface:
         text: '© OpenStreetMap contributors'
       markerSet: every-candidate-card-has-exactly-one-marker-with-same-data-candidate-ref
       candidateRefUniqueness: every-current-card-has-a-unique-non-empty-data-candidate-ref
-      searchOriginMarker:
-        testId: candidate-origin-marker
-        presenceRule: >-
-          Present exactly once whenever candidate-map is present (adr/0025
-          decision 1). Its position must correspond to the current
-          response's `searchOrigin` coordinates; acceptance reads the
-          response and asserts the marker's position derives from that same
-          value rather than any independently known constant.
-        interactivity: >-
-          A read-only display element. It may carry an accessible name/
-          visible label identifying itself as the search origin (e.g. 検索
-          基点) -- see
-          unavailableControls.locationRangeControlProhibition's
-          displayOnlyOriginException, which scopes that prohibition to
-          controls that can change the origin or search range, not to
-          labeling a read-only marker. Activating it (by any input --
-          pointer, or Enter/Space while focused, if the underlying map
-          library makes it focusable) must change no proposal request, no
-          displayed candidate, marker, or condition summary, and no
-          configured origin/range.
-      walkingRadiusRings:
-        testId: candidate-walking-radius-ring
-        cardinality: zero-or-more-elements-sharing-this-test-id
-        presenceRule: >-
-          When present, each ring is centered on candidate-origin-marker's
-          position and represents a walking-time band (adr/0025 decision
-          1); the exact count and radii are an implementation choice this
-          contract does not fix. Rings are the same kind of read-only
-          display element as candidate-origin-marker and are subject to the
-          same interactivity requirement.
       forbiddenTestIds:
-        [candidate-route, candidate-current-location, private-search-origin]
+        [candidate-origin-marker, candidate-route, candidate-current-location,
+         candidate-walking-time, private-search-origin]
     providerCreditObservation:
       testId: candidate-provider-credit
       element: anchor
@@ -442,7 +340,6 @@ browserControlSurface:
       cardPaymentOnly: candidate-filter-card-payment-only
       budgetTierOption: candidate-filter-budget-tier-option
       budgetTierNote: candidate-budget-tier-note
-      walkingTimeMaxOption: candidate-filter-walking-time-max-option
     conditionalTestIds:
       genreOption: candidate-filter-genre-option
       genreOverflow: candidate-filter-genre-overflow
@@ -452,7 +349,6 @@ browserControlSurface:
     optionDataAttributes:
       genreValue: data-genre-value
       budgetTierValue: data-budget-tier-value
-      walkingTimeMaxValue: data-walking-time-max-value
     controlGrouping:
       genreGroup:
         members:
@@ -485,13 +381,6 @@ browserControlSurface:
           These controls render inside one shared panel section/DOM group
           (the existing budget section), separate from genreGroup and
           preferenceGroup.
-      walkingTimeGroup:
-        members: [candidate-filter-walking-time-max-option]
-        requirement: >-
-          These controls render inside one shared panel section/DOM group,
-          separate from genreGroup, preferenceGroup, and budgetGroup
-          (adr/0025 decision 3: walking-time-max is its own filter
-          condition, not a member of any existing group).
     genrePresentation:
       source: response.availableGenres
       populationSource: response.populationAttributes
@@ -539,11 +428,7 @@ browserControlSurface:
       value: >-
         Exact decimal count obtained by applying pending filters to every
         response.populationAttributes row with the public filter semantics,
-        before selection. For a pending walkingTimeMaxMinutes value, the
-        predicate is response.populationAttributes' walkingTimeBand for that
-        row being less than or equal to (in the offered preset order) the
-        pending value (adr/0025 decision 3; see
-        candidate-search-api.yaml's PopulationAttribute.walkingTimeBand).
+        before selection.
       zeroState: >-
         While pending differs from applied and the count is zero,
         candidate-filter-apply remains present with data-match-count="0" and
@@ -565,14 +450,13 @@ browserControlSurface:
       - Each visible candidate-filter-genre-option carries its response.availableGenres genre string as data-genre-value. The browser must use genrePresentation's order, not the response order.
       - candidate-filter-include-izakaya-bar renders inside genreGroup, not preferenceGroup (adr/0024 decision 2; see controlGrouping).
       - One candidate-filter-budget-tier-option element exists per LOW/MID/HIGH, each carrying that enum string as data-budget-tier-value, and its visible label must use the same 低/中/高 terminology as candidate-card-dinner-budget (adr/0023 decision 10).
-      - One candidate-filter-walking-time-max-option element exists per implementation-chosen preset integer value (adr/0025 decision 3; see candidate-search-api.yaml's CandidateFilters.walkingTimeMaxMinutes), each carrying that integer as a string in data-walking-time-max-value. At most one such option carries selected state at a time; none selected corresponds to a pending walkingTimeMaxMinutes of null (no restriction). The preset set and its count are UI-implementation-owned and not fixed by this contract, mirroring how genres' offered vocabulary is UI/response-owned rather than schema-enumerated.
       - Exactly one candidate-budget-tier-note exists inside candidate-filter-panel. It is the one-line dinner-basis disclosure defined by budgetTierNoteObservation and contains no yen amount, range, or tier-to-yen mapping.
       - Changing any control inside the panel changes pending only: it makes the state dirty, does not perform a search, and does not change the displayed cards, markers, condition summary, or applied filters.
       - When pending equals applied, candidate-filter-pending-note, candidate-filter-revert, and candidate-filter-apply are all absent. The open panel therefore has no batch action for unchanged controls.
       - When pending differs from applied, candidate-filter-pending-note, candidate-filter-revert, and candidate-filter-apply are each present. candidate-filter-apply carries data-match-count for the identity-free pending-population count and is disabled exactly when that count is zero; otherwise it is enabled.
       - candidate-filter-revert replaces pending with applied, keeps the panel open, changes neither the currently displayed candidates nor applied filters, and performs no public operation.
       - candidate-search-again is disabled while pending differs from applied, and is re-enabled only after candidate-filter-revert or a completed proposal rendering makes pending equal applied.
-      - No free-text input control exists for genre, budget, walking-time-max, or any other filter; every filter control is a closed selection (checkbox or toggle) over a server-supplied or fixed enum vocabulary.
+      - No free-text input control exists for genre, budget, or any other filter; every filter control is a closed selection (checkbox or toggle) over a server-supplied or fixed enum vocabulary.
   shownCandidateMemory:
     storage: sessionStorage
     key: dining-radar:shown-provider-page-urls
@@ -662,7 +546,6 @@ browserControlSurface:
        candidate-filter-genre-overflow-toggle,
        candidate-filter-izakaya-bar-toggle, candidate-filter-non-smoking-toggle,
        candidate-filter-card-payment-toggle, candidate-filter-budget-tier-selection,
-       candidate-filter-walking-time-max-selection,
        candidate-filter-apply, candidate-filter-revert, candidate-search-again,
        auth-sign-out, auth-password-change-open, auth-account-menu-toggle]
     forbiddenPurposes:
@@ -675,31 +558,6 @@ browserControlSurface:
         search range. Leaflet viewport pan/zoom controls inside candidate-map
         may change only the visible map viewport; they must not change a
         proposal request or the configured origin/range.
-      displayOnlyOriginException:
-        scope: [candidate-origin-marker, candidate-walking-radius-ring]
-        invariant: >-
-          adr/0025 permits the search origin and walking-time rings to be
-          displayed on the map (decision 1). This scoped exception lets
-          exactly these two display elements carry an otherwise-forbidden
-          token (e.g. 検索基点, 起点) in their accessible name or visible
-          label, for the sole purpose of identifying what they show. **The
-          exception is defined by behavior, not by markup or element
-          identity**: an element qualifies for it only while activating it
-          -- by any input (pointer, keyboard, or assistive technology) --
-          produces no change to a proposal request, the configured search
-          origin, or the configured search range. The moment an element's
-          activation could change any of those three things, it is a
-          control within the general prohibition below, and this exception
-          does not apply to it, regardless of its test id, tabindex, DOM
-          tag, or ARIA role. This exception does not narrow the underlying
-          property the general prohibition protects (adr/0008 decision 4's
-          browser-facing Must, as amended by adr/0025 decision 7): an
-          organizer must still be unable to enter, choose, derive, request,
-          or change the origin or search range from the browser. A mapping
-          library's own default behavior (e.g. Leaflet giving a marker icon
-          tabindex="0") may make a display-only element focusable;
-          focusability alone does not remove it from this exception -- only
-          actual state-changing behavior on activation does.
       machineObservation:
         forbiddenTestIds:
           [candidate-search-origin, candidate-search-location,
@@ -719,22 +577,11 @@ browserControlSurface:
           contenteditable element, or element with an interactive ARIA role,
           acceptance enumerates its declared purpose, normalized accessible
           name/visible label, and identifier attributes. None may equal or
-          contain a forbidden purpose or token, **except an element within
-          displayOnlyOriginException's scope while its behavior satisfies
-          that exception's invariant** (adr/0025). Provider/detail/credit
-          links are observations, not controls; Leaflet viewport controls
-          are the scoped exception above.
+          contain a forbidden purpose or token. Provider/detail/credit links
+          are observations, not controls; Leaflet viewport controls are the
+          scoped exception above.
       verificationAllocation:
-        L4: >-
-          the machineObservation above denies a location/range control,
-          except within displayOnlyOriginException's scope; for
-          candidate-origin-marker and candidate-walking-radius-ring,
-          acceptance separately drives every available activation (pointer,
-          and Enter/Space while focused if focusable) and asserts no
-          proposal request is sent and no displayed candidate, marker, or
-          condition summary changes -- proving the exception's behavioral
-          condition holds rather than assuming it from the element's
-          identity or test id.
+        L4: the machineObservation above denies a location/range control
         L3: >-
           CandidateProposalRequest's strict public schema is independently
           checked to contain no origin, location, range, radius, distance, or
@@ -742,13 +589,12 @@ browserControlSurface:
     invariant: >-
       No form control may provide a manual sort/ordering capability or a
       free-text search input, whether or not it has a test id. Filters
-      (genre, izakaya/bar inclusion, non-smoking, card payment, budget tier,
-      walking-time maximum) are allowed purposes as of adr/0023 and adr/0025
-      -- this reverses the prior contract's forbiddenPurposes entries
-      "secondary-condition" and "filter", which adr/0015 relied on to
-      justify representing IZAKAYA_BAR_INCLUDED as a "concept" rather than a
-      toggle. That reasoning no longer applies once filters are the primary
-      operation.
+      (genre, izakaya/bar inclusion, non-smoking, card payment, budget tier)
+      are allowed purposes as of adr/0023 -- this reverses the prior
+      contract's forbiddenPurposes entries "secondary-condition" and
+      "filter", which adr/0015 relied on to justify representing
+      IZAKAYA_BAR_INCLUDED as a "concept" rather than a toggle. That
+      reasoning no longer applies once filters are the primary operation.
   empty:
     requiredTestIds: [candidate-no-results]
     absent: [candidate-proposal-cards, candidate-map]
@@ -776,11 +622,10 @@ browserActions:
         `filters` is always omitted or empty on this trigger.
       normalizedAppliedFilters:
         {genres: [], includeIzakayaBar: false, nonSmokingOnly: false,
-         cardPaymentOnly: false, budgetTiers: [], walkingTimeMaxMinutes: null}
+         cardPaymentOnly: false, budgetTiers: []}
     success:
       present: [candidate-proposal-content, candidate-proposal-cards, candidate-map,
-                candidate-provider-credit, candidate-filter-open, candidate-search-again,
-                candidate-origin-marker]
+                candidate-provider-credit, candidate-filter-open, candidate-search-again]
       absent: [candidate-filter-panel, candidate-budget-tier-note,
                candidate-filter-genre-overflow,
                candidate-filter-pending-note, candidate-filter-apply,
@@ -806,7 +651,7 @@ browserActions:
         present: [candidate-filter-panel, candidate-filter-include-izakaya-bar,
                   candidate-filter-non-smoking-only,
                   candidate-filter-card-payment-only, candidate-filter-budget-tier-option,
-                  candidate-budget-tier-note, candidate-filter-walking-time-max-option]
+                  candidate-budget-tier-note]
         absent: [candidate-filter-pending-note, candidate-filter-apply,
                  candidate-filter-revert]
       dirty:
@@ -814,8 +659,7 @@ browserActions:
         present: [candidate-filter-panel, candidate-filter-include-izakaya-bar,
                   candidate-filter-non-smoking-only,
                   candidate-filter-card-payment-only, candidate-filter-budget-tier-option,
-                  candidate-budget-tier-note, candidate-filter-walking-time-max-option,
-                  candidate-filter-pending-note,
+                  candidate-budget-tier-note, candidate-filter-pending-note,
                   candidate-filter-apply, candidate-filter-revert]
     genrePresence: satisfies-filterPanel.genrePresentation.responseCountStates-for-current-response-and-overflow-state
     navigation: {document: unchanged, url: unchanged}
@@ -838,7 +682,7 @@ browserActions:
       cardsMarkersAndConditionSummary: unchanged
       publicOperation: none
   changePendingFilter:
-    input: any-candidate-filter-genre-option-or-toggle-or-budget-tier-option-or-walking-time-max-option
+    input: any-candidate-filter-genre-option-or-toggle-or-budget-tier-option
     precondition: candidate-filter-panel-present-and-pending-equals-applied
     requiredOutcome:
       pending: differs-from-applied
@@ -948,7 +792,7 @@ disclosureObservations:
     - source: profiles.localAcceptance.syntheticDisclosureCanaries.privateSearchOrigin
     - source: profiles.localAcceptance.syntheticDisclosureCanaries.providerInternals
   bodyMustNotExposeTestIds:
-    [private-search-origin, candidate-provider-internals,
+    [private-search-origin, candidate-provider-internals, candidate-origin-marker,
      candidate-route, candidate-current-location]
 
 apiObservations:

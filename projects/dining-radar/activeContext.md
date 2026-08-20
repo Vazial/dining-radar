@@ -18,9 +18,14 @@
 には当たらない。決定9として、リング半径から設定探索範囲が間接的に推測されうることも許容した
 （値そのものの露出は引き続き禁止）。
 
-契約は architect がドラフトし、orchestrator が govlint と YAML パースを独立に再実行して確認した。
-`candidate-search-api.yaml`・`candidate-search.feature`・`candidate-search-browser-interface.yaml`・
-`test-support-api.yaml` の4本が v1.2.0 相当へ上がる。要点は `populationAttributes` の同一性境界で、
+契約4本の改訂は architect がドラフト済みだが、**このPRには含めず実装スライスへ回した**。L4は稼働中の
+実装の応答を契約スキーマと突き合わせるため、契約だけ先に進めると `'searchOrigin' is a required
+property` で提案を取得する全シナリオが落ちる（実測: 11 error）。改訂シナリオは画面挙動そのものを
+検証しているので、必須項目を任意に緩めても解消しない。既存シナリオに実装待ちの印を付けると、いま
+守れている検査まで止まる。この製品で「契約だけ先にマージする」が成立しないことは `ADR-0024` の実績
+（契約・実装・テストが同一コミット `6dd0fb1`）とも一致する。ドラフトはブランチ
+`docs/tdr-cs-contract-draft-adr-0025` に退避し、内容は
+`adr-0025-candidate-search-contract-notes.md` が持つ。改訂の要点は `populationAttributes` の同一性境界で、
 生の徒歩分を載せると匿名の母集団行と表示中の候補が値の一致で結びつくため、`walkingTimeBand` を
 「ブラウザが提示している上限候補のうち、この候補がなお該当する最小値」と定義した。禁止属性の列は
 `walkingTimeBand` だけを明示的な例外として書き直し、座標・基点・設定探索範囲・正確な距離・経路・
