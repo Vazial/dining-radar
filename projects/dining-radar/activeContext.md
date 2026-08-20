@@ -4,6 +4,47 @@
 
 ## Current state
 
+### 進行中: ADR-0025（検索基点と徒歩時間の開示）— 人間の承認待ち
+
+ブランチ `docs/tdr-cs-origin-and-walking-time` に、承認待ちの決定と契約改訂がある。実装コードは
+一切変更していない。
+
+人間裁定 2026-08-20 chat（『別にソースから現在位置を推測できなければいいから、環境変数で指定すれば
+よく、アプリ利用者にはバレてもいい』）を受けて、`ADR-0008` 決定4 の Must のうち **browser への
+非開示だけ**を撤回する。公開URL・ログ・trace・Git への非開示と、タイル提供者へ基点を渡さない
+`Referrer-Policy`（`ADR-0008` 決定5）は維持する。`ADR-0004` がこれを却下した理由「生活圏の露出と
+外部通信を増やす」のうち、前者は露出先を特定していなかった——画面を開けるのは招待制認証を通った幹事
+だけで、全員が基点の界隈にいる。後者は徒歩**経路**には当たるが、基点マーカー・同心リング・徒歩時間
+には当たらない。決定9として、リング半径から設定探索範囲が間接的に推測されうることも許容した
+（値そのものの露出は引き続き禁止）。
+
+契約4本の改訂は architect がドラフト済みだが、**このPRには含めず実装スライスへ回した**。L4は稼働中の
+実装の応答を契約スキーマと突き合わせるため、契約だけ先に進めると `'searchOrigin' is a required
+property` で提案を取得する全シナリオが落ちる（実測: 11 error）。改訂シナリオは画面挙動そのものを
+検証しているので、必須項目を任意に緩めても解消しない。既存シナリオに実装待ちの印を付けると、いま
+守れている検査まで止まる。この製品で「契約だけ先にマージする」が成立しないことは `ADR-0024` の実績
+（契約・実装・テストが同一コミット `6dd0fb1`）とも一致する。ドラフトはブランチ
+`docs/tdr-cs-contract-draft-adr-0025` に退避し、内容は
+`adr-0025-candidate-search-contract-notes.md` が持つ。改訂の要点は `populationAttributes` の同一性境界で、
+生の徒歩分を載せると匿名の母集団行と表示中の候補が値の一致で結びつくため、`walkingTimeBand` を
+「ブラウザが提示している上限候補のうち、この候補がなお該当する最小値」と定義した。禁止属性の列は
+`walkingTimeBand` だけを明示的な例外として書き直し、座標・基点・設定探索範囲・正確な距離・経路・
+現在地は禁止のまま残した。徒歩時間の算出方式（直線距離か道のり基準か）には踏み込んでいない——
+`ADR-0025` 決定2 が実装スライスへ送った判断であり、契約はどちらでも満たせる形にしてある。
+
+`design/explorations/` に店を絞る画面のラフ3枚を置いた。**承認済み設計ではない**。これらは designer の
+パイプラインを通っておらず orchestrator が直接描いたもので、`meta/adr/0018`・`0020`・`0021` の
+design integrator の定義に沿っていない。現状のまま「設計骨格」の承認材料として提出してはならない。
+
+未決が3つある。**(1)** 上記の由来問題——プロジェクトのモック承認プロセスADRで逸脱を明文化するか、
+designer に描き直させるか。**(2)** `ADR-0003` 決定2 が `design-preview` に「検索基点」「数値距離」を
+置くことを禁じているが、`ADR-0025` で両方が製品の表示物になった。合成値なら本来問題ないはずの条文が
+修飾なしで並んでおり、実装スライスで読み直しが要る。**(3)** スマホの C 画面は案2（地図を畳む）と
+案3（余地バーを地図に重ねる）が未選択。
+
+別セッションで、プロジェクト名から実在の地名 "toyama" を外す改名作業が走っている。同じパスを触るため、
+本ブランチを先に通し、改名をその上へリベースさせる想定である。
+
 Claude took this project over from Codex on 2026-08-04, with no open pull request and a green project branch, so no unmerged Codex artifact was inherited. The project branch was promoted to `main` through merged PR #86; work now runs on ordinary feature branches based on `main`.
 
 `TDR-AUTH` (authentication) and `TDR-CS` (candidate search) are both implemented. `TDR-AUTH` and the first `TDR-CS` are durable on `main`; the filter model described below lives on this feature branch and is not yet merged.
