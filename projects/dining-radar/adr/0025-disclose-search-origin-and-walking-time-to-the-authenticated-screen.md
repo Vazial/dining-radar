@@ -1,9 +1,14 @@
 ---
 id: 0025
 scope: project/toyama-dining-radar
-status: 提案中
+status: 承認済み
 date: 2026-08-20
-approved_by: null
+approved_by: "PR #106 のマージをもって承認（ADR-0035方式(ii)。承認条件としていた
+  `product-brief.md` §2・§3 の改訂が同一PRで成立した）。人間裁定 2026-08-20 chat: 『別にソースから
+  現在位置を推測できなければいいから、環境変数で指定すればよく、アプリ利用者にはバレてもいいよ
+  （というか利用者全員がそのへんにいるから徒歩圏内が成立するわけだし）』。決定9のリング半径の扱いは
+  同日の追加裁定『aですね』による。記録を閉じるのが2本目のPRになったのはorchestratorの手落ちで
+  ある（friction-log FR-018）"
 supersedes: []
 superseded_by: null
 relates_to:
