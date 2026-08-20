@@ -1,8 +1,9 @@
-# ステータス: 承認待ち — adr/0024 のドラフト改訂（未マージ）。承認方式はADR-0035の(ii)（記録のみ・
-#   承認は後日）。人間はまだこの改訂を承認していない。この行の形式はmeta/adr/0043の機械検証が要求する
+# ステータス: 承認待ち — adr/0024 と adr/0025 のドラフト改訂（いずれも未マージ）が重なっている。承認方式は
+#   両ADRともADR-0035の(ii)（記録のみ・承認は後日）。人間はまだこれらの改訂を承認していない。この行の
+#   形式はmeta/adr/0043の機械検証が要求する
 #
 # 以下は2026-08-12に承認済み(PR #90、adr/0023)だったv1.0.2の内容である。この上に2026-08-14の
-# adr/0024ドラフト差分（下記ブロック）が重なる。
+# adr/0024ドラフト差分、続けて2026-08-20のadr/0025ドラフト差分（いずれも下記ブロック）が重なる。
 #
 # ステータス（v1.0.2、承認済み）: 承認済み(2026-08-12) — PR #90 のマージをもって人間が承認した（meta/adr/0035 方式(i)）。
 #   adr/0023 の組み替え。ConceptKindを廃し、絞り込み＋固定の
@@ -58,7 +59,7 @@
 #   画面単位へ変えるものであり、人間の再承認点である (adr/0019への
 #   追記注記を参照)。
 #
-# 2026-08-14 起草 (adr/0024、未承認、本ファイルはこのドラフトを反映する):
+# 2026-08-14 起草 (adr/0024、未承認):
 # - 近傍プールからの一様抽出（旧手順4・5、固定プールサイズ min(母集団,20)）を
 #   廃止し、絞り込み後の母集団全体から距離に応じた重み付き抽出へ改める
 #   (adr/0024 決定3)。近いほど選ばれやすく（P1）、母集団の裾（最も遠い
@@ -91,17 +92,58 @@
 # キャッシュは24時間以内に更新・削除する」という条項に対応するためであり、
 # サーバ側のこのフィールド自体のスキーマは変わらない——期限管理は完全に
 # ブラウザ側の責務であり、サーバはタイムスタンプを一切受け取らない。
+#
+# 2026-08-20 起草 (adr/0025、未承認、本ファイルはこのドラフトを反映する):
+# - `CandidateProposalResponse` に `searchOrigin`（新規必須フィールド、緯度経度）を追加する。認証済み
+#   候補画面が検索基点をマーカーとして表示し、それを中心とする徒歩圏の同心リングを描けるようにする
+#   (adr/0025 決定1)。設定された探索範囲（半径）の値は引き続きこのAPIで返さない・受け取らない——
+#   変わるのは基点の座標だけである (adr/0025 決定4、決定8)。
+# - `Candidate` に `walkingTimeMinutes`（新規必須フィールド、分単位の整数、null不可）を追加する。
+#   検索基点とこの候補の座標から算出した徒歩時間の推定値であり、実測の経路ではない (adr/0025 決定2)。
+#   算出方式（直線距離からの推定か、道のり基準か）はここでは選定しない——実装スライスの判断に送る
+#   (adr/0025 文脈0節「検証の申告」)。location・providerPageUrlと異なり、この値に「情報なし」は
+#   ない——基点も候補の座標も常にサーバー側に存在するため、providerが値を欠くという事態が起こらない。
+# - `CandidateFilters` に `walkingTimeMaxMinutes`（新規任意フィールド、分単位の整数、nullable）を
+#   追加する。指定すると、確認済みの `walkingTimeMinutes` がこの上限を超える候補だけを除く
+#   (adr/0025 決定3)。他のnullable絞り込み（nonSmokingOnly・cardPaymentOnly・budgetTiers）と異なり
+#   **ソフト絞り込みではない**——`walkingTimeMinutes` に「情報なし」の候補が存在しないため、確認
+#   できない値を保持するというADR-0023決定2の対象にそもそも当たらない。providerへは送らない
+#   （providerに徒歩時間の検索パラメータが無い）。ブラウザ側の選択肢は少数の固定値に閉じる想定だが、
+#   値そのものの候補集合をこのスキーマでは列挙しない（`genres` と同じ扱い——UI側の閉じた選択という
+#   実装上の制約であり、スキーマの受理範囲そのものは狭めない）。
+# - `PopulationAttribute` に `walkingTimeBand`（新規必須フィールド、分単位の整数、nullable）を追加し、
+#   `walkingTimeMaxMinutes` の保留中の変更が何件に効くかをブラウザがローカルに予告できるようにする
+#   (adr/0025 決定3)。**`Candidate.walkingTimeMinutes` の生の値そのものではない**——
+#   `populationAttributes` の行は店舗を同定しない、という adr/0022 の性質を壊さないため、この値は
+#   ブラウザが現在提示している `walkingTimeMaxMinutes` の候補値のうち、この候補がなお該当する最小の
+#   値（同定に使える精度を持たない粗い区分）であり、候補との対応順序を持たない。ブラウザが提示する
+#   上限値の集合が変われば、この列が表す区分の粒度も追随して変わるという関係を保つ責務は実装側にある。
+# - `populationAttributes` の禁止属性列から「walking time」を単純に外すのではなく、上記の粗い
+#   `walkingTimeBand` だけを明示的な例外として書き直す。coordinates・search origin・configured
+#   search range・exact distance・route・current locationは引き続きすべて禁止のままである
+#   (adr/0025 決定3、adr/0022)。
+# - `Candidate` の description と本ファイル冒頭の info.description から、検索基点・徒歩時間を
+#   返さない旨の記述を外す。`ShopLocation`（候補店舗の座標専用スキーマ）自体は無変更——新設した
+#   `SearchOriginLocation`/`searchOrigin` は別スキーマであり、`ShopLocation` の「検索基点を表さない」
+#   というMustは店舗座標について引き続き真である。
+# - route（徒歩経路）とcurrent location（現在地）はこのAPIに一切追加しない (adr/0025 決定6、無変更)。
 openapi: 3.0.3
 info:
   title: Toyama Dining Radar Candidate Proposal API
-  version: 1.1.0
+  version: 1.2.0
   description: >-
     Produces up to 5 lunch candidates around one private runtime-configured
     location, after filtering, distance-weighted random selection that
     prioritizes candidates the browser has not yet shown during the current
-    tab (adr/0023, adr/0024), and a fixed display re-ordering. The location,
-    configured radius, credentials, provider identifiers, and provider images
-    are never accepted or returned by this browser-facing API. A response is
+    tab (adr/0023, adr/0024), and a fixed display re-ordering. The private
+    search origin's coordinates are returned as `searchOrigin`, for map
+    display only (adr/0025 decision 1); its configured radius, credentials,
+    provider identifiers, and provider images are never accepted or returned
+    by this browser-facing API. Each candidate carries an estimated
+    `walkingTimeMinutes` computed from `searchOrigin` and the candidate's own
+    `location`; it is an estimate, not a measured route, and this API never
+    accepts or returns a walking route or the browser's current location
+    (adr/0025 decisions 2 and 6). A response is
     held in current browser memory only; it is not a provider-response cache
     or a durable search session. This API carries no random seed. It carries
     browser-supplied, browser-held shown-candidate state
@@ -116,9 +158,12 @@ info:
     enforced entirely client-side and this API's schema carries no
     timestamp). DRAFT: this contract version is not yet human-approved; see
     adr/0023-replace-concept-lenses-with-filters-sort-and-randomized-pool-selection.md,
-    adr/0022-expose-identity-free-population-filter-attributes.md, and
+    adr/0022-expose-identity-free-population-filter-attributes.md,
     adr/0024-refine-candidate-diversity-and-filter-discoverability-from-live-feedback.md
-    (draft, 2026-08-14, including its 2026-08-14 addendum on retention limits).
+    (draft, 2026-08-14, including its 2026-08-14 addendum on retention limits),
+    and
+    adr/0025-disclose-search-origin-and-walking-time-to-the-authenticated-screen.md
+    (draft, 2026-08-20).
 servers:
   - url: https://app.example.invalid
     description: >-
@@ -131,9 +176,13 @@ paths:
       summary: Generate one displayed lunch-candidate proposal from the current filters
       description: >-
         Performs one fresh Hot Pepper search over the full eligible
-        population, applies the requested filters (adr/0023 decisions 1-3),
-        orders the result (confirmed matches before unconfirmed/unavailable
-        values for any active nullable filter, each group nearest-first),
+        population, applies the requested filters, including the hard
+        `walkingTimeMaxMinutes` filter (adr/0025 decision 3; applied before
+        the nullable-filter ordering described next, since it has no
+        unconfirmed candidate to preserve -- `Candidate.walkingTimeMinutes`
+        is never null) (adr/0023 decisions 1-3), orders the result
+        (confirmed matches before unconfirmed/unavailable values for any
+        active nullable filter, each group nearest-first),
         partitions the ordered population into not-yet-shown and
         already-shown using the request's `shownProviderPageUrls` (adr/0024
         decision 4; empty or omitted `shownProviderPageUrls` behaves as an
@@ -153,7 +202,10 @@ paths:
         identical (unchanged) or different from the previous request
         respectively, each optionally carrying the browser's current
         `shownProviderPageUrls`. The configured search origin and its exact
-        radius are server-only and are not request parameters. This
+        radius are server-only and are not request parameters; the origin's
+        coordinates are nonetheless included in every successful response as
+        `searchOrigin` for map display (adr/0025 decision 1), while the
+        configured radius is never included. This
         operation carries no random seed on the public API; production
         responses are non-deterministic between requests by design (adr/0023
         decision 4, adr/0024 decision 3). Acceptance testing pins determinism
@@ -312,12 +364,13 @@ components:
           nonSmokingOnly: false
           cardPaymentOnly: false
           budgetTiers: []
+          walkingTimeMaxMinutes: null
         semanticallyEquivalentRequestBodies:
           - {}
           - {filters: {}}
           - {filters: {genres: [], includeIzakayaBar: false,
                        nonSmokingOnly: false, cardPaymentOnly: false,
-                       budgetTiers: []}}
+                       budgetTiers: [], walkingTimeMaxMinutes: null}}
     CandidateFilters:
       type: object
       additionalProperties: false
@@ -385,11 +438,42 @@ components:
             dinner-basis disclosure appears only inside the expanded filter
             panel and contains no tier-to-yen mapping (adr/0023 decision 10,
             as amended 2026-08-11).
+        walkingTimeMaxMinutes:
+          type: integer
+          nullable: true
+          minimum: 1
+          description: >-
+            When present, excludes only candidates whose `walkingTimeMinutes`
+            is greater than this maximum (adr/0025 decision 3). Omit or send
+            null for no walking-time restriction. Unlike `nonSmokingOnly`,
+            `cardPaymentOnly`, and `budgetTiers`, this is **not a soft
+            filter**: `Candidate.walkingTimeMinutes` is never null (see its
+            description), so there is no unconfirmed value for this filter to
+            preserve under adr/0023 decision 2's soft-filter treatment -- an
+            excluded candidate here is always a confirmed exclusion. This
+            filter is never sent to the provider (Hot Pepper has no
+            walking-time search parameter). The browser-facing control offers
+            a small, closed set of implementation-chosen preset integer
+            values rather than a free-numeric or continuous input (matching
+            this contract's other filter controls and
+            candidate-search-browser-interface.yaml's prohibition on native
+            range/slider form controls); the exact preset values and their
+            count are a UI-implementation detail this schema does not fix,
+            which accepts any positive integer minute value. This is the same
+            "closed selection over a UI-owned vocabulary" pattern `genres`
+            already uses with `availableGenres` -- the schema itself stays
+            open so a future change to the offered presets is not an API
+            breaking change. `PopulationAttribute.walkingTimeBand` lets the
+            browser predict this filter's applied match count locally,
+            exactly as with the other filters, as long as the browser only
+            ever offers this value from the same closed preset set the
+            population bands were computed against.
     CandidateProposalResponse:
       type: object
       required:
         [candidates, izakayaBarFallbackApplied, availableGenres,
-         populationAttributes, providerCredit, shownPoolExhausted]
+         populationAttributes, providerCredit, shownPoolExhausted,
+         searchOrigin]
       additionalProperties: false
       properties:
         candidates:
@@ -403,7 +487,10 @@ components:
             active nullable filter comes after, and each group is ordered
             nearest-first (adr/0023 decision 4). This ordering equals plain
             nearest-first when no nullable filter (`nonSmokingOnly`,
-            `cardPaymentOnly`, `budgetTiers`) is active. An empty array is a
+            `cardPaymentOnly`, `budgetTiers`) is active; `walkingTimeMaxMinutes`
+            is never part of this nullable-filter grouping, because it is a
+            hard filter applied earlier (adr/0025 decision 3; see
+            `CandidateFilters.walkingTimeMaxMinutes`). An empty array is a
             successful no-match result for the applied filters, distinct
             from a fetch failure (503) or rate limiting (429). Filtering and
             selection are always performed over the full retrieved,
@@ -433,8 +520,8 @@ components:
             exclusion was not the cause of an empty result, including
             whenever `includeIzakayaBar` was explicitly true. This never
             happens for any other filter (`genres`, `nonSmokingOnly`,
-            `cardPaymentOnly`, `budgetTiers`): those are never silently
-            loosened.
+            `cardPaymentOnly`, `budgetTiers`, `walkingTimeMaxMinutes`): those
+            are never silently loosened.
         availableGenres:
           type: array
           items:
@@ -472,13 +559,21 @@ components:
             and their sequence has no public ranking, distance, map, or
             candidate-correspondence meaning. They must not contain or be
             extended with a name, candidateRef, provider identifier or page
-            URL, coordinates, search origin/range, distance, route, walking
-            time, current location, image, description, business hours,
-            seats, or any other identifying/location attribute.
+            URL, coordinates, search origin, configured search range, exact
+            distance, walking route, current location, image, description,
+            business hours, seats, or any other identifying/location
+            attribute, with exactly one deliberate exception:
+            `walkingTimeBand` below, which adr/0025 decision 3 permits
+            precisely because it is a coarse bucket, not an exact distance,
+            and carries no candidate-correspondence order (see its own
+            description for the re-identification reasoning it exists to
+            avoid).
           items:
             $ref: '#/components/schemas/PopulationAttribute'
         providerCredit:
           $ref: '#/components/schemas/ProviderCredit'
+        searchOrigin:
+          $ref: '#/components/schemas/SearchOriginLocation'
         shownPoolExhausted:
           type: boolean
           description: >-
@@ -501,13 +596,15 @@ components:
       type: object
       required:
         [genre, nonSmokingStatus, cardPaymentAvailable, dinnerBudgetTier,
-         defaultExcluded]
+         defaultExcluded, walkingTimeBand]
       additionalProperties: false
       description: >-
         One anonymous filter-membership row for `populationAttributes`.
         It is not a candidate, a stable identity, or an association to any
         displayed candidate or marker. `null` is unavailable information, not
-        a negative value or confirmed non-match (adr/0023 decision 2).
+        a negative value or confirmed non-match (adr/0023 decision 2), except
+        for `walkingTimeBand`, whose own description states its distinct
+        null meaning.
       properties:
         genre:
           type: string
@@ -540,6 +637,36 @@ components:
             The same coarse provider-derived dinner-budget reference used by
             `CandidateFilters.budgetTiers`; null means unavailable. It never
             represents or implies a lunch price.
+        walkingTimeBand:
+          type: integer
+          nullable: true
+          minimum: 1
+          description: >-
+            A coarse walking-time upper-bound bucket for this row -- **not**
+            this candidate's exact `walkingTimeMinutes` value (adr/0025
+            decision 3). Its value is the smallest value in the browser's
+            currently offered `CandidateFilters.walkingTimeMaxMinutes` preset
+            set that this row's (undisclosed) exact walking time does not
+            exceed; null when the row's walking time exceeds every currently
+            offered preset. Because walking time is always computable (see
+            `Candidate.walkingTimeMinutes`), null here does **not** mean
+            "unavailable" the way it does for `nonSmokingStatus`,
+            `cardPaymentAvailable`, or `dinnerBudgetTier` above -- it means
+            only "farther than any currently offered maximum." This
+            coarseness, not the exact minute value, is what keeps this row
+            from re-identifying a displayed candidate: an exact value would
+            let a reader match this otherwise-anonymous row to a specific
+            card by value alone, even without any stated order, which is
+            exactly the identity-free guarantee `adr/0022` and this schema's
+            `additionalProperties: false` exist to protect. The browser's
+            local match-count prediction for a pending
+            `walkingTimeMaxMinutes` selection counts rows whose
+            `walkingTimeBand` is less than or equal to (in the offered
+            preset order) the pending value; this requires the population
+            bands in a given response to have been computed against the same
+            preset set the browser is currently offering as filter options,
+            which is an implementation responsibility this schema cannot
+            enforce structurally.
         defaultExcluded:
           type: boolean
           description: >-
@@ -557,7 +684,7 @@ components:
       required:
         [candidateRef, name, genre, description, regularHoliday,
          totalSeats, capacityTier, nonSmokingStatus, cardPaymentAvailable,
-         dinnerBudgetTier, location, providerPageUrl]
+         dinnerBudgetTier, location, providerPageUrl, walkingTimeMinutes]
       additionalProperties: false
       properties:
         candidateRef:
@@ -667,6 +794,27 @@ components:
             adr/0024 for how this differs from, and why it does not reopen,
             adr/0023 decision 5 or adr/0018's deferral of durable
             provider-identifier and cache adoption.
+        walkingTimeMinutes:
+          type: integer
+          minimum: 0
+          description: >-
+            Estimated one-way walking minutes from the search origin
+            (`CandidateProposalResponse.searchOrigin`) to this candidate's
+            `location` (adr/0025 decision 2). It is always present: unlike
+            `totalSeats`, `nonSmokingStatus`, `cardPaymentAvailable`, and
+            `dinnerBudgetTier`, this value is computed by the server from two
+            coordinates that are always available server-side, not read from
+            a provider field that can be missing, so there is no "not
+            supplied" case and this property is never null. It is an
+            **estimate, not a measurement of an actual walked route**; the
+            visible card value must be presented in a way that cannot be read
+            as a definitive or measured time (e.g. approximation wording),
+            and never as a guarantee. The calculation basis (straight-line or
+            road-network distance) is an implementation choice this contract
+            deliberately does not fix (adr/0025 decision 2 and its "検証の
+            申告" context section). See `CandidateFilters.walkingTimeMaxMinutes`
+            for how this drives filtering; this value and that filter are
+            never sent to or received from the provider.
     ShopLocation:
       type: object
       required: [latitude, longitude]
@@ -674,7 +822,37 @@ components:
       description: >-
         Returned shop location for the Leaflet marker only. It never represents
         the private configured search origin, a route, or the browser's current
-        location.
+        location. See `SearchOriginLocation` for the separate schema that now
+        carries the search origin's own coordinates for map display (adr/0025
+        decision 1); this schema's meaning (a candidate shop's own location)
+        is unchanged by that addition.
+      properties:
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+    SearchOriginLocation:
+      type: object
+      required: [latitude, longitude]
+      additionalProperties: false
+      description: >-
+        The private runtime-configured search origin's coordinates, returned
+        so the authenticated screen may show it as a map marker and may draw
+        walking-time rings around it (adr/0025 decision 1). This is the
+        organizer's own private search origin, supplied server-side by
+        runtime environment variable and never committed to the public
+        repository (adr/0002, adr/0025 decision 4); it becomes visible only
+        to an authenticated organizer through this response, never to an
+        unauthenticated visitor, a public URL, a log, an error, a trace, or
+        Git. It carries only the origin's own coordinates -- never the
+        configured search radius/range, a walking route, or the browser's
+        current location (adr/0025 decisions 4 and 6). This is a distinct
+        schema from `ShopLocation`: `ShopLocation` continues to mean a
+        candidate shop's own location only and never represents this origin.
       properties:
         latitude:
           type: number
