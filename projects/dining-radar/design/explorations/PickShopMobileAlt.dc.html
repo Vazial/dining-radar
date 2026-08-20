@@ -1,0 +1,217 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kurenaido&display=swap">
+  <style>
+    body { margin: 0; background: #faf8f4; color: #23201c;
+           font-family: 'Zen Kurenaido', 'Yu Gothic UI', 'Hiragino Sans', sans-serif; }
+    a { color: #2f6b5f; } a:hover { color: #1f4a41; }
+    .alt-dev { width: 390px; height: 596px; box-sizing: border-box; background: #ffffff; border: 1.5px solid #b8b2aa;
+               border-radius: 24px; overflow: hidden; display: flex; flex-direction: column; }
+    .alt-chip { border: 1.5px dashed #b8b2aa; border-radius: 999px; padding: 0 12px; font-size: 12.5px; color: #43403b;
+                min-height: 44px; display: inline-flex; align-items: center; white-space: nowrap; flex-shrink: 0; box-sizing: border-box; }
+    .alt-chip[data-on="true"] { border: 1.5px solid #2f6b5f; background: #eaf2f0; color: #2f6b5f; }
+    .alt-slack { border: 1.5px dashed #c8bda0; background: #fbf7ec; border-radius: 8px; padding: 0 11px; font-size: 12px;
+                 color: #6b5a2f; min-height: 44px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; flex-shrink: 0; box-sizing: border-box; }
+    .alt-slack b { color: #8a6d1f; font-weight: normal; font-size: 14px; }
+    .alt-card { border: 1.5px dashed #b8b2aa; background: #ffffff; border-radius: 11px; padding: 9px 11px;
+                display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; box-sizing: border-box; }
+    .alt-card[data-on="true"] { border: 1.5px solid #2f6b5f; }
+    .alt-no { width: 21px; height: 21px; border-radius: 50%; border: 1.5px solid #b8b2aa; color: #6b6560; font-size: 11px;
+              display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .alt-card[data-on="true"] .alt-no { background: #2f6b5f; border-color: #2f6b5f; color: #faf8f4; }
+    .alt-note { display: flex; flex-direction: column; gap: 4px; }
+    .alt-note dt { font-size: 15px; }
+    .alt-note dd { margin: 0; font-size: 12px; color: #43403b; line-height: 1.55; }
+    .alt-note dd.con { color: #6b6560; }
+  </style>
+</helmet>
+<div style="width: 900px; height: 880px; box-sizing: border-box; padding: 24px 26px; display: flex; flex-direction: column; gap: 14px; background: #faf8f4">
+
+  <div style="display: flex; justify-content: space-between; align-items: flex-end; gap: 20px">
+    <div style="display: flex; flex-direction: column; gap: 2px">
+      <div style="font-size: 12px; color: #6b6560; letter-spacing: 0.04em">C-mobile の作り直し案 ・ どちらか選ぶ</div>
+      <div style="font-size: 24px; line-height: 1.2">スマホで地図とカードをどう置くか</div>
+    </div>
+    <div style="font-size: 12px; color: #6b6560; text-align: right; line-height: 1.6">案1（既存のC-mobile）は縦に4段積んで<br>地図もカードも小さい。その解き方を2つ。</div>
+  </div>
+
+  <div style="flex-grow: 1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 40px; min-height: 0; justify-items: center">
+
+    <div style="display: flex; flex-direction: column; gap: 12px">
+      <div class="alt-dev">
+        <div style="padding: 12px 14px 9px; display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; border-bottom: 1.5px dashed #ddd7cd">
+          <div style="display: flex; flex-direction: column; gap: 1px; min-width: 0">
+            <div style="font-size: 11px; color: #6b6560">8/27 (水) 12:00</div>
+            <div style="font-size: 17px; line-height: 1.2">開いている店から選ぶ</div>
+          </div>
+          <div style="width: 40px; height: 40px; border: 1.5px solid #2f6b5f; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #2f6b5f; flex-shrink: 0">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.2 5.5"></path><path d="M20 4.5V11h-6.4"></path></svg>
+          </div>
+        </div>
+
+        <div style="padding: 8px 14px; display: flex; gap: 7px; overflow: hidden; border-bottom: 1.5px dashed #ddd7cd">
+          <div class="alt-chip" data-on="true">和食</div>
+          <div class="alt-chip" data-on="true">禁煙席あり</div>
+          <div class="alt-chip">中華</div>
+        </div>
+
+        <div style="padding: 8px 14px 9px; display: flex; flex-direction: column; gap: 7px; background: #f7f5f0; border-bottom: 1.5px dashed #ddd7cd">
+          <div style="font-size: 12.5px; color: #43403b">条件に合う店 <span style="font-size: 16px; color: #2f6b5f">8件</span> <span style="font-size: 11px; color: #6b6560">／ 1つ緩めると</span></div>
+          <div style="display: flex; gap: 7px; overflow: hidden">
+            <div class="alt-slack">禁煙席あり を外す <b>+4</b></div>
+            <div class="alt-slack">徒歩15分に <b>+2</b></div>
+          </div>
+        </div>
+
+        <div style="padding: 9px 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1.5px dashed #ddd7cd; min-height: 44px; box-sizing: border-box">
+          <div style="display: flex; align-items: center; gap: 8px; color: #2f6b5f">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4 3 6.5v13L9 17l6 2.5 6-2.5v-13L15 7Z"></path><path d="M9 4v13M15 7v12.5"></path></svg>
+            <div style="font-size: 13px">地図で見る（8件）</div>
+          </div>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2f6b5f" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>
+        </div>
+
+        <div style="flex-grow: 1; min-height: 0; padding: 9px 14px; display: flex; flex-direction: column; gap: 7px; overflow: hidden">
+          <div class="alt-card" data-on="true">
+            <div style="display: flex; align-items: center; gap: 8px"><div class="alt-no">1</div><div style="font-size: 14.5px">◯◯食堂</div></div>
+            <div style="font-size: 11px; color: #6b6560">和食 ・ 徒歩4分 ・ 42席 ・ 全席禁煙</div>
+          </div>
+          <div class="alt-card">
+            <div style="display: flex; align-items: center; gap: 8px"><div class="alt-no">2</div><div style="font-size: 14.5px; color: #43403b">◇◇そば</div></div>
+            <div style="font-size: 11px; color: #6b6560">和食 ・ 徒歩9分 ・ 24席 ・ 全席禁煙</div>
+          </div>
+          <div class="alt-card">
+            <div style="display: flex; align-items: center; gap: 8px"><div class="alt-no">3</div><div style="font-size: 14.5px; color: #43403b">△△キッチン</div></div>
+            <div style="font-size: 11px; color: #6b6560">洋食 ・ 徒歩6分 ・ 28席 ・ 一部禁煙</div>
+          </div>
+          <div class="alt-card">
+            <div style="display: flex; align-items: center; gap: 8px"><div class="alt-no">4</div><div style="font-size: 14.5px; color: #43403b">□□飯店</div></div>
+            <div style="font-size: 11px; color: #6b6560">中華 ・ 徒歩8分 ・ 18席 ・ 禁煙席なし</div>
+          </div>
+        </div>
+      </div>
+
+      <dl class="alt-note" style="width: 390px; margin: 0">
+        <dt>案2｜地図を畳む</dt>
+        <dd>既定はリスト。地図は1行のバーになり、押すと開く。カードが4件見えるので「比べる」がスマホでも成立する。</dd>
+        <dd class="con">代償: 位置関係が既定で見えない。地図を主役だと思っている人には後退に見える。</dd>
+      </dl>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 12px">
+      <div class="alt-dev">
+        <div style="padding: 12px 14px 9px; display: flex; align-items: flex-end; justify-content: space-between; gap: 10px">
+          <div style="display: flex; flex-direction: column; gap: 1px; min-width: 0">
+            <div style="font-size: 11px; color: #6b6560">8/27 (水) 12:00</div>
+            <div style="font-size: 17px; line-height: 1.2">開いている店から選ぶ</div>
+          </div>
+          <div style="width: 40px; height: 40px; border: 1.5px solid #2f6b5f; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #2f6b5f; flex-shrink: 0">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.2 5.5"></path><path d="M20 4.5V11h-6.4"></path></svg>
+          </div>
+        </div>
+
+        <div style="position: relative; flex-grow: 1; min-height: 0; background: #eef0ea">
+          <svg viewBox="0 0 390 470" preserveAspectRatio="xMidYMid slice" style="width: 100%; height: 100%; display: block">
+            <rect x="0" y="0" width="390" height="470" fill="#eef0ea"></rect>
+            <rect x="270" y="42" width="104" height="70" rx="7" fill="#e2e8dc"></rect>
+            <rect x="24" y="330" width="92" height="60" rx="7" fill="#e2e8dc"></rect>
+            <g stroke="#d8d9d2" stroke-width="6" stroke-linecap="round">
+              <path d="M-10 74 H400"></path>
+              <path d="M-10 190 H400"></path>
+              <path d="M-10 306 H400"></path>
+              <path d="M-10 412 H400"></path>
+              <path d="M66 -10 V480"></path>
+              <path d="M172 -10 V480"></path>
+              <path d="M268 -10 V480"></path>
+              <path d="M352 -10 V480"></path>
+            </g>
+            <path d="M-10 470 L150 240 L320 -10" stroke="#d0d1c9" stroke-width="9" fill="none" stroke-linecap="round"></path>
+            <g fill="none" stroke="#2f6b5f" stroke-dasharray="5 6">
+            <circle cx="195" cy="235" r="70" stroke-opacity="0.55"></circle>
+            <circle cx="195" cy="235" r="125" stroke-opacity="0.75" stroke-width="1.6"></circle>
+          </g>
+          <g font-size="10" fill="#2f6b5f" text-anchor="middle" font-family="'Zen Kurenaido','Yu Gothic UI',sans-serif">
+            <text x="195" y="160" fill-opacity="0.7">5分</text>
+            <text x="195" y="105">10分</text>
+          </g>
+          <g>
+            <circle cx="195" cy="235" r="7" fill="#23201c"></circle>
+            <circle cx="195" cy="235" r="13" fill="none" stroke="#23201c" stroke-width="1.5" stroke-opacity="0.5"></circle>
+            <text x="195" y="263" font-size="10" fill="#23201c" text-anchor="middle" font-family="'Zen Kurenaido','Yu Gothic UI',sans-serif">勤務地</text>
+          </g>
+
+          <g opacity="0.4">
+              <g transform="translate(330 350)"><path d="M0 4 V16" stroke="#6b6560" stroke-width="1.5"></path><circle cx="0" cy="-6" r="11" fill="#ffffff" stroke="#6b6560" stroke-width="1.5" stroke-dasharray="4 4"></circle></g>
+              <g transform="translate(56 132)"><path d="M0 4 V16" stroke="#6b6560" stroke-width="1.5"></path><circle cx="0" cy="-6" r="11" fill="#ffffff" stroke="#6b6560" stroke-width="1.5" stroke-dasharray="4 4"></circle></g>
+            </g>
+            <g transform="translate(158 214)"><path d="M0 6 V20" stroke="#2f6b5f" stroke-width="1.5"></path><circle cx="0" cy="-6" r="15" fill="#2f6b5f"></circle><text x="0" y="-1" font-size="13" fill="#faf8f4" text-anchor="middle" font-family="'Zen Kurenaido','Yu Gothic UI',sans-serif">1</text></g>
+            <g transform="translate(252 288)"><path d="M0 4 V16" stroke="#2f6b5f" stroke-width="1.5"></path><circle cx="0" cy="-6" r="12" fill="#ffffff" stroke="#2f6b5f" stroke-width="1.8"></circle><text x="0" y="-2" font-size="12" fill="#2f6b5f" text-anchor="middle" font-family="'Zen Kurenaido','Yu Gothic UI',sans-serif">2</text></g>
+            <g transform="translate(110 300)"><path d="M0 4 V16" stroke="#2f6b5f" stroke-width="1.5"></path><circle cx="0" cy="-6" r="12" fill="#ffffff" stroke="#2f6b5f" stroke-width="1.8"></circle><text x="0" y="-2" font-size="12" fill="#2f6b5f" text-anchor="middle" font-family="'Zen Kurenaido','Yu Gothic UI',sans-serif">3</text></g>
+            <g transform="translate(270 160)"><path d="M0 4 V16" stroke="#2f6b5f" stroke-width="1.5"></path><circle cx="0" cy="-6" r="12" fill="#ffffff" stroke="#2f6b5f" stroke-width="1.8"></circle><text x="0" y="-2" font-size="12" fill="#2f6b5f" text-anchor="middle" font-family="'Zen Kurenaido','Yu Gothic UI',sans-serif">4</text></g>
+          </svg>
+
+          <div style="position: absolute; left: 0; right: 0; top: 8px; padding: 0 14px; display: flex; gap: 7px; overflow: hidden">
+            <div class="alt-chip" data-on="true" style="background: #eaf2f0">和食</div>
+            <div class="alt-chip" data-on="true" style="background: #eaf2f0">禁煙席あり</div>
+            <div class="alt-chip" style="background: rgba(255,255,255,0.94)">中華</div>
+          </div>
+
+          <div style="position: absolute; left: 14px; right: 14px; top: 62px; background: rgba(251,247,236,0.96); border: 1.5px solid #c8bda0; border-radius: 10px; padding: 8px 11px; display: flex; flex-direction: column; gap: 6px">
+            <div style="font-size: 12.5px; color: #43403b">条件に合う店 <span style="font-size: 16px; color: #2f6b5f">8件</span> <span style="font-size: 11px; color: #6b6560">／ 1つ緩めると</span></div>
+            <div style="display: flex; gap: 7px; overflow: hidden">
+              <div class="alt-slack" style="background: #ffffff">禁煙席あり <b>+4</b></div>
+              <div class="alt-slack" style="background: #ffffff">夜予算 <b>+7</b></div>
+            </div>
+          </div>
+
+          <div style="position: absolute; left: 0; right: 0; bottom: 0; background: #ffffff; border-top: 1.5px solid #b8b2aa; border-radius: 18px 18px 0 0; padding: 8px 14px 12px; display: flex; flex-direction: column; gap: 7px">
+            <div style="width: 40px; height: 4px; border-radius: 999px; background: #ddd7cd; align-self: center"></div>
+            <div class="alt-card" data-on="true">
+              <div style="display: flex; align-items: center; gap: 8px"><div class="alt-no">1</div><div style="font-size: 14.5px">◯◯食堂</div></div>
+              <div style="font-size: 11px; color: #6b6560">和食 ・ 徒歩4分 ・ 42席 ・ 全席禁煙</div>
+            </div>
+            <div class="alt-card" style="opacity: 0.55">
+              <div style="display: flex; align-items: center; gap: 8px"><div class="alt-no">2</div><div style="font-size: 14.5px; color: #43403b">◇◇そば</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <dl class="alt-note" style="width: 390px; margin: 0">
+        <dt>案3｜余地バーを地図に重ねる</dt>
+        <dd>地図を主役のまま残し、絞り込みと余地を地図の上に浮かせる。カードは下から引き上げるシート。段積みをやめて重ねる解き方。</dd>
+        <dd class="con">代償: 重なりが地図を隠す。カードを比べるにはシートを引き上げる操作が要る。実装も案2より重い。</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div style="border-top: 1.5px solid #ddd7cd; padding-top: 10px; display: flex; justify-content: space-between; align-items: flex-end; gap: 20px">
+    <div style="display: flex; flex-direction: column; gap: 3px">
+      <div style="font-size: 15px">C-mobile alt｜スマホの地図とカード</div>
+      <div style="font-size: 12px; color: #43403b">どちらも「余地バー」は残す。差は<span style="color: #2f6b5f">地図を既定で見せるか</span>だけ。案2は比較を、案3は位置関係を優先する。</div>
+      <div style="font-size: 12px; color: #6b6560">私の意見: 案2。この画面の仕事は「5件に絞る」ことで、絞るには並べて比べるほうが効く。地図は絞ったあとに1回見れば足りる。</div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0">
+      <div style="width: 18px; height: 18px; border-radius: 4px; background: #faf8f4; border: 1.5px solid #b8b2aa"></div>
+      <div style="width: 18px; height: 18px; border-radius: 4px; background: #43403b"></div>
+      <div style="width: 18px; height: 18px; border-radius: 4px; background: #2f6b5f"></div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":900,"height":880}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
