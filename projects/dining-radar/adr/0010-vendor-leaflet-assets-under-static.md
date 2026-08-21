@@ -1,6 +1,6 @@
 ---
 id: 0010
-scope: project/toyama-dining-radar
+scope: project/dining-radar
 status: 承認済み
 date: 2026-08-04
 approved_by: "本PRのマージをもって承認（ADR-0035 方式(i)、人間裁定 2026-08-04: Leafletは static/ にdistを同梱して自オリジンから配信する。現在の https://unpkg.com からの読み込みは廃する。却下: (npm＋ビルド段の追加)／(CDNのまま SRI だけ足す)）"

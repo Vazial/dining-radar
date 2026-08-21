@@ -1,6 +1,6 @@
 ---
 id: 0013
-scope: project/toyama-dining-radar
+scope: project/dining-radar
 status: 承認済み
 date: 2026-08-06
 approved_by: "本PRのマージをもって承認（ADR-0035 方式(i)、人間裁定 2026-08-06 chat: 実機レビューの3指摘（管理者案内の縮小、パスワード変更/サインアウトの整理、別の選び方ボタンの配置）はいずれも修正OK。方針表明: 『全て修正OKだし、画面的に自然にするために契約の変更が必要になるならOK、のスタンスです』『画面が承認されたら契約も変更する、でいいのでは？』『少なくとも画面が契約に引っ張られるべきではない（モックの時点でそこまで詰められていないのがむしろ問題か？）』）"
@@ -76,7 +76,7 @@ L4は`meta/agents.md`のreviewer指摘を受けてtesterが実装した検査で
 
 ### 1. 方針: browser-interface契約のcontrol surfaceは、承認済み画面の方向性に追随して改訂してよい
 
-toyama-dining-radarにおいて、`*-browser-interface.yaml`（test infrastructure専用、公開APIでは
+dining-radarにおいて、`*-browser-interface.yaml`（test infrastructure専用、公開APIでは
 ないacceptance観測SSoT）の**control-surface許可リスト**（`allowedPurposes`のような、UIが持って
 よい操作の列挙）は、**人間が承認・指示した画面の方向性と衝突する場合、契約側を改訂して画面に
 追随する**。これは`meta/permissions.md`が禁じる「AIによる契約ファイルの直接変更」の例外ではない
@@ -106,11 +106,11 @@ toyama-dining-radarにおいて、`*-browser-interface.yaml`（test infrastructu
 
 ### 3. 前例（ADR-0011）との関係
 
-`projects/toyama-dining-radar/adr/0011`は同型の先例である——承認済み画面設計（総席数の`38席`
+`projects/dining-radar/adr/0011`は同型の先例である——承認済み画面設計（総席数の`38席`
 表示）とbrowser-interface契約（可視値の厳密等価）が衝突し、契約側を改訂して解いた。ADR-0011は
 **この1回の衝突を解く判断**として書かれており、一般方針を宣言してはいない。本ADRは、人間が今回
 明示的に一般方針として述べた（「画面が承認されたら契約も変更する、でいいのでは？」）ことを受けて、
-**ADR-0011が実質的に確立していた運用をtoyama-dining-radarの標準方針として明文化する**。今後、
+**ADR-0011が実質的に確立していた運用をdining-radarの標準方針として明文化する**。今後、
 同種の衝突が生じた場合、architectは個別にADRで裁定を仰ぐのではなく、本ADRが定める方針
 （test infrastructure層のcontrol surfaceは画面に追随する、業務契約は対象外、着地は同一PR）に
 まず照らし、方針の範囲内で収まるかを判定してよい。範囲外（業務契約に触れる、または新しい業務

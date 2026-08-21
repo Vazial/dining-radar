@@ -1,6 +1,6 @@
 ---
 id: 0023
-scope: project/toyama-dining-radar
+scope: project/dining-radar
 status: 承認済み
 date: 2026-08-10
 approved_by: "PR #91 のマージをもって承認。本ADRが方式(ii)で保留の条件としていた再承認——衝突する

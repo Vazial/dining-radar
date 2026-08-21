@@ -101,7 +101,7 @@ TDR-CS-00・02・03・05・06・08は前回監査から対象コードに変更�
 - **シナリオに対応しない孤児step**: なし（前回と同様、`candidate_search_steps.py`の全メソッドが呼ばれている構造に変更はない）
 - **同義stepの重複疑い**: なし（前回と同様の判断。Cucumber方式のグローバルstep解決を持たない構成であるため構造的に発生しない）
 - **未使用コードの検出（新規）**: `js_browser_mechanics.py`の`csrf_token`関数が、`candidate_search_browser.py`から呼び出されなくなり未使用になっている（コメント内の参照のみ残存）。テストの正しさには影響しないが、死んだコードとして記録する
-- **govlint(L0)確認**: `python meta/tools/govlint.py`を再実行し、`govlint: エラーなし`を確認した（toyama-dining-radar該当分なし）
+- **govlint(L0)確認**: `python meta/tools/govlint.py`を再実行し、`govlint: エラーなし`を確認した（dining-radar該当分なし）
 - **L4実機実行**: `python manage.py test tests.acceptance`を実行し、`Ran 15 tests in 230.796s` / `OK`（TDR-AUTH 6件・TDR-CS 9件、skip 0・fail 0・error 0、`test_tdr_cs_07`を含め全件pass）を確認した。orchestratorの申告（L0〜L4全緑、L4 15件skipゼロ）と一致することを独立に確認した
 
 ## 4. 前回指摘3点の決着状況
@@ -112,7 +112,7 @@ TDR-CS-00・02・03・05・06・08は前回監査から対象コードに変更�
 
 ## 5. 検証の申告（`meta/adr/0039`）
 
-- **L0（govlint）**: 実機実行。`python meta/tools/govlint.py` → エラー0件（toyama-dining-radar関連のREPORTなし）
+- **L0（govlint）**: 実機実行。`python meta/tools/govlint.py` → エラー0件（dining-radar関連のREPORTなし）
 - **L4（受け入れシナリオ実行）**: 実機実行。`python manage.py test tests.acceptance` → `Ran 15 tests in 230.796s`、`OK`（TDR-AUTH 6件・TDR-CS 9件、skip 0・fail 0・error 0）。orchestratorの事前申告（L0〜L4全緑、L1単体107件・branch coverage 95%・mutation 162/162=100%・L2 7件・L3 67件・L4 15件skipゼロ）と一致することを独立に確認した
 - **波及確認**: `js_browser_mechanics.py`の共有プリミティブのうち、TDR-CS-00/02/03/05/06/08が依存する関数（`is_candidate_proposal_response`・`CapturedApiResponse`・`build_captured_response`・`capture_candidate_proposal_response`・`by_test_id`・`wait_for_at_least_one`・`assert_present`・`assert_absent`・`assert_all_present`・`assert_all_absent`・`require`）が前回監査時点から1バイトも変わっていないことを目視で確認した。変更は`capture_candidate_proposal_response_with_overridden_body`・`_is_candidate_proposal_path`の追加と`Route`のimport追加のみであり、これらはTDR-CS-07の`request_unsupported_lens_directly`からのみ呼ばれる。したがってTDR-CS-00/02/03/05/06/08への波及はないと判断した（L4の実機再実行結果もこれを裏付ける）
 - **L1〜L3**: 実行していない。developerの領分であり、activeContext.md／orchestrator申告に基づく。reviewerの職務範囲はL4のstep/DSL監査であるため、L1〜L3を独自に再実行してその数値を検証してはいない——「検証していない」ことをここに明記する

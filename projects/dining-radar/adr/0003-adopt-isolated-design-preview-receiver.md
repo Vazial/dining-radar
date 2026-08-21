@@ -1,6 +1,6 @@
 ---
 id: 0003
-scope: project/toyama-dining-radar
+scope: project/dining-radar
 status: 承認済み
 date: 2026-08-01
 approved_by: "本PRのマージをもって承認（ADR-0035 方式(i)）"
@@ -28,7 +28,7 @@ ADR-0005の非公開基点・地図通信の境界を誤って広げるおそれ
 
 ### 1. レビュー専用 receiver
 
-`projects/toyama-dining-radar/design-preview/` を、デザイン成果物を人間が確認するだけの
+`projects/dining-radar/design-preview/` を、デザイン成果物を人間が確認するだけの
 隔離されたreceiverとする。画面の成果物は
 `src/screens/CandidateSearchPreview.tsx` のdefault exportである。receiverはReact、TypeScript、
 Tailwind、shadcn/uiおよび利用可能なアイコンを使ってよい。

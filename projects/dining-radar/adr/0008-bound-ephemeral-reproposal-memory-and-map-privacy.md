@@ -1,6 +1,6 @@
 ---
 id: 0008
-scope: project/toyama-dining-radar
+scope: project/dining-radar
 status: 承認済み
 date: 2026-08-03
 approved_by: "人間裁定 2026-08-03（chat: ok）"

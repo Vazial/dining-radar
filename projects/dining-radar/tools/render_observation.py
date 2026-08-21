@@ -11,7 +11,7 @@ Output is written under ``.render-observations/`` at the project root
 (overridable with ``RENDER_OBSERVATION_OUTPUT_DIR``), which is gitignored --
 nothing this tool produces is committed.
 
-Usage (from projects/toyama-dining-radar, with the project's dev extras
+Usage (from projects/dining-radar, with the project's dev extras
 installed and Chromium available -- see pyproject.toml / CI's "Install the
 JS-capable browser" step):
 

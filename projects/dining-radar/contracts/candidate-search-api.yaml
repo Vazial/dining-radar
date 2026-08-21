@@ -93,7 +93,7 @@
 # ブラウザ側の責務であり、サーバはタイムスタンプを一切受け取らない。
 openapi: 3.0.3
 info:
-  title: Toyama Dining Radar Candidate Proposal API
+  title: Dining Radar Candidate Proposal API
   version: 1.1.0
   description: >-
     Produces up to 5 lunch candidates around one private runtime-configured

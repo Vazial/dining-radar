@@ -23,7 +23,7 @@ class ApplicationStructureTests(SimpleTestCase):
         self.assertEqual(service["runtime"], "python")
         self.assertEqual(service["plan"], "free")
         self.assertEqual(service["region"], "singapore")
-        self.assertEqual(service["rootDir"], "projects/toyama-dining-radar")
+        self.assertEqual(service["rootDir"], "projects/dining-radar")
         self.assertEqual(service["healthCheckPath"], "/healthz")
         self.assertEqual(service["autoDeployTrigger"], "checksPass")
         self.assertIn("--workers 1", service["startCommand"])
@@ -202,9 +202,7 @@ class ApplicationStructureTests(SimpleTestCase):
             read_at_runtime |= collect_env_var_names(tree)
 
         env_example_path = PROJECT_ROOT / "env.example"
-        self.assertTrue(
-            env_example_path.exists(), "projects/toyama-dining-radar/env.example must exist"
-        )
+        self.assertTrue(env_example_path.exists(), "projects/dining-radar/env.example must exist")
 
         documented: set[str] = set()
         for line in env_example_path.read_text(encoding="utf-8").splitlines():

@@ -49,7 +49,7 @@ instanceが自動再起動される。
 
 1. Render Dashboardで **New > Blueprint** を選び、このrepositoryを接続する。
 2. Blueprint pathには既定のroot `render.yaml`ではなく、
-   `projects/toyama-dining-radar/render.yaml` を指定する。
+   `projects/dining-radar/render.yaml` を指定する。
 3. 公開対象は承認済み変更がmergeされたbranchを選ぶ。feature branchをproductionへ直結しない。
 4. Blueprint previewで `free`、`singapore`、root directory、build/start command、`/healthz`を確認する。
 5. `sync: false` の各項目へRender Dashboard上でsecretを入力する。**`sync: false` が入力を促すのは

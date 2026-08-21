@@ -1,6 +1,6 @@
 ---
 id: 0002
-scope: project/toyama-dining-radar
+scope: project/dining-radar
 status: 承認済み
 date: 2026-07-30
 approved_by: "本PRのマージをもって承認（人間合意 2026-07-30: public repositoryでは実データ・秘密・生活圏情報を扱わない）"

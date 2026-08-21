@@ -1,4 +1,4 @@
-name: CI toyama-dining-radar
+name: CI dining-radar
 
 # Project-local L1 -> L5 chain (meta/verification.md, meta/adr/0026).
 # This workflow does not change the repository's hard-required checks; L0 remains
@@ -8,17 +8,17 @@ on:
   pull_request:
     branches: [main, "project/**"]
     paths:
-      - "projects/toyama-dining-radar/**"
-      - ".github/workflows/ci-toyama-dining-radar.yml"
+      - "projects/dining-radar/**"
+      - ".github/workflows/ci-dining-radar.yml"
   push:
     branches: [main, "project/**"]
     paths:
-      - "projects/toyama-dining-radar/**"
-      - ".github/workflows/ci-toyama-dining-radar.yml"
+      - "projects/dining-radar/**"
+      - ".github/workflows/ci-dining-radar.yml"
 
 defaults:
   run:
-    working-directory: projects/toyama-dining-radar
+    working-directory: projects/dining-radar
 
 jobs:
   l1-unit-lint:
@@ -30,7 +30,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: projects/toyama-dining-radar/pyproject.toml
+          cache-dependency-path: projects/dining-radar/pyproject.toml
       - name: Install project and verification dependencies
         run: python -m pip install -e ".[dev]"
       - name: Ruff lint and format check
@@ -81,7 +81,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: projects/toyama-dining-radar/pyproject.toml
+          cache-dependency-path: projects/dining-radar/pyproject.toml
       - run: python -m pip install -e ".[dev]"
       - name: Architecture rules
         run: python -m pytest tests/test_structure.py
@@ -96,7 +96,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: projects/toyama-dining-radar/pyproject.toml
+          cache-dependency-path: projects/dining-radar/pyproject.toml
       - run: python -m pip install -e ".[dev]"
       - name: Boundary and test-support contracts
         run: >-
@@ -126,7 +126,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: projects/toyama-dining-radar/pyproject.toml
+          cache-dependency-path: projects/dining-radar/pyproject.toml
       - run: python -m pip install -e ".[dev]"
       # TDR-CS renders its candidate surface client-side, so L4 executes the real
       # screen through a JS-capable browser (meta/verification.md L4, ADR-0009).
@@ -152,7 +152,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: projects/toyama-dining-radar/pyproject.toml
+          cache-dependency-path: projects/dining-radar/pyproject.toml
       - run: python -m pip install -e ".[dev]"
       # These invariants are geometry, focus order, and rendered text on the real
       # screen, so they need the same JS-capable browser L4 uses (ADR-0020

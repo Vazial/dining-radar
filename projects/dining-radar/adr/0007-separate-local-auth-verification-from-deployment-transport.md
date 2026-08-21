@@ -1,6 +1,6 @@
 ---
 id: 0007
-scope: project/toyama-dining-radar
+scope: project/dining-radar
 status: 承認済み
 date: 2026-08-01
 approved_by: "人間裁定 2026-08-01（TDR-AUTH-01〜05・07 はローカル browser L4、TDR-AUTH-06 はローカル L3 設定検証、実 HTTPS transport は deployment slice へ送る）"

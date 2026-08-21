@@ -150,7 +150,7 @@ API細部や将来機能の網羅より、**カード1枚の情報階層と、�
 
 ## 技術前提
 
-成果物は隔離されたレビュー専用 receiver `projects/toyama-dining-radar/design-preview/` だけで描画する。
+成果物は隔離されたレビュー専用 receiver `projects/dining-radar/design-preview/` だけで描画する。
 Django本体・provider・実APIには接続しない。
 
 **receiver の実際の構成（重要）**:
@@ -183,7 +183,7 @@ Django本体・provider・実APIには接続しない。
 
 ## 成果物の指定
 
-`projects/toyama-dining-radar/design-preview/src/screens/CandidateSearchPreview.tsx` を**完全に置き換える
+`projects/dining-radar/design-preview/src/screens/CandidateSearchPreview.tsx` を**完全に置き換える
 raw な TSX ソース1ファイルだけ**を返す。Markdown のコードフェンス、前置きの説明文、実装計画、
 package ファイル、receiver の足場、Django コード、自己完結HTMLを返さない。成果物は**無改変でそのまま
 配置し描画できなければならない**。

@@ -13,7 +13,7 @@ slice: TDR-CS
 agents: [architect, designer, orchestrator]
 cause_category: workflow sequencing
 cause_key: design-commissioned-before-contract-agreement
-pushed_to: [projects/toyama-dining-radar/activeContext.md]
+pushed_to: [projects/dining-radar/activeContext.md]
 status: 対応済み
 principles: [P-05, P-10]
 ```
@@ -60,8 +60,8 @@ agents: [architect, developer, tester]
 cause_category: L4 test infrastructure contract missing
 cause_key: l4-given-seam-contract-missing
 pushed_to:
-  - projects/toyama-dining-radar/contracts/test-support-api.yaml
-  - projects/toyama-dining-radar/ARCHITECTURE.md
+  - projects/dining-radar/contracts/test-support-api.yaml
+  - projects/dining-radar/ARCHITECTURE.md
 status: 対応済み
 principles: [P-02, P-03, P-04, P-10]
 ```
@@ -82,10 +82,10 @@ agents: [architect, developer, tester]
 cause_category: L4 browser observation contract missing
 cause_key: l4-browser-observation-contract-missing
 pushed_to:
-  - projects/toyama-dining-radar/adr/0007-separate-local-auth-verification-from-deployment-transport.md
-  - projects/toyama-dining-radar/contracts/authentication-browser-interface.yaml
-  - projects/toyama-dining-radar/contracts/test-support-api.yaml
-  - projects/toyama-dining-radar/ARCHITECTURE.md
+  - projects/dining-radar/adr/0007-separate-local-auth-verification-from-deployment-transport.md
+  - projects/dining-radar/contracts/authentication-browser-interface.yaml
+  - projects/dining-radar/contracts/test-support-api.yaml
+  - projects/dining-radar/ARCHITECTURE.md
 status: 対応済み
 principles: [P-01, P-03, P-04, P-10]
 ```
@@ -128,8 +128,8 @@ agents: [architect, developer, tester]
 cause_category: L4 test infrastructure contract incomplete (execution model)
 cause_key: l4-render-model-not-contracted
 pushed_to:
-  - projects/toyama-dining-radar/adr/0009-adopt-js-capable-browser-automation-for-candidate-search-l4.md
-  - projects/toyama-dining-radar/ARCHITECTURE.md
+  - projects/dining-radar/adr/0009-adopt-js-capable-browser-automation-for-candidate-search-l4.md
+  - projects/dining-radar/ARCHITECTURE.md
 status: 対応済み
 principles: [P-02, P-05, P-10]
 ```
@@ -164,8 +164,8 @@ agents: [architect]
 cause_category: contract drafted without checking an already-approved conflicting artifact
 cause_key: card-field-equality-rule-vs-approved-display-formatting
 pushed_to:
-  - projects/toyama-dining-radar/contracts/candidate-search-browser-interface.yaml
-  - projects/toyama-dining-radar/adr/0011-separate-visible-formatting-from-raw-value-equality-for-total-seats.md
+  - projects/dining-radar/contracts/candidate-search-browser-interface.yaml
+  - projects/dining-radar/adr/0011-separate-visible-formatting-from-raw-value-equality-for-total-seats.md
 status: 対応済み
 principles: [P-02, P-06, P-08, P-10]
 ```
@@ -204,7 +204,7 @@ agents: [orchestrator]
 cause_category: 記録の書き方が承認行為の時点に依存している
 cause_key: record-update-needs-second-pr
 pushed_to:
-  - projects/toyama-dining-radar/activeContext.md
+  - projects/dining-radar/activeContext.md
 status: 対応済み
 principles: [P-04, P-11]
 ```
@@ -212,7 +212,7 @@ principles: [P-04, P-11]
 - Situation: TDR-CS実装PR（#82）に載せた `activeContext.md` の承認記録を、orchestratorが「**Awaiting approval in the open pull request**」「Next work: 人間承認とマージを得ること」と書いた。ADR-0035 方式(i)では承認行為の実体がそのPRのマージであるため、マージが成立した瞬間にこの2文は事実でなくなり、記録を直すためだけの2本目のPRが必要になった。
 - AI contribution: orchestratorが、記録の文面を**書いている時点の状態**（まだ承認されていない）で固定した。方式(i)を採る以上、記録は**マージ前後のどちらでも真である**書き方——「本PRのマージをもって確定する」——にできたし、契約・ADR側では実際にその書き方をしていた（`.feature` のステータス行、ADRの `approved_by`）。activeContextにだけ同じ配慮が及ばなかった。
 - Downward push: `activeContext.md` の承認記録を、マージ済みの事実として述べる形に直した。cause_key は reservation-system の FR-015・FR-021 と**意図して揃えた**。対象文書は違う（あちらはADR・契約の承認記録、こちらはactiveContext）が、機構は同一である——「承認行為はマージであり、記録を書けるのはマージ前」という時間差を、文面の書き方で吸収しそこねると2本目のPRが要る。
-- Result: リポジトリ全体でこのcause_keyは3回目である。ただし**govlintのcause_key再出現検出はfriction-logファイル単位**であり、プロジェクトを跨いだ再出現を数えられない（ルート `activeContext.md` に既知の穴として記録済み）。したがってこの3回目は機械には見えず、人間が突き合わせない限り「toyama-dining-radarでの1回目」としか映らない。
+- Result: リポジトリ全体でこのcause_keyは3回目である。ただし**govlintのcause_key再出現検出はfriction-logファイル単位**であり、プロジェクトを跨いだ再出現を数えられない（ルート `activeContext.md` に既知の穴として記録済み）。したがってこの3回目は機械には見えず、人間が突き合わせない限り「dining-radarでの1回目」としか映らない。
 
 ## FR-007: Django's single-line-only `{# #}` comment syntax was used across multiple lines, and no machine check read rendered output for stray template delimiters
 
@@ -225,7 +225,7 @@ agents: [developer]
 cause_category: implementation defect invisible to existing test assertions
 cause_key: template-comment-syntax-not-multiline
 pushed_to:
-  - projects/toyama-dining-radar/tests/test_template_syntax.py
+  - projects/dining-radar/tests/test_template_syntax.py
 status: 対応済み
 principles: [P-01, P-10]
 ```
@@ -271,7 +271,7 @@ agents: [orchestrator]
 cause_category: 記録の書き方が承認行為の時点に依存している
 cause_key: record-update-needs-second-pr
 pushed_to:
-  - projects/toyama-dining-radar/activeContext.md
+  - projects/dining-radar/activeContext.md
 status: 対応済み
 principles: [P-04, P-10, P-11]
 ```
@@ -292,8 +292,8 @@ agents: [architect, developer]
 cause_category: existing general verification rule not applied when a client-rendering satellite was introduced
 cause_key: client-js-l1-not-provisioned
 pushed_to:
-  - projects/toyama-dining-radar/adr/0014-establish-client-js-unit-verification-layer.md
-  - projects/toyama-dining-radar/ARCHITECTURE.md
+  - projects/dining-radar/adr/0014-establish-client-js-unit-verification-layer.md
+  - projects/dining-radar/ARCHITECTURE.md
 status: 対応済み
 principles: [P-01, P-02, P-05, P-10]
 ```
@@ -330,8 +330,8 @@ agents: [architect]
 cause_category: new contract enum member added without checking interaction with an existing fixed-size array constraint
 cause_key: concept-kind-addition-vs-reproposal-cap-unchecked
 pushed_to:
-  - projects/toyama-dining-radar/adr/0016-retire-genre-variety-for-try-again-and-fix-reproposal-capacity.md
-  - projects/toyama-dining-radar/contracts/candidate-search-api.yaml
+  - projects/dining-radar/adr/0016-retire-genre-variety-for-try-again-and-fix-reproposal-capacity.md
+  - projects/dining-radar/contracts/candidate-search-api.yaml
 status: 対応済み
 principles: [P-02, P-08, P-10]
 ```
@@ -372,8 +372,8 @@ agents: [architect]
 cause_category: existing contract constraint changed without checking its interaction with a mechanism defined in a different, unrelated ADR
 cause_key: display-cap-silently-disables-repeat-demotion
 pushed_to:
-  - projects/toyama-dining-radar/adr/0017-move-repeat-demotion-to-server-and-remove-business-hours.md
-  - projects/toyama-dining-radar/contracts/candidate-search-api.yaml
+  - projects/dining-radar/adr/0017-move-repeat-demotion-to-server-and-remove-business-hours.md
+  - projects/dining-radar/contracts/candidate-search-api.yaml
 status: 対応済み
 principles: [P-02, P-08, P-10]
 ```
@@ -418,8 +418,8 @@ agents: [architect]
 cause_category: 契約の除外根拠として、同一ドラフト内で自ら書き足した文をあたかも独立した既存決定であるかのように引用した
 cause_key: adr-cites-own-session-edit-as-independent-precedent
 pushed_to:
-  - projects/toyama-dining-radar/adr/0019-refine-comparison-lenses-and-card-fields-from-field-survey.md
-  - projects/toyama-dining-radar/product-brief.md
+  - projects/dining-radar/adr/0019-refine-comparison-lenses-and-card-fields-from-field-survey.md
+  - projects/dining-radar/product-brief.md
 status: 対応済み
 principles: [P-01, P-06, P-08, P-10]
 ```
@@ -460,7 +460,7 @@ agents: [developer]
 cause_category: new verification gate made pass/fail depend on a browser API whose value is unspecified for the state being measured
 cause_key: gate-depends-on-unspecified-browser-geometry
 pushed_to:
-  - projects/toyama-dining-radar/tests/ui_invariants/test_render_invariants.py
+  - projects/dining-radar/tests/ui_invariants/test_render_invariants.py
 status: 対応済み
 principles: [P-01, P-04, P-10]
 ```
@@ -498,7 +498,7 @@ agents: [orchestrator]
 cause_category: completion reported from a partial gate result instead of the full one
 cause_key: orchestrator-reports-completion-before-gate-result
 pushed_to:
-  - projects/toyama-dining-radar/friction-log.md
+  - projects/dining-radar/friction-log.md
 status: 対応済み
 principles: [P-01, P-07, P-10]
 ```
@@ -529,8 +529,8 @@ agents: [architect, orchestrator]
 cause_category: 人間の裁定として記録した内容が、同じ記録に引用された人間自身の発言と矛盾しており、却下の理由も人間の理由ではなく既存文書の引用だけで構成されていた
 cause_key: adr-records-rejection-contradicting-human-quoted-words
 pushed_to:
-  - projects/toyama-dining-radar/adr/0016-retire-genre-variety-and-add-same-lens-retry.md
-  - projects/toyama-dining-radar/adr/0023-replace-concept-lenses-with-filters-sort-and-randomized-pool-selection.md
+  - projects/dining-radar/adr/0016-retire-genre-variety-and-add-same-lens-retry.md
+  - projects/dining-radar/adr/0023-replace-concept-lenses-with-filters-sort-and-randomized-pool-selection.md
 status: 対応済み
 principles: [P-01, P-04, P-06, P-08, P-10]
 ```
@@ -573,9 +573,9 @@ agents: [architect, orchestrator]
 cause_category: 承認記録が承認行為の時点に依存しており、1本のPRで閉じられない
 cause_key: record-update-needs-second-pr
 pushed_to:
-  - projects/toyama-dining-radar/adr/0021-adopt-free-render-neon-deployment-topology.md
-  - projects/toyama-dining-radar/adr/0022-expose-identity-free-population-filter-attributes.md
-  - projects/toyama-dining-radar/product-brief.md
+  - projects/dining-radar/adr/0021-adopt-free-render-neon-deployment-topology.md
+  - projects/dining-radar/adr/0022-expose-identity-free-population-filter-attributes.md
+  - projects/dining-radar/product-brief.md
 status: 未対応
 principles: [P-04, P-10, P-11]
 ```
@@ -620,8 +620,8 @@ agents: [orchestrator]
 cause_category: 承認記録が承認行為の時点に依存しており、1本のPRで閉じられない
 cause_key: record-update-needs-second-pr
 pushed_to:
-  - projects/toyama-dining-radar/adr/0023-replace-concept-lenses-with-filters-sort-and-randomized-pool-selection.md
-  - projects/toyama-dining-radar/activeContext.md
+  - projects/dining-radar/adr/0023-replace-concept-lenses-with-filters-sort-and-randomized-pool-selection.md
+  - projects/dining-radar/activeContext.md
 status: 未対応
 principles: [P-04, P-06, P-10, P-11]
 ```
@@ -665,7 +665,7 @@ agents: [orchestrator]
 cause_category: 承認記録が承認行為の時点に依存しており、1本のPRで閉じられない
 cause_key: record-update-needs-second-pr
 pushed_to:
-  - projects/toyama-dining-radar/adr/0025-disclose-search-origin-and-walking-time-to-the-authenticated-screen.md
+  - projects/dining-radar/adr/0025-disclose-search-origin-and-walking-time-to-the-authenticated-screen.md
 status: 未対応
 principles: [P-04, P-06, P-10]
 ```
@@ -691,3 +691,92 @@ principles: [P-04, P-06, P-10]
   人間が開錠しない判断もありうるが、その場合この種の記録の遅れは恒久的なものとして扱うべきで
   あり、規約側の文言追加はもう試すべきではない。
 
+
+---
+
+## FR-019: 作業を切り出したorchestratorのブリーフが、実測と称して3倍過大な数字と存在しないファイルを書いていた
+
+```yaml
+id: FR-019
+date: 2026-08-20
+found_at: AI
+slice: プロジェクト改名（toyama-dining-radar → dining-radar）
+agents: [orchestrator]
+cause_category: 伝達の構造
+cause_key: handoff-brief-asserts-unverified-measurements
+pushed_to:
+  - projects/dining-radar/adr/0026-rename-project-to-remove-real-place-name.md
+status: 対応済み
+principles: [P-01, P-04]
+```
+
+- 事象: 改名作業を切り出したブリーフは「**実測した範囲（2026-08-20時点）**」という見出しの下に
+  次を書いていた。着手時に検証したところ、4つのうち3つが誤りだった。
+  - 「170ファイル・629箇所」→ 実際は tracked で **57ファイル・143箇所**。ブリーフの
+    `grep -ril toyama --exclude-dir=.git` は `node_modules`・`__pycache__` 等のビルド生成物を
+    数えており、`.gitignore` を考慮していなかった
+  - 「Pythonパッケージ名がスネークケース `toyama_dining_radar` で別に存在する。`pyproject.toml` の
+    パッケージ名、`src/` 配下のディレクトリ名、全 import 文、テストの import が対象」→ **誤り**。
+    パッケージは以前から `dining_radar` で地名を含まない。`toyama_dining_radar` は0箇所
+  - 「`src/toyama_dining_radar.egg-info` が存在する。追跡対象か確認し、追跡されていれば削除して
+    .gitignore を確認する」→ **リポジトリ内に `*.egg-info` は追跡・未追跡とも存在しない**
+  - 「ブランチ保護の必須チェック名が変わる可能性があるので、リネーム後に GitHub 側の設定確認が要る」
+    → required は `L0: 統治文書の整合(govlint)` の1本のみで、`ci-<project>.yml` のジョブ名は
+    入っていない。**設定変更は発生しない**
+- 原因の仮説: ブリーフは本体の作業コピー（ビルド生成物と仮想環境を含む）の上で `grep` を1回走らせ、
+  その出力から**パッケージ構成を推論した**。`src/toyama_dining_radar.egg-info` は
+  `pip install -e .` が配布名 `toyama-dining-radar` から生成したディレクトリであり、パッケージ名では
+  ない。つまり「配布名」と「import されるパッケージ名」の区別が付いていないまま、生成物の名前を
+  ソースの構成として書いた。「実測した範囲」という見出しが、この推論を計測結果の外見に変えた。
+- 押し込み先: 機械化しない。**このリポジトリで数える対象は tracked なファイルであり、
+  `grep -r --exclude-dir=.git` ではなく `git grep` を使う**という一点に尽きるが、これは規約を
+  1行足しても守られる性質のものではない（守られなかった規約を数えてきた FR-016〜FR-018 と同じ轍）。
+  代わりに ADR-0026 の文脈節へ**実測値と、見積もりがなぜ外れたか**を残した——次に同じ規模見積もりを
+  する者が、この差分の出どころ（ビルド生成物・配布名とパッケージ名の混同）を具体例として読める。
+- 補足: 実害は無かった。着手前に `git grep` で数え直したため、誤った見積もりに沿って作業した工程は
+  無い。**記録する理由は、この誤りが「見積もりが大きすぎた」ではなく「存在しないものを実測として
+  書いた」ことにある**——存在しない `egg-info` の削除と `.gitignore` の確認を指示されており、
+  検証せずに従っていれば、無いファイルを探して時間を使うか、`.gitignore` を不要に触っていた。
+
+---
+
+## FR-020: ADR採番の衝突が3回目。相手が未pushのローカルブランチで、規程が定める確認手順では原理的に見えなかった
+
+```yaml
+id: FR-020
+date: 2026-08-20
+found_at: AI
+slice: プロジェクト改名（toyama-dining-radar → dining-radar）
+agents: [orchestrator]
+cause_category: 既存の規程を確認せず採番した
+cause_key: adr-numbering-check-skipped
+pushed_to:
+  - projects/dining-radar/adr/0026-rename-project-to-remove-real-place-name.md
+status: 対応済み
+principles: [P-04, P-08]
+```
+
+- 事象: 改名を記録するADRを `adr/0025` として書き上げた後、`0025` が**未push・未マージのローカル
+  ブランチ `docs/tdr-cs-origin-and-walking-time` に既に存在する**ことが分かった。相手は「検索基点と
+  徒歩時間を認証済み画面へ出す」判断で、TDR-CSの契約4本・`product-brief.md`・探索ラフ3枚を含む
+  1615行の変更を持ち、**旧パス配下へのファイル追加**である以上、ディレクトリを丸ごと動かす改名とは
+  構造的にぶつかる。**気づいたのは採番の確認をしたからではなく、テストの失敗が改名由来かを本体の
+  作業コピーで確かめる作業でたまたま `git branch -vv` を見たからである。** 気づかなければ govlint の
+  `id が scope 内で重複している（project/dining-radar#0025）` を昇格前マージで踏んでいた。
+- 原因の仮説: 着手前の衝突確認として `gh pr list` を実行し、0本という結果から「並行作業なし」と
+  判断した。**この確認は未pushのローカルブランチを原理的に見ない。** `meta/adr/0026` 決定4が定める
+  クロスプロジェクト協調手順も `gh pr list ... headRefName` を起点にしており、同じ死角を持つ。
+  FR-023（reservation-system）の1回目は「規程を守っても防げない競合」、2回目は「規程を守らなかった」
+  と分類されたが、**3回目は「規程が定める手順を守っても防げない」型であり、1回目に近い**。
+- 押し込み先: 採番の確認手順に `git branch -vv` を足す、という1行が素直な案だが、**FR-016〜FR-018 が
+  示したとおり「手順に1行足す」は6回連続で失敗している**。より効くのは govlint が採番衝突を検出する
+  位置を早めることだが、それは `meta/tools/**` の開錠（`meta/adr/0046`）が要る。今回は ADR-0026 の
+  文脈節に衝突の事実と解決の順序を書き、**この記録自体を次の起草者への材料にするに留める**。
+- 補足: 解決は**改名を保留し、衝突する相手（PR #106・#107）を先にマージしてから改名を作り直す**
+  という順序で行った。人間の判断による。**どちらを先に通すかは「作り直しが安いほうを後にする」で
+  決まる**——改名の中身は機械的な置換なので再現の費用がほぼ無く、あちらは判断と設計を含むため
+  リベースの費用が高い。採番も、あちらがマージされた後は `0026` が単に次の番号になり、衝突が
+  消えた。`meta/adr/0026` は同じ状況（未マージPRが `0025` を使用中）で `0026` を名乗った先例であり、
+  本件はその2例目である。**採番が「先にマージした者勝ち」である以上、この衝突は構造的に起き続ける**
+  ——規程で消せる性質のものではなく、検出を早めるか、採番を後置き（マージ時に確定）にするかの
+  どちらかしか根治にならない。後者はADRのファイル名が決定の識別子として機能していることと衝突する。

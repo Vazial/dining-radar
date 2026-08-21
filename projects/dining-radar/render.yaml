@@ -1,10 +1,10 @@
 services:
   - type: web
-    name: toyama-dining-radar
+    name: dining-radar
     runtime: python
     plan: free
     region: singapore
-    rootDir: projects/toyama-dining-radar
+    rootDir: projects/dining-radar
     buildCommand: bash build.sh
     startCommand: >-
       gunicorn dining_radar.wsgi:application
