@@ -1,6 +1,6 @@
 ---
 id: 0005
-scope: project/toyama-dining-radar
+scope: project/dining-radar
 status: 承認済み
 date: 2026-08-01
 approved_by: "本PRのマージをもって承認（ADR-0035 方式(i)、人間裁定 2026-08-01: ログイン後は候補と位置関係を直ちに表示し、別の切り口は再提案時のポップアップで選ぶ）"

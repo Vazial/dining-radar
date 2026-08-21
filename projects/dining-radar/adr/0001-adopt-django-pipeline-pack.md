@@ -1,6 +1,6 @@
 ---
 id: 0001
-scope: project/toyama-dining-radar
+scope: project/dining-radar
 status: 承認済み
 date: 2026-07-30
 approved_by: "本PRのマージをもって承認（人間合意 2026-07-30: Django中心のPython構成でfoundationを起草する）"

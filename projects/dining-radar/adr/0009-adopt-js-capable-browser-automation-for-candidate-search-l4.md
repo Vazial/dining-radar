@@ -1,6 +1,6 @@
 ---
 id: 0009
-scope: project/toyama-dining-radar
+scope: project/dining-radar
 status: 承認済み
 date: 2026-08-04
 approved_by: "本PRのマージをもって承認（ADR-0035 方式(i)、人間裁定 2026-08-04: TDR-CSのL4はJS実行可能なブラウザ自動化を用いて実画面に対して実行する。却下: (B) 候補面をサーバレンダリングに寄せる／(C) 該当のThen節をL5走破に委ねる）"
@@ -124,7 +124,7 @@ HTMLではなく**クライアント側JS実行後の実画面**に対して行�
   step定義とDSLをJS実行可能なツール向けに書き直す。新規・変更されたstep定義とDSLの差分は、
   `meta/verification.md` L4詳細(2)の対訳表つき人間承認を要する（既存ルールの適用であり本ADRが
   新設するものではない）。
-- CI（`.github/workflows/ci-toyama-dining-radar.yml`）へのブラウザバイナリ導入・L4ジョブ追加と、
+- CI（`.github/workflows/ci-dining-radar.yml`）へのブラウザバイナリ導入・L4ジョブ追加と、
   Python側の開発依存追加（`pyproject.toml` dev extras）はorchestrator/tester側の実装作業であり、
   本ADRの範囲外（architectは`.github/workflows/**`を編集しない）。reservation-frontendの
   `ci-reservation-frontend.yml` L4ジョブ構成が参照可能な先例である。

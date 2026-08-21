@@ -1,4 +1,4 @@
-# Toyama Dining Radar acceptance contract — TDR-AUTH authentication and public access
+# Dining Radar acceptance contract — TDR-AUTH authentication and public access
 # ステータス: 承認済み(2026-07-31) — PR #67 のマージをもって人間が承認した（meta/adr/0035 方式(i)）。
 #   変更には再承認が必要。この行の形式は meta/adr/0043 の機械検証が要求する
 #

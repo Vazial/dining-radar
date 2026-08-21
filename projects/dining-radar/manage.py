@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Django command entry point for the Toyama Dining Radar application."""
+"""Django command entry point for the Dining Radar application."""
 
 import os
 import sys

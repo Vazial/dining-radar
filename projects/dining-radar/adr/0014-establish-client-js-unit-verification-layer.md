@@ -1,6 +1,6 @@
 ---
 id: 0014
-scope: project/toyama-dining-radar
+scope: project/dining-radar
 status: 承認済み
 date: 2026-08-06
 approved_by: "本PRのマージをもって承認（ADR-0035 方式(i)、人間裁定 2026-08-06 chat: 『(A) 素のJSのまま、JSの単体検証層だけ足す』を採用。却下: (B) サーバ描画を増やしてJSを減らす／(C) 現状維持）"
@@ -48,7 +48,7 @@ relates_to: [P-01, P-02, P-04, P-05, P-09, P-10, TDR-CS-01, TDR-CS-02, TDR-CS-03
 | 検証している層 | L1・L2・L3・L4 | **L4のみ**（受け入れ15件） |
 
 `jest`・`vitest`・`eslint`・`jsdom`・`node`・`npm`は、当プロジェクトの`pyproject.toml`にも
-`ci-toyama-dining-radar.yml`にも一切現れない。`candidate.js`はTDR-CS本体スライス（ADR-0009）で
+`ci-dining-radar.yml`にも一切現れない。`candidate.js`はTDR-CS本体スライス（ADR-0009）で
 生まれ、ADR-0012・ADR-0013の2回の洗練スライスを経て現在の543行まで育ったが、そのいずれの時点でも
 L1（単体テスト）に相当する機械検証は一度も導入されなかった。
 
@@ -126,7 +126,7 @@ P-06（決定は更新せず、新しい決定で置き換える。編集禁止�
 
 ### 3. 置き場: `design-preview/`とは別の、独立した検証専用npmプロジェクトを新設する
 
-新しいテストプロジェクトは、`projects/toyama-dining-radar/design-preview/`と同居させない。
+新しいテストプロジェクトは、`projects/dining-radar/design-preview/`と同居させない。
 
 **理由**: `adr/0003`決定1は、design-preview receiverについて「本番の配信ルート・ビルドへ含めず、
 **本番コードからimportしない**」と明記している。`candidate.js`（出荷される本番コード）をテスト対象と
@@ -135,7 +135,7 @@ design-preview receiverの目的（合成データのみを用いた画面レビ
 本ADRの目的（出荷コードの単体テスト）はそもそも別の関心であり、同居させると両者の境界が曖昧になる。
 
 **推奨する置き場**（developerが最終決定してよい。P-04: 命名の細部までADRで固定しない）:
-`projects/toyama-dining-radar/`直下に、`design-preview/`と並ぶ独立したディレクトリ
+`projects/dining-radar/`直下に、`design-preview/`と並ぶ独立したディレクトリ
 （例: `client-js-tests/`）を新設し、そこに専用の`package.json`を置く。この`package.json`は
 `design-preview/`と同様に`"private": true`とし、`dependencies`を持たない（テスト実行に必要な
 ツール一式はすべて`devDependencies`——Pythonの`[project.optional-dependencies] dev`と同じ位置づけ）。
@@ -239,7 +239,7 @@ P-02（そのスライスに必要な契約・決定だけを確定し、未来�
 一度も適用されず、かつどの役割の検証申告・監査（`reviews/audit-tdr-cs.md`・
 `reviews/audit-pre-live-data.md`を含む）でもこの欠落が指摘されなかった。これはAIの見逃しに
 該当すると判定し、friction-logにFR-009として記録する（決定内容は本ADR末尾の帰結、実際の追記は
-`projects/toyama-dining-radar/friction-log.md`側）。
+`projects/dining-radar/friction-log.md`側）。
 
 ### 10. `ARCHITECTURE.md`・`design.md`の更新要否
 

@@ -1,4 +1,4 @@
-# Toyama Dining Radar candidate-search browser acceptance interface
+# Dining Radar candidate-search browser acceptance interface
 #
 # Test infrastructure only. This is the machine-readable control-surface and
 # observation SSoT for TDR-CS acceptance work. It neither creates a public API

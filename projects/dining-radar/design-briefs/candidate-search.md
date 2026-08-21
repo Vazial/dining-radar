@@ -90,7 +90,7 @@
 
 ## 技術前提
 
-- 成果物は、隔離された査読専用receiver `projects/toyama-dining-radar/design-preview/` だけで描画する。Django本体、provider、実APIへ接続しない。
+- 成果物は、隔離された査読専用receiver `projects/dining-radar/design-preview/` だけで描画する。Django本体、provider、実APIへ接続しない。
 - React + TypeScriptのdefault-export TSX screenとし、Tailwindおよびreceiverで利用可能なshadcn/ui component、Lucide iconを使ってよい。
 - 合成表示データとレビュー状態だけをscreen内に持たせる。network call、persistence、local storage、本番状態管理を持たせない。
 - 実店舗、実地点、地名、緯度経度、数値距離、provider response、provider ID、credential、keyed URL、provider画像を含めない。店舗名・ジャンル・紹介などは、架空であることが明確な日本語サンプルにする。店舗詳細リンクは `https://example.invalid/` 配下の不活性な合成URLにする。
@@ -100,7 +100,7 @@
 
 ## 成果物の指定
 
-`projects/toyama-dining-radar/design-preview/src/screens/CandidateSearchPreview.tsx` のrawで完全な実行可能ソースだけを返す。Markdown fence、説明文、実装計画、package file、receiver scaffolding、Django code、自己完結HTMLを返さない。成果物は無改変で配置・描画できなければならない。
+`projects/dining-radar/design-preview/src/screens/CandidateSearchPreview.tsx` のrawで完全な実行可能ソースだけを返す。Markdown fence、説明文、実装計画、package file、receiver scaffolding、Django code、自己完結HTMLを返さない。成果物は無改変で配置・描画できなければならない。
 
 成果物には次を含める。
 

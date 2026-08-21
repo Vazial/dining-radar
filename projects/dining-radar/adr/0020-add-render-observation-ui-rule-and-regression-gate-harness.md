@@ -1,12 +1,12 @@
 ---
 id: 0020
-scope: project/toyama-dining-radar
+scope: project/dining-radar
 status: 承認済み
 date: 2026-08-12
 approved_by: "本PRのマージをもって承認（ADR-0035方式(i)の準用。人間裁定 2026-08-12 chat: 『UI/UXが
   うまく作ってくれない』という問題提起に対し、orchestratorの診断を受け、(1) developerが自分の描画結果を
   見る手段、(2) 人間のUIクリティークに相当するUI規則の機械化、(3) UI劣化を止める回帰ゲート（人間の呼称
-  『VRT』）の3層を足すことを決定した。適用範囲はtoyama-dining-radarでの先行実証とし、meta層の共通
+  『VRT』）の3層を足すことを決定した。適用範囲はdining-radarでの先行実証とし、meta層の共通
   ハーネス化は先送りする。具体の検証段への位置づけ・ゲート/非ゲートの線引き・meta/adr/0021と
   meta/adr/0024が既に退けた反対論拠への回答は、architectの翻訳判断に委ねられている"
 supersedes: []
@@ -24,7 +24,7 @@ relates_to:
 > ページ本文化という3件の実バグを生んだ。いずれもorchestratorの実機測定でしか見つからなかった
 > （`activeContext.md`）。人間は2026-08-12のチャットで、**(1)** developerが自分の描画を見る手段、
 > **(2)** 人間のUIクリティークの機械化、**(3)** UI劣化を止める回帰ゲート（人間の呼称で「VRT」）の3層を
-> **toyama-dining-radarで先に実証する**ことを決めた。本ADRはこれを次のとおり具体化する。
+> **dining-radarで先に実証する**ことを決めた。本ADRはこれを次のとおり具体化する。
 >
 > **本ADRが提案するのは、`meta/adr/0021`・`meta/adr/0024`が明示的に退けた「全画面ピクセル差分ゼロ
 > 許容のVRT」ではない。** 退けられた理由（洗練のたびにピクセルが動き、字義通り運用すると警報が
@@ -56,7 +56,7 @@ relates_to:
 ### 0. 検証の申告（meta/adr/0039）
 
 本ADRが依拠する事実——3件の実バグの内容、390×844/1440×900における実測値（地図の到達可能性・
-ヘッダ高・controlの寸法）、`playwright`が`pyproject.toml`のdev extraに既にあり`ci-toyama-dining-radar.yml`の
+ヘッダ高・controlの寸法）、`playwright`が`pyproject.toml`のdev extraに既にあり`ci-dining-radar.yml`の
 L4ジョブが既に`python -m playwright install --with-deps chromium`を実行していること、`developer`が
 `tests/acceptance/steps/`・`dsl/`に触れないこと、`.claude/settings.json`の`deny`が`meta/tools/**`・
 `build.gradle*`だけを施錠し`projects/*/tools/`は施錠されていないこと、`meta/verification.md` L5が
@@ -86,7 +86,7 @@ orchestratorは390×844と1440×900の実機で手作業により、地図の上
 
 人間は次の3層を足すことを決めた。**(1)** developerが自分の描画結果を見る手段。**(2)** 人間のUI
 クリティークに相当するUI規則の機械化。**(3)** UI劣化を止める回帰ゲート（人間はこれを「VRT」と呼んで
-選択した）。適用範囲は**toyama-dining-radarで先に実証する**（meta層の共通ハーネス化は先送りする）。
+選択した）。適用範囲は**dining-radarで先に実証する**（meta層の共通ハーネス化は先送りする）。
 
 人間が実際にこれまで出したUIクリティーク（`activeContext.md`・orchestratorの供給事実）は次の5件で
 ある: (a) 730px幅で地図が折り返して下に落ちスクロールが必要、(b) 専門用語「切り口」がカスタマー向け
@@ -237,7 +237,7 @@ surfaceの明示・ユースケース走破）はいずれも無変更のまま�
 翻訳ではなく、決定4がこのADRで既に確定した機械的な規則の実装にすぎない）。
 
 **推奨する置き場所**（developerが最終決定してよい。P-04・ADR-0014と同じく命名の細部までADRで固定
-しない）: `projects/toyama-dining-radar/tests/`直下に、既存の`tests/acceptance/`と並ぶ独立した
+しない）: `projects/dining-radar/tests/`直下に、既存の`tests/acceptance/`と並ぶ独立した
 ディレクトリ（例: `tests/ui_invariants/`）を新設する。既存の`tests/acceptance/test_candidate_search_acceptance.py`
 が使うのと同じ`StaticLiveServerTestCase`+`sync_playwright`の実行基盤を再利用してよいが、Gherkin
 シナリオ・step定義・DSLとしては書かない——決定4の各項目を直接アサートする通常のテスト関数とする。
@@ -251,7 +251,7 @@ surfaceの明示・ユースケース走破）はいずれも無変更のまま�
 `tools/check_mutation_score.py`を置いている前例がある。決定1(1)の描画観測ツール（比較を行わない
 単純なスクリーンショット取得スクリプト）は、この`tools/`配下、または新設ディレクトリのいずれに
 置いてもよく、developerの裁量とする。**依存の追加は不要**——`playwright>=1.48,<2`は既に
-`pyproject.toml`のdev extraにあり、CI（`ci-toyama-dining-radar.yml`）のL4ジョブが既に
+`pyproject.toml`のdev extraにあり、CI（`ci-dining-radar.yml`）のL4ジョブが既に
 `python -m playwright install --with-deps chromium`を実行している。
 
 **CIへの配線（本ADRの範囲外）**: `.github/workflows/**`の編集はorchestratorの領分であり
@@ -297,7 +297,7 @@ outcome」）は、UIの幾何・操作面の欠陥ではなく、**step定義�
 規則を書かない（P-02・P-05）。
 
 **meta層（`meta/verification.md`・他プロジェクトへの一般化）は本ADRの範囲に含めない**。理由は3つ。
-(i) 人間の決定そのものが「toyama-dining-radarで先に実証する」であり、実証前の一般化は時期尚早
+(i) 人間の決定そのものが「dining-radarで先に実証する」であり、実証前の一般化は時期尚早
 （P-05）。(ii) メタADRの起草は`meta/adr/0047`によりorchestratorの領分であり、architectはメタADRを
 起草しない——本ADRはメタ層の変更を一切提案せず、`meta/verification.md`の変更が不要であることを
 決定2で確認するに留める。(iii) `activeContext.md`の「未解決の問い」節は既に、

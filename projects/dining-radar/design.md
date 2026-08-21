@@ -1,4 +1,4 @@
-# design.md — Toyama Dining Radar 設計骨子
+# design.md — Dining Radar 設計骨子
 
 > **承認者向けサマリ**: 非公開のruntime検索条件から店舗候補と代替候補を得るDjangoモノリスの設計骨格である。外部provider連携と候補の適格性判定・順位付けを分離し、公開Gitにはschema migrationと合成fixtureだけを置く。この製品は実データの長期保存、利用履歴、ブラックリストを持たない。
 

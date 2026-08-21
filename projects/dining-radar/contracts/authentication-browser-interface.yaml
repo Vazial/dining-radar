@@ -1,4 +1,4 @@
-# Toyama Dining Radar authentication browser acceptance interface
+# Dining Radar authentication browser acceptance interface
 #
 # This is test infrastructure, not a new public API. It is the machine-readable
 # control-surface and observation SSoT for local authentication acceptance work.
@@ -10,7 +10,7 @@
 # observes server-rendered HTML only. This was needed because
 # candidate-search-browser-interface.yaml now allows grouping auth-sign-out
 # and auth-password-change-open behind a menu-style disclosure control
-# (projects/toyama-dining-radar/adr/0013), and an implementation that
+# (projects/dining-radar/adr/0013), and an implementation that
 # inserted those controls purely via client-side JavaScript would silently
 # break this file's existing plain-HTTP observation. No scenario, test id,
 # or security observation changed. This amendment becomes durable when its
@@ -101,7 +101,7 @@ browserControlSurface:
       including auth-sign-out and auth-password-change-open when an
       implementation groups them behind a disclosure control (for example
       candidate-search-browser-interface.yaml's auth-account-menu-toggle
-      purpose, added by projects/toyama-dining-radar/adr/0013) -- must exist
+      purpose, added by projects/dining-radar/adr/0013) -- must exist
       in the server-rendered HTML markup returned by that response. A
       control that only client-side JavaScript inserts into the DOM after
       load is absent for this profile's purposes, even though a JS-capable

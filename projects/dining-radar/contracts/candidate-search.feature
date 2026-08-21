@@ -1,4 +1,4 @@
-# Toyama Dining Radar acceptance contract — TDR-CS candidate proposals
+# Dining Radar acceptance contract — TDR-CS candidate proposals
 # ステータス: 承認待ち — adr/0024 のドラフト改訂（未マージ）。承認方式はADR-0035の(ii)（記録のみ・
 #   承認は後日）。人間はまだこの改訂を承認していない。
 #

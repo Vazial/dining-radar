@@ -1,6 +1,6 @@
 ---
 id: 0018
-scope: project/toyama-dining-radar
+scope: project/dining-radar
 status: 提案中
 date: 2026-08-09
 approved_by: null

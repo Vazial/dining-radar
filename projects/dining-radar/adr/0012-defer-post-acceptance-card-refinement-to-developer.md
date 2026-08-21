@@ -1,6 +1,6 @@
 ---
 id: 0012
-scope: project/toyama-dining-radar
+scope: project/dining-radar
 status: 承認済み
 date: 2026-08-06
 approved_by: "本PRのマージをもって承認（ADR-0035 方式(i)、人間裁定 2026-08-06 chat: 『外部AIに依存しすぎるのはつらいので、ベースはGeminiで、それ以降はClaudeが修正で試してみようか。ダメなら別途考えよう』）"
@@ -112,7 +112,7 @@ meta/adr/0017・0018 が定める洗練ループとescape hatch（実用水準�
 受理されているため、escape hatchの発動条件に当たらない。
 
 `projects/reservation-frontend/adr/0004` に相当する、本プロジェクト専用の「モック承認プロセスADR」
-（忠実度・洗練回数N・escape hatchの優先順位を包括的に定めるADR）は、toyama-dining-radarには存在せず、
+（忠実度・洗練回数N・escape hatchの優先順位を包括的に定めるADR）は、dining-radarには存在せず、
 **本ADRはその位置を占めない**。理由は次の2点である。
 
 1. 本ADRは round 2 以降の1つの分岐点についてのみ決定するものであり、忠実度の定義・Nの一般値・escape

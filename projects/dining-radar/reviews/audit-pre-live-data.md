@@ -1,11 +1,11 @@
-# 監査レポート: toyama-dining-radar 実データ運用前の契約・モデル・アーキテクチャ整合性監査
+# 監査レポート: dining-radar 実データ運用前の契約・モデル・アーキテクチャ整合性監査
 
 - 作成: architect
 - 監査対象: `product-brief.md`・`design.md`・`ARCHITECTURE.md`・`friction-log.md`（FR-001〜FR-008）・
   `adr/0001`〜`0013`（全13本）・`contracts/**`（`.feature` 2本、`*-api.yaml` 2本、
   `*-browser-interface.yaml` 2本、`test-support-api.yaml`）・`src/**`・`tests/**`・`env.example`・
   `pyproject.toml`・`reviews/audit-tdr-cs.md`・`design/reconciliation/**`・`design-briefs/**`・
-  `design-preview/**`・`.github/workflows/ci-toyama-dining-radar.yml`
+  `design-preview/**`・`.github/workflows/ci-dining-radar.yml`
 - 権限上の制約: architectはBashを持たない。以下は**すべて `Read`/`Grep`/`Glob` による静的な突き合わせ**であり、
   CI・テストスイートを自分で実行したものは1件もない。「実行して緑を確認した」という記述はどこにもない
   ——orchestrator/reviewerの既存申告（L0〜L4全緑、L4 15件skipゼロ）を**そのまま信頼しており、独立に再実行して
@@ -217,7 +217,7 @@ design.md「後続スライスへの条件」がいずれも既に開示して�
   `integrations/hotpepper`）は`src/dining_radar`の実際のパッケージ構成と一致する。`records`
   モジュールは存在しないが、これはADR-0008が意図的に導入を見送った結果であり、ARCHITECTURE.mdの
   モジュール表にも`records`は載っていない——一致している。検証境界節の記述（L1〜L4の担当）も
-  実際のCI構成（`ci-toyama-dining-radar.yml`）と一致する。唯一の逸脱が上記2節の`Referrer-Policy`
+  実際のCI構成（`ci-dining-radar.yml`）と一致する。唯一の逸脱が上記2節の`Referrer-Policy`
 - **product-brief.md**: 受け入れの目安（コンセプト起点の比較、再提案での切り口変更、非公開情報の
   非露出）はTDR-CS/TDR-AUTHシナリオと実装によって満たされている
 
@@ -227,7 +227,7 @@ design.md「後続スライスへの条件」がいずれも既に開示して�
 
 監査の過程で見た範囲では、致命的な欠落は無い。軽微な観察を2点のみ記す。
 
-- **`authentication-acceptance-review.md`が`projects/toyama-dining-radar/`直下に置かれている**
+- **`authentication-acceptance-review.md`が`projects/dining-radar/`直下に置かれている**
   （`reviews/`配下ではない）。内容は既に解消済みのTDR-AUTH監査の記録であり、先例
   （`reviews/audit-tdr-cs.md`）に倣うなら`reviews/`配下にあるべきファイルである。実害はないが、
   将来の読み手が`reviews/`だけを見て監査履歴を把握しようとすると見落とす。移動または削除を推奨する
@@ -252,7 +252,7 @@ design.md「後続スライスへの条件」がいずれも既に開示して�
   `urls.py`・`settings*.py`）、`tests/**`の構造検証・境界検証・受け入れテストDSL主要部
   （`test_structure.py`・`test_static_assets.py`・`test_test_support.py`・
   `test_authentication.py`冒頭・`tests/acceptance/dsl/candidate_search_browser.py`全文）、
-  `env.example`・`pyproject.toml`・`.github/workflows/ci-toyama-dining-radar.yml`、
+  `env.example`・`pyproject.toml`・`.github/workflows/ci-dining-radar.yml`、
   `reviews/audit-tdr-cs.md`、`design/reconciliation/candidate-card-refinement.md`、
   `design-preview/package.json`
 - **読んでいないもの**: `tests/acceptance/dsl/js_browser_mechanics.py`・`openapi_schema.py`・

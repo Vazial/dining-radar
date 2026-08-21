@@ -1,4 +1,4 @@
-# Toyama Dining Radar browser authentication and runtime boundary
+# Dining Radar browser authentication and runtime boundary
 
 > **Status**: This is a reviewable logical browser/API and configuration boundary for ADR-0006. It is not an implementation route table, deployment runbook, or a selection of a host, domain, email provider, or SSO provider.
 

@@ -1,1 +1,1 @@
-"""Black-box acceptance tests for the Toyama Dining Radar browser boundary."""
+"""Black-box acceptance tests for the Dining Radar browser boundary."""
