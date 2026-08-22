@@ -4,6 +4,30 @@
 
 ## Current state
 
+### 一時停止: 画面作業は designer 経由で再実施する（meta/adr/0048 の承認待ち）
+
+`ADR-0025`（検索基点と徒歩時間の開示）はmainにマージ済みで承認済みだが、**その画面側の作業は
+いったん止めている**。理由は成果物の質ではなく、作られ方である——`design/explorations/` のラフ3枚も、
+スマホ案2/案3の比較試作も、**orchestrator が designer を起動せずに直接描いた**。当時の役割契約
+（`meta/adr/0018`〜`0021`）は designer を「発案しない統合役」と定めており、この経路は契約の外にある。
+
+`meta/adr/0048`（提案中）が designer を `/design` スキルの実行者へ再定義し、画面作業は designer を
+起動して行うと定める。**0048 の承認後、画面作業を designer 経由で改めて実施する。**
+
+引き継ぐ材料（捨てない）:
+
+- `design/explorations/` の3枚（PC・スマホ案1・スマホ案2/案3）。**承認済み設計ではなく探索資料**。
+  README に由来を記録済み
+- 決着済み: 徒歩時間は**直線距離から概算**（既存の `_distance` は度単位・表示しない前提で書かれて
+  いるためメートル換算が要る。`pipeline.py` の docstring がその前提を明記している）
+- 決着済み: ラフは探索資料のまま置く
+- **未決: スマホは案2（地図を畳む）か案3（地図に重ねる）か。** orchestrator の推奨は案2
+- **未決: 幹事が実際にスマホでこの作業をするのか。** 2026-08-11にモバイル優先の配置が人間承認済みで
+  L5も375×812で走っているため前提としては成立しているが、拡張スコープでは幹事がPC中心に寄る可能性が
+  あり、案2/案3の優先度が変わる
+- 契約4本のドラフトは `docs/tdr-cs-contract-draft-adr-0025` ブランチに退避済み。**改名前のパスを
+  指しているため、実装スライスで使う前に作り直すか内容を移す必要がある**
+
 ### プロジェクト名
 
 The project is named `dining-radar`. It was renamed from `toyama-dining-radar` on 2026-08-20 (ADR-0026) because the old name carried a real prefecture name into a public repository, which is exactly what this product's own `product-brief.md` §4 and ADR-0002 forbid. The Python package was already `dining_radar` and did not change, so no import, settings module, static path, or CSS class moved. The scenario-ID prefix `TDR` stayed as well — it appears 738 times, including in approved contracts — and `meta/scenario-id-prefixes.md` instead dropped the place name from its description, leaving `TDR` an opaque token. The git branch `project/toyama-dining-radar` and its ruleset keep the old name on purpose (ADR-0026 decision 4). **Renaming this project did not remove the region from the public repository**: `toyama-weekend-radar` and `connpass-session-radar` still carry it, and ADR-0026's consequences section lists every remaining place.
