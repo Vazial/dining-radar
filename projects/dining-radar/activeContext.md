@@ -10,6 +10,51 @@ The project is named `dining-radar`. It was renamed from `toyama-dining-radar` o
 
 The rename was built once against the pre-#106 `main`, held when it turned out to collide with the then-unpushed `docs/tdr-cs-origin-and-walking-time`, and redone on top of that branch's merge — the cheaper-to-reproduce change goes last (FR-020).
 
+### 画面の機能について確定した人間裁定（2026-08-23）
+
+ワイヤフレーム（`https://claude.ai/code/artifact/278c94d2-116e-4bcd-87df-b552607541c7`。designer が
+`design/explorations/` の3枚を土台に `/design` で作成。元データは未コミット）をもとに、人間が4件を裁定した。
+
+1. **ジャンル行**: 「ほか N件…」の展開ボタンを**行の左端に固定**する。1行の横スクロールは維持し、
+   高さは変えない。折り返しは採らない（2026-08-14 の見送りを維持）。**契約確認が要る**——
+   `genrePresentation` はジャンルの順序を定めているが**位置を定めていない**ので、追補の要否を見ること
+2. **候補の取得に失敗したとき**: 直前まで表示していた候補を**残す**。エラーは上に出す。古い候補を
+   新しい提案と誤読しうる点は承知のうえで、比べていた材料を失わないほうを採る
+3. **件数の予告**: **適用ボタンにだけ出す**（「この条件で探す（8件）」）。常時表示は引き続き置かない。
+   契約は既に件数を `candidate-filter-apply` の `data-match-count` 属性に持っているので、それを
+   文字として見せる形になる
+4. **PC版は今回の合意の対象に含めない**。幹事はスマホ中心（2026-08-22 裁定）なので、まずスマホを固める。
+   PC版のワイヤフレームは参考として存在するが、合意対象外
+
+**まだ決めていないこと**（designer が破線で残し、裁定を仰いでいない残り）: 429（レート制限）と503
+（取得不能）を画面で区別するか／0件のとき契約どおり地図ごと消えるのを受け入れるか／「絞り込みを見直す」
+を押せるものにするか。エラー時の画面状態は `product-brief.md` §8 で未決のままである。
+
+### 契約が、この画面の中心を「禁止」している（2026-08-23 確認）
+
+`ADR-0025` は基点と徒歩時間の表示を承認済みだが、**マージ済みの契約はまだ旧世界のままである**。実測:
+
+- `contracts/candidate-search-browser-interface.yaml:310` — `forbiddenTestIds` に `candidate-origin-marker`
+- 同 `:795` — `bodyMustNotExposeTestIds` に `candidate-origin-marker`
+- `contracts/candidate-search.feature:84` — 「非公開の検索地点、経路、現在地、**徒歩時間**は示されない」
+- `candidate-walking-radius-ring` は現行契約に存在しない。API に `walkingTimeMinutes` も無い
+- `CandidateFilters` に `walkingTimeMaxMinutes` が無い（徒歩の上限）
+
+つまり基点マーカー・同心リング・カードの徒歩時間・徒歩の上限は、**現時点では契約が明示的に禁じている**。
+契約改訂はこの画面が成立する前提そのものであり、あとで足す追補ではない。L4 の都合で契約だけ先に
+マージできないため、契約・実装・テストを同一スライスで動かす。
+
+### `design.md` が2世代古い（2026-08-23 確認）
+
+`design.md` は designer が起動時に読む文書（役割定義の5番目）だが、中身は **`ADR-0023` が廃止した
+切り口（コンセプト）モデル**のままである——「切り口は現在4種類」「別の切り口で再提案」「最大3つの
+次の切り口をモーダルで表示」。さらに57行目は「地図には…**検索基点・経路・現在地・徒歩時間を出さない**」と
+書いており `ADR-0025` と正面から食い違う。最後にファイルが動いたのは 2026-08-21 の改名コミットだけで、
+**中身は `ADR-0023` 以降一度も更新されていない**。
+
+2026-08-23 の designer は指示どおり読んだうえで「使えなかった」と報告し、契約とADRを正として作業した。
+**次の designer が同じ判断をする保証はない。** architect による更新が要る。
+
 ### 進行中: ADR-0025（検索基点と徒歩時間の開示）— 人間の承認待ち
 
 ブランチ `docs/tdr-cs-origin-and-walking-time` に、承認待ちの決定と契約改訂がある。実装コードは
