@@ -1,0 +1,132 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kurenaido&display=swap">
+  <style>
+    body { margin: 0; background: #f4f2ee; color: #1c1a18;
+           font-family: 'Zen Kurenaido', 'Yu Gothic UI', 'Hiragino Sans', sans-serif; }
+    a { color: #1c1a18; } a:hover { color: #6b6560; }
+    .chip { min-height: 44px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 13px;
+            border-radius: 999px; font-size: 12.5px; white-space: nowrap; flex-shrink: 0;
+            border: 1.5px solid #8a837a; background: #ffffff; color: #3a3631; }
+    .chip[data-on="true"] { border: 1.5px solid #3a3631; background: #3a3631; color: #ffffff; }
+    .frame { width: 390px; box-sizing: border-box; border: 2px solid #4a453f; border-radius: 10px;
+             background: #ffffff; overflow: hidden; flex-shrink: 0; }
+    .frame.old { border: 2px solid #b4aea6; background: #faf9f7; }
+    .opt { border: 1.5px solid #b4aea6; background: #f2f0ec; border-radius: 8px; padding: 9px 11px;
+           display: flex; flex-direction: column; gap: 5px; }
+    .opt.take { border: 2px solid #4a453f; background: #ffffff; }
+    .opt dt { font-size: 12.5px; display: flex; align-items: baseline; gap: 6px; }
+    .opt .pro { font-size: 10.5px; color: #33302c; line-height: 1.5; }
+    .opt .con { font-size: 10.5px; color: #6b6560; line-height: 1.5; }
+    .h { font-size: 14px; border-bottom: 1.5px solid #4a453f; padding-bottom: 4px; }
+    .mark { font-size: 9px; border-radius: 3px; padding: 1px 5px; flex-shrink: 0; align-self: flex-start; }
+    .mark.take { border: 1.5px solid #3a3631; background: #3a3631; color: #ffffff; }
+    .mark.drop { border: 1.5px solid #b4aea6; background: #e9e5dd; color: #6b6560; }
+    .pin { font-size: 9px; color: #4a453f; border: 1.5px solid #4a453f; background: #efece6;
+           border-radius: 3px; padding: 1px 5px; flex-shrink: 0; }
+  </style>
+</helmet>
+<div style="width: 960px; height: 700px; box-sizing: border-box; padding: 22px 26px; display: flex; flex-direction: column; gap: 13px; background: #f4f2ee">
+
+  <div style="display: flex; flex-direction: column; gap: 3px">
+    <div style="display: flex; align-items: center; gap: 9px">
+      <div style="font-size: 10.5px; color: #6b6560; letter-spacing: 0.05em">決着した記録 ・ 人間裁定 2026-08-23</div>
+      <span class="mark take">決着</span>
+    </div>
+    <div style="font-size: 20px">「ほか N件…」を、ジャンル行の左端に固定する（案 c を採用）</div>
+    <div style="font-size: 11px; color: #43403b; line-height: 1.55">1行の横スクロールは維持する。行の高さも変えない。折り返しは採らない。<br>問題だった事実（orchestrator の実測。作図値ではない）: 390px のとき、ジャンル行は 328px の枠に 464px 分の内容を持ち、隠れたジャンルへ届く<span style="border-bottom: 1.5px solid #4a453f">唯一の入口である「ほか N件…」が画面外に出ていた</span>。</div>
+  </div>
+
+  <div style="display: flex; gap: 18px; align-items: flex-start">
+
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <div style="display: flex; align-items: center; gap: 8px">
+        <div style="font-size: 12px">決めた形（この図の M3・M4 もこの形に直した）</div><span class="mark take">採用 c</span>
+      </div>
+      <div class="frame">
+        <div style="display: flex; align-items: stretch">
+          <div style="flex-shrink: 0; padding: 9px 10px 9px 12px; border-right: 1.5px solid #4a453f; background: #f2f0ec; display: flex; flex-direction: column; gap: 3px; align-items: flex-start">
+            <div class="chip">ほか N件…</div>
+            <div class="pin">左端に固定・スクロールしない</div>
+          </div>
+          <div style="min-width: 0; padding: 9px 0 9px 9px; display: flex; gap: 7px; overflow: hidden; align-items: flex-start">
+            <div class="chip">居酒屋・バーを含める</div>
+            <div class="chip" data-on="true">和食</div>
+            <div class="chip">洋食</div>
+            <div class="chip">中華</div>
+          </div>
+        </div>
+      </div>
+      <div style="width: 390px; font-size: 10.5px; color: #6b6560; line-height: 1.5">右側だけが横スクロールする。枠の右で切れた先に「ラーメン」以降がある。<br>入口（左端）は<span style="border-bottom: 1.5px solid #4a453f">スクロール位置によらず常に見える</span>。押すと展開し、ラベルは契約どおり「閉じる」に変わる。</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <div style="font-size: 12px; color: #6b6560">決める前（2026-08-22 まで／記録）</div>
+      <div class="frame old">
+        <div style="padding: 9px 12px; display: flex; gap: 7px; overflow: hidden">
+          <div class="chip" style="border-color: #b4aea6; color: #6b6560">居酒屋・バーを含める</div>
+          <div class="chip" style="border-color: #b4aea6; color: #6b6560">和食</div>
+          <div class="chip" style="border-color: #b4aea6; color: #6b6560">洋食</div>
+          <div class="chip" style="border-color: #b4aea6; color: #6b6560">中華</div>
+        </div>
+      </div>
+      <div style="width: 390px; font-size: 10.5px; color: #6b6560; line-height: 1.5">「ほか N件…」は行末にあり、枠の外にいた。届く手がかりが画面に出ていなかった。</div>
+      <div style="width: 390px; font-size: 10.5px; color: #6b6560; line-height: 1.5; border-top: 1.5px solid #b4aea6; padding-top: 6px">経緯: 直前の designer は、人間が 2026-08-14 に見送った「折り返す案」を断りなく採り直していた（案 b）。この裁定はその案を<span style="border-bottom: 1px solid #8a837a">改めて見送り</span>、1行を保ったまま入口だけを救う案 c を採った。</div>
+    </div>
+
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 7px; flex-grow: 1; min-height: 0">
+    <div class="h">4案と、採らなかった理由（記録として残す）</div>
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 11px">
+
+      <dl class="opt" style="margin: 0">
+        <dt>(a) 現状維持<span class="mark drop">不採用</span></dt>
+        <div class="pro">1行の横スクロールのまま。契約もこの図も変えなくてよい。</div>
+        <div class="con">採らなかった理由: 隠れたジャンルへの唯一の入口が画面外のまま残る。実測で母集団の 25% が展開なしには届かない。</div>
+      </dl>
+
+      <dl class="opt" style="margin: 0">
+        <dt>(b) 折り返す<span class="mark drop">不採用</span></dt>
+        <div class="pro">全部が一度に見える。入口が消えない。</div>
+        <div class="con">採らなかった理由: 条件行の高さが可変になり、リストと地図の見える量がジャンルの数で変わる。人間が 2026-08-14 に見送り、2026-08-23 に改めて見送った。</div>
+      </dl>
+
+      <dl class="opt take" style="margin: 0">
+        <dt>(c) 左端に固定<span class="mark take">採用</span></dt>
+        <div class="pro">1行のまま・高さも変わらず、入口だけは常に見える。4案のうちこれだけが契約の改訂を必要としない。</div>
+        <div class="con">受け入れた代償: 固定分だけスクロールできる幅が減る（328px から固定チップの幅ぶん）。実際に何チップ入るかは<span style="border-bottom: 1px solid #8a837a">未実測</span>。</div>
+      </dl>
+
+      <dl class="opt" style="margin: 0">
+        <dt>(d) 居酒屋・バーを行の外へ<span class="mark drop">不採用</span></dt>
+        <div class="pro">行が 1チップ分短くなり、入口が枠に入りやすくなる。</div>
+        <div class="con">採らなかった理由: ADR-0024 決定2 が「ジャンル節の中に置く」と決めたばかりで、それを覆す。契約 controlGrouping の改訂が要る。</div>
+      </dl>
+
+    </div>
+
+    <div style="border: 1.5px solid #4a453f; background: #ffffff; border-radius: 8px; padding: 9px 11px; display: flex; flex-direction: column; gap: 4px">
+      <div style="font-size: 11.5px">契約の確認結果（designer は契約を書き換えない。追補の要否は architect と人間の判断）</div>
+      <div style="font-size: 10.5px; color: #33302c; line-height: 1.55">現行 candidate-search-browser-interface.yaml v1.1.0 の <span style="border-bottom: 1px solid #8a837a">genrePresentation</span> は、ジャンル選択肢の<span style="border-bottom: 1.5px solid #4a453f">順序</span>（presentationOrder・先頭4件）と、オーバーフローチップの<span style="border-bottom: 1.5px solid #4a453f">存在と文言</span>（ほか N件… ／ 閉じる）を定めているが、<span style="border-bottom: 1.5px solid #4a453f">位置は定めていない</span>。オーバーフローチップは genreOption ではないため、左端へ置いても genreOptionOrder には触れない。controlGrouping も「ジャンル節の中にある」ことしか要求していない。<br>したがって<span style="border-bottom: 1.5px solid #4a453f">この裁定は現行契約に違反せず、追補なしでも実装できる</span>。ただし追補が無ければ「左端に固定」は機械観測されず、実装が行末へ戻しても受け入れテストは通る——固定を保証したいなら追補が要る（ADR-0024 決定2 が controlGrouping を新設して配置を機械観測可能にした前例と同じ形）。</div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":960,"height":700}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
