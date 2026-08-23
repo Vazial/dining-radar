@@ -105,7 +105,33 @@
 #   nullable-filterのグルーピング（確認済み一致→情報なし）に一切参加
 #   しないことを明記する——ハードフィルタとしてこの並べ替えより前段で
 #   適用されるため (decision 3)。
-contractVersion: '1.2.0'
+#
+# 2026-08-23 起草 (人間裁定、未承認、本ファイルはこの追補を反映する): design/wireframes/ の合意で
+# 人間が下した4件のうち3件を反映する（4件目のPC版除外は、本ファイルがPC/モバイルの表示形態を
+# 区別していないため反映事項がない）。
+# - filterPanel.controlGrouping.genreGroup に overflowPlacement を新設する。「ほか N件…」
+#   （candidate-filter-genre-overflow）が genreGroup 内で常に先頭のDOM順を持ち、横スクロールする
+#   候補・「居酒屋・バーを含める」とは別のコンテナに置かれることを機械観測可能にする（人間裁定
+#   2026-08-23、design/wireframes/GenreRow.dc.html 案c採用。隠れているジャンルへの唯一の入口を
+#   スクロール位置によらず画面内に残す）。genrePresentation自体（選択肢の順序・オーバーフローの
+#   文言）は無変更——adr/0024決定2のcontrolGroupingが「コンテナに属すること」までしか機械観測して
+#   いなかったのと同じ形で、位置（DOM順・コンテナの分離）だけを新設する。
+# - filterPanel.matchCountObservation に visibleCountWording を新設する。data-match-countを
+#   含む可視文言が「これから表示される件数」であるかのように読めてはならないことをMustにする
+#   （人間裁定2026-08-23: 件数の予告を適用ボタンにだけ出す。data-match-countは絞り込み後の母集団
+#   件数であり、実際に表示される候補は表示上限5件までであるため——candidate-search-api.yamlの
+#   matchCountObservation.valueが定める既存の意味を変えない、可視文言側の追加のMust）。
+# - browserActions.applyFilters.rateLimited と searchAgain.rateLimited に
+#   priorDisplayRetained を新設する。直前まで表示していた候補・地図が取得失敗時も残ることを
+#   Mustにする（人間裁定2026-08-23: 候補の取得に失敗しても直前の候補を残す。新規TDR-CS-16、
+#   test-support-api.yamlのRATE_LIMITED_AFTER_INITIAL_SUCCESSモードで決定的に検証する）。
+#   これは429（レート制限）経路だけを機械観測する——新設のtest-supportモードが429固定で
+#   最初の1回だけ成功させる形をとったため（判断理由はtest-support-api.yamlのコメントを参照）。
+#   503（provider unavailable）側の同じ性質は、対応する決定的Givenが無い間はここに書かない
+#   （検証手段のない要求は追加しない）。429/503を画面で区別するかどうか自体はproduct-brief.md
+#   §8がなお未決としている別の論点である。
+# - profiles.localAcceptance.verifiesScenarios に TDR-CS-16 を加える。
+contractVersion: '1.3.0'
 kind: acceptance-browser-interface
 scope: candidate-search
 profiles:
@@ -115,7 +141,7 @@ profiles:
     verifiesScenarios:
       [TDR-CS-00, TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05,
        TDR-CS-06, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12,
-       TDR-CS-13, TDR-CS-14, TDR-CS-15]
+       TDR-CS-13, TDR-CS-14, TDR-CS-15, TDR-CS-16]
     invariant:
       - The profile is isolated and must never be selected by a public deployment.
       - Candidate state is supplied only through contracts/test-support-api.yaml.
@@ -473,6 +499,42 @@ browserControlSurface:
           expanded state; it is never counted toward genreOptionCount, never
           subject to previewLimit collapsing, and never a
           candidate-filter-genre-overflow member.
+        overflowPlacement:
+          leadingMember: candidate-filter-genre-overflow
+          requirement: >-
+            When candidate-filter-genre-overflow is present (genrePresentation's
+            preview or expanded responseCountStates), it renders as the
+            first element in genreGroup's DOM order, before every
+            candidate-filter-genre-option and
+            candidate-filter-include-izakaya-bar (human decision 2026-08-23,
+            design/wireframes/GenreRow.dc.html option (c) -- fixing the only
+            entry point to hidden genres at a stable position, independent
+            of the row's own horizontal scroll position; a 390px measurement
+            found this entry point off-screen when it instead trailed the
+            row). This requirement is about DOM order and container
+            structure, not about a particular CSS/visual mechanism (sticky
+            positioning, a separate flex child, etc.).
+          scrollableSubgroup:
+            members: [candidate-filter-genre-option, candidate-filter-include-izakaya-bar]
+            requirement: >-
+              These members share one horizontally-scrollable DOM container
+              distinct from candidate-filter-genre-overflow's own container,
+              so that container's horizontal scroll offset does not move
+              candidate-filter-genre-overflow.
+          verificationAllocation:
+            L4: >-
+              Acceptance asserts candidate-filter-genre-overflow's DOM
+              position precedes every scrollableSubgroup member within
+              genreGroup, and that it is not a descendant of
+              scrollableSubgroup's shared scrollable container.
+            L5: >-
+              Whether the fixed position remains visually stable while the
+              scrollable sub-container is scrolled, and how many
+              scrollableSubgroup members remain visible alongside it, are
+              rendered-geometry properties this contract does not measure
+              (measured only by orchestrator per activeContext.md's
+              rendered-geometry rule; design/wireframes/README.md already
+              records both numbers as 未実測).
       preferenceGroup:
         members: [candidate-filter-non-smoking-only, candidate-filter-card-payment-only]
         requirement: >-
@@ -548,6 +610,21 @@ browserControlSurface:
         While pending differs from applied and the count is zero,
         candidate-filter-apply remains present with data-match-count="0" and
         is disabled. Activating it cannot start a public operation.
+      visibleCountWording:
+        requirement: >-
+          Where candidate-filter-apply's visible text incorporates the
+          data-match-count value (human decision 2026-08-23: a match-count
+          preview appears only here, never as an always-visible element),
+          it must not read as a promise of how many candidate cards this
+          action will display -- the display cap remains 5
+          (candidate-search-api.yaml's selection behavior is unchanged by
+          this observation). Phrasing that reads as "this many candidates
+          match the pending condition" (e.g. 対象、該当、絞り込み後の件数)
+          is compliant; phrasing that reads as "this many candidates will
+          be shown/displayed" (e.g. 件表示されます、件出ます) is not. The
+          exact wording is an implementation choice this contract does not
+          fix, mirroring walkingTimeEstimateWording and
+          budgetTierNoteObservation's existing content-only Musts.
     stateModel:
       applied: >-
         The filters that produced the currently displayed proposal and the
@@ -875,6 +952,22 @@ browserActions:
     rateLimited:
       present: [candidate-proposal-problem]
       apiResponse: {status: 429, code: PROPOSAL_RATE_LIMITED}
+      priorDisplayRetained: >-
+        Every candidate-card and candidate-map-marker present immediately
+        before this request remains present afterward, with unchanged
+        data-candidate-ref values, unchanged card<->marker
+        data-selection-state correspondence, and unchanged applied filters
+        and condition summary (human decision 2026-08-23, TDR-CS-16).
+        candidate-proposal-problem and candidate-proposal-problem-guidance
+        render in addition to, not instead of, the retained cards and map;
+        candidate-proposal-cards and candidate-map are not removed the way
+        the `empty` render state removes them. This requirement applies
+        only when a prior successful proposal was already displayed, which
+        applyFilters presupposes by precondition. It is verified through
+        this rate-limited path only (contracts/test-support-api.yaml's
+        RATE_LIMITED_AFTER_INITIAL_SUCCESS); it is not separately restated
+        for a provider-unavailable (503) cause, which has no matching
+        deterministic Given.
   revertPendingFilters:
     input: candidate-filter-revert
     requiredOutcome:
@@ -939,6 +1032,22 @@ browserActions:
     rateLimited:
       present: [candidate-proposal-problem]
       apiResponse: {status: 429, code: PROPOSAL_RATE_LIMITED}
+      priorDisplayRetained: >-
+        Every candidate-card and candidate-map-marker present immediately
+        before this request remains present afterward, with unchanged
+        data-candidate-ref values, unchanged card<->marker
+        data-selection-state correspondence, and unchanged applied filters
+        and condition summary (human decision 2026-08-23, TDR-CS-16).
+        candidate-proposal-problem and candidate-proposal-problem-guidance
+        render in addition to, not instead of, the retained cards and map;
+        candidate-proposal-cards and candidate-map are not removed the way
+        the `empty` render state removes them. searchAgain is reachable only
+        from an already-displayed proposal, so this requirement always
+        applies. It is verified through this rate-limited path only
+        (contracts/test-support-api.yaml's
+        RATE_LIMITED_AFTER_INITIAL_SUCCESS); it is not separately restated
+        for a provider-unavailable (503) cause, which has no matching
+        deterministic Given.
 
 disclosureObservations:
   responseSurfaces:
