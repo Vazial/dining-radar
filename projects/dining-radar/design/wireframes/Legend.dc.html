@@ -1,0 +1,133 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kurenaido&display=swap">
+  <style>
+    body { margin: 0; background: #f4f2ee; color: #1c1a18;
+           font-family: 'Zen Kurenaido', 'Yu Gothic UI', 'Hiragino Sans', sans-serif; }
+    a { color: #1c1a18; } a:hover { color: #6b6560; }
+    .lg-h { font-size: 14px; border-bottom: 1.5px solid #4a453f; padding-bottom: 4px; }
+    .lg-p { font-size: 11.5px; line-height: 1.65; color: #33302c; margin: 0; }
+    .lg-li { font-size: 11.5px; line-height: 1.6; color: #33302c; display: flex; gap: 7px; }
+    .lg-li b { font-weight: normal; color: #1c1a18; flex-shrink: 0; }
+    .lg-tag { font-size: 10px; padding: 1px 6px; border-radius: 3px; flex-shrink: 0; align-self: flex-start;
+              border: 1.5px dashed #8a837a; background: #e9e5dd; color: #4a453f; }
+    .lg-done { font-size: 10px; padding: 1px 6px; border-radius: 3px; flex-shrink: 0; align-self: flex-start;
+                border: 1.5px solid #3a3631; background: #3a3631; color: #ffffff; }
+    .lg-box { border: 1.5px dashed #8a837a; background: #efece6; border-radius: 8px; padding: 10px 12px;
+              display: flex; flex-direction: column; gap: 6px; }
+  </style>
+</helmet>
+<div style="width: 700px; height: 1400px; box-sizing: border-box; padding: 26px 28px; display: flex; flex-direction: column; gap: 15px; background: #f4f2ee">
+
+  <div style="display: flex; flex-direction: column; gap: 3px">
+    <div style="font-size: 11px; color: #6b6560; letter-spacing: 0.05em">dining-radar ・ 候補探索（TDR-CS）</div>
+    <div style="font-size: 23px; line-height: 1.2">ワイヤフレーム — 読みかた</div>
+    <div style="font-size: 12px; color: #43403b; line-height: 1.6">これは<span style="border-bottom: 1.5px solid #4a453f">機能の合意</span>のための図である。色・書体・装飾は決めていない。灰色と手描き調の書体は「まだ見た目を決めていない」ことを示すためのもので、視覚デザインの提案ではない。</div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 7px">
+    <div class="lg-h">凡例</div>
+    <div style="display: flex; gap: 12px; align-items: stretch">
+      <div style="flex: 1; border: 1.5px solid #4a453f; background: #ffffff; border-radius: 8px; padding: 9px 11px; display: flex; flex-direction: column; gap: 4px">
+        <div style="font-size: 12.5px">実線</div>
+        <div style="font-size: 11px; color: #43403b; line-height: 1.55">承認済み・マージ済みの契約が裏付けている。人間の裁定で決着したものも含む（決着日を添える）</div>
+      </div>
+      <div style="flex: 1; border: 1.5px dashed #8a837a; background: #e9e5dd; border-radius: 8px; padding: 9px 11px; display: flex; flex-direction: column; gap: 4px">
+        <div style="font-size: 12.5px">破線</div>
+        <div style="font-size: 11px; color: #43403b; line-height: 1.55">未確定。契約が裏付けていない／人間の判断待ち</div>
+      </div>
+      <div style="flex: 1; border: 1.5px solid #4a453f; background: #ffffff; border-radius: 8px; padding: 9px 11px; display: flex; flex-direction: column; gap: 6px">
+        <div style="font-size: 12.5px">選択状態は塗りで表す</div>
+        <div style="display: flex; gap: 6px">
+          <div style="border: 1.5px solid #3a3631; background: #3a3631; color: #ffffff; border-radius: 999px; padding: 3px 10px; font-size: 11px">選択中</div>
+          <div style="border: 1.5px solid #8a837a; background: #ffffff; color: #3a3631; border-radius: 999px; padding: 3px 10px; font-size: 11px">非選択</div>
+        </div>
+      </div>
+    </div>
+    <p class="lg-p">探索ラフ（<span style="border-bottom: 1px solid #8a837a">design/explorations/</span>）は非選択チップにも破線を使っていた。この図では<span style="border-bottom: 1.5px solid #4a453f">破線を「未確定」の意味だけに使う</span>。</p>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 7px">
+    <div class="lg-h">先に断っておくこと</div>
+    <div class="lg-li"><b>寸法・件数</b><span>この図に現れる寸法・「何件見えるか」はすべて<span style="border-bottom: 1.5px solid #4a453f">作図上の値であり未実測</span>である（meta/adr/0059 決定5）。描き手は自分の図を描画して測る手段を持たない。</span></div>
+    <div class="lg-li"><b>コピー</b><span>ラベル・注記・空状態文・エラー文言はすべて<span style="border-bottom: 1.5px solid #4a453f">下書き</span>である。確定は実装／L5 に残す。</span></div>
+    <div class="lg-li"><b>データ</b><span>店名・地図・徒歩の分数・件数はすべて合成値。実在の地名・座標・店舗データ・設定探索範囲の値は含まない（ADR-0002、product-brief §4）。</span></div>
+    <div class="lg-li"><b>扱わない</b><span>正確な距離の数値・徒歩の経路・利用者の現在地・設定探索範囲の値は描いていない（ADR-0025 決定6）。</span></div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 7px">
+    <div class="lg-h">決着した判断（人間裁定 2026-08-23。実線へ移した）</div>
+    <div style="border: 1.5px solid #4a453f; background: #ffffff; border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px">
+      <div class="lg-li"><span class="lg-done">済1</span><span>ジャンル行は<span style="border-bottom: 1.5px solid #4a453f">「ほか N件…」を行の左端に固定</span>する（案 c）。1行の横スクロールと行の高さは維持。折り返し（旧 C1）は改めて見送った。→ 「決着1 ジャンル行」に採らなかった3案と理由を残した</span></div>
+      <div class="lg-li"><span class="lg-done">済2</span><span>件数は<span style="border-bottom: 1.5px solid #4a453f">適用ボタンにだけ出す</span>（「この条件で探す（8件）」）。常時表示と「1つ緩めると +N件」（旧 C2）は引き続き置かない。契約は既に data-match-count を持っており、ラベルに出すだけなら追加は要らない</span></div>
+      <div class="lg-li"><span class="lg-done">済3</span><span>取得に失敗したときは<span style="border-bottom: 1.5px solid #4a453f">直前までの候補を残す</span>。エラーは上に出す。→ 「判断2」の右の1枚をこの形に描き直した（D1 の残りは未決）</span></div>
+      <div class="lg-li"><span class="lg-done">済4</span><span>PC 版は<span style="border-bottom: 1.5px solid #4a453f">今回の合意対象に含めない</span>。P1 は参考として残す（図上に明記した）</span></div>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div class="lg-h">破線にしたもの（＝未確定）の一覧</div>
+
+    <div class="lg-box">
+      <div style="font-size: 12px">A. 契約がドラフト段階のもの（ADR-0025 は承認済み。契約改訂は未マージ）</div>
+      <div class="lg-li"><span class="lg-tag">A1</span><span>検索基点マーカー — 現行のマージ済み candidate-search-browser-interface.yaml v1.1.0 は candidate-origin-marker を forbiddenTestIds に置いている（＝いまは禁止されている側）</span></div>
+      <div class="lg-li"><span class="lg-tag">A2</span><span>徒歩圏の同心リング — candidate-walking-radius-ring は現行契約にまだ存在しない</span></div>
+      <div class="lg-li"><span class="lg-tag">A3</span><span>カードの徒歩時間 — 現行 TDR-CS-02 が「徒歩時間は示されない」と明記。API v1.1.0 に walkingTimeMinutes は無い</span></div>
+      <div class="lg-li"><span class="lg-tag">A4</span><span>徒歩の上限を選ぶ操作 — TDR-CS-15 は新規・ドラフト。CandidateFilters に walkingTimeMaxMinutes は無い</span></div>
+    </div>
+
+    <div class="lg-box">
+      <div style="font-size: 12px">B. 契約が値を決めていないもの</div>
+      <div class="lg-li"><span class="lg-tag">B1</span><span>同心リングの本数と半径 — ADR-0025 決定9 が「制約を置かない」と決めた。図の2本・分数は仮の作図値</span></div>
+      <div class="lg-li"><span class="lg-tag">B2</span><span>徒歩の上限のプリセット値と個数 — ADR-0025 契約メモ 2節4「この契約で決めていない」</span></div>
+      <div class="lg-li"><span class="lg-tag">B3</span><span>画面上のあらゆる件数（「ほか N件…」の N、一致件数、選択カウンタ）— 実データ依存で契約が値を持たない</span></div>
+      <div class="lg-li"><span class="lg-tag">B4</span><span>徒歩時間の言い回し（「約」を付けるか等）— ADR-0025 決定2 が算出方式ごと実装スライスへ送った</span></div>
+    </div>
+
+    <div class="lg-box">
+      <div style="font-size: 12px">D. 製品境界が未決のもの</div>
+      <div class="lg-li"><span class="lg-tag">D1</span><span>0件・取得失敗のときの画面 — product-brief §8 で未決。候補を残すかは決着した（済3）が、<span style="border-bottom: 1px solid #8a837a">429（レート制限）と 503（取得不能）を画面で区別するか</span>・<span style="border-bottom: 1px solid #8a837a">0件のとき地図ごと消えるのを受け入れるか</span>・<span style="border-bottom: 1px solid #8a837a">「絞り込みを見直す」を押せるものにするか</span>は判断待ち</span></div>
+      <div class="lg-li"><span class="lg-tag">D2</span><span>初期表示で地図を畳む構成 — authenticatedInitialOutcome.present が初期表示に candidate-map の存在を要求している</span></div>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 7px">
+    <div class="lg-h">描いていないが契約にあるもの（この図の穴。承認前に確認が要る）</div>
+    <div class="lg-li"><b>・</b><span>candidate-izakaya-bar-fallback-notice（TDR-CS-10。既定除外を外して提案したときの案内）</span></div>
+    <div class="lg-li"><b>・</b><span>レート制限の案内（TDR-CS-08）— 取得失敗と同じ candidate-proposal-problem に載るため、D1 の未決に含めて1枚にまとめた</span></div>
+    <div class="lg-li"><b>・</b><span>サインイン画面（TDR-CS-00）— 認証スライスの画面であり本ワイヤの対象外</span></div>
+    <div class="lg-li"><b>・</b><span>アカウントメニューの中身（サインアウト・パスワード変更）— 契約の allowedPurposes にはあるが、候補探索の機能合意には効かない</span></div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 7px">
+    <div class="lg-h">契約の確認結果（architect への申し送り。designer は契約を書き換えない）</div>
+    <div class="lg-li"><b>・</b><span>ジャンル行の固定位置 — genrePresentation は順序とオーバーフローの文言を定めるが<span style="border-bottom: 1.5px solid #4a453f">位置を定めていない</span>。済1 は現行契約に違反せず、追補なしでも実装できる。ただし追補が無ければ固定は機械観測されず、行末へ戻す実装でも受け入れテストは通る</span></div>
+    <div class="lg-li"><b>・</b><span>適用ボタンの件数 — 契約は既に data-match-count を持ち、ボタンの見える文言を縛っていないので<span style="border-bottom: 1.5px solid #4a453f">契約の追加は不要</span>。ただし data-match-count は母集団の件数で、実際に出る候補は最大 5件（読み違いの余地は文言側の課題）</span></div>
+    <div class="lg-li"><b>・</b><span>取得失敗時に候補を残すこと — problem 状態は candidate-proposal-problem と -problem-guidance の存在しか要求せず、カードの存否に触れていない。済3 も違反ではないが、<span style="border-bottom: 1.5px solid #4a453f">保証したいなら追補が要る</span></span></div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 7px">
+    <div class="lg-h">探索ラフから意図して落としたもの</div>
+    <div class="lg-li"><b>・</b><span>ヘッダの会の日時（「8/27 (水) 12:00」）— 日程調整を前提にしており、承認済みの製品境界に存在しない機能である。合意の対象を膨らませるので落とした</span></div>
+    <div class="lg-li"><b>・</b><span>基点マーカーのラベル「勤務地」— 利用者の生活圏を名指しする語なので「検索基点」に替えた</span></div>
+    <div class="lg-li"><b>・</b><span>常時の件数表示と「1つ緩めると +N件」— 人間裁定 2026-08-23（済2）で正式に見送られた。件数は適用ボタンの中にだけ出る</span></div>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":700,"height":1400}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

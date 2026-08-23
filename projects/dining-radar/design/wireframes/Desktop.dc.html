@@ -1,0 +1,138 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kurenaido&display=swap">
+  <style>
+    body { margin: 0; background: #f4f2ee; color: #1c1a18;
+           font-family: 'Zen Kurenaido', 'Yu Gothic UI', 'Hiragino Sans', sans-serif; }
+    a { color: #1c1a18; } a:hover { color: #6b6560; }
+    .btn { min-height: 40px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
+           gap: 6px; padding: 0 12px; border: 1.5px solid #4a453f; background: #ffffff; border-radius: 8px;
+           font-size: 12px; white-space: nowrap; flex-shrink: 0; }
+    .card { border: 1.5px solid #4a453f; background: #ffffff; border-radius: 9px; padding: 8px 10px;
+            display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; }
+    .lbl { font-size: 9.5px; color: #6b6560; }
+    .val { font-size: 11px; }
+    .utag { font-size: 9px; color: #4a453f; border: 1.5px dashed #8a837a; background: #e9e5dd;
+            border-radius: 3px; padding: 1px 5px; flex-shrink: 0; }
+    .note dd { margin: 0; font-size: 11.5px; color: #33302c; line-height: 1.6; }
+    .note dd.con { color: #6b6560; }
+  </style>
+</helmet>
+<div style="width: 1180px; height: 800px; box-sizing: border-box; padding: 24px 26px; display: flex; flex-direction: column; gap: 13px; background: #f4f2ee">
+
+  <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 20px">
+    <div style="display: flex; flex-direction: column; gap: 3px">
+      <div style="display: flex; align-items: center; gap: 8px">
+        <span style="font-size: 10px; border: 1.5px solid #3a3631; background: #3a3631; color: #ffffff; border-radius: 3px; padding: 2px 7px">今回の合意対象外 ・ 参考</span>
+        <div style="font-size: 10.5px; color: #6b6560; letter-spacing: 0.05em">人間裁定 2026-08-23 ・ 幹事はスマホ中心（人間裁定 2026-08-22）</div>
+      </div>
+      <div style="font-size: 20px">P1｜PC で開いたとき（概念図・縮尺していない）</div>
+      <div style="font-size: 11px; color: #43403b; line-height: 1.55">この1枚は<span style="border-bottom: 1.5px solid #4a453f">今回の合意対象に含めない</span>（人間裁定 2026-08-23）。承認を求めているのはスマホの M1～M4 と決着・判断の2枚であり、この図は<span style="border-bottom: 1.5px solid #4a453f">参考として残しているだけ</span>である。PC 向けの配置は別の機会に改めて議論する。</div>
+    </div>
+    <span class="utag">配置は全面が未確定 ・ 枠を破線にした理由</span>
+  </div>
+
+  <div style="flex-grow: 1; min-height: 0; border: 2px dashed #8a837a; border-radius: 10px; background: #ffffff; overflow: hidden; display: flex; flex-direction: column">
+
+    <div style="height: 50px; flex-shrink: 0; box-sizing: border-box; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1.5px solid #4a453f">
+      <div style="font-size: 16px">ランチ候補</div>
+      <div style="display: flex; gap: 8px; align-items: center">
+        <div style="font-size: 11.5px; color: #43403b">居酒屋・バーを除く ・ 近い順</div>
+        <div class="btn">絞り込み</div>
+        <div class="btn">もう一度探す</div>
+        <div class="btn" style="width: 40px; padding: 0">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#4a453f" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex-grow: 1; min-height: 0; display: flex">
+
+      <div style="width: 400px; flex-shrink: 0; border-right: 1.5px solid #4a453f; padding: 10px; display: flex; flex-direction: column; gap: 7px; background: #faf9f7; overflow: hidden">
+        <div class="card" style="border-width: 3px">
+          <div style="font-size: 13px">1 ・ ◯◯食堂</div>
+          <div class="val">和食 — 昼は日替わりの定食が中心の小さな店。（紹介文・下書き）</div>
+          <div style="display: flex; gap: 12px"><div><div class="lbl">定休日</div><div class="val">日曜・祝日</div></div><div><div class="lbl">席数</div><div class="val">標準</div></div><div><div class="lbl">禁煙</div><div class="val">全席禁煙</div></div><div><div class="lbl">予算感</div><div class="val">中</div></div></div>
+          <div style="border: 1.5px dashed #8a837a; background: #efece6; border-radius: 5px; padding: 2px 7px; align-self: flex-start; font-size: 10.5px">徒歩 約6分</div>
+          <div class="btn" style="min-height: 34px; justify-content: flex-start">Hot Pepper の店舗ページ</div>
+        </div>
+        <div class="card">
+          <div style="font-size: 13px">2 ・ ◇◇そば</div>
+          <div class="val">和食 — 手打ちのそばと丼もの。（紹介文・下書き）</div>
+          <div style="display: flex; gap: 12px"><div><div class="lbl">定休日</div><div class="val">水曜</div></div><div><div class="lbl">席数</div><div class="val">情報なし</div></div><div><div class="lbl">禁煙</div><div class="val">一部禁煙</div></div><div><div class="lbl">予算感</div><div class="val">情報なし</div></div></div>
+          <div style="border: 1.5px dashed #8a837a; background: #efece6; border-radius: 5px; padding: 2px 7px; align-self: flex-start; font-size: 10.5px">徒歩 約9分</div>
+          <div style="border: 1.5px solid #4a453f; border-radius: 5px; padding: 3px 7px; font-size: 10px">クレジットカードは利用できません。お支払い方法は店舗にご確認ください</div>
+          <div class="btn" style="min-height: 34px; justify-content: flex-start">Hot Pepper の店舗ページ</div>
+        </div>
+        <div class="card">
+          <div style="font-size: 13px">3 ・ △△キッチン</div>
+          <div class="val">洋食 — 昼は数量限定のプレート。（紹介文・下書き）</div>
+          <div style="display: flex; gap: 12px"><div><div class="lbl">定休日</div><div class="val">なし</div></div><div><div class="lbl">席数</div><div class="val">少なめ</div></div><div><div class="lbl">禁煙</div><div class="val">全席禁煙</div></div><div><div class="lbl">予算感</div><div class="val">低</div></div></div>
+          <div style="border: 1.5px dashed #8a837a; background: #efece6; border-radius: 5px; padding: 2px 7px; align-self: flex-start; font-size: 10.5px">徒歩 約7分</div>
+          <div class="btn" style="min-height: 34px; justify-content: flex-start">Hot Pepper の店舗ページ</div>
+        </div>
+        <div style="font-size: 10px; color: #6b6560; padding: 2px 2px 0">4件目・5件目はこの列をスクロールして見る（作図上の値・未実測）</div>
+      </div>
+
+      <div style="flex-grow: 1; min-width: 0; position: relative; background: #eceae6">
+        <svg viewBox="0 0 700 560" preserveAspectRatio="xMidYMid slice" style="width: 100%; height: 100%; display: block">
+          <rect x="0" y="0" width="700" height="560" fill="#eceae6"></rect>
+          <rect x="486" y="70" width="130" height="86" rx="6" fill="#e3e1dc"></rect>
+          <rect x="70" y="380" width="112" height="74" rx="6" fill="#e3e1dc"></rect>
+          <g stroke="#dcd9d3" stroke-width="7" stroke-linecap="round">
+            <path d="M-10 110 H710"></path><path d="M-10 250 H710"></path><path d="M-10 400 H710"></path>
+            <path d="M140 -10 V570"></path><path d="M330 -10 V570"></path><path d="M520 -10 V570"></path>
+          </g>
+          <path d="M-10 550 L260 300 L560 -10" stroke="#d5d2cc" stroke-width="10" fill="none" stroke-linecap="round"></path>
+          <g fill="none" stroke="#7a746c" stroke-dasharray="5 6">
+            <circle cx="350" cy="290" r="90" stroke-width="1.5"></circle>
+            <circle cx="350" cy="290" r="158" stroke-width="1.5"></circle>
+          </g>
+          <g font-size="11" fill="#5a554e" text-anchor="middle" font-family="'Zen Kurenaido','Yu Gothic UI',sans-serif">
+            <text x="350" y="186">5分</text><text x="350" y="118">10分</text>
+          </g>
+          <g>
+            <circle cx="350" cy="290" r="6" fill="#3a3631"></circle>
+            <circle cx="350" cy="290" r="13" fill="none" stroke="#7a746c" stroke-width="1.5" stroke-dasharray="4 4"></circle>
+            <text x="350" y="320" font-size="11" fill="#3a3631" text-anchor="middle" font-family="'Zen Kurenaido','Yu Gothic UI',sans-serif">検索基点</text>
+          </g>
+          <g transform="translate(292 250)"><path d="M0 8 V24" stroke="#3a3631" stroke-width="1.8"></path><circle cx="0" cy="-6" r="16" fill="#3a3631"></circle><text x="0" y="-1" font-size="13" fill="#ffffff" text-anchor="middle" font-family="'Zen Kurenaido','Yu Gothic UI',sans-serif">1</text></g>
+          <g transform="translate(452 356)"><path d="M0 6 V20" stroke="#4a453f" stroke-width="1.5"></path><circle cx="0" cy="-6" r="13" fill="#ffffff" stroke="#4a453f" stroke-width="1.8"></circle><text x="0" y="-2" font-size="12" fill="#4a453f" text-anchor="middle" font-family="'Zen Kurenaido','Yu Gothic UI',sans-serif">2</text></g>
+          <g transform="translate(226 378)"><path d="M0 6 V20" stroke="#4a453f" stroke-width="1.5"></path><circle cx="0" cy="-6" r="13" fill="#ffffff" stroke="#4a453f" stroke-width="1.8"></circle><text x="0" y="-2" font-size="12" fill="#4a453f" text-anchor="middle" font-family="'Zen Kurenaido','Yu Gothic UI',sans-serif">3</text></g>
+          <g transform="translate(506 172)"><path d="M0 6 V20" stroke="#4a453f" stroke-width="1.5"></path><circle cx="0" cy="-6" r="13" fill="#ffffff" stroke="#4a453f" stroke-width="1.8"></circle><text x="0" y="-2" font-size="12" fill="#4a453f" text-anchor="middle" font-family="'Zen Kurenaido','Yu Gothic UI',sans-serif">4</text></g>
+          <g transform="translate(190 156)"><path d="M0 6 V20" stroke="#4a453f" stroke-width="1.5"></path><circle cx="0" cy="-6" r="13" fill="#ffffff" stroke="#4a453f" stroke-width="1.8"></circle><text x="0" y="-2" font-size="12" fill="#4a453f" text-anchor="middle" font-family="'Zen Kurenaido','Yu Gothic UI',sans-serif">5</text></g>
+        </svg>
+        <div style="position: absolute; left: 12px; top: 12px; border: 1.5px dashed #8a837a; background: #efece6; border-radius: 6px; padding: 4px 8px; font-size: 10.5px">基点マーカー・同心リング ・ 未確定 A1 A2 B1</div>
+        <div style="position: absolute; right: 8px; bottom: 8px; background: rgba(255,255,255,0.9); border: 1.5px solid #4a453f; border-radius: 4px; padding: 2px 6px; font-size: 9.5px">© OpenStreetMap contributors</div>
+      </div>
+
+    </div>
+
+    <div style="height: 30px; flex-shrink: 0; border-top: 1.5px solid #4a453f; padding: 0 16px; display: flex; align-items: center; font-size: 10px; color: #43403b">Powered by ホットペッパーグルメ Webサービス（provider credit・文言は実装済み画面が正）</div>
+
+  </div>
+
+  <dl class="note" style="margin: 0; display: flex; flex-direction: column; gap: 5px">
+    <dd><span style="border-bottom: 1.5px solid #4a453f">この図は今回の合意対象外である（人間裁定 2026-08-23）。</span>以下は参考として残す記述である。<span style="border-bottom: 1.5px solid #4a453f">機能はスマホと同一である。</span>PC で変わるのは「候補が同時に何件見えるか」だけで、新しい操作も新しい情報も足していない。だから<span style="border-bottom: 1.5px solid #4a453f">機能の合意はスマホの4枚で取れば足りる</span>——この1枚は、スマホで見つかった「カードが入りきらない」問題が PC では起きないことを示すために添えた。</dd>
+    <dd class="con">枠を破線にしたのは、配置（左に候補・右に地図）そのものが未確定だからである。地図を主にして候補を横並びにする形もありうる。ここでスマホと逆の構成を採ると、地図側の情報量を削るという人間の意向（2026-08-23）が PC では効かないことになるので、その是非も判断が要る。</dd>
+    <dd class="con">縮尺していない概念図である。実際の幅・カードの大きさ・同時に見える件数はいずれも<span style="border-bottom: 1px solid #8a837a">未実測</span>。</dd>
+  </dl>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":1180,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,176 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kurenaido&display=swap">
+  <style>
+    body { margin: 0; background: #f4f2ee; color: #1c1a18;
+           font-family: 'Zen Kurenaido', 'Yu Gothic UI', 'Hiragino Sans', sans-serif; }
+    a { color: #1c1a18; } a:hover { color: #6b6560; }
+    .dev { width: 390px; height: 844px; box-sizing: border-box; background: #ffffff; border: 2px solid #4a453f;
+           border-radius: 20px; overflow: hidden; display: flex; flex-direction: column; flex-shrink: 0; }
+    .btn { min-height: 44px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
+           gap: 6px; padding: 0 12px; border: 1.5px solid #4a453f; background: #ffffff; border-radius: 8px;
+           font-size: 12.5px; white-space: nowrap; flex-shrink: 0; }
+    .card { border: 1.5px solid #4a453f; background: #ffffff; border-radius: 10px; padding: 10px 12px;
+            display: flex; flex-direction: column; gap: 5px; flex-shrink: 0; box-sizing: border-box; }
+    .card[data-sel="true"] { border-width: 3px; }
+    .no { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid #4a453f; font-size: 11px;
+          display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .card[data-sel="true"] .no { background: #3a3631; border-color: #3a3631; color: #ffffff; }
+    .lbl { font-size: 10px; color: #6b6560; }
+    .val { font-size: 11.5px; color: #23201c; }
+    .u { border: 1.5px dashed #8a837a; background: #efece6; }
+    .utag { font-size: 9px; color: #4a453f; border: 1.5px dashed #8a837a; background: #e9e5dd;
+            border-radius: 3px; padding: 0 4px; flex-shrink: 0; }
+    .note { display: flex; flex-direction: column; gap: 5px; margin: 0; width: 390px; }
+    .note dt { font-size: 14px; }
+    .note dd { margin: 0; font-size: 11.5px; color: #33302c; line-height: 1.6; }
+    .note dd.con { color: #6b6560; }
+    .note dd.ref { color: #6b6560; font-size: 10.5px; }
+  </style>
+</helmet>
+<div style="width: 440px; height: 1260px; box-sizing: border-box; padding: 20px 25px; display: flex; flex-direction: column; gap: 14px; background: #f4f2ee">
+
+  <div style="display: flex; flex-direction: column; gap: 1px">
+    <div style="font-size: 10.5px; color: #6b6560; letter-spacing: 0.05em">スマホ 390 × 844（作図値・未実測）</div>
+    <div style="font-size: 17px">M1｜開いた直後（候補リスト）</div>
+  </div>
+
+  <div class="dev">
+
+    <div style="height: 52px; flex-shrink: 0; box-sizing: border-box; padding: 0 8px 0 14px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1.5px solid #4a453f">
+      <div style="font-size: 16px">ランチ候補</div>
+      <div class="btn" style="width: 44px; padding: 0">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4a453f" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
+      </div>
+    </div>
+
+    <div style="flex-shrink: 0; box-sizing: border-box; padding: 6px 10px 6px 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1.5px solid #4a453f">
+      <div style="min-width: 0; display: flex; flex-direction: column; gap: 1px">
+        <div class="lbl">いまの条件</div>
+        <div style="font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">居酒屋・バーを除く ・ 近い順</div>
+      </div>
+      <div style="display: flex; gap: 6px; flex-shrink: 0">
+        <div class="btn">絞り込み</div>
+        <div class="btn" style="width: 44px; padding: 0">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4a453f" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.2 5.5"></path><path d="M20 4.5V11h-6.4"></path></svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="u" style="min-height: 48px; flex-shrink: 0; box-sizing: border-box; margin: 0; border-left: 0; border-right: 0; border-top: 0; padding: 0 12px 0 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px">
+      <div style="display: flex; align-items: center; gap: 8px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4a453f" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4 3 6.5v13L9 17l6 2.5 6-2.5v-13L15 7Z"></path><path d="M9 4v13M15 7v12.5"></path></svg>
+        <div style="font-size: 12.5px">地図で位置を見る</div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 7px">
+        <span class="utag">未確定 D2</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4a453f" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>
+      </div>
+    </div>
+
+    <div style="flex-grow: 1; min-height: 0; overflow: hidden; padding: 9px 12px; display: flex; flex-direction: column; gap: 8px; background: #faf9f7">
+
+      <div class="card" data-sel="true">
+        <div style="display: flex; align-items: center; gap: 8px">
+          <div class="no">1</div>
+          <div style="font-size: 15px">◯◯食堂</div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 2px">
+          <div class="lbl">ジャンル ／ 紹介</div>
+          <div class="val" style="line-height: 1.5">和食 — 昼は日替わりの定食が中心の小さな店。カウンターと座敷。（紹介文・下書き）</div>
+        </div>
+        <div style="display: flex; gap: 14px">
+          <div style="display: flex; flex-direction: column; gap: 1px"><div class="lbl">定休日</div><div class="val">日曜・祝日</div></div>
+          <div style="display: flex; flex-direction: column; gap: 1px"><div class="lbl">席数のめやす</div><div class="val">標準</div></div>
+          <div style="display: flex; flex-direction: column; gap: 1px"><div class="lbl">禁煙</div><div class="val">全席禁煙</div></div>
+          <div style="display: flex; flex-direction: column; gap: 1px"><div class="lbl">予算感</div><div class="val">中</div></div>
+        </div>
+        <div class="u" style="border-radius: 6px; padding: 3px 8px; align-self: flex-start; display: flex; align-items: center; gap: 7px">
+          <div style="font-size: 11.5px">徒歩 約6分</div><span class="utag">未確定 A3</span>
+        </div>
+        <div class="btn" style="justify-content: space-between; width: 100%">
+          <span>Hot Pepper の店舗ページ</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4a453f" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"></path></svg>
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="display: flex; align-items: center; gap: 8px">
+          <div class="no">2</div>
+          <div style="font-size: 15px">◇◇そば</div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 2px">
+          <div class="lbl">ジャンル ／ 紹介</div>
+          <div class="val" style="line-height: 1.5">和食 — 手打ちのそばと丼もの。昼の回転が速い。（紹介文・下書き）</div>
+        </div>
+        <div style="display: flex; gap: 14px">
+          <div style="display: flex; flex-direction: column; gap: 1px"><div class="lbl">定休日</div><div class="val">水曜</div></div>
+          <div style="display: flex; flex-direction: column; gap: 1px"><div class="lbl">席数のめやす</div><div class="val">情報なし</div></div>
+          <div style="display: flex; flex-direction: column; gap: 1px"><div class="lbl">禁煙</div><div class="val">一部禁煙</div></div>
+          <div style="display: flex; flex-direction: column; gap: 1px"><div class="lbl">予算感</div><div class="val">情報なし</div></div>
+        </div>
+        <div class="u" style="border-radius: 6px; padding: 3px 8px; align-self: flex-start; display: flex; align-items: center; gap: 7px">
+          <div style="font-size: 11.5px">徒歩 約9分</div><span class="utag">未確定 A3</span>
+        </div>
+        <div style="border: 1.5px solid #4a453f; border-radius: 6px; padding: 5px 8px; font-size: 11px; line-height: 1.5">クレジットカードは利用できません。お支払い方法は店舗にご確認ください</div>
+        <div class="btn" style="justify-content: space-between; width: 100%">
+          <span>Hot Pepper の店舗ページ</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4a453f" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"></path></svg>
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="display: flex; align-items: center; gap: 8px">
+          <div class="no">3</div>
+          <div style="font-size: 15px">△△キッチン</div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 2px">
+          <div class="lbl">ジャンル ／ 紹介</div>
+          <div class="val" style="line-height: 1.5">洋食 — 昼は数量限定のプレート。（紹介文・下書き）</div>
+        </div>
+        <div style="display: flex; gap: 14px">
+          <div style="display: flex; flex-direction: column; gap: 1px"><div class="lbl">定休日</div><div class="val">なし</div></div>
+          <div style="display: flex; flex-direction: column; gap: 1px"><div class="lbl">席数のめやす</div><div class="val">少なめ</div></div>
+          <div style="display: flex; flex-direction: column; gap: 1px"><div class="lbl">禁煙</div><div class="val">全席禁煙</div></div>
+          <div style="display: flex; flex-direction: column; gap: 1px"><div class="lbl">予算感</div><div class="val">低</div></div>
+        </div>
+      </div>
+
+    </div>
+
+    <div style="flex-shrink: 0; border-top: 1.5px dashed #8a837a; padding: 5px 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px; background: #f2f0ec">
+      <div style="font-size: 9.5px; color: #6b6560; line-height: 1.4">出典表示（provider credit）と地図の帰属は<br>この位置だと初期表示で折り返しの下になる</div>
+      <span class="utag">要確認</span>
+    </div>
+
+  </div>
+
+  <dl class="note">
+    <dt>M1｜開いた直後（候補リスト）</dt>
+    <dd>幹事は開いた直後に候補を上から比べる。地図は1行に畳み、押すと開く（M2）。「地図を見ている場面では位置関係と選択中の店舗以外を削ってよい」という人間の意向（2026-08-23）を、地図を別レイヤーにすることで満たす構成にした。</dd>
+    <dd class="con">代償: 位置関係が既定では見えない。地図を主役と考える人には後退に見える。</dd>
+    <dd><span style="border-bottom: 1.5px solid #4a453f">入りきらないことが判断材料である</span>: product-brief §3 と契約が要求するカード項目（店名・ジャンル・紹介文・定休日・席数のめやす・禁煙・予算感・カード注意・詳細リンク）を全部載せると、画面に入るのは<span style="border-bottom: 1.5px solid #4a453f">5件のうち約2.5〜3件</span>。探索ラフの「4件見える」は項目を省いた図だった。<span style="color: #6b6560">（作図上の値・未実測）</span></dd>
+    <dd>3件目は意図的に途切れさせてある。省いたのではない。</dd>
+    <dd class="con">破線: 地図バー（構成が未決 D2）／徒歩の分数（契約改訂が未マージ A3）。</dd>
+    <dd class="ref">契約: candidate-proposal-content, -cards, candidate-card-name/-genre/-description/-regular-holiday/-total-seats/-non-smoking/-dinner-budget/-payment-caution/-provider-page-link, candidate-filter-open, candidate-search-again, candidate-provider-credit（TDR-CS-01, TDR-CS-02, TDR-CS-12, TDR-CS-13）</dd>
+    <dd class="ref">2件目は「情報なし」の見え方（TDR-CS-13）とカード払い注意（TDR-CS-12）を同時に示している。</dd>
+  </dl>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":440,"height":1260}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

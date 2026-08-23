@@ -1,0 +1,136 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kurenaido&display=swap">
+  <style>
+    body { margin: 0; background: #f4f2ee; color: #1c1a18;
+           font-family: 'Zen Kurenaido', 'Yu Gothic UI', 'Hiragino Sans', sans-serif; }
+    a { color: #1c1a18; } a:hover { color: #6b6560; }
+    .dev { width: 390px; height: 452px; box-sizing: border-box; background: #ffffff; border: 2px dashed #8a837a;
+           border-radius: 20px 20px 6px 6px; overflow: hidden; display: flex; flex-direction: column; flex-shrink: 0; }
+    .dev.settled { border: 2px solid #4a453f; }
+    .btn { min-height: 44px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
+           gap: 6px; padding: 0 12px; border: 1.5px dashed #8a837a; background: #efece6; border-radius: 8px;
+           font-size: 12.5px; white-space: nowrap; flex-shrink: 0; }
+    .btn.s { border: 1.5px solid #4a453f; background: #ffffff; }
+    .h { font-size: 14px; border-bottom: 1.5px solid #4a453f; padding-bottom: 4px; }
+    .utag { font-size: 9px; color: #4a453f; border: 1.5px dashed #8a837a; background: #e9e5dd;
+            border-radius: 3px; padding: 1px 5px; flex-shrink: 0; }
+    .mark { font-size: 9px; border-radius: 3px; padding: 1px 5px; flex-shrink: 0; align-self: flex-start;
+            border: 1.5px solid #3a3631; background: #3a3631; color: #ffffff; }
+    .li { font-size: 11px; line-height: 1.55; color: #33302c; display: flex; gap: 7px; }
+    .li b { font-weight: normal; flex-shrink: 0; color: #1c1a18; }
+    .card { border: 1.5px solid #4a453f; border-radius: 8px; padding: 7px 9px; display: flex;
+            flex-direction: column; gap: 3px; background: #ffffff; }
+    .card .ttl { font-size: 12px; }
+    .card .val { font-size: 10px; color: #43403b; line-height: 1.45; }
+  </style>
+</helmet>
+<div style="width: 960px; height: 700px; box-sizing: border-box; padding: 22px 26px; display: flex; flex-direction: column; gap: 13px; background: #f4f2ee">
+
+  <div style="display: flex; flex-direction: column; gap: 3px">
+    <div style="display: flex; align-items: center; gap: 9px">
+      <div style="font-size: 20px">M5｜0件のとき・取得できないとき</div>
+      <span class="mark">決着1件（2026-08-23）</span>
+      <span class="utag">残りは未確定 D1</span>
+    </div>
+    <div style="font-size: 11px; color: #43403b; line-height: 1.55">人間裁定 2026-08-23: <span style="border-bottom: 1.5px solid #4a453f">取得に失敗しても、直前まで表示していた候補は残す。エラーは上に出す</span>。それ以外（429 と 503 を見分けるか・0件で地図が消えるのを受け入れるか・「絞り込みを見直す」を押せるものにするか）は product-brief §8 のまま未決である。破線のところは<span style="border-bottom: 1.5px solid #4a453f">たたき台</span>であって提案ではない。</div>
+  </div>
+
+  <div style="display: flex; gap: 18px; align-items: flex-start">
+
+    <div style="display: flex; flex-direction: column; gap: 7px">
+      <div style="font-size: 12px; color: #6b6560">条件に合う店が1件もない（TDR-CS-05）</div>
+      <div class="dev">
+        <div style="height: 50px; flex-shrink: 0; box-sizing: border-box; padding: 0 14px; display: flex; align-items: center; border-bottom: 1.5px dashed #8a837a">
+          <div style="font-size: 15px; color: #4a453f">ランチ候補</div>
+        </div>
+        <div style="flex-shrink: 0; box-sizing: border-box; padding: 6px 10px 6px 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1.5px dashed #8a837a">
+          <div style="font-size: 11px; color: #4a453f">禁煙席あり ・ 予算感 低 ・ 近い順</div>
+          <div class="btn">絞り込み</div>
+        </div>
+        <div style="flex-grow: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 0 26px; text-align: center">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#8a837a" stroke-width="1.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M16.2 16.2L21 21"></path><path d="M8.5 11h5"></path></svg>
+          <div style="font-size: 13.5px">条件に合う店が見つかりませんでした</div>
+          <div style="font-size: 11px; color: #43403b; line-height: 1.55">絞り込みをひとつ外すと見つかるかもしれません。<br>（文言は下書き）</div>
+          <div class="btn">絞り込みを見直す</div>
+        </div>
+      </div>
+      <div style="width: 390px; font-size: 10px; color: #6b6560; line-height: 1.5">この枠は<span style="border-bottom: 1px solid #8a837a">全面が破線のまま</span>。契約: candidate-no-results が存在し、candidate-proposal-cards と candidate-map は<span style="border-bottom: 1px solid #8a837a">存在しない</span>——0件のときは地図ごと消える。これは契約が決めていることで、この図が選んだことではない。受け入れるかどうかが判断待ち（右の 2）。</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 7px">
+      <div style="display: flex; align-items: center; gap: 8px">
+        <div style="font-size: 12px">取得できない・立て続けに探した（TDR-CS-06 / TDR-CS-08）</div><span class="mark">決着</span>
+      </div>
+      <div class="dev settled">
+        <div style="height: 50px; flex-shrink: 0; box-sizing: border-box; padding: 0 14px; display: flex; align-items: center; border-bottom: 1.5px solid #4a453f">
+          <div style="font-size: 15px">ランチ候補</div>
+        </div>
+        <div style="flex-shrink: 0; box-sizing: border-box; padding: 6px 10px 6px 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1.5px solid #4a453f">
+          <div style="font-size: 11px; color: #4a453f">居酒屋・バーを除く ・ 近い順</div>
+          <div style="display: flex; gap: 6px; flex-shrink: 0">
+            <div class="btn s">絞り込み</div>
+            <div class="btn s">もう一度探す</div>
+          </div>
+        </div>
+
+        <div style="flex-shrink: 0; box-sizing: border-box; margin: 9px 12px 0; border: 1.5px solid #4a453f; border-radius: 8px; background: #f2f0ec; padding: 8px 10px; display: flex; gap: 8px; align-items: flex-start">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4a453f" stroke-width="1.8" stroke-linecap="round" style="flex-shrink: 0; margin-top: 1px"><circle cx="12" cy="12" r="9"></circle><path d="M12 7.5v5.5M12 16.3v.1"></path></svg>
+          <div style="min-width: 0; display: flex; flex-direction: column; gap: 3px">
+            <div style="font-size: 12px">いま候補を取得できませんでした</div>
+            <div style="font-size: 10px; color: #43403b; line-height: 1.5">しばらくしてからもう一度お試しください。（この文はサーバが返す message をそのまま出す）</div>
+            <div style="display: flex; align-items: center; gap: 6px; margin-top: 2px">
+              <span class="utag">429 と 503 を見分けて出すかは未確定</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="flex-grow: 1; min-height: 0; padding: 8px 12px 0; display: flex; flex-direction: column; gap: 5px; overflow: hidden">
+          <div style="font-size: 10px; color: #6b6560">直前まで見ていた候補（消さずにそのまま残る）</div>
+          <div class="card">
+            <div class="ttl">1 ・ ◯◯食堂</div>
+            <div class="val">和食 — 昼は日替わりの定食が中心の小さな店。（紹介文・下書き）</div>
+            <div class="val">定休日 日曜・祝日 ／ 席数 標準 ／ 全席禁煙 ／ 予算感 中</div>
+          </div>
+          <div class="card">
+            <div class="ttl">2 ・ △△キッチン</div>
+            <div class="val">洋食 — 昼どきは相席になることがある。（紹介文・下書き）</div>
+            <div class="val">定休日 なし ／ 席数 多い ／ 分煙 ／ 予算感 低</div>
+          </div>
+        </div>
+      </div>
+      <div style="width: 390px; font-size: 10px; color: #6b6560; line-height: 1.5">契約: candidate-proposal-problem と -problem-guidance が存在し、guidance の文は response.message そのもの。data-problem-code に PROVIDER_UNAVAILABLE / PROPOSAL_RATE_LIMITED が入る。非公開の検索地点・内部の事情は出さない。<span style="border-bottom: 1px solid #8a837a">契約は候補を消せとは書いていない</span>ので、残す形は現行契約に違反しない（右の 4 も参照）。</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 0">
+      <div class="h">決着（2026-08-23）</div>
+      <div class="li"><span class="mark">済</span><span>取得に失敗しても<span style="border-bottom: 1.5px solid #4a453f">直前まで出ていた候補を残す</span>。エラーは上に出す。<br>採った理由: 1回の失敗で手元の比較材料を失わない。<br>受け入れた代償: 上のエラーを読み落とすと、古い候補を新しい提案と誤読しうる。文言でそこを補うが、guidance の文はサーバ由来であり、補いの文は<span style="border-bottom: 1px solid #8a837a">下書き</span>である。</span></div>
+
+      <div class="h" style="margin-top: 3px">まだ決まっていない（判断待ち）</div>
+      <div class="li"><b>1</b><span>立て続けに探したとき（429）と取得できないとき（503）を、<span style="border-bottom: 1.5px solid #4a453f">同じ見た目で出すか分けるか</span>。前者は待てば直り、後者は待っても直らないかもしれない。文はサーバ由来なので、画面側で区別するなら別の置き方が要る。</span></div>
+      <div class="li"><b>2</b><span>0件のときに<span style="border-bottom: 1.5px solid #4a453f">地図が消えることをこのまま受け入れるか</span>。基点だけでも残すなら契約（empty.absent の candidate-map）の改訂が要る。</span></div>
+      <div class="li"><b>3</b><span>「絞り込みを見直す」を<span style="border-bottom: 1.5px solid #4a453f">押せるものにするか</span>。TDR-CS-05 は「絞り込み条件を変更するよう案内される」ことしか求めていない——文で案内するのか、押せるものを置くのかは決まっていない。</span></div>
+      <div class="li"><b>4</b><span>候補を残すことを<span style="border-bottom: 1.5px solid #4a453f">契約で保証するか</span>（designer からの確認事項）。現行契約の problem 状態は proposal-problem と guidance の存在しか要求せず、カードの存否に触れていない。追補が無ければ、実装がカードを消しても受け入れテストは通る。</span></div>
+      <div style="font-size: 10px; color: #6b6560; line-height: 1.5; margin-top: 2px">1〜3 は推測で埋めなかった。埋めると製品境界を designer が勝手に決めることになる。4 は architect への確認事項である。</div>
+    </div>
+
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":960,"height":700}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
