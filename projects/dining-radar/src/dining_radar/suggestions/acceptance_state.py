@@ -11,13 +11,19 @@ adr/0024 decision 3 -- the fixed near-distance pool it was named for no
 longer exists), ``DEFAULT_EXCLUSION_VISIBLE``,
 ``CARD_PAYMENT_CAUTION_VISIBLE``, ``ZERO_PENDING_MATCH``,
 ``FALLBACK_PRESERVES_FILTERS``, ``GENRE_ORDER_BY_COUNT``,
-``SHOWN_POOL_PRIORITY`` (the latter two new, adr/0024 decisions 1 and 4),
-and ``IZAKAYA_BAR_ONLY`` drive the exact same production
+``SHOWN_POOL_PRIORITY`` (adr/0024 decisions 1 and 4),
+``WALKING_TIME_LIMIT_EXCLUDES`` (adr/0025 decision 3), and
+``IZAKAYA_BAR_ONLY`` drive the exact same production
 ``suggestions.service.propose_candidates`` pipeline with synthetic
 candidates, rather than a hand-written fake response, so those seams exercise
-real filtering/ordering/selection logic (adr/0023, adr/0024). ``NO_RESULTS``,
-``PROVIDER_UNAVAILABLE``, and ``RATE_LIMITED`` return a fixed synthetic
-outcome directly, without calling the pipeline.
+real filtering/ordering/selection logic (adr/0023, adr/0024, adr/0025).
+``NO_RESULTS``, ``PROVIDER_UNAVAILABLE``, and ``RATE_LIMITED`` return a
+fixed synthetic outcome directly, without calling the pipeline.
+``RATE_LIMITED_AFTER_INITIAL_SUCCESS`` (human decision 2026-08-23, TDR-CS-16)
+is the one mode that does both: its first call runs the real pipeline and
+every later call under the same acceptance state raises the same fixed
+outcome ``RATE_LIMITED`` does (see its own handling in
+``propose_with_override``).
 
 Per adr/0023 decision 4 hand-off item 4, this module also owns the seeded
 random-source injection this seam needs to make selection deterministic and
@@ -41,6 +47,7 @@ from django.core.cache import cache
 
 from dining_radar.recommendation.pipeline import (
     DEFAULT_EXCLUDED_GENRES,
+    METERS_PER_DEGREE_LATITUDE,
     CandidateFilters,
     NormalizedCandidate,
     Origin,
@@ -61,6 +68,16 @@ __all__ = [
 
 _CACHE_KEY_MODE = "suggestions.acceptance-candidate-proposal-mode"
 _CACHE_KEY_SEED = "suggestions.acceptance-candidate-proposal-random-seed"
+# TDR-CS-16 (human decision 2026-08-23): RATE_LIMITED_AFTER_INITIAL_SUCCESS's
+# own call counter -- the only mode whose synthetic outcome differs between
+# the first and every later /candidate-proposals request within the same
+# acceptance scenario (see its own handling in propose_with_override for why
+# a second set_mode call was deliberately not used for this). Reset whenever
+# a mode is (re)selected or the seam is reset, so re-selecting this mode
+# (or any other) always starts its count fresh.
+_CACHE_KEY_RATE_LIMITED_AFTER_INITIAL_SUCCESS_CALLS = (
+    "suggestions.acceptance-rate-limited-after-initial-success-calls"
+)
 _SYNTHETIC_RATE_LIMIT_RETRY_AFTER_SECONDS = 30
 
 # One confirmed member of pipeline.DEFAULT_EXCLUDED_GENRES (adr/0015), reused
@@ -79,10 +96,12 @@ class AcceptanceCandidateProposalMode(StrEnum):
     FALLBACK_PRESERVES_FILTERS = "FALLBACK_PRESERVES_FILTERS"
     GENRE_ORDER_BY_COUNT = "GENRE_ORDER_BY_COUNT"
     SHOWN_POOL_PRIORITY = "SHOWN_POOL_PRIORITY"
+    WALKING_TIME_LIMIT_EXCLUDES = "WALKING_TIME_LIMIT_EXCLUDES"
     IZAKAYA_BAR_ONLY = "IZAKAYA_BAR_ONLY"
     NO_RESULTS = "NO_RESULTS"
     PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"
     RATE_LIMITED = "RATE_LIMITED"
+    RATE_LIMITED_AFTER_INITIAL_SUCCESS = "RATE_LIMITED_AFTER_INITIAL_SUCCESS"
 
 
 class AcceptanceProviderUnavailable(RuntimeError):
@@ -117,11 +136,13 @@ def set_mode(mode: AcceptanceCandidateProposalMode, random_seed: int | None = No
         cache.delete(_CACHE_KEY_SEED)
     else:
         cache.set(_CACHE_KEY_SEED, random_seed, timeout=None)
+    cache.delete(_CACHE_KEY_RATE_LIMITED_AFTER_INITIAL_SUCCESS_CALLS)
 
 
 def reset_mode() -> None:
     cache.delete(_CACHE_KEY_MODE)
     cache.delete(_CACHE_KEY_SEED)
+    cache.delete(_CACHE_KEY_RATE_LIMITED_AFTER_INITIAL_SUCCESS_CALLS)
 
 
 def active_mode() -> AcceptanceCandidateProposalMode | None:
@@ -173,6 +194,22 @@ def _synthetic_candidate(
 
 
 _ORIGIN = Origin(latitude=0.0, longitude=0.0)
+
+
+def _latitude_degrees_for_meters(meters: float) -> float:
+    """The latitude delta from ``_ORIGIN`` that places a candidate at exactly ``meters``.
+
+    Every synthetic candidate in this module fixes ``longitude=0.0`` (see
+    ``_synthetic_candidate``) and ``_ORIGIN`` is ``(0.0, 0.0)``, so
+    ``pipeline._distance`` reduces to ``abs(latitude) *
+    METERS_PER_DEGREE_LATITUDE``. Sharing that constant (rather than
+    duplicating its numeric value here) guarantees a candidate built this
+    way lands at exactly the intended walking-time distance -- needed for
+    WALKING_TIME_LIMIT_EXCLUDES's deterministic TDR-CS-15 boundary case
+    below -- regardless of any future change to the constant's value.
+    """
+    return meters / METERS_PER_DEGREE_LATITUDE
+
 
 # A default-excluded-genre candidate (adr/0015/adr/0023), reused by both
 # NORMAL_WITH_WEIGHTED_SAMPLING (as the sole excluded-genre member of its
@@ -512,6 +549,67 @@ _SHOWN_POOL_PRIORITY_CANDIDATES: tuple[NormalizedCandidate, ...] = tuple(
     _shown_pool_priority_candidate(index) for index in range(_SHOWN_POOL_PRIORITY_SIZE)
 )
 
+# test-support-api.yaml v1.3.0 (adr/0025 decision 3): WALKING_TIME_LIMIT_
+# EXCLUDES is the deterministic TDR-CS-15 Given. The eligible, non-excluded
+# population is no larger than DISPLAY_CAP (mirroring
+# CARD_PAYMENT_CAUTION_VISIBLE's approach, not NORMAL_WITH_WEIGHTED_
+# SAMPLING's large-population one), so every member displays for every
+# randomSeed. The fixed synthetic limit this mode is built against is
+# exactly 12 minutes -- an arbitrary value chosen only for test determinism,
+# not a claim about the real product's eventual offered
+# walkingTimeMaxMinutes presets (see pipeline.WALKING_TIME_MAX_PRESET_
+# MINUTES, which this mode's population does not need to share, since
+# TDR-CS-15's own boundary assertions choose their own filter value
+# directly rather than reading it from the presets). Three members are
+# placed at exactly-known distances via _latitude_degrees_for_meters:
+# comfortably under (800m -> 10 min), exactly at (950m -> 12 min, chosen
+# with margin inside the (880m, 960m] range that ceils to 12, not at either
+# edge, so floating-point rounding cannot push it into a neighboring
+# minute), and comfortably over (1100m -> 14 min) the limit.
+_WALKING_TIME_LIMIT_EXCLUDES_THRESHOLD_MINUTES = 12
+_WALKING_TIME_LIMIT_EXCLUDES_CANDIDATES: tuple[NormalizedCandidate, ...] = (
+    _synthetic_candidate(
+        name="Synthetic walking-time under limit",
+        genre="Synthetic Walking Test",
+        provider_page_url="https://example.invalid/acceptance-walking-time-under",
+        latitude=_latitude_degrees_for_meters(800.0),
+    ),
+    _synthetic_candidate(
+        name="Synthetic walking-time at limit",
+        genre="Synthetic Walking Test",
+        provider_page_url="https://example.invalid/acceptance-walking-time-boundary",
+        latitude=_latitude_degrees_for_meters(950.0),
+    ),
+    _synthetic_candidate(
+        name="Synthetic walking-time over limit",
+        genre="Synthetic Walking Test",
+        provider_page_url="https://example.invalid/acceptance-walking-time-over",
+        latitude=_latitude_degrees_for_meters(1100.0),
+    ),
+)
+
+# test-support-api.yaml v1.3.0 (human decision 2026-08-23): RATE_LIMITED_
+# AFTER_INITIAL_SUCCESS is the deterministic TDR-CS-16 Given. Its population
+# is small and fixed (mirroring CARD_PAYMENT_CAUTION_VISIBLE) because only
+# the *first* /candidate-proposals request under this mode runs the real
+# pipeline against it (see propose_with_override) -- every later request
+# under the same acceptance state fails with the fixed RATE_LIMITED outcome
+# instead, regardless of this population.
+_RATE_LIMITED_AFTER_INITIAL_SUCCESS_CANDIDATES: tuple[NormalizedCandidate, ...] = (
+    _synthetic_candidate(
+        name="Synthetic prior-display one",
+        genre="Synthetic Retention Test",
+        provider_page_url="https://example.invalid/acceptance-prior-display-one",
+        latitude=0.0010,
+    ),
+    _synthetic_candidate(
+        name="Synthetic prior-display two",
+        genre="Synthetic Retention Test",
+        provider_page_url="https://example.invalid/acceptance-prior-display-two",
+        latitude=0.0020,
+    ),
+)
+
 
 def _normal_with_weighted_sampling_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
     return _CANDIDATES, _ORIGIN
@@ -545,6 +643,14 @@ def _shown_pool_priority_source() -> tuple[tuple[NormalizedCandidate, ...], Orig
     return _SHOWN_POOL_PRIORITY_CANDIDATES, _ORIGIN
 
 
+def _walking_time_limit_excludes_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
+    return _WALKING_TIME_LIMIT_EXCLUDES_CANDIDATES, _ORIGIN
+
+
+def _rate_limited_after_initial_success_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
+    return _RATE_LIMITED_AFTER_INITIAL_SUCCESS_CANDIDATES, _ORIGIN
+
+
 def propose_with_override(
     mode: AcceptanceCandidateProposalMode,
     filters: CandidateFilters,
@@ -562,8 +668,40 @@ def propose_with_override(
         raise AcceptanceProviderUnavailable
     if mode is AcceptanceCandidateProposalMode.RATE_LIMITED:
         raise AcceptanceRateLimited(_SYNTHETIC_RATE_LIMIT_RETRY_AFTER_SECONDS)
+    if mode is AcceptanceCandidateProposalMode.RATE_LIMITED_AFTER_INITIAL_SUCCESS:
+        # TDR-CS-16 (human decision 2026-08-23): the first
+        # /candidate-proposals request under this mode succeeds through the
+        # real pipeline; every later one under the same acceptance state
+        # fails with the same synthetic rate limit RATE_LIMITED already
+        # raises above. A second `set_mode` call was deliberately not used
+        # for this two-phase shape (no precedent in this file for that
+        # technique -- see this module's docstring); instead this mode
+        # tracks its own call count in the cache, reset whenever a mode is
+        # (re)selected (`set_mode`/`reset_mode`).
+        call_count = cache.get(_CACHE_KEY_RATE_LIMITED_AFTER_INITIAL_SUCCESS_CALLS, 0) + 1
+        cache.set(_CACHE_KEY_RATE_LIMITED_AFTER_INITIAL_SUCCESS_CALLS, call_count, timeout=None)
+        if call_count == 1:
+            return propose_candidates(
+                filters,
+                fetch_candidates=_rate_limited_after_initial_success_source,
+                random_source=active_random_source(),
+                shown_provider_page_urls=shown_provider_page_urls,
+            )
+        raise AcceptanceRateLimited(_SYNTHETIC_RATE_LIMIT_RETRY_AFTER_SECONDS)
     if mode is AcceptanceCandidateProposalMode.NO_RESULTS:
-        return ProposalResult((), False, ())
+        return ProposalResult(
+            candidates=(),
+            izakaya_bar_fallback_applied=False,
+            available_genres=(),
+            search_origin=_ORIGIN,
+        )
+    if mode is AcceptanceCandidateProposalMode.WALKING_TIME_LIMIT_EXCLUDES:
+        return propose_candidates(
+            filters,
+            fetch_candidates=_walking_time_limit_excludes_source,
+            random_source=active_random_source(),
+            shown_provider_page_urls=shown_provider_page_urls,
+        )
     if mode is AcceptanceCandidateProposalMode.IZAKAYA_BAR_ONLY:
         return propose_candidates(
             filters,

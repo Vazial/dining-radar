@@ -225,13 +225,18 @@ class GenreOrderingAndFilterGroupingSourceTests(SimpleTestCase):
     def test_izakaya_bar_toggle_renders_in_the_genre_row_not_the_preference_row(self):
         source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
 
-        # It must render first within the "ジャンル" row -- ahead of the genre
-        # option chips and overflow toggle -- so it stays within the
-        # horizontally scrollable chip row's initially visible range on
-        # narrow viewports (contracts/candidate-search-browser-interface.yaml's
-        # controlGrouping.genreGroup requires membership only, not order).
-        self.assertIn('chipRow("ジャンル", [izakayaBarToggleChip()].concat(genreChips()))', source)
+        # It must render first within the genre row's own horizontally
+        # scrollable sub-container -- ahead of the genre option chips --
+        # so it stays within that sub-container's initially visible range
+        # on narrow viewports (contracts/candidate-search-browser-
+        # interface.yaml's controlGrouping.genreGroup requires membership
+        # only, not order). adr/0025 + human decision 2026-08-23 moved the
+        # overflow toggle itself out to a DOM sibling of this
+        # sub-container (see genreGroupRow), which this test does not
+        # re-assert (covered by the overflow-placement test below).
+        self.assertIn("[izakayaBarToggleChip()].concat(genreOptionChips(visible))", source)
         self.assertIn("function izakayaBarToggleChip()", source)
+        self.assertIn("function genreGroupRow()", source)
 
         # The old placement -- as a member of the "こだわり" chip array --
         # must be gone: candidate-filter-include-izakaya-bar's testId/purpose
@@ -243,6 +248,35 @@ class GenreOrderingAndFilterGroupingSourceTests(SimpleTestCase):
         preference_row_end = source.index("]),", preference_row_start)
         preference_row_source = source[preference_row_start:preference_row_end]
         self.assertNotIn("izakaya", preference_row_source)
+
+    def test_genre_overflow_toggle_is_the_leading_member_outside_the_scrollable_subgroup(self):
+        # Human decision 2026-08-23 (design/wireframes/GenreRow.dc.html
+        # option (c)): candidate-filter-genre-overflow must be a DOM
+        # sibling that precedes the scrollable sub-container holding
+        # izakayaBarToggleChip() and the genre option chips, not a
+        # descendant of it -- otherwise its position would move with that
+        # sub-container's own horizontal scroll offset (the entry point to
+        # hidden genres must stay reachable regardless of scroll position).
+        source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("function genreOverflowToggle(hiddenCount, expanded)", source)
+        group_start = source.index("function genreGroupRow()")
+        group_end = source.index("function walkingTimeMaxChips()", group_start)
+        group_source = source[group_start:group_end]
+
+        # groupChildren's own push order is genreGroupRow's actual DOM
+        # append order (el() appends each array member in sequence), unlike
+        # the earlier `var scrollable = ...` declaration above these two
+        # pushes, which is source-text order only and not DOM order.
+        overflow_push_index = group_source.index(
+            "groupChildren.push(genreOverflowToggle(hidden, genreOverflowExpanded));"
+        )
+        scrollable_push_index = group_source.index("groupChildren.push(scrollable);")
+        self.assertLess(
+            overflow_push_index,
+            scrollable_push_index,
+            "the overflow toggle must be appended to groupChildren before the scrollable container",
+        )
 
 
 class ShownCandidateMemorySourceTests(SimpleTestCase):

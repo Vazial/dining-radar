@@ -1,8 +1,10 @@
 from django.test import SimpleTestCase
 
-from dining_radar.recommendation.pipeline import NormalizedCandidate, PopulationAttribute
+from dining_radar.recommendation.pipeline import NormalizedCandidate, Origin, PopulationAttribute
 from dining_radar.suggestions.service import ProposalResult
 from dining_radar.web.serializers import serialize_result
+
+ORIGIN = Origin(latitude=0.0, longitude=0.0)
 
 
 def _candidate(**overrides):
@@ -25,7 +27,7 @@ def _candidate(**overrides):
 
 class SerializeResultTests(SimpleTestCase):
     def test_empty_candidates_serializes_with_fixed_credit(self):
-        result = ProposalResult((), False, ())
+        result = ProposalResult((), False, (), search_origin=ORIGIN)
 
         payload = serialize_result(result)
 
@@ -42,7 +44,7 @@ class SerializeResultTests(SimpleTestCase):
 
     def test_candidate_fields_and_nullable_handling_are_preserved(self):
         candidate = _candidate(description=None, total_seats=None)
-        result = ProposalResult((candidate,), False, ("和食",))
+        result = ProposalResult((candidate,), False, ("和食",), search_origin=ORIGIN)
 
         payload = serialize_result(result)
 
@@ -66,7 +68,7 @@ class SerializeResultTests(SimpleTestCase):
             _candidate(provider_page_url="https://example.invalid/a"),
             _candidate(provider_page_url="https://example.invalid/b"),
         )
-        result = ProposalResult(candidates, False, ())
+        result = ProposalResult(candidates, False, (), search_origin=ORIGIN)
 
         payload = serialize_result(result)
 
@@ -74,7 +76,7 @@ class SerializeResultTests(SimpleTestCase):
         self.assertEqual(len(refs), len(set(refs)))
 
     def test_izakaya_bar_fallback_applied_is_passed_through(self):
-        result = ProposalResult((), True, ())
+        result = ProposalResult((), True, (), search_origin=ORIGIN)
 
         payload = serialize_result(result)
 
@@ -82,21 +84,21 @@ class SerializeResultTests(SimpleTestCase):
 
     def test_shown_pool_exhausted_true_is_passed_through(self):
         # adr/0024 decision 4.
-        result = ProposalResult((), False, (), shown_pool_exhausted=True)
+        result = ProposalResult((), False, (), search_origin=ORIGIN, shown_pool_exhausted=True)
 
         payload = serialize_result(result)
 
         self.assertTrue(payload["shownPoolExhausted"])
 
     def test_shown_pool_exhausted_false_is_passed_through(self):
-        result = ProposalResult((), False, (), shown_pool_exhausted=False)
+        result = ProposalResult((), False, (), search_origin=ORIGIN, shown_pool_exhausted=False)
 
         payload = serialize_result(result)
 
         self.assertFalse(payload["shownPoolExhausted"])
 
     def test_response_has_exactly_the_contract_shape(self):
-        result = ProposalResult((_candidate(),), False, ())
+        result = ProposalResult((_candidate(),), False, (), search_origin=ORIGIN)
 
         payload = serialize_result(result)
 
@@ -108,6 +110,7 @@ class SerializeResultTests(SimpleTestCase):
                 "availableGenres",
                 "populationAttributes",
                 "providerCredit",
+                "searchOrigin",
                 "shownPoolExhausted",
             },
         )
@@ -126,6 +129,7 @@ class SerializeResultTests(SimpleTestCase):
                 "dinnerBudgetTier",
                 "location",
                 "providerPageUrl",
+                "walkingTimeMinutes",
             },
         )
 
@@ -134,13 +138,15 @@ class SerializeResultTests(SimpleTestCase):
             (),
             False,
             (),
-            (
+            search_origin=ORIGIN,
+            population_attributes=(
                 PopulationAttribute(
                     genre="western",
                     non_smoking_status="FULL",
                     card_payment_available=True,
                     dinner_budget_tier="LOW",
                     default_excluded=False,
+                    walking_time_band=10,
                 ),
             ),
         )
@@ -156,9 +162,31 @@ class SerializeResultTests(SimpleTestCase):
                     "cardPaymentAvailable": True,
                     "dinnerBudgetTier": "LOW",
                     "defaultExcluded": False,
+                    "walkingTimeBand": 10,
                 }
             ],
         )
+
+    def test_search_origin_serializes_the_response_level_coordinates(self):
+        origin = Origin(latitude=12.5, longitude=-3.25)
+        result = ProposalResult((), False, (), search_origin=origin)
+
+        payload = serialize_result(result)
+
+        self.assertEqual(payload["searchOrigin"], {"latitude": 12.5, "longitude": -3.25})
+
+    def test_walking_time_minutes_is_derived_from_origin_and_candidate_location(self):
+        # 0.01 degrees of latitude at ORIGIN's equator scale is
+        # 0.01 * 111_320 = 1113.2 meters -> ceil(1113.2 / 80) = 14 minutes.
+        # This is a deliberately independent computation from
+        # dining_radar.recommendation.pipeline's own constants, so this test
+        # is not tautological against them.
+        candidate = _candidate(latitude=0.01, longitude=0.0)
+        result = ProposalResult((candidate,), False, (), search_origin=ORIGIN)
+
+        payload = serialize_result(result)
+
+        self.assertEqual(payload["candidates"][0]["walkingTimeMinutes"], 14)
 
 
 class CapacityTierTests(SimpleTestCase):
@@ -166,7 +194,7 @@ class CapacityTierTests(SimpleTestCase):
 
     def _serialize_one(self, total_seats):
         candidate = _candidate(total_seats=total_seats)
-        payload = serialize_result(ProposalResult((candidate,), False, ()))
+        payload = serialize_result(ProposalResult((candidate,), False, (), search_origin=ORIGIN))
         return payload["candidates"][0]
 
     def test_null_total_seats_is_a_null_capacity_tier(self):
@@ -192,7 +220,7 @@ class DinnerBudgetTierTests(SimpleTestCase):
 
     def _serialize_one(self, budget_average):
         candidate = _candidate(budget_average=budget_average)
-        payload = serialize_result(ProposalResult((candidate,), False, ()))
+        payload = serialize_result(ProposalResult((candidate,), False, (), search_origin=ORIGIN))
         return payload["candidates"][0]
 
     def test_null_budget_average_is_a_null_dinner_budget_tier(self):
@@ -213,20 +241,20 @@ class PassThroughFieldTests(SimpleTestCase):
     def test_non_smoking_status_is_passed_through_unchanged(self):
         candidate = _candidate(non_smoking_status="PARTIAL")
 
-        payload = serialize_result(ProposalResult((candidate,), False, ()))
+        payload = serialize_result(ProposalResult((candidate,), False, (), search_origin=ORIGIN))
 
         self.assertEqual(payload["candidates"][0]["nonSmokingStatus"], "PARTIAL")
 
     def test_card_payment_available_false_is_passed_through_unchanged(self):
         candidate = _candidate(card_payment_available=False)
 
-        payload = serialize_result(ProposalResult((candidate,), False, ()))
+        payload = serialize_result(ProposalResult((candidate,), False, (), search_origin=ORIGIN))
 
         self.assertIs(payload["candidates"][0]["cardPaymentAvailable"], False)
 
     def test_card_payment_available_true_is_passed_through_unchanged(self):
         candidate = _candidate(card_payment_available=True)
 
-        payload = serialize_result(ProposalResult((candidate,), False, ()))
+        payload = serialize_result(ProposalResult((candidate,), False, (), search_origin=ORIGIN))
 
         self.assertIs(payload["candidates"][0]["cardPaymentAvailable"], True)

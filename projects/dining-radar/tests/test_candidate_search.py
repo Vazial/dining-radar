@@ -109,6 +109,35 @@ class CandidateProposalsApiTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
 
+    def test_non_integer_walking_time_max_minutes_is_a_safe_403(self):
+        response = self.post_proposal({"filters": {"walkingTimeMaxMinutes": "15"}})
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_boolean_walking_time_max_minutes_is_a_safe_403(self):
+        response = self.post_proposal({"filters": {"walkingTimeMaxMinutes": True}})
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_zero_walking_time_max_minutes_is_a_safe_403(self):
+        response = self.post_proposal({"filters": {"walkingTimeMaxMinutes": 0}})
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_negative_walking_time_max_minutes_is_a_safe_403(self):
+        response = self.post_proposal({"filters": {"walkingTimeMaxMinutes": -5}})
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_null_walking_time_max_minutes_is_accepted_as_no_restriction(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING
+        )
+
+        response = self.post_proposal({"filters": {"walkingTimeMaxMinutes": None}})
+
+        self.assertEqual(response.status_code, 200)
+
     def test_empty_filters_object_is_accepted(self):
         acceptance_state.set_mode(
             acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING
@@ -380,6 +409,7 @@ class CandidateProposalsApiTests(TestCase):
                     "text": "Powered by ホットペッパーグルメ Webサービス",
                     "url": "http://webservice.recruit.co.jp/",
                 },
+                "searchOrigin": {"latitude": 0.0, "longitude": 0.0},
                 "shownPoolExhausted": False,
             },
         )
@@ -498,6 +528,105 @@ class CandidateProposalsApiTests(TestCase):
         self.assertTrue(third["shownPoolExhausted"])
         self.assertEqual(len(third["candidates"]), 5)
 
+    # walkingTimeMaxMinutes / searchOrigin / walkingTimeMinutes (adr/0025) --
+
+    def test_walking_time_max_minutes_excludes_only_candidates_strictly_over_the_limit(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.WALKING_TIME_LIMIT_EXCLUDES
+        )
+
+        response = self.post_proposal(
+            {
+                "filters": {
+                    "walkingTimeMaxMinutes": (
+                        acceptance_state._WALKING_TIME_LIMIT_EXCLUDES_THRESHOLD_MINUTES
+                    )
+                }
+            }
+        )
+
+        self.assertEqual(response.status_code, 200)
+        names = {c["name"] for c in response.json()["candidates"]}
+        self.assertIn("Synthetic walking-time under limit", names)
+        self.assertIn("Synthetic walking-time at limit", names)
+        self.assertNotIn("Synthetic walking-time over limit", names)
+
+    def test_walking_time_max_minutes_omitted_returns_every_eligible_candidate(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.WALKING_TIME_LIMIT_EXCLUDES
+        )
+
+        response = self.post_proposal()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()["candidates"]), 3)
+
+    def test_walking_time_max_minutes_is_never_silently_loosened_by_the_izakaya_bar_fallback(self):
+        # TDR-CS-10 as amended by adr/0025 decision 3: a walking-time-max
+        # filter tight enough to exclude everything -- including the
+        # izakaya/bar-inclusive retry -- must not be silently loosened, so
+        # the response stays a successful empty result, not a fallback.
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.WALKING_TIME_LIMIT_EXCLUDES
+        )
+
+        response = self.post_proposal({"filters": {"walkingTimeMaxMinutes": 1}})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["candidates"], [])
+        self.assertFalse(payload["izakayaBarFallbackApplied"])
+
+    def test_search_origin_is_present_on_every_successful_response(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING
+        )
+
+        response = self.post_proposal()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["searchOrigin"], {"latitude": 0.0, "longitude": 0.0})
+
+    def test_walking_time_minutes_is_present_and_non_negative_on_every_candidate(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING
+        )
+
+        response = self.post_proposal()
+
+        candidates = response.json()["candidates"]
+        self.assertTrue(candidates)
+        for candidate in candidates:
+            self.assertIsInstance(candidate["walkingTimeMinutes"], int)
+            self.assertGreaterEqual(candidate["walkingTimeMinutes"], 0)
+
+    def test_population_attributes_carry_a_walking_time_band(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING
+        )
+
+        response = self.post_proposal()
+
+        rows = response.json()["populationAttributes"]
+        self.assertTrue(rows)
+        for row in rows:
+            self.assertIn("walkingTimeBand", row)
+
+    # RATE_LIMITED_AFTER_INITIAL_SUCCESS (human decision 2026-08-23, TDR-CS-16)
+
+    def test_rate_limited_after_initial_success_mode_succeeds_then_rate_limits(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.RATE_LIMITED_AFTER_INITIAL_SUCCESS
+        )
+
+        first = self.post_proposal()
+        self.assertEqual(first.status_code, 200)
+        self.assertTrue(first.json()["candidates"])
+
+        second = self.post_proposal()
+        self.assertEqual(second.status_code, 429)
+        self.assertEqual(second.json()["code"], "PROPOSAL_RATE_LIMITED")
+
     def test_server_never_echoes_shown_provider_page_urls_back(self):
         # adr/0024 decision 4: shownProviderPageUrls is priority information
         # processed for this one request only -- it must never appear
@@ -562,11 +691,13 @@ class CandidateResponseSchemaTests(TestCase):
                     "dinnerBudgetTier",
                     "location",
                     "providerPageUrl",
+                    "walkingTimeMinutes",
                 },
             )
             self.assertEqual(set(candidate["location"]), {"latitude", "longitude"})
             self.assertIsInstance(candidate["location"]["latitude"], (int, float))
             self.assertIsInstance(candidate["location"]["longitude"], (int, float))
+            self.assertIsInstance(candidate["walkingTimeMinutes"], int)
 
         self.assertEqual(
             set(payload),
@@ -576,6 +707,7 @@ class CandidateResponseSchemaTests(TestCase):
                 "availableGenres",
                 "populationAttributes",
                 "providerCredit",
+                "searchOrigin",
                 "shownPoolExhausted",
             },
         )

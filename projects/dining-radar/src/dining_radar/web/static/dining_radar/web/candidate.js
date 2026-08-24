@@ -27,6 +27,25 @@
  * mapping live once in the static candidate-budget-tier-note element in
  * home.html, not here -- that element does not depend on any proposal
  * response, so it is server-rendered rather than produced by this script.
+ *
+ * Per adr/0025, the response also carries `searchOrigin` (the private search
+ * origin's coordinates, for map display only) and each candidate's
+ * `walkingTimeMinutes` (an estimate, never a measured route). This module
+ * renders the origin as a read-only map marker plus a small set of
+ * walking-time rings around it (WALKING_TIME_MAX_PRESETS_MINUTES below,
+ * which must stay in exact agreement with
+ * `dining_radar.recommendation.pipeline.WALKING_TIME_MAX_PRESET_MINUTES` --
+ * see that constant's own docstring for why), and adds a hard
+ * `walkingTimeMaxMinutes` filter alongside the existing ones. Unlike
+ * `nonSmokingOnly`/`cardPaymentOnly`/`budgetTiers`, this filter has no
+ * soft/unconfirmed case in `passesNonExclusionFilters` below, because
+ * walking time is never unavailable (adr/0025 decision 3).
+ *
+ * Per human decision 2026-08-23 (TDR-CS-16), a fetch failure that follows an
+ * already-displayed proposal must retain that proposal (cards, map, applied
+ * filters, condition summary) rather than replace or clear it; the error is
+ * shown in addition to, not instead of, what was already on screen. See
+ * `hasDisplayedProposal` / `renderProblem` / `applyPendingFilters` below.
  */
 (function () {
   "use strict";
@@ -58,6 +77,22 @@
   // Mirrors recommendation.pipeline._DISPLAY_CAP, used only to phrase the
   // apply control honestly when more candidates match than can be displayed.
   var DISPLAY_CAP = 5;
+  // adr/0025 decision 3: mirrors
+  // dining_radar.recommendation.pipeline.WALKING_TIME_MAX_PRESET_MINUTES
+  // exactly -- the browser's offered walking-time-max options and the
+  // server's PopulationAttribute.walkingTimeBand bucketing must agree on the
+  // same preset set for countMatchingPopulation's local prediction to stay
+  // correct (see that Python constant's own docstring for the full
+  // reasoning; the API schema cannot enforce this agreement structurally).
+  // Also reused to draw one walking-radius ring per preset around the
+  // search-origin marker.
+  var WALKING_TIME_MAX_PRESETS_MINUTES = [10, 15, 20, 30];
+  // Mirrors recommendation.pipeline.WALKING_METERS_PER_MINUTE exactly (the
+  // walking-speed convention Japan's real-estate fair-competition rules fix
+  // for "徒歩1分" figures), used only to convert a preset minute count into
+  // a ring radius in meters for display -- never to recompute a candidate's
+  // own walkingTimeMinutes, which the server always supplies.
+  var WALKING_METERS_PER_MINUTE = 80;
 
   // adr/0024 decision 4 item 8: shownCandidateMemory's sessionStorage key and
   // retention bound. 20 hours (not the regulatory ceiling of 24) leaves a
@@ -78,6 +113,12 @@
   var cardElementsByRef = {};
   var markerElementsByRef = {};
   var leafletMap = null;
+  // TDR-CS-16 (human decision 2026-08-23): whether a proposal has ever been
+  // successfully displayed in this page load. While true, a later fetch
+  // failure must retain the existing cards/map/filters rather than clear
+  // them (see renderProblem's `additive` parameter and
+  // applyPendingFilters/handleProposalResponse below).
+  var hasDisplayedProposal = false;
 
   function defaultFilters() {
     return {
@@ -86,6 +127,7 @@
       nonSmokingOnly: false,
       cardPaymentOnly: false,
       budgetTiers: [],
+      walkingTimeMaxMinutes: null,
     };
   }
 
@@ -96,6 +138,7 @@
       nonSmokingOnly: filters.nonSmokingOnly,
       cardPaymentOnly: filters.cardPaymentOnly,
       budgetTiers: filters.budgetTiers.slice(),
+      walkingTimeMaxMinutes: filters.walkingTimeMaxMinutes,
     };
   }
 
@@ -408,6 +451,26 @@
         "夜予算"
       )
     );
+    // adr/0025 decision 2: always provided (never "情報なし" -- walking time
+    // is always computable from the response's own searchOrigin and this
+    // candidate's location), so no rawValueAttribute is declared -- the
+    // visible value and the raw response number are the same value, unlike
+    // totalSeats/nonSmokingStatus/dinnerBudgetTier's coarse-label
+    // translations above. The leading "約" is the required estimate-wording
+    // signal (candidate-search-browser-interface.yaml's
+    // walkingTimeEstimateWording): this is an estimate, not a measured
+    // route.
+    facts.appendChild(
+      fieldRow(
+        "徒歩のめやす",
+        "candidate-card-walking-time",
+        candidate.walkingTimeMinutes,
+        "約" + candidate.walkingTimeMinutes + "分",
+        undefined,
+        undefined,
+        "徒歩"
+      )
+    );
     card.appendChild(facts);
 
     // adr/0019 decision 5 (unchanged): present only when cardPaymentAvailable
@@ -454,7 +517,7 @@
     return card;
   }
 
-  function initializeMap(container, candidates) {
+  function initializeMap(container, candidates, searchOrigin) {
     markerElementsByRef = {};
     if (leafletMap) {
       leafletMap.remove();
@@ -527,6 +590,53 @@
       markerElementsByRef[candidate.candidateRef] = markerEl;
     });
 
+    // adr/0025 decision 1: the private search origin and walking-time
+    // rings. Both are read-only display elements -- see
+    // candidate-search-browser-interface.yaml's displayOnlyOriginException:
+    // the exception is defined by behavior (no click/keydown handler here
+    // changes any proposal request, displayed candidate, marker, or
+    // condition summary), not by focusability, so Leaflet's own
+    // keyboard:true default (which makes the icon Tab-reachable, per
+    // ADR-0020's own finding for candidate markers) does not disqualify
+    // this element from the exception.
+    if (searchOrigin) {
+      var originLatLng = [searchOrigin.latitude, searchOrigin.longitude];
+
+      WALKING_TIME_MAX_PRESETS_MINUTES.forEach(function (minutes) {
+        var ring = window.L.circle(originLatLng, {
+          radius: minutes * WALKING_METERS_PER_MINUTE,
+          className: "candidate-walking-radius-ring-path",
+          weight: 1,
+          fill: false,
+          interactive: false,
+        });
+        ring.addTo(map);
+        var ringEl = ring.getElement();
+        if (ringEl) {
+          ringEl.setAttribute("data-testid", "candidate-walking-radius-ring");
+          ringEl.setAttribute("data-walking-radius-minutes", String(minutes));
+        }
+      });
+
+      var originIcon = window.L.divIcon({
+        className: "candidate-origin-marker-icon",
+        html: '<span class="candidate-origin-marker-visual"></span>',
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+      });
+      var originMarker = window.L.marker(originLatLng, {
+        icon: originIcon,
+        keyboard: true,
+        alt: "検索基点",
+      });
+      originMarker.addTo(map);
+      var originMarkerEl = originMarker.getElement();
+      if (originMarkerEl) {
+        originMarkerEl.setAttribute("data-testid", "candidate-origin-marker");
+        originMarkerEl.setAttribute("aria-label", "検索基点");
+      }
+    }
+
     container.setAttribute("data-map-fit-state", "displayed-candidates");
     leafletMap = map;
   }
@@ -545,6 +655,7 @@
       a.includeIzakayaBar === b.includeIzakayaBar &&
       a.nonSmokingOnly === b.nonSmokingOnly &&
       a.cardPaymentOnly === b.cardPaymentOnly &&
+      a.walkingTimeMaxMinutes === b.walkingTimeMaxMinutes &&
       a.genres.slice().sort().join("|") === b.genres.slice().sort().join("|") &&
       a.budgetTiers.slice().sort().join("|") === b.budgetTiers.slice().sort().join("|")
     );
@@ -567,6 +678,13 @@
   // If the two ever disagree, the number on the apply control lies -- an
   // acceptance test must compare this count against the count the server
   // actually returns.
+  //
+  // adr/0025 decision 3: walkingTimeMaxMinutes is a *hard* filter, unlike
+  // the soft ones above -- a row's walkingTimeBand is never "unconfirmed"
+  // (walking time is always computable server-side), so a null band here
+  // means "farther than every currently offered preset" and must always be
+  // excluded when a limit is pending, exactly mirroring
+  // pipeline.filter_candidates' walking_time_max_minutes branch.
   function passesNonExclusionFilters(filters, row) {
     if (filters.genres.length && filters.genres.indexOf(row.genre) === -1) {
       return false;
@@ -582,6 +700,15 @@
       row.dinnerBudgetTier !== null &&
       row.dinnerBudgetTier !== undefined &&
       filters.budgetTiers.indexOf(row.dinnerBudgetTier) === -1
+    ) {
+      return false;
+    }
+    if (
+      filters.walkingTimeMaxMinutes !== null &&
+      filters.walkingTimeMaxMinutes !== undefined &&
+      (row.walkingTimeBand === null ||
+        row.walkingTimeBand === undefined ||
+        row.walkingTimeBand > filters.walkingTimeMaxMinutes)
     ) {
       return false;
     }
@@ -626,6 +753,9 @@
     }
     if (filters.includeIzakayaBar) {
       parts.push("居酒屋等も含む");
+    }
+    if (filters.walkingTimeMaxMinutes !== null && filters.walkingTimeMaxMinutes !== undefined) {
+      parts.push("徒歩" + filters.walkingTimeMaxMinutes + "分以内");
     }
     return parts.length ? parts.join("・") : "居酒屋・バーを除く";
   }
@@ -698,12 +828,8 @@
     });
   }
 
-  function genreChips() {
-    var orderedGenres = orderedAvailableGenres();
-    var visible = genreOverflowExpanded
-      ? orderedGenres
-      : orderedGenres.slice(0, GENRE_PREVIEW_COUNT);
-    var chips = visible.map(function (genre) {
+  function genreOptionChips(visibleGenres) {
+    return visibleGenres.map(function (genre) {
       return chip({
         testId: "candidate-filter-genre-option",
         purpose: "candidate-filter-genre-selection",
@@ -717,35 +843,42 @@
         },
       });
     });
-    var hidden = orderedGenres.length - visible.length;
-    if (hidden > 0 || genreOverflowExpanded) {
-      var overflow = el(
-        "button",
-        {
-          type: "button",
-          "class": "candidate-chip candidate-chip-quiet",
-          "data-testid": "candidate-filter-genre-overflow",
-          "data-candidate-control-category": "button",
-          "data-candidate-control-purpose": "candidate-filter-genre-overflow-toggle",
-        },
-        [genreOverflowExpanded ? "閉じる" : "ほか " + hidden + "件…"]
-      );
-      overflow.addEventListener("click", function () {
-        genreOverflowExpanded = !genreOverflowExpanded;
-        renderFilterBar();
-      });
-      chips.push(overflow);
-    }
-    return chips;
+  }
+
+  // Human decision 2026-08-23 (design/wireframes/GenreRow.dc.html option
+  // (c)): the overflow toggle -- the only entry point to hidden genres --
+  // must stay reachable at a fixed position regardless of the row's own
+  // horizontal scroll offset. A 390px measurement found it off-screen when
+  // it instead trailed the scrollable row. See genreGroupRow below, which
+  // places this outside (a DOM sibling of, not a descendant of) the
+  // scrollable sub-container.
+  function genreOverflowToggle(hiddenCount, expanded) {
+    var overflow = el(
+      "button",
+      {
+        type: "button",
+        "class": "candidate-chip candidate-chip-quiet",
+        "data-testid": "candidate-filter-genre-overflow",
+        "data-candidate-control-category": "button",
+        "data-candidate-control-purpose": "candidate-filter-genre-overflow-toggle",
+      },
+      [expanded ? "閉じる" : "ほか " + hiddenCount + "件…"]
+    );
+    overflow.addEventListener("click", function () {
+      genreOverflowExpanded = !genreOverflowExpanded;
+      renderFilterBar();
+    });
+    return overflow;
   }
 
   // adr/0024 decision 2: "居酒屋等も含む" moved from the "こだわり" row into
   // the "ジャンル" row (controlGrouping.genreGroup). It is present regardless
   // of genrePresentation's compact/preview/expanded state, is never counted
   // toward the genre option count, and is never a
-  // candidate-filter-genre-overflow member -- so it is prepended before
-  // genreChips() rather than folded into its preview/overflow logic. It is
-  // placed first because it toggles the scope of genre matching itself
+  // candidate-filter-genre-overflow member -- so it is prepended before the
+  // genre option chips (genreGroupRow's scrollable sub-container) rather
+  // than folded into their preview/overflow logic. It is placed first
+  // because it toggles the scope of genre matching itself
   // (rather than selecting an individual genre), which reads more naturally
   // ahead of the individual genre options, and keeps it within the
   // horizontally scrollable chip row's initially visible range on narrow
@@ -767,22 +900,90 @@
     });
   }
 
+  // Human decision 2026-08-23: a "how many will this match" preview appears
+  // only here, on the apply control itself -- never as an always-visible
+  // element. The wording must not read as a promise of how many candidate
+  // cards this action will display -- the display cap stays DISPLAY_CAP
+  // regardless of matchCount (candidate-search-browser-interface.yaml's
+  // matchCountObservation.visibleCountWording explicitly forbids phrasing
+  // like "○件表示されます"/"○件出ます"). "対象" reads as "this many match
+  // the pending condition", not a display-count promise, so the same
+  // wording is used regardless of whether matchCount exceeds DISPLAY_CAP.
   function applyControlLabel(matchCount) {
     if (matchCount === 0) {
       return "該当なし";
     }
-    if (matchCount <= DISPLAY_CAP) {
-      return matchCount + "件を表示";
-    }
-    return matchCount + "件中" + DISPLAY_CAP + "件を表示";
+    return "この条件で探す（対象" + matchCount + "件）";
   }
 
+  // genrePresentation.presentationOrder's overflow toggle is rendered as
+  // genreGroup's leading (first DOM) member; the genre option chips and
+  // izakayaBarToggleChip() share a separate horizontally scrollable
+  // sub-container (human decision 2026-08-23,
+  // controlGrouping.genreGroup.overflowPlacement) so the toggle's own
+  // position is unaffected by that container's own scroll offset.
+  function genreGroupRow() {
+    var orderedGenres = orderedAvailableGenres();
+    var visible = genreOverflowExpanded
+      ? orderedGenres
+      : orderedGenres.slice(0, GENRE_PREVIEW_COUNT);
+    var hidden = orderedGenres.length - visible.length;
+
+    var scrollable = el(
+      "div",
+      { "class": "candidate-filter-row-chips candidate-genre-scrollable" },
+      [izakayaBarToggleChip()].concat(genreOptionChips(visible))
+    );
+
+    var groupChildren = [];
+    if (hidden > 0 || genreOverflowExpanded) {
+      groupChildren.push(genreOverflowToggle(hidden, genreOverflowExpanded));
+    }
+    groupChildren.push(scrollable);
+
+    return el("div", { "class": "candidate-filter-row" }, [
+      el("span", { "class": "candidate-filter-row-label" }, ["ジャンル"]),
+      el("div", { "class": "candidate-genre-group" }, groupChildren),
+    ]);
+  }
+
+  // adr/0025 decision 3: walkingTimeMaxMinutes is its own filter condition
+  // (walkingTimeGroup), never a member of genreGroup/preferenceGroup/
+  // budgetGroup. A single-selection closed set over
+  // WALKING_TIME_MAX_PRESETS_MINUTES: selecting a preset replaces any prior
+  // selection; selecting the already-pressed preset again clears it back to
+  // "no restriction" (pendingFilters.walkingTimeMaxMinutes = null), mirroring
+  // how the other closed-vocabulary controls in this panel behave.
+  function walkingTimeMaxChips() {
+    return WALKING_TIME_MAX_PRESETS_MINUTES.map(function (minutes) {
+      return chip({
+        testId: "candidate-filter-walking-time-max-option",
+        purpose: "candidate-filter-walking-time-max-selection",
+        label: minutes + "分以内",
+        pressed: pendingFilters.walkingTimeMaxMinutes === minutes,
+        value: minutes,
+        valueAttribute: "data-walking-time-max-value",
+        onToggle: function (next) {
+          pendingFilters.walkingTimeMaxMinutes = next ? minutes : null;
+          renderFilterBar();
+        },
+      });
+    });
+  }
+
+  // TDR-CS-16 (human decision 2026-08-23): the currently *applied* filters,
+  // condition summary, and displayed candidates/map must remain unchanged
+  // while this request is in flight and if it fails -- so, unlike the prior
+  // implementation, currentFilters is committed and the panel is only
+  // closed *after* a successful response, never optimistically beforehand.
   function applyPendingFilters() {
-    currentFilters = cloneFilters(pendingFilters);
-    filterExpanded = false;
-    genreOverflowExpanded = false;
-    renderFilterBar();
-    requestProposal(currentFilters).then(function (result) {
+    var requestedFilters = cloneFilters(pendingFilters);
+    requestProposal(requestedFilters).then(function (result) {
+      if (result.status === 200) {
+        currentFilters = requestedFilters;
+        filterExpanded = false;
+        genreOverflowExpanded = false;
+      }
       handleProposalResponse(result.status, result.body);
     });
   }
@@ -796,6 +997,7 @@
       testId: active.getAttribute("data-testid"),
       genre: active.getAttribute("data-genre-value"),
       tier: active.getAttribute("data-budget-tier-value"),
+      walkingTimeMax: active.getAttribute("data-walking-time-max-value"),
     };
   }
 
@@ -809,6 +1011,9 @@
     }
     if (target.tier) {
       selector += '[data-budget-tier-value="' + target.tier + '"]';
+    }
+    if (target.walkingTimeMax) {
+      selector += '[data-walking-time-max-value="' + target.walkingTimeMax + '"]';
     }
     var control = filterBar.querySelector(selector);
     if (control) {
@@ -901,8 +1106,11 @@
       [
         // adr/0024 decision 2: candidate-filter-include-izakaya-bar renders
         // inside this same "ジャンル" row/DOM group (controlGrouping.genreGroup),
-        // prepended before the genre option chips and overflow toggle.
-        chipRow("ジャンル", [izakayaBarToggleChip()].concat(genreChips())),
+        // prepended before the genre option chips. genreGroupRow (adr/0025 +
+        // human decision 2026-08-23) additionally places the overflow
+        // toggle outside that scrollable sub-container -- see its own
+        // comment for why.
+        genreGroupRow(),
         chipRow("こだわり", [
           chip({
             testId: "candidate-filter-non-smoking-only",
@@ -942,6 +1150,10 @@
             });
           })
         ),
+        // adr/0025 decision 3: its own filter condition/DOM group, separate
+        // from genreGroup, preferenceGroup, and budgetGroup above
+        // (walkingTimeGroup in candidate-search-browser-interface.yaml).
+        chipRow("徒歩の上限", walkingTimeMaxChips()),
       ]
     );
 
@@ -1006,15 +1218,28 @@
     restoreFilterFocus(focusTarget);
   }
 
-  function renderProblem(code, message) {
-    root.innerHTML = "";
-    root.appendChild(
-      el(
-        "section",
-        { "data-testid": "candidate-proposal-problem", "data-problem-code": code, role: "alert" },
-        [el("p", { "data-testid": "candidate-proposal-problem-guidance" }, [message])]
-      )
+  // TDR-CS-16 (human decision 2026-08-23): when `additive` is true (a fetch
+  // failure that follows an already-displayed proposal), the problem alert
+  // renders in addition to, not instead of, the retained cards/map -- root
+  // is never cleared, unlike the `empty` render state. When false (no prior
+  // successful proposal exists to retain, e.g. the very first request on
+  // page load), this is the original full-replace behavior.
+  function renderProblem(code, message, additive) {
+    var problem = el(
+      "section",
+      { "data-testid": "candidate-proposal-problem", "data-problem-code": code, role: "alert" },
+      [el("p", { "data-testid": "candidate-proposal-problem-guidance" }, [message])]
     );
+    if (additive) {
+      var existing = root.querySelector('[data-testid="candidate-proposal-problem"]');
+      if (existing) {
+        existing.remove();
+      }
+      root.insertBefore(problem, root.firstChild);
+      return;
+    }
+    root.innerHTML = "";
+    root.appendChild(problem);
   }
 
   function renderResult(body) {
@@ -1118,11 +1343,12 @@
     );
 
     root.appendChild(content);
-    initializeMap(mapContainer, body.candidates);
+    initializeMap(mapContainer, body.candidates, body.searchOrigin);
   }
 
   function handleProposalResponse(status, body) {
     if (status === 200) {
+      hasDisplayedProposal = true;
       currentAvailableGenres = body.availableGenres || [];
       populationAttributes = body.populationAttributes || [];
       updateShownCandidateMemory(body);
@@ -1131,7 +1357,10 @@
       renderResult(body);
       return;
     }
-    renderProblem(body.code, body.message);
+    // TDR-CS-16: retain the existing display (cards, map, applied filters,
+    // condition summary) whenever a proposal was already shown -- see
+    // renderProblem's `additive` parameter.
+    renderProblem(body.code, body.message, hasDisplayedProposal);
   }
 
   document.addEventListener("DOMContentLoaded", function () {

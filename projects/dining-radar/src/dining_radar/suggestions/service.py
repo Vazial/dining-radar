@@ -36,6 +36,11 @@ class ProposalResult:
     candidates: tuple[NormalizedCandidate, ...]
     izakaya_bar_fallback_applied: bool
     available_genres: tuple[str, ...]
+    # adr/0025 decision 1: always present -- the private search origin the
+    # browser shows as a map marker. No default (unlike the two fields
+    # below): every response, including the synthetic NO_RESULTS outcome,
+    # must supply one, so a caller cannot forget it by relying on a default.
+    search_origin: Origin
     population_attributes: tuple[PopulationAttribute, ...] = ()
     shown_pool_exhausted: bool = False
 
@@ -71,6 +76,7 @@ def propose_candidates(
         candidates=proposal.candidates,
         izakaya_bar_fallback_applied=proposal.izakaya_bar_fallback_applied,
         available_genres=proposal.available_genres,
+        search_origin=proposal.search_origin,
         population_attributes=proposal.population_attributes,
         shown_pool_exhausted=proposal.shown_pool_exhausted,
     )

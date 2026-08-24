@@ -138,6 +138,16 @@
       padding-top: 0.55rem;
     }
     .candidate-filter-row-chips { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 0.35rem; }
+    /* adr/0025 + human decision 2026-08-23 (GenreRow.dc.html option (c)):
+       genreGroupRow's wrapper lays the overflow toggle and the scrollable
+       chip sub-container side by side, in that DOM order, so the toggle's
+       position does not move when the sub-container is scrolled. The
+       sub-container also carries .candidate-filter-row-chips (see
+       candidate.js), so it inherits that class's flex/wrap/narrow-width
+       overflow-x rules unchanged; only this wrapper and the flex:1 hand-off
+       are new. */
+    .candidate-genre-group { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.35rem; }
+    .candidate-genre-scrollable { flex: 1; min-width: 0; }
     .candidate-chip {
       display: inline-flex; align-items: center; min-height: 2.25rem; padding: 0 0.75rem;
       border-radius: 999px; border: 1px solid #dfe4dc; background: #fff; color: #3d4a41;
@@ -183,6 +193,18 @@
       background: #eef2ee; border: 1px solid #cddccf; color: #33402f;
       font-size: 0.875rem; line-height: 1.5;
     }
+
+    /* TDR-CS-16 (human decision 2026-08-23): rendered in addition to, not
+       instead of, a retained proposal (candidate.js's renderProblem
+       `additive` path), so this must read as an interruption banner above
+       the still-visible cards/map, not consume the whole screen the way it
+       did when this was the only thing on screen. */
+    [data-testid="candidate-proposal-problem"] {
+      margin: 0 0 0.75rem; padding: 0.6rem 0.85rem; border-radius: 0.4rem;
+      background: #fdf3e2; border: 1px solid #f0dcae; color: #6b4f13;
+      font-size: 0.875rem; line-height: 1.5;
+    }
+    [data-testid="candidate-proposal-problem-guidance"] { margin: 0; }
 
     /* adr/0023 decision 10: the single screen-level budget-tier disclosure
        and yen-range mapping. Static server-rendered content (not produced by
@@ -363,6 +385,25 @@
       box-shadow: 0 1px 4px rgb(28 36 32 / 35%);
     }
     .candidate-map-marker-icon[data-selection-state="selected"] .candidate-map-marker-visual { background: #155c42; }
+
+    /* adr/0025 decision 1: the private search origin, drawn distinctly from
+       a candidate marker (smaller, hollow ring rather than a filled circle)
+       so it reads as "here", not as another shop. Read-only -- no visual
+       affordance implies it can be dragged or clicked to change the origin
+       (candidate-search-browser-interface.yaml's
+       displayOnlyOriginException). The walking-radius rings are unstyled
+       Leaflet circle paths beyond a thin stroke and no fill, so they read
+       as distance guides rather than shaded zones competing with the map
+       tiles or candidate markers. */
+    .candidate-origin-marker-icon { display: flex; align-items: center; justify-content: center; pointer-events: none; }
+    .candidate-origin-marker-visual {
+      display: block; width: 1rem; height: 1rem; border-radius: 50%;
+      background: rgb(21 92 66 / 22%); border: 2px solid #155c42;
+      box-shadow: 0 0 0 2px #fff;
+    }
+    [data-testid="candidate-walking-radius-ring"] {
+      stroke: #8da093; stroke-dasharray: 4 3; fill: none; pointer-events: none;
+    }
 
     /* Leaflet's own zoom control (+/-), not app-authored content but still
        an interactive element on this screen; bumped to the same 44px floor

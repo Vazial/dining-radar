@@ -6,6 +6,9 @@ from django.test import SimpleTestCase
 from dining_radar.recommendation.pipeline import (
     DEFAULT_EXCLUDED_GENRES,
     DISPLAY_CAP,
+    METERS_PER_DEGREE_LATITUDE,
+    WALKING_METERS_PER_MINUTE,
+    WALKING_TIME_MAX_PRESET_MINUTES,
     CandidateFilters,
     NormalizedCandidate,
     Origin,
@@ -19,6 +22,8 @@ from dining_radar.recommendation.pipeline import (
     population_attributes,
     select_pool_and_sample,
     select_with_shown_priority,
+    walking_time_band,
+    walking_time_minutes,
 )
 
 ORIGIN = Origin(latitude=0.0, longitude=0.0)
@@ -125,7 +130,8 @@ class PopulationAttributesTests(SimpleTestCase):
                     card_payment_available=True,
                     budget_average=1500.0,
                 )
-            ]
+            ],
+            ORIGIN,
         )[0]
 
         self.assertEqual(
@@ -136,6 +142,7 @@ class PopulationAttributesTests(SimpleTestCase):
                 "card_payment_available",
                 "dinner_budget_tier",
                 "default_excluded",
+                "walking_time_band",
             },
         )
         self.assertEqual(row.genre, "western")
@@ -164,8 +171,10 @@ class PopulationAttributesTests(SimpleTestCase):
             budget_average=None,
         )
 
-        in_source_order = population_attributes([first_source_row, second_source_row])
-        in_reverse_source_order = population_attributes([second_source_row, first_source_row])
+        in_source_order = population_attributes([first_source_row, second_source_row], ORIGIN)
+        in_reverse_source_order = population_attributes(
+            [second_source_row, first_source_row], ORIGIN
+        )
 
         self.assertEqual(in_source_order, in_reverse_source_order)
         self.assertEqual(
@@ -195,7 +204,7 @@ class PopulationAttributesTests(SimpleTestCase):
                 card_payment_available=True,
                 budget_average=1500.0,
             )
-            return population_attributes([second, first])
+            return population_attributes([second, first], ORIGIN)
 
         self.assertEqual(
             [row.non_smoking_status for row in rows_with(non_smoking_status="PARTIAL")],
@@ -222,13 +231,68 @@ class PopulationAttributesTests(SimpleTestCase):
             ["LOW", None],
         )
 
+    def test_walking_time_band_is_the_final_tie_break(self):
+        # adr/0025 decision 3: two rows identical on every other public
+        # filter value must still be ordered by walking_time_band (nearer,
+        # bucketed first; farther-than-every-preset/None last) -- otherwise
+        # this dataclass's sole location-derived field would leak no
+        # information the browser could use, and a stable sort would instead
+        # silently preserve input order.
+        near = candidate(
+            provider_page_url="https://example.invalid/band-near",
+            latitude=0.001,
+            genre="same-genre",
+            non_smoking_status="FULL",
+            card_payment_available=True,
+            budget_average=1500.0,
+        )
+        far = candidate(
+            provider_page_url="https://example.invalid/band-far",
+            latitude=9.0,  # ~1,000km away -- exceeds every walking-time preset
+            genre="same-genre",
+            non_smoking_status="FULL",
+            card_payment_available=True,
+            budget_average=1500.0,
+        )
+
+        rows = population_attributes([far, near], ORIGIN)
+
+        self.assertIsNotNone(rows[0].walking_time_band)
+        self.assertIsNone(rows[1].walking_time_band)
+
+    def test_walking_time_band_orders_two_non_null_bands_ascending(self):
+        # Both rows below land in a real (non-None) preset bucket, so
+        # ordering between them can only come from directly comparing the
+        # two band values -- unlike the near-vs-None case above, which the
+        # earlier "is None" tie-break key alone already decides.
+        band_ten = candidate(
+            provider_page_url="https://example.invalid/band-ten",
+            latitude=100 / METERS_PER_DEGREE_LATITUDE,  # ~2 min -> bucket 10
+            genre="same-genre",
+            non_smoking_status="FULL",
+            card_payment_available=True,
+            budget_average=1500.0,
+        )
+        band_thirty = candidate(
+            provider_page_url="https://example.invalid/band-thirty",
+            latitude=2000 / METERS_PER_DEGREE_LATITUDE,  # ~25 min -> bucket 30
+            genre="same-genre",
+            non_smoking_status="FULL",
+            card_payment_available=True,
+            budget_average=1500.0,
+        )
+
+        rows = population_attributes([band_thirty, band_ten], ORIGIN)
+
+        self.assertEqual([row.walking_time_band for row in rows], [10, 30])
+
 
 class FilterCandidatesTests(SimpleTestCase):
     def test_no_filters_excludes_only_the_default_excluded_genres(self):
         soba = candidate(provider_page_url="https://example.invalid/soba", genre="和食")
         izakaya = candidate(provider_page_url="https://example.invalid/izakaya", genre="居酒屋")
 
-        result = filter_candidates([soba, izakaya], CandidateFilters())
+        result = filter_candidates([soba, izakaya], CandidateFilters(), ORIGIN)
 
         self.assertEqual([c.name for c in result], [soba.name])
 
@@ -236,7 +300,9 @@ class FilterCandidatesTests(SimpleTestCase):
         soba = candidate(provider_page_url="https://example.invalid/soba", genre="和食")
         izakaya = candidate(provider_page_url="https://example.invalid/izakaya", genre="居酒屋")
 
-        result = filter_candidates([soba, izakaya], CandidateFilters(include_izakaya_bar=True))
+        result = filter_candidates(
+            [soba, izakaya], CandidateFilters(include_izakaya_bar=True), ORIGIN
+        )
 
         self.assertEqual(
             {c.provider_page_url for c in result},
@@ -247,14 +313,14 @@ class FilterCandidatesTests(SimpleTestCase):
         soba = candidate(provider_page_url="https://example.invalid/soba", genre="和食")
         yoshoku = candidate(provider_page_url="https://example.invalid/yoshoku", genre="洋食")
 
-        result = filter_candidates([soba, yoshoku], CandidateFilters(genres=("和食",)))
+        result = filter_candidates([soba, yoshoku], CandidateFilters(genres=("和食",)), ORIGIN)
 
         self.assertEqual([c.name for c in result], [soba.name])
 
     def test_genres_filter_does_not_reach_into_the_default_excluded_population(self):
         izakaya = candidate(provider_page_url="https://example.invalid/izakaya", genre="居酒屋")
 
-        result = filter_candidates([izakaya], CandidateFilters(genres=("居酒屋",)))
+        result = filter_candidates([izakaya], CandidateFilters(genres=("居酒屋",)), ORIGIN)
 
         self.assertEqual(result, [])
 
@@ -270,7 +336,7 @@ class FilterCandidatesTests(SimpleTestCase):
         )
 
         result = filter_candidates(
-            [full, none_status, unconfirmed], CandidateFilters(non_smoking_only=True)
+            [full, none_status, unconfirmed], CandidateFilters(non_smoking_only=True), ORIGIN
         )
 
         self.assertEqual(
@@ -290,7 +356,7 @@ class FilterCandidatesTests(SimpleTestCase):
         )
 
         result = filter_candidates(
-            [available, unavailable, unconfirmed], CandidateFilters(card_payment_only=True)
+            [available, unavailable, unconfirmed], CandidateFilters(card_payment_only=True), ORIGIN
         )
 
         self.assertEqual(
@@ -306,7 +372,7 @@ class FilterCandidatesTests(SimpleTestCase):
         )
 
         result = filter_candidates(
-            [low, high, unconfirmed], CandidateFilters(budget_tiers=("LOW",))
+            [low, high, unconfirmed], CandidateFilters(budget_tiers=("LOW",)), ORIGIN
         )
 
         self.assertEqual(
@@ -338,6 +404,7 @@ class FilterCandidatesTests(SimpleTestCase):
                 card_payment_only=True,
                 budget_tiers=("LOW",),
             ),
+            ORIGIN,
         )
 
         self.assertEqual([c.name for c in result], [matching.name])
@@ -347,7 +414,9 @@ class ApplyIzakayaBarFallbackTests(SimpleTestCase):
     def test_non_empty_result_is_returned_without_a_fallback(self):
         soba = candidate(provider_page_url="https://example.invalid/soba", genre="和食")
 
-        population, fallback_applied = apply_izakaya_bar_fallback([soba], CandidateFilters())
+        population, fallback_applied = apply_izakaya_bar_fallback(
+            [soba], CandidateFilters(), ORIGIN
+        )
 
         self.assertEqual([c.name for c in population], [soba.name])
         self.assertFalse(fallback_applied)
@@ -355,20 +424,22 @@ class ApplyIzakayaBarFallbackTests(SimpleTestCase):
     def test_empty_default_population_falls_back_to_include_izakaya_bar(self):
         izakaya = candidate(provider_page_url="https://example.invalid/izakaya", genre="居酒屋")
 
-        population, fallback_applied = apply_izakaya_bar_fallback([izakaya], CandidateFilters())
+        population, fallback_applied = apply_izakaya_bar_fallback(
+            [izakaya], CandidateFilters(), ORIGIN
+        )
 
         self.assertEqual([c.name for c in population], [izakaya.name])
         self.assertTrue(fallback_applied)
 
     def test_still_empty_after_fallback_is_not_flagged_as_applied(self):
-        population, fallback_applied = apply_izakaya_bar_fallback([], CandidateFilters())
+        population, fallback_applied = apply_izakaya_bar_fallback([], CandidateFilters(), ORIGIN)
 
         self.assertEqual(population, [])
         self.assertFalse(fallback_applied)
 
     def test_already_true_include_izakaya_bar_never_triggers_a_fallback(self):
         population, fallback_applied = apply_izakaya_bar_fallback(
-            [], CandidateFilters(include_izakaya_bar=True)
+            [], CandidateFilters(include_izakaya_bar=True), ORIGIN
         )
 
         self.assertEqual(population, [])
@@ -380,11 +451,201 @@ class ApplyIzakayaBarFallbackTests(SimpleTestCase):
         izakaya = candidate(provider_page_url="https://example.invalid/izakaya", genre="居酒屋")
 
         population, fallback_applied = apply_izakaya_bar_fallback(
-            [izakaya], CandidateFilters(genres=("和食",))
+            [izakaya], CandidateFilters(genres=("和食",)), ORIGIN
         )
 
         self.assertEqual(population, [])
         self.assertFalse(fallback_applied)
+
+    def test_walking_time_max_minutes_is_not_loosened_by_the_fallback(self):
+        # adr/0025 decision 3 amending TDR-CS-10: exactly like genres/
+        # nonSmokingOnly/cardPaymentOnly/budgetTiers above, a walking-time
+        # limit tight enough to exclude even the izakaya/bar-inclusive retry
+        # must leave the fallback unflagged and the result empty.
+        far_izakaya = candidate(
+            provider_page_url="https://example.invalid/far-izakaya",
+            genre="居酒屋",
+            latitude=1.0,  # ~111,320m from ORIGIN -- far beyond any small limit
+        )
+
+        population, fallback_applied = apply_izakaya_bar_fallback(
+            [far_izakaya], CandidateFilters(walking_time_max_minutes=1), ORIGIN
+        )
+
+        self.assertEqual(population, [])
+        self.assertFalse(fallback_applied)
+
+    def test_walking_time_max_minutes_still_permits_the_fallback_when_satisfied(self):
+        near_izakaya = candidate(
+            provider_page_url="https://example.invalid/near-izakaya",
+            genre="居酒屋",
+            latitude=0.0005,
+        )
+
+        population, fallback_applied = apply_izakaya_bar_fallback(
+            [near_izakaya], CandidateFilters(walking_time_max_minutes=60), ORIGIN
+        )
+
+        self.assertEqual([c.name for c in population], [near_izakaya.name])
+        self.assertTrue(fallback_applied)
+
+
+class WalkingTimeMinutesTests(SimpleTestCase):
+    """adr/0025 decision 2: derived from distance, rounded up, never ``None``."""
+
+    def test_candidate_at_the_origin_is_zero_minutes(self):
+        at_origin = candidate(provider_page_url="https://example.invalid/at-origin", latitude=0.0)
+
+        self.assertEqual(walking_time_minutes(ORIGIN, at_origin), 0)
+
+    def test_rounds_up_to_the_next_whole_minute(self):
+        # 800m under WALKING_METERS_PER_MINUTE=80 is exactly 10.0 minutes;
+        # nudging the distance up by a fraction of a meter must round up to
+        # 11, never truncate back down to 10, proving the ceiling (not
+        # floor/round) rule.
+        just_over_ten_minutes = candidate(
+            provider_page_url="https://example.invalid/just-over-ten",
+            latitude=(800.5) / METERS_PER_DEGREE_LATITUDE,
+        )
+
+        self.assertEqual(walking_time_minutes(ORIGIN, just_over_ten_minutes), 11)
+
+    def test_exactly_on_a_whole_minute_boundary_does_not_round_up_further(self):
+        exactly_ten_minutes = candidate(
+            provider_page_url="https://example.invalid/exactly-ten",
+            latitude=(10 * WALKING_METERS_PER_MINUTE) / METERS_PER_DEGREE_LATITUDE,
+        )
+
+        self.assertEqual(walking_time_minutes(ORIGIN, exactly_ten_minutes), 10)
+
+    def test_farther_candidates_have_a_greater_or_equal_walking_time(self):
+        near = candidate(provider_page_url="https://example.invalid/near-walk", latitude=0.001)
+        far = candidate(provider_page_url="https://example.invalid/far-walk", latitude=0.02)
+
+        self.assertGreaterEqual(
+            walking_time_minutes(ORIGIN, far), walking_time_minutes(ORIGIN, near)
+        )
+
+    def test_nonzero_origin_subtracts_rather_than_adds_each_coordinate(self):
+        # ORIGIN is (0, 0) everywhere else in this file, which cannot
+        # distinguish "candidate - origin" from "candidate + origin" (both
+        # reduce to the same value when origin is zero). This test uses a
+        # nonzero origin on both axes and an independently hand-computed
+        # expected result, so it fails if either coordinate's subtraction is
+        # ever replaced with addition, or if latitude_scale's multiplication
+        # is replaced with division.
+        origin = Origin(latitude=35.0, longitude=139.0)
+        nearby = candidate(
+            provider_page_url="https://example.invalid/nonzero-origin",
+            latitude=35.001,
+            longitude=139.002,
+        )
+
+        # Independently computed: latitude_scale = cos(radians(35.0));
+        # delta_latitude = 0.001; delta_longitude = 0.002 * latitude_scale;
+        # degrees = hypot(delta_latitude, delta_longitude); meters = degrees
+        # * METERS_PER_DEGREE_LATITUDE; minutes = ceil(meters / 80) = 3.
+        # Swapping either subtraction for addition, or the scale's
+        # multiplication for division, changes this to a different integer.
+        self.assertEqual(walking_time_minutes(origin, nearby), 3)
+
+
+class WalkingTimeBandTests(SimpleTestCase):
+    """adr/0025 decision 3: the coarse bucket ``PopulationAttribute.walkingTimeBand`` uses."""
+
+    def test_below_the_smallest_preset_buckets_to_the_smallest_preset(self):
+        self.assertEqual(walking_time_band(1), min(WALKING_TIME_MAX_PRESET_MINUTES))
+
+    def test_exactly_on_a_preset_buckets_to_that_preset(self):
+        for preset in WALKING_TIME_MAX_PRESET_MINUTES:
+            with self.subTest(preset=preset):
+                self.assertEqual(walking_time_band(preset), preset)
+
+    def test_between_two_presets_buckets_to_the_larger_one(self):
+        ordered = sorted(WALKING_TIME_MAX_PRESET_MINUTES)
+        self.assertGreaterEqual(len(ordered), 2, "need at least two presets to test a gap")
+        between = ordered[0] + 1
+        self.assertLess(between, ordered[1])
+
+        self.assertEqual(walking_time_band(between), ordered[1])
+
+    def test_beyond_the_largest_preset_is_none(self):
+        beyond = max(WALKING_TIME_MAX_PRESET_MINUTES) + 1
+
+        self.assertIsNone(walking_time_band(beyond))
+
+    def test_custom_preset_set_is_honored_over_the_module_default(self):
+        self.assertEqual(walking_time_band(7, presets=(5, 10)), 10)
+        self.assertIsNone(walking_time_band(11, presets=(5, 10)))
+
+
+class FilterCandidatesWalkingTimeMaxMinutesTests(SimpleTestCase):
+    """adr/0025 decision 3: a hard filter, unlike the three soft filters above."""
+
+    def test_none_means_no_restriction(self):
+        far = candidate(provider_page_url="https://example.invalid/unrestricted-far", latitude=1.0)
+
+        result = filter_candidates([far], CandidateFilters(), ORIGIN)
+
+        self.assertEqual([c.name for c in result], [far.name])
+
+    def test_excludes_candidates_strictly_over_the_limit(self):
+        near = candidate(provider_page_url="https://example.invalid/limit-near", latitude=0.0005)
+        far = candidate(provider_page_url="https://example.invalid/limit-far", latitude=1.0)
+
+        result = filter_candidates(
+            [near, far], CandidateFilters(walking_time_max_minutes=5), ORIGIN
+        )
+
+        self.assertEqual([c.name for c in result], [near.name])
+
+    def test_keeps_a_candidate_exactly_at_the_limit(self):
+        exactly_at_limit = candidate(
+            provider_page_url="https://example.invalid/limit-boundary",
+            latitude=(5 * WALKING_METERS_PER_MINUTE) / METERS_PER_DEGREE_LATITUDE,
+        )
+
+        result = filter_candidates(
+            [exactly_at_limit], CandidateFilters(walking_time_max_minutes=5), ORIGIN
+        )
+
+        self.assertEqual([c.name for c in result], [exactly_at_limit.name])
+
+    def test_no_walking_time_is_ever_unconfirmed_so_nothing_is_preserved_past_the_limit(self):
+        # Unlike non_smoking_only/card_payment_only/budget_tiers, there is no
+        # "unconfirmed" candidate this filter must keep -- every candidate's
+        # walking time is always computable, so a limit excludes every
+        # over-limit candidate with certainty.
+        far = candidate(provider_page_url="https://example.invalid/certainly-far", latitude=1.0)
+
+        result = filter_candidates([far], CandidateFilters(walking_time_max_minutes=1), ORIGIN)
+
+        self.assertEqual(result, [])
+
+    def test_composes_with_other_active_filters(self):
+        matching = candidate(
+            provider_page_url="https://example.invalid/walk-and-genre-match",
+            genre="和食",
+            latitude=0.0005,
+        )
+        wrong_genre_but_near = candidate(
+            provider_page_url="https://example.invalid/walk-ok-wrong-genre",
+            genre="洋食",
+            latitude=0.0005,
+        )
+        right_genre_but_far = candidate(
+            provider_page_url="https://example.invalid/walk-too-far-right-genre",
+            genre="和食",
+            latitude=1.0,
+        )
+
+        result = filter_candidates(
+            [matching, wrong_genre_but_near, right_genre_but_far],
+            CandidateFilters(genres=("和食",), walking_time_max_minutes=5),
+            ORIGIN,
+        )
+
+        self.assertEqual([c.name for c in result], [matching.name])
 
 
 class OrderConfirmedThenUnconfirmedTests(SimpleTestCase):
@@ -986,3 +1247,44 @@ class BuildProposalTests(SimpleTestCase):
         )
 
         self.assertEqual([c.name for c in proposal.candidates], ["近い店", "遠い店"])
+
+    # search_origin / walking-time-max filter (adr/0025) -------------------
+
+    def test_search_origin_is_carried_through_onto_the_proposal(self):
+        origin = Origin(latitude=12.5, longitude=-3.25)
+
+        proposal = build_proposal([], origin, CandidateFilters(), random_source=random.Random(1))
+
+        self.assertEqual(proposal.search_origin, origin)
+
+    def test_walking_time_max_minutes_filters_out_the_far_candidate_end_to_end(self):
+        near = candidate(
+            name="近い店", provider_page_url="https://example.invalid/e2e-near", latitude=0.0005
+        )
+        far = candidate(
+            name="遠い店", provider_page_url="https://example.invalid/e2e-far", latitude=1.0
+        )
+
+        proposal = build_proposal(
+            [near, far],
+            ORIGIN,
+            CandidateFilters(walking_time_max_minutes=5),
+            random_source=random.Random(1),
+        )
+
+        self.assertEqual([c.name for c in proposal.candidates], ["近い店"])
+
+    def test_population_attributes_walking_time_band_reflects_the_origin(self):
+        near = candidate(provider_page_url="https://example.invalid/e2e-band-near", latitude=0.0005)
+        far = candidate(provider_page_url="https://example.invalid/e2e-band-far", latitude=1.0)
+
+        proposal = build_proposal(
+            [near, far], ORIGIN, CandidateFilters(), random_source=random.Random(1)
+        )
+
+        bands = {attribute.walking_time_band for attribute in proposal.population_attributes}
+        # The near candidate must land in some real preset bucket; the far
+        # one (roughly 111km away) must exceed every preset (adr/0025
+        # decision 3's "None" case).
+        self.assertTrue(any(band is not None for band in bands))
+        self.assertIn(None, bands)

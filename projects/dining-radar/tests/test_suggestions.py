@@ -712,3 +712,117 @@ class ProposeWithOverrideTests(SimpleTestCase):
 
         self.assertTrue(result.shown_pool_exhausted)
         self.assertEqual(len(result.candidates), 5)
+
+    # search_origin (adr/0025 decision 1) -----------------------------------
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_no_results_mode_still_carries_a_search_origin(self):
+        # adr/0025: every response, including the fixed synthetic
+        # NO_RESULTS outcome that bypasses the pipeline, must carry a
+        # searchOrigin -- there is no code path that can omit it.
+        result = acceptance_state.propose_with_override(
+            acceptance_state.AcceptanceCandidateProposalMode.NO_RESULTS, CandidateFilters()
+        )
+
+        self.assertEqual(result.search_origin, acceptance_state._ORIGIN)
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_normal_with_weighted_sampling_mode_carries_the_fixed_synthetic_origin(self):
+        result = acceptance_state.propose_with_override(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING,
+            CandidateFilters(),
+        )
+
+        self.assertEqual(result.search_origin, acceptance_state._ORIGIN)
+
+    # WALKING_TIME_LIMIT_EXCLUDES (adr/0025 decision 3, TDR-CS-15) ----------
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_walking_time_limit_excludes_only_candidates_strictly_over_the_limit(self):
+        result = acceptance_state.propose_with_override(
+            acceptance_state.AcceptanceCandidateProposalMode.WALKING_TIME_LIMIT_EXCLUDES,
+            CandidateFilters(
+                walking_time_max_minutes=(
+                    acceptance_state._WALKING_TIME_LIMIT_EXCLUDES_THRESHOLD_MINUTES
+                )
+            ),
+        )
+
+        names = {candidate.name for candidate in result.candidates}
+        self.assertIn("Synthetic walking-time under limit", names)
+        self.assertIn("Synthetic walking-time at limit", names)
+        self.assertNotIn("Synthetic walking-time over limit", names)
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_walking_time_limit_unset_returns_every_eligible_candidate(self):
+        result = acceptance_state.propose_with_override(
+            acceptance_state.AcceptanceCandidateProposalMode.WALKING_TIME_LIMIT_EXCLUDES,
+            CandidateFilters(),
+        )
+
+        self.assertEqual(
+            {candidate.name for candidate in result.candidates},
+            {
+                "Synthetic walking-time under limit",
+                "Synthetic walking-time at limit",
+                "Synthetic walking-time over limit",
+            },
+        )
+
+    # RATE_LIMITED_AFTER_INITIAL_SUCCESS (human decision 2026-08-23, TDR-CS-16)
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_rate_limited_after_initial_success_mode_first_call_succeeds(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.RATE_LIMITED_AFTER_INITIAL_SUCCESS
+        )
+        self.addCleanup(acceptance_state.reset_mode)
+
+        result = acceptance_state.propose_with_override(
+            acceptance_state.AcceptanceCandidateProposalMode.RATE_LIMITED_AFTER_INITIAL_SUCCESS,
+            CandidateFilters(),
+        )
+
+        self.assertTrue(result.candidates)
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_rate_limited_after_initial_success_mode_second_call_is_rate_limited(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.RATE_LIMITED_AFTER_INITIAL_SUCCESS
+        )
+        self.addCleanup(acceptance_state.reset_mode)
+
+        acceptance_state.propose_with_override(
+            acceptance_state.AcceptanceCandidateProposalMode.RATE_LIMITED_AFTER_INITIAL_SUCCESS,
+            CandidateFilters(),
+        )
+
+        with self.assertRaises(acceptance_state.AcceptanceRateLimited):
+            acceptance_state.propose_with_override(
+                acceptance_state.AcceptanceCandidateProposalMode.RATE_LIMITED_AFTER_INITIAL_SUCCESS,
+                CandidateFilters(),
+            )
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_rate_limited_after_initial_success_mode_resets_its_count_on_reselection(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.RATE_LIMITED_AFTER_INITIAL_SUCCESS
+        )
+        self.addCleanup(acceptance_state.reset_mode)
+        acceptance_state.propose_with_override(
+            acceptance_state.AcceptanceCandidateProposalMode.RATE_LIMITED_AFTER_INITIAL_SUCCESS,
+            CandidateFilters(),
+        )
+
+        # Re-selecting the mode (as a fresh acceptance scenario's Given
+        # would) must restart the two-phase count, not carry it over.
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.RATE_LIMITED_AFTER_INITIAL_SUCCESS
+        )
+
+        result = acceptance_state.propose_with_override(
+            acceptance_state.AcceptanceCandidateProposalMode.RATE_LIMITED_AFTER_INITIAL_SUCCESS,
+            CandidateFilters(),
+        )
+
+        self.assertTrue(result.candidates)

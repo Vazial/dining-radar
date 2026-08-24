@@ -61,8 +61,32 @@ explicitly:
    applying every filter leaves no candidate, the server recomputes with that
    one exclusion set aside and returns those candidates instead, flagging
    this in the response. No other filter is ever silently loosened.
+5. **Search-origin disclosure and walking-time estimation**
+   (``walking_time_minutes``, ``walking_time_band``, ``Proposal.search_origin``,
+   adr/0025 decisions 1-3, superseding this module's former blanket
+   non-disclosure of ``origin``/distance): the private search origin is now
+   carried on ``Proposal`` for the browser to show as a map marker, and every
+   displayed candidate carries an estimated one-way walking time in minutes,
+   computed from ``origin`` and the candidate's own coordinates -- both are
+   always computable server-side (unlike a provider-sourced field), so
+   neither is ever "unavailable" the way ``totalSeats`` or
+   ``nonSmokingStatus`` can be. ``walkingTimeMaxMinutes``
+   (``CandidateFilters.walking_time_max_minutes``) is consequently a *hard*
+   filter, not a soft one like ``nonSmokingOnly``/``cardPaymentOnly``/
+   ``budgetTiers``: there is no unconfirmed walking time for it to preserve,
+   so it is applied inside ``filter_candidates``/``apply_izakaya_bar_fallback``
+   alongside the other explicit filters (never silently loosened by the
+   izakaya/bar fallback, adr/0025 decision 3 amending TDR-CS-10) and never
+   participates in ``order_confirmed_then_unconfirmed``'s
+   confirmed/unconfirmed grouping. ``population_attributes`` also gains a
+   coarse, bucketed ``walking_time_band`` per row (see its own docstring for
+   why it is bucketed rather than exact) so the browser can predict a
+   pending ``walkingTimeMaxMinutes`` selection's match count exactly as it
+   already does for the other filters, without this module ever returning an
+   exact distance value to the browser (that remains forbidden -- only the
+   derived, rounded minute counts are public).
 
-``build_proposal`` composes all four steps into the one operation
+``build_proposal`` composes all five concerns into the one operation
 ``dining_radar.suggestions.service`` calls per request.
 
 Total seats (``capacityTier``), non-smoking reference display, and
@@ -114,6 +138,45 @@ DISPLAY_CAP = 5
 # `dinner_budget_tier` rather than duplicating the thresholds.
 _DINNER_BUDGET_LOW_MAX_YEN = 2000
 _DINNER_BUDGET_MID_MAX_YEN = 4000
+
+# adr/0025 decision 2: meters-per-degree-of-latitude used to convert
+# ``_distance``'s planar lat/lon approximation into meters. 111,320 m is the
+# standard equirectangular-projection constant (the WGS84 mean meridional
+# degree length, ~111.32 km) -- adequate for the short (a few kilometers at
+# most) lunch-radius distances this application ever ranks or estimates a
+# walking time for; it is not a geodesic (great-circle) calculation, matching
+# ``_distance``'s own long-standing "locally consistent ordering, not
+# geodesic precision" rationale below. Public (not a leading-underscore
+# constant) because ``dining_radar.suggestions.acceptance_state`` needs the
+# identical conversion to place synthetic candidates at a precise target
+# walking-time distance for TDR-CS-15's deterministic Given, and duplicating
+# the constant there would risk the two drifting apart.
+METERS_PER_DEGREE_LATITUDE = 111_320.0
+
+# adr/0025 decision 2: walking-speed convention used to turn a distance in
+# meters into a whole-minute estimate. 80 meters/minute is the walking-speed
+# figure Japan's real-estate fair-competition rules (不動産の表示に関する公正
+# 競争規約施行規則) fix for "徒歩1分" figures in property listings -- a
+# publicly documented convention, not a value this project measured itself,
+# which is appropriate for a value ``adr/0025``'s own "検証の申告" context
+# explicitly left to implementation discretion (straight-line estimate, not a
+# road-network routing calculation). Public for the same
+# cross-module-reuse reason as ``METERS_PER_DEGREE_LATITUDE`` above.
+WALKING_METERS_PER_MINUTE = 80.0
+
+# adr/0025 decision 3: the closed set of walking-time-maximum preset values
+# this application offers, shared by ``walking_time_band`` (used to bucket
+# ``PopulationAttribute.walkingTimeBand`) and, by cross-referenced
+# duplication, candidate.js's own filter-option control
+# (``CandidateFilters.walkingTimeMaxMinutes``'s description: the two must
+# stay in exact agreement for the browser's local match-count prediction to
+# be correct, which the API schema cannot enforce structurally). Arbitrary,
+# implementation-owned round numbers spanning a plausible lunch-break walking
+# range (10-30 minutes) -- unlike ``_DINNER_BUDGET_LOW_MAX_YEN`` or
+# ``_CAPACITY_TIER_SMALL_MAX_SEATS`` elsewhere in this codebase, these are
+# not derived from any field survey, because adr/0025 deliberately leaves
+# the concrete preset values and count to implementation discretion.
+WALKING_TIME_MAX_PRESET_MINUTES: tuple[int, ...] = (10, 15, 20, 30)
 
 
 def dinner_budget_tier(budget_average: float | None) -> str | None:
@@ -181,6 +244,13 @@ class CandidateFilters:
     non_smoking_only: bool = False
     card_payment_only: bool = False
     budget_tiers: tuple[str, ...] = field(default_factory=tuple)
+    # adr/0025 decision 3: a *hard* filter (see the module docstring's item
+    # 5) -- ``None`` means no restriction, matching every other field's
+    # "omit/false/empty means no restriction" convention, but unlike
+    # ``non_smoking_only``/``card_payment_only``/``budget_tiers`` there is no
+    # soft/unconfirmed treatment for this one: ``walking_time_minutes`` is
+    # never unconfirmed, so a value here always excludes with certainty.
+    walking_time_max_minutes: int | None = None
 
 
 @dataclass(frozen=True)
@@ -198,6 +268,21 @@ class PopulationAttribute:
 
     ``default_excluded`` mirrors ``DEFAULT_EXCLUDED_GENRES`` membership so the
     browser can also count the effect of toggling ``includeIzakayaBar``.
+
+    ``walking_time_band`` (adr/0025 decision 3) is the sole deliberate
+    exception to "no location attribute of any kind" this row otherwise
+    holds to: it is **not** the row's exact ``walking_time_minutes`` value
+    (that would let a reader re-identify a specific displayed candidate by
+    value alone, even with no stated order -- exactly the re-identification
+    risk ``adr/0022``'s identity-free guarantee exists to prevent). It is
+    instead the smallest value in ``WALKING_TIME_MAX_PRESET_MINUTES`` this
+    row's exact walking time does not exceed, or ``None`` when the row is
+    farther than every preset -- a coarse bucket multiple candidates share,
+    carrying no candidate-correspondence order. Unlike this dataclass's other
+    ``None`` values, ``walking_time_band=None`` does **not** mean
+    "unavailable" (walking time is always computable); it means only
+    "farther than any currently offered maximum" (see its own computing
+    function, ``walking_time_band``, for the full reasoning).
     """
 
     genre: str
@@ -205,6 +290,7 @@ class PopulationAttribute:
     card_payment_available: bool | None
     dinner_budget_tier: str | None
     default_excluded: bool
+    walking_time_band: int | None
 
 
 @dataclass(frozen=True)
@@ -216,6 +302,12 @@ class Proposal:
     available_genres: tuple[str, ...]
     population_attributes: tuple[PopulationAttribute, ...]
     shown_pool_exhausted: bool
+    # adr/0025 decision 1: the private search origin, now carried through so
+    # the browser can show it as a map marker and derive walking-time rings
+    # from it. Never rendered with more precision than this -- the exact
+    # configured search *range*/radius is still never carried anywhere in
+    # this response (adr/0025 decision 4/8, unchanged).
+    search_origin: Origin
 
 
 def _dedupe(candidates: Sequence[NormalizedCandidate]) -> list[NormalizedCandidate]:
@@ -234,31 +326,88 @@ def _dedupe(candidates: Sequence[NormalizedCandidate]) -> list[NormalizedCandida
 
 
 def _distance(origin: Origin, candidate: NormalizedCandidate) -> float:
-    """A small-scale planar approximation used only to rank nearby candidates.
+    """A small-scale planar approximation of the distance, in meters.
 
-    The exact distance is never returned to the browser (ADR-0004/0005/0008,
-    unchanged by adr/0023), so geodesic precision is unnecessary; a locally
-    consistent ordering is sufficient.
+    Historically (before adr/0025) this returned a unitless degree-based
+    value used only to *rank* nearby candidates, on the reasoning that the
+    exact distance was never returned to the browser (ADR-0004/0005/0008),
+    so geodesic precision was unnecessary -- only a locally consistent
+    ordering was. adr/0025 decision 2 broke that premise: the browser now
+    shows a derived walking-time estimate (see ``walking_time_minutes``),
+    which needs a real-world unit. This still is not a geodesic
+    (great-circle) calculation -- it is the same equirectangular planar
+    approximation as before, now scaled into meters by
+    ``METERS_PER_DEGREE_LATITUDE`` -- adequate for the short, sub-search-
+    radius distances this application ever ranks or estimates, and it keeps
+    every ranking/selection computation that depends only on relative order
+    or scale-normalized ratios (``order_confirmed_then_unconfirmed``,
+    ``_distance_weight``) unaffected by the unit change: multiplying every
+    input by the same constant does not change which candidate is nearer,
+    nor the ratio any distance-weighted computation actually uses. The exact
+    value returned by this function is still never sent to the browser --
+    only the coarser, derived ``walking_time_minutes``
+    (whole-minute-rounded) and ``walking_time_band`` (further bucketed)
+    values are (adr/0025 decision 3's `PopulationAttribute.walking_time_band`
+    docstring explains why the latter is bucketed at all).
     """
     latitude_scale = math.cos(math.radians(origin.latitude))
     delta_latitude = candidate.latitude - origin.latitude
     delta_longitude = (candidate.longitude - origin.longitude) * latitude_scale
-    return math.hypot(delta_latitude, delta_longitude)
+    degrees = math.hypot(delta_latitude, delta_longitude)
+    return degrees * METERS_PER_DEGREE_LATITUDE
+
+
+def walking_time_minutes(origin: Origin, candidate: NormalizedCandidate) -> int:
+    """The public, per-candidate ``Candidate.walkingTimeMinutes`` estimate.
+
+    Derived from ``_distance`` (meters) and ``WALKING_METERS_PER_MINUTE``
+    (adr/0025 decision 2), rounded *up* to the next whole minute (never
+    down) so the figure reads as a safe upper-bound "めやす" for someone
+    planning a bounded lunch break, matching the real-estate convention
+    ``WALKING_METERS_PER_MINUTE`` itself is drawn from. Always computable
+    (never ``None``): both ``origin`` and ``candidate.latitude``/
+    ``candidate.longitude`` are always known server-side, unlike a
+    provider-sourced field that can be missing (adr/0025 decision 2's own
+    "there is no 'not supplied' case" reasoning, restated on
+    ``candidate-search-api.yaml``'s ``Candidate.walkingTimeMinutes``).
+    """
+    return math.ceil(_distance(origin, candidate) / WALKING_METERS_PER_MINUTE)
+
+
+def walking_time_band(
+    minutes: int, presets: Sequence[int] = WALKING_TIME_MAX_PRESET_MINUTES
+) -> int | None:
+    """The coarse ``PopulationAttribute.walkingTimeBand`` bucket for ``minutes``.
+
+    The smallest ``presets`` value ``minutes`` does not exceed, or ``None``
+    when ``minutes`` exceeds every preset (adr/0025 decision 3). Deliberately
+    coarser than ``walking_time_minutes`` itself -- see
+    ``PopulationAttribute.walking_time_band``'s own docstring for the
+    re-identification risk this bucketing exists to avoid.
+    """
+    for preset in sorted(presets):
+        if minutes <= preset:
+            return preset
+    return None
 
 
 def population_attributes(
     candidates: Sequence[NormalizedCandidate],
+    origin: Origin,
 ) -> list[PopulationAttribute]:
     """Identity-free filterable attributes for the whole deduplicated population.
 
     Computed before any filter is applied -- including the default
     izakaya/bar exclusion -- because the browser must be able to count the
     effect of *any* pending selection, including turning ``includeIzakayaBar``
-    on. The result is canonically ordered by the five public filter values,
+    on. The result is canonically ordered by the six public filter values,
     never by provider order, distance, or display rank. This prevents an
     array index from becoming an implicit correspondence with a candidate or
     a private-location-derived ordering; the browser can only count set
-    membership.
+    membership. ``origin`` (adr/0025 decision 3) is needed only to compute
+    each row's coarse ``walking_time_band`` -- see ``PopulationAttribute``'s
+    own docstring for why that value is a bucket rather than the exact
+    ``walking_time_minutes`` figure.
     """
     attributes = [
         PopulationAttribute(
@@ -267,14 +416,16 @@ def population_attributes(
             card_payment_available=candidate.card_payment_available,
             dinner_budget_tier=dinner_budget_tier(candidate.budget_average),
             default_excluded=candidate.genre in DEFAULT_EXCLUDED_GENRES,
+            walking_time_band=walking_time_band(walking_time_minutes(origin, candidate)),
         )
         for candidate in candidates
     ]
 
     # ADR-0022: the public sequence must have no provider/source, ranking,
     # distance, map, or candidate-correspondence meaning. Every key below is
-    # itself part of PopulationAttribute's closed public shape, so this sort
-    # cannot encode a private field by accident.
+    # itself part of PopulationAttribute's closed public shape (the coarse
+    # walking_time_band included, adr/0025 decision 3), so this sort cannot
+    # encode a private field by accident.
     return sorted(
         attributes,
         key=lambda attribute: (
@@ -285,6 +436,8 @@ def population_attributes(
             attribute.card_payment_available is True,
             attribute.dinner_budget_tier is None,
             attribute.dinner_budget_tier or "",
+            attribute.walking_time_band is None,
+            attribute.walking_time_band or 0,
         ),
     )
 
@@ -312,7 +465,7 @@ def available_genres(
 
 
 def filter_candidates(
-    candidates: Sequence[NormalizedCandidate], filters: CandidateFilters
+    candidates: Sequence[NormalizedCandidate], filters: CandidateFilters, origin: Origin
 ) -> list[NormalizedCandidate]:
     """Apply every filter to the full population (adr/0023 decisions 1-3).
 
@@ -321,6 +474,10 @@ def filter_candidates(
     ``budgetTiers`` are soft filters (decision 2): each excludes only a
     candidate *confirmed* not to match; a candidate whose relevant field is
     unconfirmed (``None``) is never excluded by that filter.
+    ``walkingTimeMaxMinutes`` (``filters.walking_time_max_minutes``,
+    adr/0025 decision 3) is also a hard filter -- see the module docstring's
+    item 5 for why it has no soft/unconfirmed case -- and needs ``origin`` to
+    compute each candidate's walking time.
     """
     population: Sequence[NormalizedCandidate] = candidates
 
@@ -352,11 +509,19 @@ def filter_candidates(
             or tier in requested_tiers
         ]
 
+    if filters.walking_time_max_minutes is not None:
+        maximum = filters.walking_time_max_minutes
+        population = [
+            candidate
+            for candidate in population
+            if walking_time_minutes(origin, candidate) <= maximum
+        ]
+
     return list(population)
 
 
 def apply_izakaya_bar_fallback(
-    candidates: Sequence[NormalizedCandidate], filters: CandidateFilters
+    candidates: Sequence[NormalizedCandidate], filters: CandidateFilters, origin: Origin
 ) -> tuple[list[NormalizedCandidate], bool]:
     """Filter, falling back to include izakaya/bar genres if that leaves none.
 
@@ -365,14 +530,15 @@ def apply_izakaya_bar_fallback(
     ``includeIzakayaBar`` is false and filtering with it false leaves no
     candidate, this recomputes with only that one exclusion set aside --
     every other filter the organizer explicitly chose (``genres``,
-    ``nonSmokingOnly``, ``cardPaymentOnly``, ``budgetTiers``) is applied
-    unchanged and never automatically loosened. ``izakaya_bar_fallback_applied``
-    is true only when that retry actually produced a non-empty population;
-    if it is still empty, the exclusion was not the (sole) cause of the empty
-    result, so the flag stays false (matching the contract's own
-    description).
+    ``nonSmokingOnly``, ``cardPaymentOnly``, ``budgetTiers``, and now
+    ``walkingTimeMaxMinutes`` -- adr/0025 decision 3 amending TDR-CS-10) is
+    applied unchanged and never automatically loosened.
+    ``izakaya_bar_fallback_applied`` is true only when that retry actually
+    produced a non-empty population; if it is still empty, the exclusion was
+    not the (sole) cause of the empty result, so the flag stays false
+    (matching the contract's own description).
     """
-    population = filter_candidates(candidates, filters)
+    population = filter_candidates(candidates, filters, origin)
     if population or filters.include_izakaya_bar:
         return population, False
 
@@ -382,8 +548,9 @@ def apply_izakaya_bar_fallback(
         non_smoking_only=filters.non_smoking_only,
         card_payment_only=filters.card_payment_only,
         budget_tiers=filters.budget_tiers,
+        walking_time_max_minutes=filters.walking_time_max_minutes,
     )
-    fallback_population = filter_candidates(candidates, fallback_filters)
+    fallback_population = filter_candidates(candidates, fallback_filters, origin)
     return fallback_population, bool(fallback_population)
 
 
@@ -462,18 +629,19 @@ def _distance_weight(distance: float, scale: float) -> float:
     structurally zero selection probability). It is chosen over the
     contract's other example, ``1 / (1 + d)``, because that fixed-form
     reciprocal only differentiates meaningfully when ``d`` is on the order
-    of ``1`` -- this application's ``d`` is the small-angle planar
-    approximation ``_distance`` computes directly from latitude/longitude
-    *degrees* (see its own docstring), which for any real search radius is
-    much smaller than ``1`` (a few kilometers is on the order of ``0.01``-
-    ``0.05`` degrees), so ``1 / (1 + d)`` would collapse to a nearly uniform
-    weight regardless of who is actually closer. Scaling by ``scale`` (see
+    of ``1`` in whatever unit it happens to be measured in -- unless ``d``
+    happens to land near that magnitude, ``1 / (1 + d)`` either collapses
+    toward a uniform weight (``d << 1``) or toward ``1 / d`` (``d >> 1``),
+    neither of which is an intentional choice tied to this population's own
+    actual spread of distances. Scaling by ``scale`` (see
     ``_selection_scale``, computed per call from the population actually
     being drawn from) keeps the weight meaningfully differentiated at
     whatever numeric magnitude the input distances happen to be in, without
-    this module hardcoding a unit assumption it otherwise deliberately
-    avoids (see ``_distance``'s own "locally consistent ordering is
-    sufficient" rationale).
+    this module hardcoding a unit assumption. This is also why ``_distance``'s
+    adr/0025 unit change (degrees to meters, so a walking time can be
+    derived from it) needed no change here: this function only ever reasons
+    about the scale-normalized ratio ``d / scale``, never an absolute
+    magnitude.
     """
     return math.exp(-distance / scale)
 
@@ -600,18 +768,21 @@ def build_proposal(
     random_source: random.Random,
     shown_provider_page_urls: Collection[str] = (),
 ) -> Proposal:
-    """The complete adr/0023/adr/0024 decision 1-9 pipeline for one request.
+    """The complete adr/0023/adr/0024/adr/0025 decision pipeline for one request.
 
     Composes deduplication, ``available_genres`` (decision 9, computed from
     the deduplicated population before any other filter),
-    ``apply_izakaya_bar_fallback`` (decisions 1-3 and 6),
+    ``apply_izakaya_bar_fallback`` (decisions 1-3 and 6, now also carrying
+    ``walkingTimeMaxMinutes`` -- adr/0025 decision 3),
     ``select_with_shown_priority`` (adr/0024 decisions 3-4, superseding
     adr/0023 decision 4 steps 4-5), then re-orders the selected candidates
     for display via ``order_confirmed_then_unconfirmed`` (decision 4 step 6).
+    ``origin`` is also carried straight through onto ``Proposal.search_origin``
+    (adr/0025 decision 1) for the browser's map marker.
     """
     deduped = _dedupe(candidates)
     genres = available_genres(deduped, filters.include_izakaya_bar)
-    population, izakaya_bar_fallback_applied = apply_izakaya_bar_fallback(deduped, filters)
+    population, izakaya_bar_fallback_applied = apply_izakaya_bar_fallback(deduped, filters, origin)
     selected, shown_pool_exhausted = select_with_shown_priority(
         population,
         origin,
@@ -623,6 +794,7 @@ def build_proposal(
         candidates=tuple(display),
         izakaya_bar_fallback_applied=izakaya_bar_fallback_applied,
         available_genres=tuple(genres),
-        population_attributes=tuple(population_attributes(deduped)),
+        population_attributes=tuple(population_attributes(deduped, origin)),
         shown_pool_exhausted=shown_pool_exhausted,
+        search_origin=origin,
     )

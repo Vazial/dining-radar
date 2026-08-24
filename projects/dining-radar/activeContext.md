@@ -44,6 +44,43 @@ The rename was built once against the pre-#106 `main`, held when it turned out t
 契約改訂はこの画面が成立する前提そのものであり、あとで足す追補ではない。L4 の都合で契約だけ先に
 マージできないため、契約・実装・テストを同一スライスで動かす。
 
+**解決した（2026-08-24、developer）。** architect が `81bc06f` で契約改訂をこのブランチへコミットし、
+上記の禁止はすべて反転済み（`candidate-origin-marker` は許可側、`walkingTimeMinutes`・
+`walkingTimeMaxMinutes`・`walkingTimeBand` は契約に存在する）。developer がその改訂契約を満たす実装を
+同ブランチへ積んだ。要点:
+
+- `src/dining_radar/recommendation/pipeline.py` の `_distance()` は**度単位からメートル単位**に変わった
+  （既存の等長方位図法的近似はそのまま、`METERS_PER_DEGREE_LATITUDE=111,320` を掛けるだけ——単位変更は
+  距離に依存する既存の順序付け・重み付け計算をすべて不変に保つ、スケール不変な設計だったため無傷）。
+  新設 `walking_time_minutes()`（`WALKING_METERS_PER_MINUTE=80`——不動産の「徒歩1分=80m」表示規約、
+  切り上げ）と `walking_time_band()`（`WALKING_TIME_MAX_PRESET_MINUTES=(10,15,20,30)`、実データ由来ではない
+  実装上の恣意的な値）を追加。`walkingTimeMaxMinutes` はハード絞り込み（`filter_candidates`・
+  `apply_izakaya_bar_fallback` の両方に、居酒屋バーのフォールバック再試行でも緩めないよう配線済み）。
+  `Proposal`/`ProposalResult` に `search_origin: Origin` を追加。`CandidateFilters`・`PopulationAttribute`
+  それぞれに新フィールドを追加。プリセット `(10,15,20,30)` は `candidate.js` 側の
+  `WALKING_TIME_MAX_PRESETS_MINUTES` と手作業で同期させている実装責任（契約が構造的に強制できないと
+  明記している点、契約ノート2節参照）。
+- `web/serializers.py`・`web/views.py`・`suggestions/service.py`・`suggestions/acceptance_state.py` を
+  配線。`acceptance_state.py` に `WALKING_TIME_LIMIT_EXCLUDES`（TDR-CS-15、しきい値12分固定の合成値）と
+  `RATE_LIMITED_AFTER_INITIAL_SUCCESS`（TDR-CS-16、1回目だけ成功しその後429を返す、モード選択のたび
+  キャッシュカウンタをリセットする自前の2段階状態——`set_mode` を2回呼ぶ手法は使っていない）を追加。
+- `candidate.js`・`home.html`: 検索基点マーカーと徒歩圏の同心リング（プリセットごとに1本）、カードの
+  徒歩のめやす欄（`約N分`、rawValueAttribute なし）、徒歩の上限フィルタ（単一選択・独立グループ）、
+  ジャンル行の「ほか N件…」を横スクロールコンテナの外側・先頭に固定するDOM再構成、429時に直前の候補・
+  地図・適用済み条件を保持したまま問題バナーを追加表示する挙動（`applyPendingFilters` は成功時のみ
+  `currentFilters` をコミットするよう変更）、適用ボタンの文言を「この条件で探す（対象N件）」に変更
+  （「〜件表示されます」型の文言を使わない）。
+- 検証: L1（ruff・334 unit tests・カバレッジ97%）/ L2（構造12件）/ L3（境界171件 + Django check ×2）は
+  すべて緑。mutation testing はこの Windows 環境で `WinError 206`（コマンドライン長超過、2026-08-14 の
+  記録済み既知の環境限界——本スライスで悪化させたのではなく、既に壊れていたものに新規テストを足しても
+  症状は変わらない）によりフル実行不能。個別ファイルへスコープを絞った部分実行では新規追加ロジックに
+  生き残ったミュータントは無かった（`pipeline.py` 単体で 80.0%→84.2%、新規の `_distance()`・
+  `walking_time_band` の生存ミュータントを追加テストで潰した後）。CI（Ubuntu）が実測する。
+  L4（`tests/acceptance/test_candidate_search_acceptance.py`、tester の担当外のstep定義は未変更のまま）を
+  手動実行すると 14件中11件成功・3件失敗——失敗3件はすべて `candidate-origin-marker` の**旧契約の禁止**を
+  まだ主張している既存のstep定義によるもので、新契約はこれを許可側へ反転しているため、実装が新契約を
+  正しく満たしていることの状況証拠になる。既存stepの改訂は tester の領分のため未着手のまま残した。
+
 ### `design.md` が2世代古い（2026-08-23 確認）
 
 `design.md` は designer が起動時に読む文書（役割定義の5番目）だが、中身は **`ADR-0023` が廃止した

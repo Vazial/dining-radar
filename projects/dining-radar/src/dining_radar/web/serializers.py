@@ -24,8 +24,10 @@ from __future__ import annotations
 
 from dining_radar.recommendation.pipeline import (
     NormalizedCandidate,
+    Origin,
     PopulationAttribute,
     dinner_budget_tier,
+    walking_time_minutes,
 )
 from dining_radar.suggestions.service import ProposalResult
 
@@ -51,7 +53,7 @@ def _capacity_tier(total_seats: int | None) -> str | None:
     return "LARGE"
 
 
-def serialize_candidate(candidate: NormalizedCandidate, index: int) -> dict:
+def serialize_candidate(candidate: NormalizedCandidate, index: int, origin: Origin) -> dict:
     return {
         "candidateRef": f"candidate-{index}",
         "name": candidate.name,
@@ -65,6 +67,11 @@ def serialize_candidate(candidate: NormalizedCandidate, index: int) -> dict:
         "dinnerBudgetTier": dinner_budget_tier(candidate.budget_average),
         "location": {"latitude": candidate.latitude, "longitude": candidate.longitude},
         "providerPageUrl": candidate.provider_page_url,
+        # adr/0025 decision 2: derived from `origin` and this candidate's own
+        # location by dining_radar.recommendation.pipeline (the single source
+        # of truth for the calculation), never computed here -- see that
+        # module's walking_time_minutes for the estimate/rounding rationale.
+        "walkingTimeMinutes": walking_time_minutes(origin, candidate),
     }
 
 
@@ -73,7 +80,10 @@ def serialize_population_attribute(attribute: PopulationAttribute) -> dict:
 
     Deliberately carries no name, provider page URL, or coordinates: the
     browser uses these only to count how many candidates a pending filter
-    selection would match, never to render a shop.
+    selection would match, never to render a shop. ``walkingTimeBand``
+    (adr/0025 decision 3) is the one deliberate, coarse exception to that
+    "no location attribute" rule -- see ``PopulationAttribute`` for why it is
+    safe.
     """
     return {
         "genre": attribute.genre,
@@ -81,13 +91,23 @@ def serialize_population_attribute(attribute: PopulationAttribute) -> dict:
         "cardPaymentAvailable": attribute.card_payment_available,
         "dinnerBudgetTier": attribute.dinner_budget_tier,
         "defaultExcluded": attribute.default_excluded,
+        "walkingTimeBand": attribute.walking_time_band,
     }
+
+
+def serialize_search_origin(origin: Origin) -> dict:
+    """The ``SearchOriginLocation`` shape (adr/0025 decision 1).
+
+    Carries only the origin's own coordinates -- never the configured search
+    range/radius, a route, or the browser's current location.
+    """
+    return {"latitude": origin.latitude, "longitude": origin.longitude}
 
 
 def serialize_result(result: ProposalResult) -> dict:
     return {
         "candidates": [
-            serialize_candidate(candidate, index)
+            serialize_candidate(candidate, index, result.search_origin)
             for index, candidate in enumerate(result.candidates)
         ],
         "izakayaBarFallbackApplied": result.izakaya_bar_fallback_applied,
@@ -96,6 +116,7 @@ def serialize_result(result: ProposalResult) -> dict:
             serialize_population_attribute(attribute) for attribute in result.population_attributes
         ],
         "providerCredit": PROVIDER_CREDIT,
+        "searchOrigin": serialize_search_origin(result.search_origin),
         # adr/0024 decision 4: true only when this response's selection drew
         # from the full eligible population because every eligible candidate
         # was already present in the request's shownProviderPageUrls.

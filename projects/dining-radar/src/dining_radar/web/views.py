@@ -77,7 +77,14 @@ _RATE_LIMITED = (
 )
 
 _ALLOWED_FILTER_KEYS = frozenset(
-    {"genres", "includeIzakayaBar", "nonSmokingOnly", "cardPaymentOnly", "budgetTiers"}
+    {
+        "genres",
+        "includeIzakayaBar",
+        "nonSmokingOnly",
+        "cardPaymentOnly",
+        "budgetTiers",
+        "walkingTimeMaxMinutes",
+    }
 )
 _ALLOWED_BUDGET_TIERS = frozenset({"LOW", "MID", "HIGH"})
 _ALLOWED_REQUEST_KEYS = frozenset({"filters", "shownProviderPageUrls"})
@@ -118,6 +125,23 @@ def _parse_bool(value: object) -> bool:
     return value
 
 
+def _parse_walking_time_max_minutes(value: object) -> int | None:
+    """``CandidateFilters.walkingTimeMaxMinutes`` (adr/0025 decision 3).
+
+    ``None`` (the field's own omitted/``null`` "no restriction" value) is
+    accepted unchanged; any other value must be a positive (``minimum: 1``,
+    matching the contract) integer, excluding ``bool`` -- Python's ``bool``
+    is an ``int`` subclass, so this must be checked explicitly, mirroring
+    the equivalent guard other request-parsing code in this project already
+    applies where a wire integer must not silently accept ``true``/``false``.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise MalformedProposalRequestError
+    return value
+
+
 def _parse_filters(raw: object) -> CandidateFilters:
     if raw is None:
         return CandidateFilters()
@@ -131,6 +155,7 @@ def _parse_filters(raw: object) -> CandidateFilters:
     budget_tiers = _parse_string_list(raw.get("budgetTiers", []))
     if any(tier not in _ALLOWED_BUDGET_TIERS for tier in budget_tiers):
         raise MalformedProposalRequestError
+    walking_time_max_minutes = _parse_walking_time_max_minutes(raw.get("walkingTimeMaxMinutes"))
 
     return CandidateFilters(
         genres=genres,
@@ -138,6 +163,7 @@ def _parse_filters(raw: object) -> CandidateFilters:
         non_smoking_only=non_smoking_only,
         card_payment_only=card_payment_only,
         budget_tiers=budget_tiers,
+        walking_time_max_minutes=walking_time_max_minutes,
     )
 
 
