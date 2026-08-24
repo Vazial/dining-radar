@@ -23,6 +23,9 @@ class CandidateSearchSteps:
     def lunch_candidates_can_be_proposed(self) -> None:
         self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING")
 
+    def lunch_candidates_can_be_proposed_at_a_known_search_origin(self) -> None:
+        self.dsl.set_lunch_candidates_with_a_known_search_origin()
+
     def zero_pending_match_can_be_observed(self) -> None:
         self.dsl.set_candidate_state("ZERO_PENDING_MATCH")
 
