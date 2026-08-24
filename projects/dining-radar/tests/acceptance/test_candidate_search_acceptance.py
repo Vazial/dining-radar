@@ -76,6 +76,7 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.selecting_a_marker_highlights_its_card()
         self.steps.map_shows_displayed_candidates_and_attribution()
         self.steps.map_shows_search_origin_marker_and_walking_radius_rings()
+        self.steps.walking_radius_rings_show_each_bands_minutes()
         self.steps.cards_show_required_shop_fields()
         self.steps.walking_time_is_shown_as_an_estimate()
         self.steps.organizer_opens_filter_panel()
@@ -113,6 +114,7 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.organizer_opens_candidate_proposal_screen()
         self.steps.no_matching_candidates_are_shown_distinct_from_a_problem()
         self.steps.organizer_can_change_filters()
+        self.steps.selecting_no_results_guidance_opens_the_filter_panel()
 
     def test_tdr_cs_06_candidate_information_is_unavailable(self) -> None:
         self._sign_in()
