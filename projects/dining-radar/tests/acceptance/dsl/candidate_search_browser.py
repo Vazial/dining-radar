@@ -652,12 +652,24 @@ class CandidateSearchBrowserDsl:
         pointer/keyboard-activation-then-snapshot technique
         _perform_without_candidate_request and _display_snapshot already
         apply to filter-panel controls (e.g. revert_pending_filters).
+
+        The candidate-card deck legitimately overlaps the map by design
+        (the human-approved mobile-first placement,
+        projects/dining-radar/activeContext.md) -- a real Locator.click()
+        fails Playwright's own "receives pointer events" actionability
+        check here (the topmost element at that point is a card, not the
+        marker), which is a fact about this layout, not a defect this
+        contract's Must is about. dispatch_event("click") fires the click
+        event on the marker/ring node itself, bypassing hit-testing, which
+        is what actually proves *this element's own* activation is a no-op
+        -- a coordinate-based forced click would instead risk clicking
+        through to whatever card sits on top, testing the wrong element.
         """
         for test_id in (SEARCH_ORIGIN_MARKER, WALKING_RADIUS_RING):
             nodes = by_test_id(self.page, test_id)
             for index in range(nodes.count()):
                 node = nodes.nth(index)
-                self._assert_activation_changes_nothing(lambda: node.click())
+                self._assert_activation_changes_nothing(lambda n=node: n.dispatch_event("click"))
                 if node.get_attribute("tabindex") is not None:
                     self._assert_activation_changes_nothing(
                         lambda n=node: (n.focus(), n.press("Enter"))
