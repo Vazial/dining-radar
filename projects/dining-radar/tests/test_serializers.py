@@ -177,8 +177,10 @@ class SerializeResultTests(SimpleTestCase):
 
     def test_walking_time_minutes_is_derived_from_origin_and_candidate_location(self):
         # 0.01 degrees of latitude at ORIGIN's equator scale is
-        # 0.01 * 111_320 = 1113.2 meters -> ceil(1113.2 / 80) = 14 minutes.
-        # This is a deliberately independent computation from
+        # 0.01 * 111_320 = 1113.2 meters; adr/0029 decision 1-2 multiplies
+        # this by the 1.3 detour factor before dividing by 80 m/min:
+        # ceil(1113.2 * 1.3 / 80) = ceil(18.0895) = 19 minutes. This is a
+        # deliberately independent computation from
         # dining_radar.recommendation.pipeline's own constants, so this test
         # is not tautological against them.
         candidate = _candidate(latitude=0.01, longitude=0.0)
@@ -186,7 +188,7 @@ class SerializeResultTests(SimpleTestCase):
 
         payload = serialize_result(result)
 
-        self.assertEqual(payload["candidates"][0]["walkingTimeMinutes"], 14)
+        self.assertEqual(payload["candidates"][0]["walkingTimeMinutes"], 19)
 
 
 class CapacityTierTests(SimpleTestCase):

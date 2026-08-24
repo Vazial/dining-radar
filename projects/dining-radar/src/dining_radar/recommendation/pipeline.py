@@ -162,7 +162,32 @@ METERS_PER_DEGREE_LATITUDE = 111_320.0
 # explicitly left to implementation discretion (straight-line estimate, not a
 # road-network routing calculation). Public for the same
 # cross-module-reuse reason as ``METERS_PER_DEGREE_LATITUDE`` above.
+#
+# adr/0029 decision 1: this stays a *separate* constant from the detour
+# factor below rather than being folded into one lower effective speed. 80
+# m/min is an external convention this project did not choose and does not
+# own; ``WALKING_DETOUR_FACTOR`` is a value this project chose for a
+# different reason (real streets are not straight lines). Keeping them
+# distinct in code, not just in prose, means a future revisit of either one
+# (a different real-estate speed figure, or a future move to road-network
+# routing that would make the detour factor disappear entirely) never has to
+# first disentangle which part of one merged number came from which source.
 WALKING_METERS_PER_MINUTE = 80.0
+
+# adr/0029 decision 2: a straight-line distance underestimates the actual
+# distance someone walks, because real streets bend and a straight line
+# rarely exists between two points. 1.3 sits inside both (a) the commonly
+# cited range for urban detour ratios (roughly 1.2-1.4) and (b) the range
+# implied by the human's own on-foot report against production
+# (contexts/0029 §3): walking the innermost ring's 800m straight-line
+# distance took 13-17 minutes, which back-computes to roughly 1.3-1.7. This
+# project has not independently measured either range for its own service
+# area -- the value is admittedly weakly justified (meta/adr/0059 decision
+# 5's spirit) and is expected to be revisited from future real-world
+# reports, which is exactly why it is kept as this one named, single-purpose
+# constant rather than folded into ``WALKING_METERS_PER_MINUTE`` above or
+# copied by numeric literal anywhere else.
+WALKING_DETOUR_FACTOR = 1.3
 
 # adr/0025 decision 3: the closed set of walking-time-maximum preset values
 # this application offers, shared by ``walking_time_band`` (used to bucket
@@ -360,7 +385,9 @@ def _distance(origin: Origin, candidate: NormalizedCandidate) -> float:
 def walking_time_minutes(origin: Origin, candidate: NormalizedCandidate) -> int:
     """The public, per-candidate ``Candidate.walkingTimeMinutes`` estimate.
 
-    Derived from ``_distance`` (meters) and ``WALKING_METERS_PER_MINUTE``
+    Derived from ``_distance`` (meters), corrected by ``WALKING_DETOUR_FACTOR``
+    for the fact that real streets are not straight lines (adr/0029 decision
+    1), and then converted to minutes by ``WALKING_METERS_PER_MINUTE``
     (adr/0025 decision 2), rounded *up* to the next whole minute (never
     down) so the figure reads as a safe upper-bound "めやす" for someone
     planning a bounded lunch break, matching the real-estate convention
@@ -370,8 +397,22 @@ def walking_time_minutes(origin: Origin, candidate: NormalizedCandidate) -> int:
     provider-sourced field that can be missing (adr/0025 decision 2's own
     "there is no 'not supplied' case" reasoning, restated on
     ``candidate-search-api.yaml``'s ``Candidate.walkingTimeMinutes``).
+
+    This is the single function ``candidate-search-browser-interface.yaml``'s
+    ``walkingRadiusRings`` (via ``PopulationAttribute.walking_time_band``),
+    the per-card estimate above, and ``CandidateFilters.walking_time_max_minutes``
+    (via ``filter_candidates``/``apply_izakaya_bar_fallback``) all funnel
+    through -- adr/0029 decision 4 requires this so a detour-factor change
+    can never update the displayed estimate/rings without also updating the
+    hard filter, or vice versa. ``web/static/dining_radar/web/candidate.js``
+    cannot share this Python function directly, so it keeps its own mirrored
+    copy of both ``WALKING_METERS_PER_MINUTE`` and ``WALKING_DETOUR_FACTOR``
+    for drawing the walking-radius rings -- see that file's own comment for
+    the synchronization responsibility this creates.
     """
-    return math.ceil(_distance(origin, candidate) / WALKING_METERS_PER_MINUTE)
+    return math.ceil(
+        _distance(origin, candidate) * WALKING_DETOUR_FACTOR / WALKING_METERS_PER_MINUTE
+    )
 
 
 def walking_time_band(

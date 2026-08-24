@@ -653,42 +653,52 @@ _SHOWN_POOL_PRIORITY_CANDIDATES: tuple[NormalizedCandidate, ...] = tuple(
     _shown_pool_priority_candidate(index) for index in range(_SHOWN_POOL_PRIORITY_SIZE)
 )
 
-# test-support-api.yaml v1.3.0 (adr/0025 decision 3): WALKING_TIME_LIMIT_
-# EXCLUDES is the deterministic TDR-CS-15 Given. The eligible, non-excluded
-# population is no larger than DISPLAY_CAP (mirroring
-# CARD_PAYMENT_CAUTION_VISIBLE's approach, not NORMAL_WITH_WEIGHTED_
-# SAMPLING's large-population one), so every member displays for every
-# randomSeed. The fixed synthetic limit this mode is built against is
-# exactly 12 minutes -- an arbitrary value chosen only for test determinism,
-# not a claim about the real product's eventual offered
-# walkingTimeMaxMinutes presets (see pipeline.WALKING_TIME_MAX_PRESET_
+# test-support-api.yaml v1.3.0 (adr/0025 decision 3, distances recomputed
+# under adr/0029 decision 2's detour factor): WALKING_TIME_LIMIT_EXCLUDES is
+# the deterministic TDR-CS-15 Given. The eligible, non-excluded population is
+# no larger than DISPLAY_CAP (mirroring CARD_PAYMENT_CAUTION_VISIBLE's
+# approach, not NORMAL_WITH_WEIGHTED_SAMPLING's large-population one), so
+# every member displays for every randomSeed. The fixed synthetic limit this
+# mode is built against is exactly 12 minutes -- an arbitrary value chosen
+# only for test determinism, not a claim about the real product's eventual
+# offered walkingTimeMaxMinutes presets (see pipeline.WALKING_TIME_MAX_PRESET_
 # MINUTES, which this mode's population does not need to share, since
-# TDR-CS-15's own boundary assertions choose their own filter value
-# directly rather than reading it from the presets). Three members are
-# placed at exactly-known distances via _latitude_degrees_for_meters:
-# comfortably under (800m -> 10 min), exactly at (950m -> 12 min, chosen
-# with margin inside the (880m, 960m] range that ceils to 12, not at either
-# edge, so floating-point rounding cannot push it into a neighboring
-# minute), and comfortably over (1100m -> 14 min) the limit.
+# TDR-CS-15's own boundary assertions choose their own filter value directly
+# rather than reading it from the presets), and this threshold itself is
+# unchanged by adr/0029 -- only the straight-line distances that land each
+# candidate on a chosen side of it needed recomputing, because
+# pipeline.walking_time_minutes now multiplies distance by
+# pipeline.WALKING_DETOUR_FACTOR before dividing by
+# pipeline.WALKING_METERS_PER_MINUTE (ceil(distance * 1.3 / 80)), so the
+# original 800m/950m/1100m no longer land in the same under/at/over bins
+# (e.g. 950m now ceils to 16 minutes, not 12). Three members are placed at
+# exactly-known distances via _latitude_degrees_for_meters, chosen the same
+# way as before -- comfortably under, at, and comfortably over the 12-minute
+# limit, each away from the neighboring minute's own boundary so
+# floating-point rounding cannot push it into a neighboring minute: 600m
+# (ceil(600*1.3/80) = 10 min, comfortably under 12), 710m (ceil(710*1.3/80)
+# = 12 min, the boundary case -- 710m sits inside the (676.9m, 738.5m] range
+# that ceils to exactly 12 minutes, with margin from both of that range's
+# own edges), and 830m (ceil(830*1.3/80) = 14 min, comfortably over 12).
 _WALKING_TIME_LIMIT_EXCLUDES_THRESHOLD_MINUTES = 12
 _WALKING_TIME_LIMIT_EXCLUDES_CANDIDATES: tuple[NormalizedCandidate, ...] = (
     _synthetic_candidate(
         name="Synthetic walking-time under limit",
         genre="Synthetic Walking Test",
         provider_page_url="https://example.invalid/acceptance-walking-time-under",
-        latitude=_latitude_degrees_for_meters(800.0),
+        latitude=_latitude_degrees_for_meters(600.0),
     ),
     _synthetic_candidate(
         name="Synthetic walking-time at limit",
         genre="Synthetic Walking Test",
         provider_page_url="https://example.invalid/acceptance-walking-time-boundary",
-        latitude=_latitude_degrees_for_meters(950.0),
+        latitude=_latitude_degrees_for_meters(710.0),
     ),
     _synthetic_candidate(
         name="Synthetic walking-time over limit",
         genre="Synthetic Walking Test",
         provider_page_url="https://example.invalid/acceptance-walking-time-over",
-        latitude=_latitude_degrees_for_meters(1100.0),
+        latitude=_latitude_degrees_for_meters(830.0),
     ),
 )
 

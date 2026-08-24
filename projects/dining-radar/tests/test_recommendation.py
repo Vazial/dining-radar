@@ -7,6 +7,7 @@ from dining_radar.recommendation.pipeline import (
     DEFAULT_EXCLUDED_GENRES,
     DISPLAY_CAP,
     METERS_PER_DEGREE_LATITUDE,
+    WALKING_DETOUR_FACTOR,
     WALKING_METERS_PER_MINUTE,
     WALKING_TIME_MAX_PRESET_MINUTES,
     CandidateFilters,
@@ -275,7 +276,7 @@ class PopulationAttributesTests(SimpleTestCase):
         )
         band_thirty = candidate(
             provider_page_url="https://example.invalid/band-thirty",
-            latitude=2000 / METERS_PER_DEGREE_LATITUDE,  # ~25 min -> bucket 30
+            latitude=1500 / METERS_PER_DEGREE_LATITUDE,  # 25 min (with detour) -> bucket 30
             genre="same-genre",
             non_smoking_status="FULL",
             card_payment_available=True,
@@ -491,7 +492,8 @@ class ApplyIzakayaBarFallbackTests(SimpleTestCase):
 
 
 class WalkingTimeMinutesTests(SimpleTestCase):
-    """adr/0025 decision 2: derived from distance, rounded up, never ``None``."""
+    """adr/0025 decision 2 + adr/0029 decision 1-2: derived from distance,
+    corrected by ``WALKING_DETOUR_FACTOR``, rounded up, never ``None``."""
 
     def test_candidate_at_the_origin_is_zero_minutes(self):
         at_origin = candidate(provider_page_url="https://example.invalid/at-origin", latitude=0.0)
@@ -499,13 +501,17 @@ class WalkingTimeMinutesTests(SimpleTestCase):
         self.assertEqual(walking_time_minutes(ORIGIN, at_origin), 0)
 
     def test_rounds_up_to_the_next_whole_minute(self):
-        # 800m under WALKING_METERS_PER_MINUTE=80 is exactly 10.0 minutes;
-        # nudging the distance up by a fraction of a meter must round up to
-        # 11, never truncate back down to 10, proving the ceiling (not
-        # floor/round) rule.
+        # The exact-10-minute boundary distance under the detour-corrected
+        # formula (ceil(distance * WALKING_DETOUR_FACTOR /
+        # WALKING_METERS_PER_MINUTE)) is distance = 10 * WALKING_METERS_PER_
+        # MINUTE / WALKING_DETOUR_FACTOR; nudging the distance up by a
+        # fraction of a meter past that boundary must round up to 11, never
+        # truncate back down to 10, proving the ceiling (not floor/round)
+        # rule survives the added multiplication.
+        boundary_distance = 10 * WALKING_METERS_PER_MINUTE / WALKING_DETOUR_FACTOR
         just_over_ten_minutes = candidate(
             provider_page_url="https://example.invalid/just-over-ten",
-            latitude=(800.5) / METERS_PER_DEGREE_LATITUDE,
+            latitude=(boundary_distance + 0.5) / METERS_PER_DEGREE_LATITUDE,
         )
 
         self.assertEqual(walking_time_minutes(ORIGIN, just_over_ten_minutes), 11)
@@ -513,7 +519,10 @@ class WalkingTimeMinutesTests(SimpleTestCase):
     def test_exactly_on_a_whole_minute_boundary_does_not_round_up_further(self):
         exactly_ten_minutes = candidate(
             provider_page_url="https://example.invalid/exactly-ten",
-            latitude=(10 * WALKING_METERS_PER_MINUTE) / METERS_PER_DEGREE_LATITUDE,
+            latitude=(
+                (10 * WALKING_METERS_PER_MINUTE / WALKING_DETOUR_FACTOR)
+                / METERS_PER_DEGREE_LATITUDE
+            ),
         )
 
         self.assertEqual(walking_time_minutes(ORIGIN, exactly_ten_minutes), 10)
@@ -544,10 +553,11 @@ class WalkingTimeMinutesTests(SimpleTestCase):
         # Independently computed: latitude_scale = cos(radians(35.0));
         # delta_latitude = 0.001; delta_longitude = 0.002 * latitude_scale;
         # degrees = hypot(delta_latitude, delta_longitude); meters = degrees
-        # * METERS_PER_DEGREE_LATITUDE; minutes = ceil(meters / 80) = 3.
-        # Swapping either subtraction for addition, or the scale's
-        # multiplication for division, changes this to a different integer.
-        self.assertEqual(walking_time_minutes(origin, nearby), 3)
+        # * METERS_PER_DEGREE_LATITUDE (~213.666m); minutes =
+        # ceil(meters * 1.3 / 80) = 4. Swapping either subtraction for
+        # addition, or the scale's multiplication for division, changes this
+        # to a different integer.
+        self.assertEqual(walking_time_minutes(origin, nearby), 4)
 
 
 class WalkingTimeBandTests(SimpleTestCase):
@@ -602,7 +612,9 @@ class FilterCandidatesWalkingTimeMaxMinutesTests(SimpleTestCase):
     def test_keeps_a_candidate_exactly_at_the_limit(self):
         exactly_at_limit = candidate(
             provider_page_url="https://example.invalid/limit-boundary",
-            latitude=(5 * WALKING_METERS_PER_MINUTE) / METERS_PER_DEGREE_LATITUDE,
+            latitude=(
+                (5 * WALKING_METERS_PER_MINUTE / WALKING_DETOUR_FACTOR) / METERS_PER_DEGREE_LATITUDE
+            ),
         )
 
         result = filter_candidates(

@@ -85,7 +85,8 @@
   // correct (see that Python constant's own docstring for the full
   // reasoning; the API schema cannot enforce this agreement structurally).
   // Also reused to draw one walking-radius ring per preset around the
-  // search-origin marker.
+  // search-origin marker, smallest first (ring styling below relies on this
+  // ascending order).
   var WALKING_TIME_MAX_PRESETS_MINUTES = [10, 15, 20, 30];
   // Mirrors recommendation.pipeline.WALKING_METERS_PER_MINUTE exactly (the
   // walking-speed convention Japan's real-estate fair-competition rules fix
@@ -93,6 +94,52 @@
   // a ring radius in meters for display -- never to recompute a candidate's
   // own walkingTimeMinutes, which the server always supplies.
   var WALKING_METERS_PER_MINUTE = 80;
+  // adr/0029 decision 1-2/4: mirrors
+  // dining_radar.recommendation.pipeline.WALKING_DETOUR_FACTOR exactly. The
+  // server's walking_time_minutes() (which every ring/card/filter figure is
+  // ultimately derived from) multiplies a straight-line distance by this
+  // factor before dividing by WALKING_METERS_PER_MINUTE; this module cannot
+  // call that Python function directly, so it mirrors both constants here to
+  // draw a ring radius that matches the server's own walking-time estimate
+  // (this is the same manual cross-module synchronization responsibility
+  // WALKING_TIME_MAX_PRESETS_MINUTES above already carries -- see
+  // pipeline.walking_time_minutes's own docstring for the developer
+  // obligation this creates).
+  var WALKING_DETOUR_FACTOR = 1.3;
+  // Used only to place a walking-radius ring's visible minute label at a
+  // point on the ring's own circumference (due north of the search origin,
+  // the same small-scale equirectangular approximation
+  // recommendation.pipeline._distance uses server-side) -- never to compute
+  // a ring's radius itself, which Leaflet's L.circle already accepts
+  // directly in meters.
+  var METERS_PER_DEGREE_LATITUDE = 111320;
+
+  // adr/0030 decision 1 + designer's ring-legibility guidance: each ring's
+  // dash pattern/opacity step down from solid (innermost, easiest to reach)
+  // to dotted (outermost), so a reader can tell rings apart by look alone
+  // even before reading a label. Indexed by position in
+  // WALKING_TIME_MAX_PRESETS_MINUTES (ascending radius); the last entry
+  // repeats for any preset beyond this table's length.
+  var WALKING_RADIUS_RING_STYLE_BY_BAND_INDEX = [
+    { className: "candidate-walking-radius-ring-path--band-0" },
+    { className: "candidate-walking-radius-ring-path--band-1" },
+    { className: "candidate-walking-radius-ring-path--band-2" },
+    { className: "candidate-walking-radius-ring-path--band-3" },
+  ];
+  var WALKING_RADIUS_RING_BASE_WEIGHT = 1.8;
+  var WALKING_RADIUS_RING_CASING_EXTRA_WEIGHT = 3;
+  var WALKING_RADIUS_RING_ACCENT_WEIGHT = 2.4;
+  // Nudge margin (pixels) a ring's label is kept inside the visible map
+  // container by, so a label is never clipped flush against the edge.
+  var WALKING_RADIUS_RING_LABEL_MARGIN_PX = 20;
+
+  // Layers this module adds beyond candidate/origin markers (walking-radius
+  // ring paths, their white casings, minute labels, and the innermost-band
+  // tint) -- tracked so a later re-layout (map resize, e.g. opening/closing
+  // the full-screen map sheet) can clear and redraw them against the map's
+  // new size, and so a fresh initializeMap call starts from none.
+  var walkingRadiusRingLayers = [];
+  var walkingRadiusRingOrigin = null;
 
   // adr/0024 decision 4 item 8: shownCandidateMemory's sessionStorage key and
   // retention bound. 20 hours (not the regulatory ceiling of 24) leaves a
@@ -521,6 +568,182 @@
 
     cardElementsByRef[candidate.candidateRef] = card;
     return card;
+  }
+
+  function clearWalkingRadiusRingLayers() {
+    walkingRadiusRingLayers.forEach(function (layer) {
+      layer.remove();
+    });
+    walkingRadiusRingLayers = [];
+  }
+
+  // adr/0025 decision 1 (rings exist) + adr/0029 decisions 1/2/4 (their
+  // radii use the detour-corrected walking-time estimate) +
+  // contracts/candidate-search-browser-interface.yaml's walkingRadiusRings.
+  // bandLabel (adr/0030 decision 1, every present ring must carry a visible/
+  // accessible label matching its bandAttribute) + designer's ring-
+  // legibility guidance (casing, per-band dash/opacity steps, an accent
+  // ring for the applied walking-time-max filter, an innermost-band tint,
+  // and skipping/nudging labels for rings that fall off the current map
+  // view). Re-runs from scratch on every call (see clearWalkingRadiusRingLayers
+  // above) so it can be called again whenever the map's own size or view
+  // changes -- see initializeMap's ResizeObserver below, which is the only
+  // caller today.
+  function layoutWalkingRadiusRings(map, originLatLng) {
+    clearWalkingRadiusRingLayers();
+    if (!originLatLng || !window.L) {
+      return;
+    }
+
+    var containerSize = map.getSize();
+    var originPoint = map.latLngToContainerPoint(originLatLng);
+    var selectedMinutes = currentFilters.walkingTimeMaxMinutes;
+
+    var rings = WALKING_TIME_MAX_PRESETS_MINUTES.map(function (minutes, index) {
+      var radiusMeters = (minutes * WALKING_METERS_PER_MINUTE) / WALKING_DETOUR_FACTOR;
+      var northLatLng = window.L.latLng(
+        originLatLng[0] + radiusMeters / METERS_PER_DEGREE_LATITUDE,
+        originLatLng[1]
+      );
+      var northPoint = map.latLngToContainerPoint(northLatLng);
+      var radiusPx = originPoint.distanceTo(northPoint);
+      var nearestPoint = window.L.point(
+        Math.max(0, Math.min(containerSize.x, originPoint.x)),
+        Math.max(0, Math.min(containerSize.y, originPoint.y))
+      );
+      var nearestDistance = originPoint.distanceTo(nearestPoint);
+      var corners = [
+        window.L.point(0, 0),
+        window.L.point(containerSize.x, 0),
+        window.L.point(0, containerSize.y),
+        window.L.point(containerSize.x, containerSize.y),
+      ];
+      var farthestDistance = corners.reduce(function (farthest, corner) {
+        return Math.max(farthest, originPoint.distanceTo(corner));
+      }, 0);
+      // A ring's boundary crosses the currently visible container exactly
+      // when the container's nearest point to the origin is within the
+      // ring's radius and its farthest point is beyond it -- if the whole
+      // container were inside the ring (farthest < radius), no part of the
+      // ring's line would actually cross it, so it is treated the same as
+      // "entirely outside" (designer's "1本も入らない輪は描かない").
+      var visible = nearestDistance <= radiusPx && radiusPx <= farthestDistance;
+      return {
+        minutes: minutes,
+        index: index,
+        radiusMeters: radiusMeters,
+        northPoint: northPoint,
+        visible: visible,
+      };
+    });
+
+    if (rings.length > 0 && rings[0].visible) {
+      var tint = window.L.circle(originLatLng, {
+        radius: rings[0].radiusMeters,
+        className: "candidate-walking-radius-ring-inner-tint",
+        stroke: false,
+        fill: true,
+        fillOpacity: 0.05,
+        interactive: false,
+      });
+      tint.addTo(map);
+      walkingRadiusRingLayers.push(tint);
+    }
+
+    rings.forEach(function (ring) {
+      if (!ring.visible) {
+        return;
+      }
+      var isSelected = selectedMinutes === ring.minutes;
+      var styleEntry =
+        WALKING_RADIUS_RING_STYLE_BY_BAND_INDEX[
+          Math.min(ring.index, WALKING_RADIUS_RING_STYLE_BY_BAND_INDEX.length - 1)
+        ];
+      var casingBandClassName = styleEntry.className.replace(
+        "-path--band-",
+        "-casing--band-"
+      );
+      var casingClassName =
+        "candidate-walking-radius-ring-casing " +
+        casingBandClassName +
+        (isSelected ? " candidate-walking-radius-ring-casing--accent" : "");
+      var casing = window.L.circle(originLatLng, {
+        radius: ring.radiusMeters,
+        className: casingClassName,
+        weight:
+          (isSelected ? WALKING_RADIUS_RING_ACCENT_WEIGHT : WALKING_RADIUS_RING_BASE_WEIGHT) +
+          WALKING_RADIUS_RING_CASING_EXTRA_WEIGHT,
+        fill: false,
+        interactive: false,
+      });
+      casing.addTo(map);
+      walkingRadiusRingLayers.push(casing);
+
+      var ringClassName =
+        "candidate-walking-radius-ring-path " +
+        styleEntry.className +
+        (isSelected ? " candidate-walking-radius-ring-path--accent" : "");
+      var ringLayer = window.L.circle(originLatLng, {
+        radius: ring.radiusMeters,
+        className: ringClassName,
+        weight: isSelected ? WALKING_RADIUS_RING_ACCENT_WEIGHT : WALKING_RADIUS_RING_BASE_WEIGHT,
+        fill: false,
+        interactive: false,
+      });
+      ringLayer.addTo(map);
+      walkingRadiusRingLayers.push(ringLayer);
+
+      var labelText = String(ring.minutes) + "分";
+      var ringEl = ringLayer.getElement();
+      if (ringEl) {
+        ringEl.setAttribute("data-testid", "candidate-walking-radius-ring");
+        ringEl.setAttribute("data-walking-radius-minutes", String(ring.minutes));
+        // adr/0030 decision 1's bandLabel Must: a non-empty visible or
+        // accessible label whose leading digits equal bandAttribute. The
+        // divIcon label below is the genuinely visible one; this aria-label
+        // on the ring's own path element additionally satisfies the Must
+        // through the ring element itself, belt-and-suspenders, in case a
+        // reader never reaches a sibling map layer.
+        ringEl.setAttribute("aria-label", labelText);
+      }
+
+      // Nudge an off-center label back into the visible map area (designer:
+      // "画面外に出る輪は画面内へ寄せる") by clamping its default position
+      // (due north of the origin, on the ring itself) into the container
+      // rect, inset by a margin so it never sits flush against the edge.
+      var clampedPoint = window.L.point(
+        Math.min(
+          Math.max(ring.northPoint.x, WALKING_RADIUS_RING_LABEL_MARGIN_PX),
+          containerSize.x - WALKING_RADIUS_RING_LABEL_MARGIN_PX
+        ),
+        Math.min(
+          Math.max(ring.northPoint.y, WALKING_RADIUS_RING_LABEL_MARGIN_PX),
+          containerSize.y - WALKING_RADIUS_RING_LABEL_MARGIN_PX
+        )
+      );
+      var labelIcon = window.L.divIcon({
+        className:
+          "candidate-walking-radius-ring-label" +
+          (isSelected ? " candidate-walking-radius-ring-label--accent" : ""),
+        html: '<span class="candidate-walking-radius-ring-label-visual"></span>',
+        iconSize: [1, 1],
+        iconAnchor: [0, 0],
+      });
+      var label = window.L.marker(map.containerPointToLatLng(clampedPoint), {
+        icon: labelIcon,
+        interactive: false,
+        keyboard: false,
+      });
+      label.addTo(map);
+      var labelEl = label.getElement();
+      if (labelEl) {
+        var labelVisual = labelEl.querySelector(".candidate-walking-radius-ring-label-visual");
+        if (labelVisual) {
+          labelVisual.textContent = labelText;
+        }
+      }
+      walkingRadiusRingLayers.push(label);
+    });
   }
 
   function initializeMap(container, candidates, searchOrigin) {
