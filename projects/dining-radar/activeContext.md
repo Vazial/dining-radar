@@ -125,6 +125,53 @@ Django check ×2）/ L5（`tests/ui_invariants` 12件+3 subtests、新規テス�
 だった（tester が別途 `5bea6c8` で origin/walking-time の step を既に翻訳済みのため、上記の
 「14件中3件失敗」はこの時点で解消している）。
 
+### 独立監査F1（基点マーカー位置検証のトートロジー）を解消した（2026-08-24、developer）
+
+独立監査（`reviews/audit-tdr-cs-origin-marker-position.md`、branch `test/origin-marker-position`
+——このブランチ自体には未マージで、`git show a22bb2b:...`で内容を読んだ。下の「気づいたこと」参照）が
+Blocker 1件（F1）を報告した。基点マーカーの数値一致検証は「マーカーの位置が応答の`searchOrigin`に
+由来し、独立に知られた定数ではないこと」を証明すると契約が主張していたが、`acceptance_state.py`の
+`_ORIGIN = Origin(latitude=0.0, longitude=0.0)`が全14箇所・全モードで共有されていたため、応答を正しく
+読む実装と`0`/`0`を決め打ちする実装が常に同じ結果になり、実際には証明できていなかった。architect が
+`ffd6937`で`test-support-api.yaml`（`1.4.0`）に`CandidateProposalAcceptanceState.searchOrigin`
+（任意・nullable・緯度経度）を新設済み——省略時は従来の合成定数、指定時は応答の`searchOrigin`がその値と
+完全一致することを要求する。本スライスはその実装側を担当した。
+
+**基点を動かしたときに候補との相対関係が壊れないようにした方法**: `acceptance_state.py`の全ての
+`_..._source()`関数が返す合成候補群は、`_ORIGIN=(0.0, 0.0)`からの絶対緯度経度としてハードコードされて
+おり（例: `latitude=0.0010 + index*0.0002`）、徒歩時間・徒歩の上限フィルタ・重み付け選択・
+`SHOWN_POOL_PRIORITY`の集合判定はすべて`pipeline._distance(origin, candidate)`——`origin`と`candidate`の
+絶対座標の差——に依存する。新設`_origin_shifted()`は、`active_search_origin()`が既定値と異なる基点を
+返すとき、候補群の全メンバーを「基点自身が動いた分と全く同じデルタ」で平行移動してから返す。これにより
+`candidate.longitude`と`origin.longitude`は既定では両方とも`0.0`で、平行移動後は両方とも同じ
+`origin.longitude`になる（同じ値どうしの浮動小数点減算は常に厳密にゼロなので、経度方向の距離寄与は
+基点をどこへ動かしても厳密にゼロのまま）。緯度方向も同様に厳密なデルタ保存を確認済みで、
+`WALKING_TIME_LIMIT_EXCLUDES`の12分境界（950m/12分・800m/10分・1100m/14分、マージン40〜150m）が
+基点を合成的に大きく動かしても崩れないことを単体テストで直接検証した
+（`test_walking_time_limit_boundary_is_unchanged_by_a_pinned_origin`）。`NO_RESULTS`（パイプラインを
+経由しない固定応答）も`active_search_origin()`を読むよう配線し、モードによらず一貫して基点を報告する。
+`set_mode`/`reset_mode`/`views.candidate_proposal_state`（PUT）に`searchOrigin`の受け渡しとスキーマ検証
+（`additionalProperties: false`・緯度±90・経度±180・bool値の拒否）を配線し、省略・明示的な`null`の両方が
+既定の合成定数へフォールバックすることを確認した。
+
+検証（すべて developer が実行）: L1（ruff・ruff format・352 unit tests——18件新規・カバレッジ97%、
+`coverage report --fail-under=90`通過）/ mutation（`acceptance_state.py`・`test_support/views.py`へ
+スコープを絞った`--gremlin-targets`実行、139/139 zapped=100%、Windows既知のWinError 206を回避する
+2026-08-14確立の先例どおり）/ L2（構造12件+9 subtests）/ L3（境界181件+23 subtests、Django check ×2）/
+L5（`tests/ui_invariants` 12件+3 subtests、本スライスはレンダリングコードを変更していないため不変のまま
+緑）が緑。加えて、健全性確認として`manage.py test tests`（L4含むフルスイート）を実行し386件すべて緑
+だった（担当外のstep定義側はtesterが並行して進めている）。
+
+**気づいたこと**: 依頼で指定された監査レポート`reviews/audit-tdr-cs-origin-marker-position.md`は、この
+ブランチ（`docs/record-tdr-cs-slice-state`）の作業ツリーには存在しない。コミット`a22bb2b`として
+`test/origin-marker-position`ブランチにのみ存在し、architect の契約改訂コミット`ffd6937`（本ブランチ上、
+親は`a078684`で`a22bb2b`を経由していない）はその内容を参照してはいるが、ファイル自体を本ブランチへは
+持ち込んでいない。`git show a22bb2b:projects/dining-radar/reviews/audit-tdr-cs-origin-marker-position.md`
+で内容を読み、実装はそこに書かれた指摘とADR-0027追記2の記述に基づいて行った。契約自体に矛盾は見つから
+なかった——`test-support-api.yaml`の新設スキーマは省略時/指定時の挙動を明記しており、実装で判断に迷う
+点はなかった。監査レポートをこのブランチへ持ち込むかどうか（ブランチ間のコーディネーションの問題であり
+契約の矛盾ではない）は、developer の権限外として報告のみ行う。
+
 ### `design.md` が2世代古い（2026-08-23 確認）
 
 `design.md` は designer が起動時に読む文書（役割定義の5番目）だが、中身は **`ADR-0023` が廃止した

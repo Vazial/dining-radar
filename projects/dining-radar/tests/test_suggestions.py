@@ -257,6 +257,65 @@ class ActiveRandomSourceTests(TestCase):
         self.assertIsInstance(source, random.Random)
 
 
+class ActiveSearchOriginTests(TestCase):
+    """Direct coverage of ``active_search_origin`` (independent-audit F1)."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(acceptance_state.reset_mode)
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_no_pinned_origin_falls_back_to_the_default_constant(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING
+        )
+
+        self.assertEqual(acceptance_state.active_search_origin(), acceptance_state._ORIGIN)
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_pinned_origin_is_read_back_exactly(self):
+        pinned = Origin(latitude=12.5, longitude=-25.75)
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING,
+            search_origin=pinned,
+        )
+
+        self.assertEqual(acceptance_state.active_search_origin(), pinned)
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_reset_mode_clears_the_pinned_origin(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING,
+            search_origin=Origin(latitude=1.0, longitude=2.0),
+        )
+
+        acceptance_state.reset_mode()
+
+        self.assertEqual(acceptance_state.active_search_origin(), acceptance_state._ORIGIN)
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_reselecting_the_mode_without_an_origin_clears_the_previously_pinned_one(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING,
+            search_origin=Origin(latitude=1.0, longitude=2.0),
+        )
+
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING
+        )
+
+        self.assertEqual(acceptance_state.active_search_origin(), acceptance_state._ORIGIN)
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=False)
+    def test_outside_the_acceptance_profile_the_pinned_origin_is_never_read(self):
+        cache.set(acceptance_state._CACHE_KEY_SEARCH_ORIGIN, (9.0, 9.0), timeout=None)
+
+        # Matches active_random_source's own outside-the-profile guard test:
+        # the guard is exercised directly rather than inferred from a value
+        # that could coincidentally equal the default.
+        self.assertEqual(acceptance_state.active_search_origin(), acceptance_state._ORIGIN)
+
+
 class ProposeWithOverrideTests(SimpleTestCase):
     """Direct unit coverage of the adr/0023 synthetic seams.
 
@@ -735,6 +794,63 @@ class ProposeWithOverrideTests(SimpleTestCase):
 
         self.assertEqual(result.search_origin, acceptance_state._ORIGIN)
 
+    # Pinned searchOrigin (test-support-api.yaml 1.4.0, independent-audit
+    # finding F1, reviews/audit-tdr-cs-origin-marker-position.md) ----------
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_every_source_mode_reports_a_pinned_origin_exactly(self):
+        # Every mode whose _..._source runs the real pipeline must report a
+        # pinned searchOrigin exactly, not just the default constant -- this
+        # is what lets a scenario distinguish a correctly-wired
+        # candidate.js from one that hardcodes the default.
+        pinned = Origin(latitude=10.0, longitude=20.0)
+        modes = [
+            mode
+            for mode in acceptance_state.AcceptanceCandidateProposalMode
+            if mode
+            not in (
+                acceptance_state.AcceptanceCandidateProposalMode.PROVIDER_UNAVAILABLE,
+                acceptance_state.AcceptanceCandidateProposalMode.RATE_LIMITED,
+            )
+        ]
+        for mode in modes:
+            with self.subTest(mode=mode.value):
+                acceptance_state.set_mode(mode, search_origin=pinned)
+                try:
+                    result = acceptance_state.propose_with_override(mode, CandidateFilters())
+                    self.assertEqual(result.search_origin, pinned)
+                finally:
+                    acceptance_state.reset_mode()
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_pinned_origin_leaves_default_exclusion_visible_unaffected(self):
+        # A pinned origin translates every synthetic candidate by the same
+        # delta it moves the origin by, so a pipeline property that depends
+        # only on relative distance (here: which genre is default-excluded)
+        # must be unchanged from the unpinned baseline.
+        baseline = acceptance_state.propose_with_override(
+            acceptance_state.AcceptanceCandidateProposalMode.DEFAULT_EXCLUSION_VISIBLE,
+            CandidateFilters(),
+        )
+
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.DEFAULT_EXCLUSION_VISIBLE,
+            search_origin=Origin(latitude=-15.0, longitude=-25.0),
+        )
+        try:
+            shifted = acceptance_state.propose_with_override(
+                acceptance_state.AcceptanceCandidateProposalMode.DEFAULT_EXCLUSION_VISIBLE,
+                CandidateFilters(),
+            )
+        finally:
+            acceptance_state.reset_mode()
+
+        self.assertEqual(
+            {candidate.name for candidate in baseline.candidates},
+            {candidate.name for candidate in shifted.candidates},
+        )
+        self.assertNotEqual(shifted.search_origin, acceptance_state._ORIGIN)
+
     # WALKING_TIME_LIMIT_EXCLUDES (adr/0025 decision 3, TDR-CS-15) ----------
 
     @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
@@ -752,6 +868,35 @@ class ProposeWithOverrideTests(SimpleTestCase):
         self.assertIn("Synthetic walking-time under limit", names)
         self.assertIn("Synthetic walking-time at limit", names)
         self.assertNotIn("Synthetic walking-time over limit", names)
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_walking_time_limit_boundary_is_unchanged_by_a_pinned_origin(self):
+        # The exact 12-minute boundary this mode is authored around
+        # (adr/0025 decision 3) must hold identically whether or not a
+        # searchOrigin is pinned -- moving the origin must never change
+        # which candidates are within/over the walking-time limit, because
+        # every candidate moves by the same delta as the origin.
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.WALKING_TIME_LIMIT_EXCLUDES,
+            search_origin=Origin(latitude=30.0, longitude=40.0),
+        )
+        try:
+            result = acceptance_state.propose_with_override(
+                acceptance_state.AcceptanceCandidateProposalMode.WALKING_TIME_LIMIT_EXCLUDES,
+                CandidateFilters(
+                    walking_time_max_minutes=(
+                        acceptance_state._WALKING_TIME_LIMIT_EXCLUDES_THRESHOLD_MINUTES
+                    )
+                ),
+            )
+        finally:
+            acceptance_state.reset_mode()
+
+        names = {candidate.name for candidate in result.candidates}
+        self.assertIn("Synthetic walking-time under limit", names)
+        self.assertIn("Synthetic walking-time at limit", names)
+        self.assertNotIn("Synthetic walking-time over limit", names)
+        self.assertEqual(result.search_origin, Origin(latitude=30.0, longitude=40.0))
 
     @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
     def test_walking_time_limit_unset_returns_every_eligible_candidate(self):

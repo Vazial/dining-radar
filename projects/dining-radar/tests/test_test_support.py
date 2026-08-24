@@ -261,6 +261,134 @@ class CandidateProposalAcceptanceStateTests(TestCase):
         self.assertEqual(response.status_code, 204)
         self.assertIsNone(cache.get(acceptance_state._CACHE_KEY_SEED))
 
+    # searchOrigin (test-support-api.yaml 1.4.0, independent-audit finding
+    # F1, reviews/audit-tdr-cs-origin-marker-position.md) -------------------
+
+    def test_put_accepts_a_search_origin_and_pins_it(self):
+        response = self.client.put(
+            "/test-support/candidate-proposals/state",
+            data=json.dumps(
+                {
+                    "mode": "NORMAL_WITH_WEIGHTED_SAMPLING",
+                    "searchOrigin": {"latitude": 12.5, "longitude": 25.75},
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(
+            acceptance_state.active_search_origin(),
+            acceptance_state.Origin(latitude=12.5, longitude=25.75),
+        )
+
+    def test_put_without_a_search_origin_leaves_the_default_constant_active(self):
+        response = self.client.put(
+            "/test-support/candidate-proposals/state",
+            data=json.dumps({"mode": "NORMAL_WITH_WEIGHTED_SAMPLING"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(acceptance_state.active_search_origin(), acceptance_state._ORIGIN)
+
+    def test_put_accepts_an_explicit_null_search_origin(self):
+        response = self.client.put(
+            "/test-support/candidate-proposals/state",
+            data=json.dumps({"mode": "NORMAL_WITH_WEIGHTED_SAMPLING", "searchOrigin": None}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(acceptance_state.active_search_origin(), acceptance_state._ORIGIN)
+
+    def test_put_rejects_a_search_origin_missing_longitude(self):
+        response = self.client.put(
+            "/test-support/candidate-proposals/state",
+            data=json.dumps(
+                {"mode": "NORMAL_WITH_WEIGHTED_SAMPLING", "searchOrigin": {"latitude": 12.5}}
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_put_rejects_a_search_origin_with_an_extra_key(self):
+        response = self.client.put(
+            "/test-support/candidate-proposals/state",
+            data=json.dumps(
+                {
+                    "mode": "NORMAL_WITH_WEIGHTED_SAMPLING",
+                    "searchOrigin": {"latitude": 12.5, "longitude": 25.75, "altitude": 0},
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_put_rejects_a_search_origin_that_is_not_an_object(self):
+        response = self.client.put(
+            "/test-support/candidate-proposals/state",
+            data=json.dumps({"mode": "NORMAL_WITH_WEIGHTED_SAMPLING", "searchOrigin": "0,0"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_put_rejects_a_search_origin_latitude_out_of_range(self):
+        response = self.client.put(
+            "/test-support/candidate-proposals/state",
+            data=json.dumps(
+                {
+                    "mode": "NORMAL_WITH_WEIGHTED_SAMPLING",
+                    "searchOrigin": {"latitude": 90.5, "longitude": 0},
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_put_rejects_a_search_origin_longitude_out_of_range(self):
+        response = self.client.put(
+            "/test-support/candidate-proposals/state",
+            data=json.dumps(
+                {
+                    "mode": "NORMAL_WITH_WEIGHTED_SAMPLING",
+                    "searchOrigin": {"latitude": 0, "longitude": 180.5},
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_put_rejects_a_boolean_search_origin_coordinate(self):
+        response = self.client.put(
+            "/test-support/candidate-proposals/state",
+            data=json.dumps(
+                {
+                    "mode": "NORMAL_WITH_WEIGHTED_SAMPLING",
+                    "searchOrigin": {"latitude": True, "longitude": 0},
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_delete_also_clears_the_pinned_search_origin(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.NORMAL_WITH_WEIGHTED_SAMPLING,
+            search_origin=acceptance_state.Origin(latitude=1.0, longitude=2.0),
+        )
+
+        response = self.client.delete("/test-support/candidate-proposals/state")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertIsNone(cache.get(acceptance_state._CACHE_KEY_SEARCH_ORIGIN))
+
 
 @override_settings(
     ROOT_URLCONF="dining_radar.urls",
