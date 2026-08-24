@@ -30,12 +30,64 @@ architectが`adr/0029`を起草した（承認済み、`meta/adr/0035`方式(i)�
 読み直し、算出方式・係数・プリセットの値はいずれも既存の契約文面が既に実装裁量として明示的に開放して
 いる範囲内であることを確認した（`adr/0029`帰結1節）。
 
-**実装に要ること（developer、未着手）**: `pipeline.py`への迂回係数定数の新設と`walking_time_minutes()`
-への組み込み、`candidate.js`のリング半径計算への同じ係数の反映、`acceptance_state.py`の
-`WALKING_TIME_LIMIT_EXCLUDES`合成データ（直線800m/950m/1100m、しきい値12分）の新しい係数のもとでの
-再計算——迂回係数を足すと現行の合成距離が指す分数がすべてずれる（例: 950m×1.3÷80=15.4375分→切り上げ
-16分、現行は境界の12分）。L1の期待値更新とmutation再実行も要る。designerが並行して進めている「輪の
-見せ方」（線の強さ・分数のラベル）は、`adr/0029`が決めた新しい半径の値を前提にできる。
+**実装済み（2026-08-25、developer）。** Next work 7参照。
+
+### `adr/0029`・`adr/0030`・画面骨格の3件を1スライスで実装した（2026-08-25、developer）
+
+ブランチ `docs/ring-labels-contract` に実装した。内容の要点は Next work 7〜9 に記録している
+（迂回補正1.3倍、リングの分数ラベル・0件案内の押せる操作、リスト主役＋88px地図リボン＋全面シートの
+骨格）。ここでは検証と、契約に触れる判断のみ記録する。
+
+**契約（`contracts/**`）・step定義（`tests/acceptance/**`）は変更していない。** tester が並行ブランチ
+`test/ring-labels-and-empty-guidance`（コミット `c7b03a5` まで）で `TDR-CS-02`・`TDR-CS-05` のstepを
+`adr/0030` の新設Mustに合わせて拡張しているが、これは本ブランチには含まれない別ブランチであり、
+developer の判断でマージ・調整はしていない（ブランチ間の調整はorchestrator/人間の領分）。
+
+**検証（すべてdeveloperが実行）**: L1（ruff・ruff format・352 unit tests・カバレッジ97%、
+`coverage report --fail-under=90`通過）/ L2（構造12件）/ L3（境界181件、`manage.py check`×2）が緑。
+mutation testingはこのWindows環境の既知の制約（`WinError 206`、コマンドライン長超過——`tests/test_
+recommendation.py`のみに絞れば動くが、フルテストセットを渡すと2026-08-14以来の既知の症状で失敗する）
+により全ファイル横断では実行できないが、実際に変更した`pipeline.py`の行（`WALKING_DETOUR_FACTOR`と
+`walking_time_minutes()`の計算式）を対象に`tests/test_recommendation.py`だけでスコープしたmutation
+実行では生存ミュータント0件——`--gremlin-targets=src/dining_radar/recommendation/pipeline.py`での
+生存15件はすべて今回変更していない既存コード（`@dataclass(frozen=True)`のtrue→false系、既存の
+`_median_positive`系の境界）であることを行番号で確認済み。L5（`tests/ui_invariants`、`adr/0020`決定4の
+4つのゲート不変条件）は骨格を丸ごと入れ替えたにもかかわらず**12件+3 subtestsすべて緑**——不変条件は
+1つも壊れていない。理由: (a) 88pxのリボンも`[data-testid="candidate-map"]`として`display:none`でなく
+可視のまま存在するため「狭幅での地図到達可能性」は無条件に満たす、(c) カード・マーカーのキーボード
+操作は触っていない、(d) 内部enum非露出は無関係、(e) 44pxゲートは`data-candidate-control-purpose`を
+持つ要素だけを測るところ、新設のribbon-open/sheet-close/no-results-reviseのうち`data-candidate-
+control-purpose`を持つのは`candidate-no-results-revise-filters`だけ（44px以上を確保済み）——
+ribbon-open/sheet-closeは意図的にpurposeを持たない`<div>`にしたため測定対象外（Next work 9参照）。
+L4（`manage.py test tests.acceptance`）は本スライスの担当外——本ブランチのstepは旧骨格を前提にしており、
+実行すれば構造的に落ちることが予想されるため実行していない（tester のstepとの突き合わせはtester/
+orchestratorの領分）。
+
+**designerのキャンバス自体は閲覧していない。** developerはブラウザ・URL閲覧手段を持たない
+（`meta/agents.md`の役割定義どおり）。依頼本文に書かれた要約（リスト主役／88pxの実地図リボン／
+タップで全面シート／位置関係と選択中の1店のみ・他店はピンで切替、輪の見せ方5点＋最内帯の淡い塗り）を
+最も忠実に実装したが、キャンバスとの細部（余白・書体・色の正確な値など）の一致はorchestratorまたは
+人間による実測が必要——`activeContext.md`が繰り返し記録している「Only orchestrator can measure
+rendered geometry」の制約どおりである。
+
+**契約との整合で気づいたこと（矛盾ではなく実装判断）**: リボン開閉・シート閉じるの2つの新規UIは、
+「押すと地図の見え方（ビューポートサイズ）だけが変わり、提案リクエスト・選択・フィルタ・基点・
+探索範囲のいずれも変えない」という性質を持つ。この性質は`displayOnlyOriginException`が
+`candidate-origin-marker`・`candidate-walking-radius-ring`に認めている性質と同種だが、
+`displayOnlyOriginException`のscopeはこの2つのtest idに限定されており、新設要素はそこに含まれない。
+一方で`allCandidateScreenFormControlsMustDeclarePurpose`は`allowedPurposes`という閉じたリストを
+`data-candidate-control-purpose`の値に強制するもので、developerはこのリストに新しい値を足せない
+（契約は読み取り専用）。そこで、新設2要素を**`<button>`/`role="button"`を使わない、`data-candidate-
+control-purpose`を宣言しない素の`<div>`**として実装し、`tests/acceptance/dsl/candidate_search_
+browser.py`の`FORM_CONTROL_SELECTOR`（literal `<button>`/`<input>`/`<select>`/`<textarea>`/特定の
+`[role=...]`のみを拾う、`[role='button']`は対象外）を実際に読んで、この実装がその走査に一切引っかから
+ないことを確認した——Leafletの標準ズームコントロール（同じくpurposeを持たない、`home.html`の既存CSS
+コメントが明記）と同じ扱いである。**契約を変える必要があるとは判断していない**——現状の枠組みの中で
+既存の先例（`candidate-origin-marker`のpurposeless-div様式、Leafletズームコントロールのpurposeless
+様式）を組み合わせれば実装できた。ただし将来「輪と徒歩の上限の連動」（`adr/0030`決定3が保留した論点）
+を契約化する際、フィルタの選択状態を機械観測する属性が要るのと同様、「地図ビューポートの開閉状態」を
+機械観測したくなった場合は、この判断（purposeless div）を再検討する契約改訂が要るかもしれない——
+今回はそこまでは要求されていないため、architectへの申し送りとして記録するに留める。
 
 ### 画面の機能について確定した人間裁定（2026-08-23）
 
@@ -473,19 +525,64 @@ Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (
 4. ~~Consider whether ADR-0003's stated design-preview stack (React, TypeScript, Tailwind, shadcn/ui) should match the receiver's actual dependencies (React, TypeScript, `lucide-react` only, with hand-written CSS), by installing the missing packages or amending the ADR. Designer worked around the gap by requiring visually self-contained artifacts; the divergence itself is unresolved.~~ **Moot (2026-08-24, ADR-0028)** — `design-preview` itself is retired, so its dependency mismatch no longer needs reconciling. Pending action item: a human deletes `projects/dining-radar/design-preview/` and the `dining-radar-design-preview` entry in `.claude/launch.json` (ADR-0028 decision 2).
 ~~5. The candidate map never calls Leaflet's `invalidateSize()`/re-fits when its container is resized after the initial render (no resize handler in `candidate.js`).~~ **解決した（2026-08-24、developer）**——see below. The original framing was partly imprecise: Leaflet's own default `trackResize: true` (confirmed by reading the vendored `leaflet.js`) already re-fits on a plain browser-`window` resize, so a straightforward `page.set_viewport_size()`-style resize was already handled before this fix. The real remaining gap was a container-size change with **no accompanying `window` resize event** — reachable on a phone because `candidate-map`'s height is `dvh`/`vh`-sized, so a mobile browser's toolbar collapsing/reappearing while scrolling resizes the container purely through CSS. `candidate.js` now attaches a `ResizeObserver` directly to the map container (disconnected/reattached on every `initializeMap` re-render) that calls `invalidateSize()` on any container-size change regardless of cause.
 6. `meta/tools/govlint.py`'s `SCENARIO_ID` pattern cannot match `TDR-CS-01` or `TDR-AUTH-01`, so all 19 TDR scenario IDs have never been checked by L0. Fixing it needs a human unlock commit for `meta/tools/**` (`meta/adr/0046`).
-7. **実装が未着手（2026-08-24、`adr/0029`）**: 迂回係数の定数を `pipeline.py`・`candidate.js` へ追加し、
-   `acceptance_state.py` の `WALKING_TIME_LIMIT_EXCLUDES` 合成データ（直線800m/950m/1100m、しきい値12分）を
-   新しい係数のもとで境界性を保つよう再計算する。詳細は `adr/0029` 帰結2節。
-8. **実装が未着手（2026-08-24、`adr/0030`）**: 輪の分数ラベルと0件案内の操作化。`candidate.js` に (a) 各リング要素の
-   可視ラベル（`data-walking-radius-minutes` と桁を一致させる）、(b) `candidate-no-results` 内に絞り込みパネルを
-   開く押せる操作を追加する。tester は `TDR-CS-02`・`TDR-CS-05` のstep定義をあわせて拡張する。designer が挙げた
-   残り2件（輪と徒歩の上限の連動、地図リボンの高さ・役割）は `adr/0030` が意図的に決めていない——理由は同ADR
-   決定3・4を参照。
-9. **実装が未着手（2026-08-24、人間裁定）**: 画面の骨格をワイヤフレームへ寄せる。designer の設計は
+7. ~~実装が未着手（2026-08-24、`adr/0029`）: 迂回係数の定数を `pipeline.py`・`candidate.js` へ追加し、
+   `acceptance_state.py` の `WALKING_TIME_LIMIT_EXCLUDES` 合成データを新しい係数のもとで再計算する。~~
+   **実装済み（2026-08-25、developer、ブランチ `docs/ring-labels-contract`）。** 詳細は次項にまとめて記録する。
+8. ~~実装が未着手（2026-08-24、`adr/0030`）: 輪の分数ラベルと0件案内の操作化。~~
+   **実装済み（2026-08-25、developer）。** 併せて `adr/0029`・人間裁定の骨格変更（次項9）も同一ブランチで実装した。
+   要点:
+   - `pipeline.py`: `WALKING_METERS_PER_MINUTE`（80、無変更）とは別に `WALKING_DETOUR_FACTOR = 1.3` を新設し、
+     `walking_time_minutes()` を `ceil(距離 × 1.3 ÷ 80)` に変更（`adr/0029` 決定1・2）。リング・カードの徒歩時間・
+     `walkingTimeMaxMinutes` フィルタは引き続きこの1関数だけを経由する（同決定4、崩していない）。`candidate.js`
+     も同じ2定数を相互参照コメント付きでミラーしている。
+   - `acceptance_state.py` の `WALKING_TIME_LIMIT_EXCLUDES` 合成距離は 800/950/1100m → **600/710/830m** へ
+     再計算した（しきい値12分は無変更）。600m→10分（余裕を持って12分未満）、710m→12分（12分にceilする
+     区間 (676.9m, 738.5m] の中央付近、両端から30m前後の余裕）、830m→14分（余裕を持って12分超）——境界
+     ちょうどを避けるという既存のマージン設計方針は維持し、数値だけを新しい式に合わせて選び直した
+     （`adr/0029` 帰結2節）。symbolicな `_WALKING_TIME_LIMIT_EXCLUDES_THRESHOLD_MINUTES` を参照するテストは
+     無変更で緑のまま。
+   - `candidate.js`: 各リングに `aria-label`（属性値と一致）と、実際に画面上で読める `divIcon` ラベル
+     （`N分`）を追加した（`adr/0030` 決定1のMust）。ラベル位置はリングの真北点をコンテナ矩形へクランプし、
+     リングの境界が現在のビューポートを一切通らない場合はリングごと描画しない（円と矩形の最近点/最遠点
+     距離で判定）。輪の見せ方（designer artifact
+     `efe1c44f-ead4-40c6-9141-b801583aadd9` の5点）も実装した——白いケーシング（同じ破線パターン、幅+3px、
+     不透明度.9）／太さ 1.8px（アクセントは2.4px）／内側から段階化した破線・不透明度（実線.85→長破線.68→
+     短破線.55→点線.45、CSSクラス `--band-0`〜`--band-3`）／`currentFilters.walkingTimeMaxMinutes` と一致する
+     リングだけアクセント実線＋反転ラベル／最内リング半径の淡いアクセント塗り（fill-opacity 5%）。
+   - `candidate-no-results` 内に `candidate-no-results-revise-filters`（`data-candidate-control-purpose=
+     "candidate-no-results-open-filter"`、契約 `allowedPurposes` 済み登録）を追加し、押すと
+     `filterExpanded=true` にして即座にパネルを開く（`adr/0030` 決定2）。既存の `candidate-filter-open` の
+     トグル挙動には触れていない。
+   - designer が挙げた残り2件（輪と徒歩の上限の連動＝アクセントリングとして実装済みの範囲を超える機械観測、
+     地図リボンの高さ・役割）は `adr/0030` が意図的に決めていない範囲のまま——理由は同ADR決定3・4参照。
+9. ~~実装が未着手（2026-08-24、人間裁定）: 画面の骨格をワイヤフレームへ寄せる。~~
+   **実装済み（2026-08-25、developer）。** designer artifact
    `https://claude.ai/code/artifact/efe1c44f-ead4-40c6-9141-b801583aadd9`（リスト主役＋高さ88pxの地図リボン＋
-   全面シート）。**リボンの有無は人間が実物を見てから決める**ため、リボン有りを本番の作りで実装し、リボン無しは
-   比較用に別途用意する（比較用はマージ対象ではない——リボン無しは初期表示に地図が無くなり
-   `authenticatedInitialOutcome.present` に触れる）。輪の本数（現在4本）も補正後の見た目を見てから決める。
+   全面シート）を、**このURLを直接閲覧する手段が developer にはない**ため、依頼本文に記載された要約
+   （リスト主役／88pxの実地図リボン／タップで全面シート／全面シートは位置関係と選択中の1店のみ・他店は
+   ピンで切替）を最も忠実に翻訳する形で実装した。**キャンバス自体との細部の一致は未確認**——orchestrator
+   または人間による実測確認が必要（`meta/adr/0059` 決定5・「Only orchestrator can measure rendered
+   geometry」の既存方針どおり、developer はブラウザを持たない）。
+   - リボンは本物のLeaflet地図（畳んだプレースホルダではない）。`[data-testid="candidate-map"]` は
+     `candidate.js` 内で1箇所しか宣言されておらず（`tests/test_static_assets.py` の新規テストで機械的に
+     固定）、リボン⇄全面シートの切替は同じ地図インスタンスのCSSサイズ変更（`.candidate-main-layout` の
+     `data-map-sheet-open` 属性）だけで行う。既存の `ResizeObserver`（地図resize不具合修正の遺産）がこの
+     サイズ変化を検知して `invalidateSize()` ・ビュー再フィット（シート内は選択中候補へ centering、
+     ribbon側は全候補へ fitBounds）・リング再レイアウトを行う——新しいイベント配線は追加していない。
+   - 全面シートは選択中の1店の `candidate-card` 要素を**複製せず移動**して表示する
+     （`syncMapSheetPanelToSelection`）。リスト側に残る他の候補は `inert` 属性でTab順・アクセシビリティ
+     ツリーから外す（対応ブラウザのみ、feature-detect済み）。ピンをタップすると選択中候補が切り替わり、
+     シート内の表示・地図の中心も追従する。横スワイプの他店デッキは廃止した。
+   - リボン開閉のアフォーダンス（ribbon-open・sheet-close）は意図的に `<button>`/`role="button"` を使わず、
+     `tabindex` 付きの素の `<div>` にした——`candidate-origin-marker` と同じ様式に倣うことで、契約の
+     `allowedPurposes`（閉じたリスト、developer は変更できない）に無い新しい purpose 値を発明せずに済ませた
+     （`tests/acceptance/dsl/candidate_search_browser.py` の `FORM_CONTROL_SELECTOR` が literal `<button>`等
+     しか拾わないことを確認済み）。
+   - リング本数（現在4本）・リボンの有無は据え置き——**リボン無し比較案はこのスライスに含めない**（人間が
+     実物を見てから選ぶ、`adr/0030` 決定4）。
+   - 旧・横スワイプデッキ専用のCSS（`home.html`）と、それを固定していた `tests/test_static_assets.py` の
+     3件の回帰テストは、新しい骨格に合わせて書き換えた（1件は「地図インスタンスが1つだけ」を機械的に
+     固定する新規アサーションに置き換え）。
 
 ## Open questions
 
