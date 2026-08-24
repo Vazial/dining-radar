@@ -840,6 +840,7 @@ cause_category: L4 browser observation contract missing
 cause_key: l4-browser-observation-contract-missing
 pushed_to:
   - projects/dining-radar/contracts/candidate-search-browser-interface.yaml
+  - projects/dining-radar/contracts/test-support-api.yaml
   - projects/dining-radar/adr/0025-disclose-search-origin-and-walking-time-to-the-authenticated-screen.md
   - projects/dining-radar/adr/0027-numeric-equality-for-float-observed-attributes.md
 status: 対応済み
@@ -909,3 +910,36 @@ principles: [P-01, P-04, P-08]
   で完結する。一方、cause_keyが3回出たという事実そのもの（3件の技術的形がいずれも異なる）をテンプレート
   全体としてどう扱うか——一般的な機構を入れるべきか、それとも技術的形が毎回違う以上、単一の機構では
   防げないと判断するか——は`adr/0027`では判断せず、orchestrator（`meta/adr/0047`）へ委ねた。
+
+### FR-022 follow-up 3 (2026-08-24, architect — 独立監査F1、cause_keyの4回目)
+
+- 独立監査（`reviews/audit-tdr-cs-origin-marker-position.md`、F1）が Blocker を1件報告した。数値比較へ
+  改めた `presenceRule`（follow-up 2）の「マーカーの位置が応答由来であり**独立に知られた定数ではない**」
+  という主張を、**テストが実際には証明できていなかった**。原因は
+  `src/dining_radar/suggestions/acceptance_state.py:196` の `_ORIGIN = Origin(latitude=0.0, longitude=0.0)`
+  が全14箇所・全モードで共有されていたことである——acceptance が返す `searchOrigin` は常に `(0.0, 0.0)`
+  であり、応答とDOM属性の自己整合性チェックでは「正しく配線された実装」と「`0`/`0`を決め打ちした実装」
+  を区別できない。数値比較への変更（follow-up 2）はこの点に影響しない——文字列一致でも同じだった。
+- **契約2本が食い違っていた。** `candidate-search-browser-interface.yaml` の `presenceRule`
+  （architectが書いたもの）は「fixture-baked value ではないことを証明する」と強く主張する一方、
+  `contracts/test-support-api.yaml`（2026-08-20起草の該当箇所）は「`searchOrigin` の値そのものを
+  Given API で選択可能にする必要はない。自己整合性だけを検証すれば足りる」と明示的に弱く主張していた。
+  後者が先にあり、`positionAttributes`（2026-08-24）がその上に強い主張を足した時点でこの矛盾を
+  確認しなかった。
+- コーディネータが提示した3択のうち**(a)（Given API で `searchOrigin` を選択可能にする）を採った**。
+  `test-support-api.yaml`（`1.4.0`）の `CandidateProposalAcceptanceState` に任意プロパティ
+  `searchOrigin`（nullable、緯度経度）を新設し、省略時は従来どおりの合成定数で既存シナリオの挙動を
+  無変更のまま保つ。(b)（モードごとに異なる合成基点）は、モードを追加するたびに「どのモードがどの値か」
+  というテスト側の暗黙知識の保守を要求するため不採用。(c)（presenceRuleの主張を弱める）は、FR-022が
+  指摘した欠陥（検証手段のない検証要求）を「検証できていないのに検証したと書く」というより悪い形で
+  残すことになるため不採用。詳細と理由は `adr/0027` の2026-08-24追記2を参照。
+- **cause_keyの4回目を見て、3回目時点の見立て（「3件は異なる技術的形を取っており単一の機械検査は
+  現実的でない」）を部分的に修正した。** (1)属性が無いと(4)本件は、技術的な現れ方は違うが同じ種類の
+  主張の失敗——「独立に知られた定数ではない」という presenceRule の主張は、(i) 値を読む観測可能な属性と
+  (ii) その値を裏付ける Given データが決め打ちでは通せない形で変動すること、の両方が要る。(1)は(i)の
+  欠如、(4)は(ii)の欠如だった。(2)・(3)はこの主張の族には属さない別種の欠落であり、「単一の機械検査は
+  現実的でない」という結論自体は変えない。変えたのは範囲——「独立に知られた定数ではない」
+  「fixture-baked value ではない」という**特定の主張族**に限れば、(i)・(ii)双方の確認という具体的な
+  執筆時チェックリストがはっきりした。機械検査ではなくarchitectの自己点検項目として運用し、この族で
+  5件目が出たら機械化を検討する（P-05）。cause_keyの一般論（テンプレート全体でどこまで先回りするか）は
+  引き続きorchestrator（`meta/adr/0047`）へ委ねる——判断材料は増えていない。
