@@ -173,6 +173,31 @@
   // applyPendingFilters/handleProposalResponse below).
   var hasDisplayedProposal = false;
 
+  // Task 3 (designer): list-primary + 88px map ribbon + tap-to-open
+  // full-screen map sheet, one Leaflet map instance throughout (the same
+  // [data-testid="candidate-map"] element/instance is simply resized by CSS
+  // -- see initializeMap's ResizeObserver and openMapSheet/closeMapSheet
+  // below). mapSheetOpen tracks which of the two states the map is
+  // currently in; selectedCandidateRef mirrors the currently selected
+  // candidate outside of selectCandidate's own DOM bookkeeping so the sheet
+  // knows who to show/center on; latLngByRef lets the sheet re-center
+  // without re-deriving a candidate's coordinates. orderedCardElements/
+  // cardsContainerEl/mapSheetPanelEl support moving the single selected
+  // candidate-card element (never cloning/duplicating it -- see
+  // syncMapSheetPanelToSelection) between the list and the sheet.
+  var mapSheetOpen = false;
+  var selectedCandidateRef = null;
+  var latLngByRef = {};
+  var orderedCardElements = [];
+  var cardsContainerEl = null;
+  var mapWrapperEl = null;
+  var mapSheetPanelEl = null;
+  // The element focus should return to when the sheet closes -- whichever
+  // control opened it (the ribbon, or a marker tapped while it was
+  // reachable) -- so closing the sheet does not strand keyboard focus on a
+  // now-detached/moved element.
+  var sheetCloseFocusTarget = null;
+
   function defaultFilters() {
     return {
       genres: [],
@@ -373,6 +398,7 @@
   }
 
   function selectCandidate(candidateRef, revealCard) {
+    selectedCandidateRef = candidateRef;
     Object.keys(cardElementsByRef).forEach(function (ref) {
       var state = ref === candidateRef ? "selected" : "unselected";
       cardElementsByRef[ref].setAttribute("data-selection-state", state);
@@ -380,17 +406,24 @@
         markerElementsByRef[ref].setAttribute("data-selection-state", state);
       }
     });
-    if (candidateCounter && candidateOrderByRef[candidateRef] !== undefined) {
-      candidateCounter.textContent =
-        String(candidateOrderByRef[candidateRef] + 1) + "/" +
-        String(Object.keys(cardElementsByRef).length);
-    }
     if (revealCard && cardElementsByRef[candidateRef]) {
       cardElementsByRef[candidateRef].scrollIntoView({
         behavior: "smooth",
         block: "nearest",
         inline: "center",
       });
+    }
+    // Task 3: inside the full-screen map sheet, the sheet always shows
+    // exactly the currently selected candidate (designer: "選択中の1店だけ
+    // を残す") -- switching which pin is selected (or, outside the sheet,
+    // which card) keeps the sheet's single-candidate panel in sync without
+    // duplicating any candidate-card element (see syncMapSheetPanelToSelection).
+    if (mapSheetOpen) {
+      syncMapSheetPanelToSelection();
+      if (leafletMap && latLngByRef[candidateRef]) {
+        leafletMap.setView(latLngByRef[candidateRef], Math.max(leafletMap.getZoom(), 16));
+        layoutWalkingRadiusRings(leafletMap, walkingRadiusRingOrigin);
+      }
     }
   }
 
@@ -746,8 +779,105 @@
     });
   }
 
+  // Task 3 (designer): moves (never clones) the selected candidate's own
+  // candidate-card element between the vertical list and the full-screen
+  // sheet's single-candidate panel. There is never more than one DOM
+  // element carrying a given data-candidate-ref's candidate-card at a
+  // time -- contracts/candidate-search-browser-interface.yaml's
+  // mapObservations.markerSet ("every candidate-card has exactly one
+  // marker with same data-candidate-ref") is unaffected by *where in the
+  // DOM* that one element currently lives. Restoring every ordered card to
+  // the list first (rather than tracking only "the one currently in the
+  // panel") is what keeps this correct regardless of how many times
+  // selection changed while the sheet was open.
+  function syncMapSheetPanelToSelection() {
+    if (!mapSheetOpen || !mapSheetPanelEl || !cardsContainerEl) {
+      return;
+    }
+    orderedCardElements.forEach(function (card) {
+      cardsContainerEl.appendChild(card);
+    });
+    var selectedCard = selectedCandidateRef ? cardElementsByRef[selectedCandidateRef] : null;
+    mapSheetPanelEl.innerHTML = "";
+    if (selectedCard) {
+      mapSheetPanelEl.appendChild(selectedCard);
+    }
+  }
+
+  // Excludes the list/filter bar/header from the Tab order and the
+  // accessibility tree while the full-screen map sheet visually covers
+  // them (task 3) -- without this, a keyboard user could still Tab into
+  // controls a sighted user cannot currently see or reach. `inert` is
+  // supported by every browser this project's own Playwright harness
+  // exercises (activeContext.md records the exact Chromium build); feature-
+  // detected here so this stays a no-op enhancement, never a hard
+  // dependency, on any browser that lacks it.
+  function setBackgroundInert(isInert) {
+    if (!("inert" in HTMLElement.prototype)) {
+      return;
+    }
+    var header = document.querySelector('header[data-testid="authenticated-application-shell"]');
+    [header, filterBar, cardsContainerEl].forEach(function (element) {
+      if (!element) {
+        return;
+      }
+      if (isInert) {
+        element.setAttribute("inert", "");
+      } else {
+        element.removeAttribute("inert");
+      }
+    });
+  }
+
+  function openMapSheet() {
+    if (mapSheetOpen || !mapWrapperEl) {
+      return;
+    }
+    mapSheetOpen = true;
+    mapWrapperEl.closest(".candidate-main-layout").setAttribute("data-map-sheet-open", "true");
+    setBackgroundInert(true);
+    syncMapSheetPanelToSelection();
+    sheetCloseFocusTarget = document.activeElement;
+    var closeControl = mapWrapperEl.querySelector(".candidate-map-sheet-close");
+    if (closeControl) {
+      closeControl.focus();
+    }
+    // The map container's own size changes as a side effect of the
+    // data-map-sheet-open attribute flip above (home.html CSS). The
+    // ResizeObserver registered in initializeMap reacts to that size change
+    // by itself -- centering on the selected candidate and re-laying-out
+    // the walking-radius rings -- so nothing further is done here.
+  }
+
+  function closeMapSheet() {
+    if (!mapSheetOpen || !mapWrapperEl) {
+      return;
+    }
+    mapSheetOpen = false;
+    mapWrapperEl.closest(".candidate-main-layout").setAttribute("data-map-sheet-open", "false");
+    setBackgroundInert(false);
+    orderedCardElements.forEach(function (card) {
+      cardsContainerEl.appendChild(card);
+    });
+    if (mapSheetPanelEl) {
+      mapSheetPanelEl.innerHTML = "";
+    }
+    var ribbonOpen = mapWrapperEl.querySelector(".candidate-map-ribbon-open");
+    if (sheetCloseFocusTarget && document.contains(sheetCloseFocusTarget)) {
+      sheetCloseFocusTarget.focus();
+    } else if (ribbonOpen) {
+      ribbonOpen.focus();
+    }
+    sheetCloseFocusTarget = null;
+    // See openMapSheet's own comment: the container resize this attribute
+    // flip causes drives the re-fit-to-every-candidate view change and the
+    // walking-radius-ring re-layout, both inside initializeMap's
+    // ResizeObserver.
+  }
+
   function initializeMap(container, candidates, searchOrigin) {
     markerElementsByRef = {};
+    latLngByRef = {};
     if (mapResizeObserver) {
       mapResizeObserver.disconnect();
       mapResizeObserver = null;
@@ -768,12 +898,17 @@
     var latLngs = candidates.map(function (candidate) {
       return [candidate.location.latitude, candidate.location.longitude];
     });
+    var originLatLng = searchOrigin ? [searchOrigin.latitude, searchOrigin.longitude] : null;
 
     // Leaflet's Map#addLayer defers a layer's onAdd (and therefore marker
     // icon creation) until the map has an established view, via
     // Map#whenReady: https://leafletjs.com/reference.html#map-whenready.
     // A map created without initial center/zoom has no view until setView
     // or fitBounds runs, so it must happen before any marker is added below.
+    // This first fit is against the container's own current size (task 3:
+    // the 88px map ribbon by default), which is exactly the overview the
+    // ribbon is meant to show; openMapSheet/closeMapSheet re-fit again once
+    // the container's size actually changes (see the ResizeObserver below).
     if (latLngs.length > 0) {
       map.fitBounds(window.L.latLngBounds(latLngs), { padding: [24, 24] });
     } else {
@@ -781,6 +916,7 @@
     }
 
     candidates.forEach(function (candidate, index) {
+      latLngByRef[candidate.candidateRef] = latLngs[index];
       var icon = window.L.divIcon({
         className: "candidate-map-marker-icon",
         html: '<span class="candidate-map-marker-visual"></span>',
@@ -805,7 +941,12 @@
         markerVisual.textContent = String(index + 1);
       }
       markerEl.addEventListener("click", function () {
-        selectCandidate(candidate.candidateRef, true);
+        // Task 3 (designer): inside the full-screen map sheet, tapping a
+        // pin is how an organizer switches which single candidate the sheet
+        // shows -- selectCandidate's own sync with the sheet (see below)
+        // handles that; outside the sheet this is unchanged card/marker
+        // selection.
+        selectCandidate(candidate.candidateRef, !mapSheetOpen);
       });
       // ADR-0020 decision 4(c): Leaflet's `keyboard: true` option only makes
       // the marker's icon element focusable (tabIndex/role, see the vendored
@@ -823,34 +964,18 @@
       markerElementsByRef[candidate.candidateRef] = markerEl;
     });
 
-    // adr/0025 decision 1: the private search origin and walking-time
-    // rings. Both are read-only display elements -- see
-    // candidate-search-browser-interface.yaml's displayOnlyOriginException:
-    // the exception is defined by behavior (no click/keydown handler here
-    // changes any proposal request, displayed candidate, marker, or
-    // condition summary), not by focusability, so Leaflet's own
-    // keyboard:true default (which makes the icon Tab-reachable, per
-    // ADR-0020's own finding for candidate markers) does not disqualify
-    // this element from the exception.
-    if (searchOrigin) {
-      var originLatLng = [searchOrigin.latitude, searchOrigin.longitude];
-
-      WALKING_TIME_MAX_PRESETS_MINUTES.forEach(function (minutes) {
-        var ring = window.L.circle(originLatLng, {
-          radius: minutes * WALKING_METERS_PER_MINUTE,
-          className: "candidate-walking-radius-ring-path",
-          weight: 1,
-          fill: false,
-          interactive: false,
-        });
-        ring.addTo(map);
-        var ringEl = ring.getElement();
-        if (ringEl) {
-          ringEl.setAttribute("data-testid", "candidate-walking-radius-ring");
-          ringEl.setAttribute("data-walking-radius-minutes", String(minutes));
-        }
-      });
-
+    // adr/0025 decision 1: the private search origin marker. A read-only
+    // display element -- see candidate-search-browser-interface.yaml's
+    // displayOnlyOriginException: the exception is defined by behavior (no
+    // click/keydown handler here changes any proposal request, displayed
+    // candidate, marker, or condition summary), not by focusability, so
+    // Leaflet's own keyboard:true default (which makes the icon
+    // Tab-reachable, per ADR-0020's own finding for candidate markers) does
+    // not disqualify this element from the exception. The walking-radius
+    // rings (same exception) are laid out separately by
+    // layoutWalkingRadiusRings below, which is also the function the
+    // ResizeObserver re-runs on every later container resize.
+    if (originLatLng) {
       var originIcon = window.L.divIcon({
         className: "candidate-origin-marker-icon",
         html: '<span class="candidate-origin-marker-visual"></span>',
@@ -886,34 +1011,48 @@
       }
     }
 
+    walkingRadiusRingOrigin = originLatLng;
+    layoutWalkingRadiusRings(map, originLatLng);
+
     container.setAttribute("data-map-fit-state", "displayed-candidates");
     leafletMap = map;
 
-    // Re-fit Leaflet's internal view whenever the map container's own size
-    // changes after this initial render, even when that change carries no
-    // `window` "resize" event. Leaflet's own default `trackResize: true`
-    // (candidate.js never overrides it) already listens for `window`
-    // "resize" and calls invalidateSize() on a plain browser-window resize,
-    // confirmed by reading the vendored leaflet.js's own `_initEvents` and by
-    // testing: even before this handler existed, a real `window resize`
-    // (e.g. Playwright's set_viewport_size, which fires one) already re-fit
-    // the map correctly. What that built-in handler cannot see is a
+    // Re-fit Leaflet's internal view (and re-lay-out the walking-radius
+    // rings, whose visibility/label placement depend on the container's
+    // current pixel size) whenever the map container's own size changes
+    // after this initial render, even when that change carries no `window`
+    // "resize" event. Leaflet's own default `trackResize: true` (candidate.js
+    // never overrides it) already listens for `window` "resize" and calls
+    // invalidateSize() on a plain browser-window resize, confirmed by
+    // reading the vendored leaflet.js's own `_initEvents` and by testing:
+    // even before this handler existed, a real `window resize` (e.g.
+    // Playwright's set_viewport_size, which fires one) already re-fit the
+    // map correctly. What that built-in handler cannot see is a
     // container-size change with no accompanying `window` resize -- which
-    // this screen's own CSS can produce on a phone: candidate-map's height
-    // is sized in `dvh` (dynamic viewport height, home.html), so a mobile
-    // browser's toolbar collapsing/reappearing while scrolling (the
-    // organizer persona this screen is built for, per human decision
-    // 2026-08-22) resizes the container purely through CSS, without firing
-    // `window` "resize" on many mobile browsers. Confirmed by testing:
-    // forcing the container's own box to change size via inline style, with
-    // no viewport change, left the rendered tiles at their stale pre-resize
-    // extent (a real uncovered gap) with this ResizeObserver removed, and
-    // correctly grew to cover the new box with it in place (see
-    // activeContext.md Next work 5 for the original, narrower "no resize
-    // handler at all" framing this refines).
+    // this screen's own CSS produces in two cases: a mobile browser's
+    // toolbar collapsing/reappearing while scrolling (candidate-map's
+    // dvh/vh-sized height, human decision 2026-08-22), and -- task 3 --
+    // openMapSheet/closeMapSheet toggling the map container between its
+    // 88px ribbon size and a full-screen sheet purely through a CSS
+    // attribute selector, with no separate map instance. This one observer
+    // is what re-fits the view for both: when the sheet is open, it centers
+    // on the currently selected candidate (designer: "地図はいま選んでいる
+    // 店舗を中心に置く"); otherwise it re-fits every candidate, matching the
+    // ribbon's overview role. Confirmed by testing (activeContext.md Next
+    // work 5's original finding): forcing the container's own box to change
+    // size via inline style, with no viewport change, left the rendered
+    // tiles at their stale pre-resize extent (a real uncovered gap) with
+    // this ResizeObserver removed, and correctly grew to cover the new box
+    // with it in place.
     if (window.ResizeObserver) {
       mapResizeObserver = new window.ResizeObserver(function () {
         map.invalidateSize();
+        if (mapSheetOpen && selectedCandidateRef && latLngByRef[selectedCandidateRef]) {
+          map.setView(latLngByRef[selectedCandidateRef], Math.max(map.getZoom(), 16));
+        } else if (latLngs.length > 0) {
+          map.fitBounds(window.L.latLngBounds(latLngs), { padding: [24, 24] });
+        }
+        layoutWalkingRadiusRings(map, originLatLng);
       });
       mapResizeObserver.observe(container);
     }
@@ -1299,6 +1438,35 @@
     }
   }
 
+  // adr/0030 decision 2 (human decision 2026-08-24): candidate-no-results'
+  // guidance must carry its own pressable element, not only point at the
+  // distant toolbar's candidate-filter-open, and activating it must produce
+  // exactly openFilterPanel's requiredOutcome for the current pending/
+  // applied state -- unlike candidate-filter-open's own summary toggle
+  // (which opens or closes depending on filterExpanded's current value,
+  // see below), this control only ever opens: candidate-no-results is only
+  // ever rendered on a fresh response, before this button could have
+  // toggled anything.
+  function renderNoResultsReviseFiltersControl() {
+    var button = el(
+      "button",
+      {
+        type: "button",
+        "class": "candidate-no-results-revise-filters",
+        "data-testid": "candidate-no-results-revise-filters",
+        "data-candidate-control-category": "button",
+        "data-candidate-control-purpose": "candidate-no-results-open-filter",
+      },
+      ["絞り込み条件を変更する"]
+    );
+    button.addEventListener("click", function () {
+      filterExpanded = true;
+      renderFilterBar();
+      restoreFilterFocus({ testId: "candidate-filter-open" });
+    });
+    return button;
+  }
+
   function renderFilterBar(restoreFocus) {
     var focusTarget = restoreFocus || filterFocusTarget();
     var dirty = !sameFilters(pendingFilters, currentFilters);
@@ -1522,8 +1690,12 @@
 
   function renderResult(body) {
     cardElementsByRef = {};
-    candidateOrderByRef = {};
-    candidateCounter = null;
+    orderedCardElements = [];
+    mapSheetOpen = false;
+    selectedCandidateRef = null;
+    cardsContainerEl = null;
+    mapWrapperEl = null;
+    mapSheetPanelEl = null;
     root.innerHTML = "";
 
     // The filter bar is not part of this element: it lives outside the
@@ -1556,21 +1728,90 @@
       content.appendChild(
         el("section", { "data-testid": "candidate-no-results" }, [
           "絞り込み条件に合うランチ候補が見つかりませんでした。絞り込み条件を変更してお試しください。",
+          renderNoResultsReviseFiltersControl(),
         ])
       );
       root.appendChild(content);
       return;
     }
 
-    var mainLayout = el("div", { "class": "candidate-main-layout" }, []);
+    // Task 3 (designer): list-primary + a real, always-present 88px map
+    // ribbon (never a collapsed placeholder button -- this is what keeps
+    // candidate-map/candidate-origin-marker genuinely present on initial
+    // render, satisfying authenticatedInitialOutcome.present without a
+    // contract change) + tap-to-open full-screen map sheet, one Leaflet map
+    // instance throughout.
+    var mainLayout = el(
+      "div",
+      { "class": "candidate-main-layout", "data-map-sheet-open": "false" },
+      []
+    );
 
     var mapContainer = el(
       "div",
       { "data-testid": "candidate-map", "data-map-tile-provider": "openstreetmap-standard" },
       []
     );
+    // The ribbon-open affordance and the sheet's close control only ever
+    // change the *visible map viewport size* (ribbon <-> full-screen sheet)
+    // -- never a proposal request, selection, filter, origin, or range --
+    // the same behavioral property displayOnlyOriginException/Leaflet's own
+    // zoom control already rely on (contracts/candidate-search-browser-
+    // interface.yaml's locationRangeControlProhibition invariant; see this
+    // file's own comment on the Leaflet zoom control CSS in home.html).
+    // Deliberately built as a focusable <div> (tabindex, explicit
+    // click/keydown handlers), never a <button> or role="button" element --
+    // exactly the pattern candidate-origin-marker/candidate-walking-radius-
+    // ring already use -- so it stays outside
+    // allCandidateScreenFormControlsMustDeclarePurpose's closed
+    // allowedPurposes list (that Must's own machineObservation only sweeps
+    // literal <button>/<input>/<select>/<textarea>/interactive-ARIA-role
+    // elements, per tests/acceptance/dsl/candidate_search_browser.py's
+    // FORM_CONTROL_SELECTOR, which developer/tester may read but not edit)
+    // rather than inventing a new purpose value this contract does not
+    // define (developer cannot edit contracts/**).
+    var ribbonOpenButton = el(
+      "div",
+      {
+        "class": "candidate-map-ribbon-open",
+        tabindex: "0",
+        "aria-label": "地図を大きく表示する",
+      },
+      []
+    );
+    ribbonOpenButton.addEventListener("click", function () {
+      openMapSheet();
+    });
+    ribbonOpenButton.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openMapSheet();
+      }
+    });
+    var sheetCloseButton = el(
+      "div",
+      {
+        "class": "candidate-map-sheet-close",
+        tabindex: "0",
+        "aria-label": "地図を閉じる",
+      },
+      ["✕"]
+    );
+    sheetCloseButton.addEventListener("click", function () {
+      closeMapSheet();
+    });
+    sheetCloseButton.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        closeMapSheet();
+      }
+    });
+    mapSheetPanelEl = el("div", { "class": "candidate-map-sheet-panel" }, []);
     var mapWrapper = el("div", { "class": "candidate-map-wrapper" }, [
       mapContainer,
+      ribbonOpenButton,
+      sheetCloseButton,
+      mapSheetPanelEl,
       el(
         "a",
         {
@@ -1582,29 +1823,23 @@
         ["© OpenStreetMap contributors"]
       ),
     ]);
+    mapWrapperEl = mapWrapper;
 
     var cardsContainer = el("div", { "data-testid": "candidate-proposal-cards" }, []);
     body.candidates.forEach(function (candidate, index) {
-      candidateOrderByRef[candidate.candidateRef] = index;
-      cardsContainer.appendChild(renderCard(candidate, index === 0, index));
+      var card = renderCard(candidate, index === 0, index);
+      orderedCardElements.push(card);
+      cardsContainer.appendChild(card);
     });
-    candidateCounter = el(
-      "output",
-      {
-        "class": "candidate-deck-counter",
-        "data-testid": "candidate-deck-counter",
-        "aria-live": "polite",
-        "aria-label": "選択中の候補",
-      },
-      ["1/" + String(body.candidates.length)]
-    );
-    // DOM order is cards-then-map (matching the PC reading order, where
-    // cards are primary) on purpose: CSS grid-template-areas is what moves
-    // the map above the cards at narrow widths (see home.html), so this DOM
-    // order is what keyboard/reader users encounter at every width.
-    mainLayout.appendChild(cardsContainer);
+    cardsContainerEl = cardsContainer;
+    selectedCandidateRef = body.candidates.length > 0 ? body.candidates[0].candidateRef : null;
+
+    // DOM order is ribbon-then-list (the ribbon is the compact map preview
+    // sitting above the list, task 3) -- CSS lays this out as a simple
+    // vertical stack at every width (home.html), so this DOM order is what
+    // keyboard/reader users encounter throughout.
     mainLayout.appendChild(mapWrapper);
-    mainLayout.appendChild(candidateCounter);
+    mainLayout.appendChild(cardsContainer);
     content.appendChild(mainLayout);
 
     content.appendChild(

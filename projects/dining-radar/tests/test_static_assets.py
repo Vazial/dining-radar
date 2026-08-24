@@ -81,24 +81,38 @@ class LeafletVendoringSourceTests(SimpleTestCase):
 class CandidateSurfaceSourceTests(SimpleTestCase):
     """Guard the presentation boundaries that do not need live provider data."""
 
-    def test_map_led_deck_keeps_cards_and_map_in_the_same_surface(self):
-        source = HOME_TEMPLATE.read_text(encoding="utf-8")
+    def test_list_primary_map_ribbon_and_full_screen_sheet_keep_one_map_instance(self):
+        # Task 3 (designer artifact efe1c44f-ead4-40c6-9141-b801583aadd9):
+        # list-primary + an 88px map ribbon (a real, always-present Leaflet
+        # map, never a collapsed placeholder) + tap-to-open full-screen
+        # sheet, retiring the earlier map-led horizontally-swipable card
+        # deck this test used to guard (test_map_led_deck_keeps_cards_and_
+        # map_in_the_same_surface, superseded here rather than kept
+        # alongside a contradictory skeleton). One [data-testid=
+        # "candidate-map"] element is declared once in candidate.js
+        # (the ribbon/sheet toggle only changes its CSS size via the
+        # data-map-sheet-open attribute -- see initializeMap's own
+        # docstring-style comment), never a second map instance.
+        template = HOME_TEMPLATE.read_text(encoding="utf-8")
+        script = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
 
-        self.assertIn('grid-template-areas: "map" "cards"', source)
-        self.assertIn("scroll-snap-type: inline mandatory", source)
-        self.assertIn("height: calc(100dvh - 6.875rem)", source)
-        self.assertIn("position: absolute; inset: 0", source)
-        self.assertIn("height: clamp(22rem, 50dvh, 34rem)", source)
-        self.assertIn("flex: 0 0 calc(100vw - 2rem)", source)
-        self.assertIn("min-height: 12.9rem", source)
-        self.assertIn("scrollbar-width: none", source)
-        self.assertIn("isolation: isolate", source)
-        self.assertIn("top: 0.5rem;\n      right: 0.5rem", source)
-        self.assertIn("background: rgb(255 255 255 / 92%)", source)
+        self.assertIn("height: 88px", template)
+        self.assertIn('.candidate-main-layout[data-map-sheet-open="true"]', template)
+        self.assertIn("candidate-map-ribbon-open", template)
+        self.assertIn("candidate-map-sheet-close", template)
+        self.assertIn("candidate-map-sheet-panel", template)
+        self.assertIn("isolation: isolate", template)
+        self.assertEqual(
+            script.count('{ "data-testid": "candidate-map", "data-map-tile-provider"'),
+            1,
+            "exactly one candidate-map element/Leaflet map instance must be declared",
+        )
+        self.assertIn("function openMapSheet()", script)
+        self.assertIn("function closeMapSheet()", script)
+        self.assertIn("function syncMapSheetPanelToSelection()", script)
 
     def test_mobile_layout_keeps_decision_controls_compact(self):
         template = HOME_TEMPLATE.read_text(encoding="utf-8")
-        script = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
 
         self.assertIn("min-height: 3.25rem", template)
         self.assertIn("height: 3.5rem", template)
@@ -106,8 +120,6 @@ class CandidateSurfaceSourceTests(SimpleTestCase):
         self.assertIn("flex-wrap: nowrap; overflow-x: auto", template)
         self.assertIn("candidate-card-description", template)
         self.assertIn("display: none", template)
-        self.assertIn('"data-testid": "candidate-deck-counter"', script)
-        self.assertIn('["1/" + String(body.candidates.length)]', script)
 
     def test_card_payment_caution_and_regular_holiday_do_not_overstate_or_truncate(self):
         template = HOME_TEMPLATE.read_text(encoding="utf-8")
@@ -150,19 +162,18 @@ class CandidateSurfaceSourceTests(SimpleTestCase):
         self.assertIn("min-height: 2.75rem", source)
         self.assertIn(".candidate-chip { min-width: 2.75rem; }", source)
 
-    def test_desktop_visual_polish_keeps_filter_workflow_and_deck_cues(self):
+    def test_desktop_visual_polish_keeps_filter_workflow(self):
+        # The desktop-only horizontal-deck scrollbar theming this test used
+        # to also guard is retired along with the deck itself (task 3; see
+        # test_list_primary_map_ribbon_and_full_screen_sheet_keep_one_map_
+        # instance above) -- [data-testid="candidate-proposal-cards"] is a
+        # plain vertical list at every width now, so it has no desktop-only
+        # scrollbar/fade styling left to assert.
         template = HOME_TEMPLATE.read_text(encoding="utf-8")
         script = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
 
         self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr))", template)
         self.assertIn("position: absolute; top: calc(100% + 0.5rem)", template)
-        self.assertIn('[data-testid="candidate-proposal-cards"]::after', template)
-        self.assertIn("scrollbar-width: thin", template)
-        self.assertIn("scrollbar-color: #8da093 transparent", template)
-        self.assertIn(
-            '[data-testid="candidate-proposal-cards"]::-webkit-scrollbar { height: 0.5rem; }',
-            template,
-        )
         self.assertIn("candidate-search-again-label", template)
         self.assertIn('"class": "candidate-search-again-label"', script)
         self.assertIn('"aria-hidden": "true"', script)
