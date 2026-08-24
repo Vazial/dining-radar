@@ -168,7 +168,30 @@
 # する案（契約で書式を固定する）は、両側の実装がその書式規約を守っているかを機械で検査する
 # 術がなく、FR-022(1)が塞いだのと同じ「検証できないことを検証せよ」という形を作り直すだけに
 # なるため採らない。詳細と検討した代替案はadr/0025の2026-08-24追記2を参照。
-contractVersion: '1.3.2'
+#
+# 2026-08-24 起草 (architect、ブランチ docs/ring-labels-contract、未承認。dining-radar/adr/0030):
+# designerがdesign/wireframes/Legend.dc.htmlで報告した契約の穴のうち、本番実測（輪4本・1px破線・
+# data-walking-radius-minutes属性はあるが画面上に文字が無い）で人間が実際に困った1点（輪が何本かある
+# 徒歩圏のどれかが分からない）と、人間裁定2026-08-24で決まった1点（0件案内を押せるボタンにする）だけを
+# 塞ぐ。designerが挙げた残り2点（輪と徒歩の上限の連動・地図リボンの高さ/役割）は本改訂に含めない——
+# 判断理由はadr/0030決定3・4を参照。
+# - mapObservations.walkingRadiusRingsにbandAttribute（data-walking-radius-minutes、既に実装済みの
+#   属性名をそのまま契約化する）とbandLabelを新設する。各リングは、bandAttributeの値と一致する
+#   分数が読める形（可視テキストまたはアクセシブルラベル）で示されなければならない——文言・単位表記・
+#   配置は実装の選択のまま(walkingTimeEstimateWordingと同じ内容限定のMust)。本数・半径は
+#   adr/0025決定9のとおり無変更で契約の外に残す (adr/0030 決定1)。
+# - browserControlSurface.empty.reviseFiltersControlを新設する。candidate-no-results内に、押すと
+#   openFilterPanelと同じ結果（絞り込みパネルを開く）を起こす要素を1つ持つことをMustにする（人間裁定
+#   2026-08-24。TDR-CS-05は従来「絞り込み条件を変更するよう案内される」ことしか求めておらず、案内が
+#   押せる保証はなかった）。candidate-filter-openはこの状態でも引き続き到達可能であり
+#   (empty.absentに含まれない)、新設のtest idは案内文自身に専用の操作面を持たせるためのものである
+#   (adr/0030 決定2)。
+# - unavailableControls.allowedPurposesにcandidate-no-results-open-filterを加える。
+#   browserActions.openFilterPanel.inputに新設test idを2つ目の入力として加える。新しい44px専用の
+#   条文は加えない——allCandidateScreenFormControlsMustDeclarePurposeにより、この要素は
+#   data-candidate-control-purposeを持つことになり、adr/0020決定4(e)の既存ゲートが自動的に測る
+#   (adr/0030 決定5)。
+contractVersion: '1.4.0'
 kind: acceptance-browser-interface
 scope: candidate-search
 profiles:
@@ -501,6 +524,25 @@ browserControlSurface:
           contract does not fix. Rings are the same kind of read-only
           display element as candidate-origin-marker and are subject to the
           same interactivity requirement.
+        bandAttribute: data-walking-radius-minutes
+        bandLabel:
+          requirement: >-
+            bandAttribute carries the ring's walking-time band as a decimal
+            integer string of minutes. Each ring must also expose a
+            non-empty visible or accessible text label -- on the ring
+            itself or an element it owns -- whose leading digits, parsed as
+            an integer, equal that same bandAttribute value (mirroring
+            cardDataAttributes' rawValueAttribute pattern: the raw value is
+            machine-exact, the visible wording is an implementation
+            choice). A ring whose band is exposed only through the
+            non-visible bandAttribute does not satisfy this Must (human
+            decision 2026-08-24: production shipped four rings with
+            bandAttribute set but no visible indication of which band each
+            represented, and an organizer could not tell which range each
+            ring meant -- designer's report, adr/0030). The exact wording,
+            unit spelling (分 / 分圏 / min), and visual placement remain
+            implementation choices this contract does not fix, mirroring
+            walkingTimeEstimateWording.
       forbiddenTestIds:
         [candidate-route, candidate-current-location, private-search-origin]
     providerCreditObservation:
@@ -801,7 +843,8 @@ browserControlSurface:
     allCandidateScreenFormControlsMustDeclarePurpose: true
     allowedPurposes:
       [candidate-card-selection, candidate-map-marker-selection,
-       candidate-filter-open, candidate-filter-genre-selection,
+       candidate-filter-open, candidate-no-results-open-filter,
+       candidate-filter-genre-selection,
        candidate-filter-genre-overflow-toggle,
        candidate-filter-izakaya-bar-toggle, candidate-filter-non-smoking-toggle,
        candidate-filter-card-payment-toggle, candidate-filter-budget-tier-selection,
@@ -895,6 +938,23 @@ browserControlSurface:
   empty:
     requiredTestIds: [candidate-no-results]
     absent: [candidate-proposal-cards, candidate-map]
+    reviseFiltersControl:
+      testId: candidate-no-results-revise-filters
+      requirement: >-
+        candidate-no-results contains exactly one pressable element
+        carrying this test id (human decision 2026-08-24: TDR-CS-05's
+        "絞り込み条件を変更するよう案内される" must be actionable, not only
+        textual -- the contract previously required only that the guidance
+        be shown, and the shipped implementation rendered a plain sentence
+        with no control at all). Activating it produces exactly
+        openFilterPanel's requiredOutcome for the current pending/applied
+        state; it is a second recognized input for that behavior alongside
+        candidate-filter-open. candidate-filter-open itself remains
+        present and reachable in this render state too, since it is not a
+        member of empty.absent -- this test id exists so the guidance text
+        carries its own actionable element, not only a pointer to a
+        distant toolbar control.
+      controlPurpose: candidate-no-results-open-filter
   problem:
     requiredTestIds: [candidate-proposal-problem, candidate-proposal-problem-guidance]
     codeAttribute: data-problem-code
@@ -942,7 +1002,7 @@ browserActions:
       matchingCardAttribute: {attribute: data-selection-state, value: selected}
       allOtherCardsAndMarkers: {attribute: data-selection-state, value: unselected}
   openFilterPanel:
-    input: candidate-filter-open
+    input: candidate-filter-open-or-candidate-no-results-revise-filters
     stateVariants:
       clean:
         when: pending-equals-applied

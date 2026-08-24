@@ -27,8 +27,55 @@ The rename was built once against the pre-#106 `main`, held when it turned out t
    PC版のワイヤフレームは参考として存在するが、合意対象外
 
 **まだ決めていないこと**（designer が破線で残し、裁定を仰いでいない残り）: 429（レート制限）と503
-（取得不能）を画面で区別するか／0件のとき契約どおり地図ごと消えるのを受け入れるか／「絞り込みを見直す」
-を押せるものにするか。エラー時の画面状態は `product-brief.md` §8 で未決のままである。
+（取得不能）を画面で区別するか／0件のとき契約どおり地図ごと消えるのを受け入れるか。**「絞り込みを
+見直す」を押せるものにするかは、2026-08-24に決着した**（下記「進行中: ADR-0030」参照）。エラー時の
+画面状態は `product-brief.md` §8 で残る部分について未決のままである。
+
+### 進行中: ADR-0030（徒歩圏リングの分数ラベル・0件案内の操作化）— 人間の承認待ち
+
+ブランチ `docs/ring-labels-contract` に、承認待ちの決定と契約改訂がある。実装コードは一切変更していない。
+
+designer が本番のスマホ実測から、輪の分数ラベルが契約に無いことを報告した——`walkingRadiusRings` は
+「本数と半径は実装の選択」としか定めておらず、**ラベルという要素そのものが契約に存在しなかった**。
+分数を出さない実装でもL4は通る——**本番でいま起きているのがまさにそれだった**。実測は輪4本
+（10/15/20/30分）・1px破線・色`#8da093`・分数は`data-walking-radius-minutes`属性の中だけにあり画面に
+出ていない、というもの。人間の指摘は「何本かある輪がどの範囲かわかりません」。
+
+designer は他に3件、契約に無く機械で守られていないものを挙げた。**輪と徒歩の上限の連動**（強調表示・
+「15分まで」の文言）、**地図リボンの高さ・役割**（リストの上に常時出る88pxの小さい地図。人間は「実物を
+見てから決めたい」としており、リボン有り無しの比較案を別途作る）、**44pxのタップ標的**。あわせて、
+0件画面の「絞り込みを見直す」を押せるボタンにするかという design/wireframes/EmptyError.dc.html の
+未決論点が、人間裁定（2026-08-24）で「押せるボタンにする」と決着した。
+
+architect の判断（`adr/0030`、詳細はADR本文）:
+
+- **輪の分数ラベルは契約に載せる**（決定1）。`mapObservations.walkingRadiusRings` に
+  `bandAttribute`（`data-walking-radius-minutes`、実装が既に使っている属性名をそのまま契約化）と
+  `bandLabel`（その値と一致する分数を画面上で読める形で示すことをMustにする）を新設した。文言・単位
+  表記・配置・本数・半径は無変更のまま実装の選択に残す
+- **0件案内は押せる操作にする**（決定2）。`browserControlSurface.empty` に `reviseFiltersControl` を
+  新設し、`candidate-no-results` が押すと絞り込みパネルを開く要素を1つ持つことをMustにした
+  （`openFilterPanel` の第2入力として配線）
+- **輪と徒歩の上限の連動は今回は載せない**（決定3、保留）。人間が実際に困ったのはラベルの欠如で
+  あって連動ではないこと（P-05）、フィルタの「選択中」状態を機械観測する属性がこの契約にはそもそも
+  存在しないこと（`filterPanel.constraints` は散文で述べるのみ）、輪の本数・半径自体が「補正後の見た目を
+  見てから決める」と保留中であることの3点が理由
+- **地図リボンの高さ・役割は載せない**（決定4）。88pxは描画後の幾何であり、`ADR-0020` が L5 の
+  レンダー不変条件の管轄と既に線を引いている。加えてリボン有り無しはまだ人間が選んでいない
+  （P-02）。**ただし本契約はリボン有りの構成を前提に書かれていることを明記する**——比較の結果が
+  変われば `authenticatedInitialOutcome.present` の改訂が別途要る（`design/wireframes/Legend.dc.html`
+  のD2と同じ論点）
+- **44pxの新しい条文は不要**（決定5）。決定2で新設した要素を `allowedPurposes` に登録すれば
+  `allCandidateScreenFormControlsMustDeclarePurpose` により `data-candidate-control-purpose` を持つ
+  ことになり、`ADR-0020` 決定4(e) の既存ゲートが自動的に測る
+
+改訂対象は `contracts/candidate-search-browser-interface.yaml`（`1.3.2` → `1.4.0`）と
+`contracts/candidate-search.feature`（`TDR-CS-02`・`TDR-CS-05` に業務の言葉で1行ずつ追加）の2本。
+`contractVersion` のヘッダコメントに2026-08-24付の起草ブロックを追加した。実装は `candidate.js` で
+(a) 各リング要素に可視ラベルを追加し `data-walking-radius-minutes` と桁を一致させる、(b)
+`candidate-no-results` 内に `candidate-filter-open` と同じ挙動を起こすボタンを追加し
+`data-candidate-control-purpose="candidate-no-results-open-filter"` を設定することが要る。tester は
+`TDR-CS-02`・`TDR-CS-05` のstep定義を新しい観測に合わせて拡張する必要がある。
 
 ### 契約が、この画面の中心を「禁止」している（2026-08-23 確認）
 
@@ -172,24 +219,13 @@ L5（`tests/ui_invariants` 12件+3 subtests、本スライスはレンダリン�
 点はなかった。監査レポートをこのブランチへ持ち込むかどうか（ブランチ間のコーディネーションの問題であり
 契約の矛盾ではない）は、developer の権限外として報告のみ行う。
 
-### `design.md` が2世代古い（2026-08-23 確認）
-
-`design.md` は designer が起動時に読む文書（役割定義の5番目）だが、中身は **`ADR-0023` が廃止した
-切り口（コンセプト）モデル**のままである——「切り口は現在4種類」「別の切り口で再提案」「最大3つの
-次の切り口をモーダルで表示」。さらに57行目は「地図には…**検索基点・経路・現在地・徒歩時間を出さない**」と
-書いており `ADR-0025` と正面から食い違う。最後にファイルが動いたのは 2026-08-21 の改名コミットだけで、
-**中身は `ADR-0023` 以降一度も更新されていない**。
-
-2026-08-23 の designer は指示どおり読んだうえで「使えなかった」と報告し、契約とADRを正として作業した。
-**次の designer が同じ判断をする保証はない。** architect による更新が要る。
-
 ### 進行中: ADR-0025（検索基点と徒歩時間の開示）— 人間の承認待ち
 
 ブランチ `docs/tdr-cs-origin-and-walking-time` に、承認待ちの決定と契約改訂がある。実装コードは
 一切変更していない。
 
 人間裁定 2026-08-20 chat（『別にソースから現在位置を推測できなければいいから、環境変数で指定すれば
-よく、アプリ利用者にはバレてもいい』）を受けて、`ADR-0008` 決定4 の Must のうち **browser への
+よく、アプリ利用者にはバレてもいいよ』）を受けて、`ADR-0008` 決定4 の Must のうち **browser への
 非開示だけ**を撤回する。公開URL・ログ・trace・Git への非開示と、タイル提供者へ基点を渡さない
 `Referrer-Policy`（`ADR-0008` 決定5）は維持する。`ADR-0004` がこれを却下した理由「生活圏の露出と
 外部通信を増やす」のうち、前者は露出先を特定していなかった——画面を開けるのは招待制認証を通った幹事
@@ -198,7 +234,7 @@ L5（`tests/ui_invariants` 12件+3 subtests、本スライスはレンダリン�
 （値そのものの露出は引き続き禁止）。
 
 契約4本の改訂は architect がドラフト済みだが、**このPRには含めず実装スライスへ回した**。L4は稼働中の
-実装の応答を契約スキーマと突き合わせるため、契約だけ先に進めると `'searchOrigin' is a required
+実装の応答を契約スキーマと突き合わせて検証するため、契約だけ先に進めると `'searchOrigin' is a required
 property` で提案を取得する全シナリオが落ちる（実測: 11 error）。改訂シナリオは画面挙動そのものを
 検証しているので、必須項目を任意に緩めても解消しない。既存シナリオに実装待ちの印を付けると、いま
 守れている検査まで止まる。この製品で「契約だけ先にマージする」が成立しないことは `ADR-0024` の実績
@@ -258,10 +294,13 @@ designer 役割契約（`meta/adr/0050`）へ移っているため引き継が�
 落とせば意向は満たせる。**この記述を構成の要件として読まないこと**——初回の記録がそう読んでおり、
 人間の訂正を受けて書き直した。
 
-designer に渡すときは「地図側の情報量をここまで削ってよい」という制約として渡し、構成は designer が
+designerに渡すときは「地図側の情報量をここまで削ってよい」という制約として渡し、構成は designer が
 決める。渡す際に確認が要る点: 下記の「案2を選ぶと契約の追補が要る」が、採る構成によっては同じ論点に
 なる——`candidate-search-browser-interface.yaml` が初期表示に `candidate-map` の存在を要求しているため、
-初期表示をリスト主体にする形はいずれもこの条文に触れる。
+初期表示をリスト主体にする形はいずれもこの条文に触れる。**2026-08-24時点でこの論点は解消していない**
+——designer の最新成果物（リスト主役＋88px地図リボン＋全面シート構成）はリボンが本物の地図であるため
+`candidate-map` が初期表示に実在し条文に触れないが、人間は比較用にリボン無し案も別途作る予定であり、
+リボン無し案が選ばれれば改訂が要る（`adr/0030` 決定4参照）。
 
 designer が比較の作図から報告した事実（**すべて作図上の値で未実測**。`meta/adr/0059` 決定5）:
 
@@ -275,7 +314,9 @@ designer が報告した契約とのズレ（architect と共有すること）:
   `authenticatedInitialOutcome.present` と `initialProposal.success.present` が初期表示に `candidate-map` の
   存在を要求している。地図を畳む・別画面にする形が、これをDOM上どう満たすのか（存在させて隠すのか、
   条文を緩めるのか）は未決。加えて `candidate.js` に resize ハンドラが無く `invalidateSize()` を呼ばない
-  という既知の未修正課題が、**畳んだ地図を開く操作で必ず踏まれる**
+  という既知の未修正課題が、**畳んだ地図を開く操作で必ず踏まれる**（**resizeハンドラの欠落自体は
+  2026-08-24に developer が解消済み**。上記「`mapObservations.searchOriginMarker.positionAttributes`
+  の実装と地図resizeの不具合修正」参照。地図を畳む構成の是非そのものは未決のまま）
 - パネル内の「+N件」バッジは契約に無い要素。`populationAttributes` から計算できるが、契約は件数を
   `candidate-filter-apply` の `data-match-count` にしか置いていない。採るなら契約追加が要る
 - 常時の件数表示は出していない（人間が一度断っているため）。**探索ラフ3枚はこれを常時出しており**、
@@ -405,6 +446,7 @@ Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (
 4. ~~Consider whether ADR-0003's stated design-preview stack (React, TypeScript, Tailwind, shadcn/ui) should match the receiver's actual dependencies (React, TypeScript, `lucide-react` only, with hand-written CSS), by installing the missing packages or amending the ADR. Designer worked around the gap by requiring visually self-contained artifacts; the divergence itself is unresolved.~~ **Moot (2026-08-24, ADR-0028)** — `design-preview` itself is retired, so its dependency mismatch no longer needs reconciling. Pending action item: a human deletes `projects/dining-radar/design-preview/` and the `dining-radar-design-preview` entry in `.claude/launch.json` (ADR-0028 decision 2).
 ~~5. The candidate map never calls Leaflet's `invalidateSize()`/re-fits when its container is resized after the initial render (no resize handler in `candidate.js`).~~ **解決した（2026-08-24、developer）**——see below. The original framing was partly imprecise: Leaflet's own default `trackResize: true` (confirmed by reading the vendored `leaflet.js`) already re-fits on a plain browser-`window` resize, so a straightforward `page.set_viewport_size()`-style resize was already handled before this fix. The real remaining gap was a container-size change with **no accompanying `window` resize event** — reachable on a phone because `candidate-map`'s height is `dvh`/`vh`-sized, so a mobile browser's toolbar collapsing/reappearing while scrolling resizes the container purely through CSS. `candidate.js` now attaches a `ResizeObserver` directly to the map container (disconnected/reattached on every `initializeMap` re-render) that calls `invalidateSize()` on any container-size change regardless of cause.
 6. `meta/tools/govlint.py`'s `SCENARIO_ID` pattern cannot match `TDR-CS-01` or `TDR-AUTH-01`, so all 19 TDR scenario IDs have never been checked by L0. Fixing it needs a human unlock commit for `meta/tools/**` (`meta/adr/0046`).
+7. **新規（2026-08-24、architect）**: `adr/0030` の契約改訂（輪の分数ラベル・0件案内の操作化）を満たす実装が要る。`candidate.js` に(a) 各リング要素の可視ラベル、(b) `candidate-no-results` 内の押せる操作を追加する。tester は `TDR-CS-02`・`TDR-CS-05` のstep定義をあわせて拡張する。designerが挙げた残り2件（輪と徒歩の上限の連動、地図リボンの高さ・役割）はこのADRでは意図的に決めていない——理由は`adr/0030`決定3・4を参照。
 
 ## Open questions
 
@@ -412,6 +454,7 @@ Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (
 - Whether the "approved screen drives the test-infrastructure control-surface contract" pattern (ADR-0011, ADR-0013) should be generalized into a meta ADR beside `meta/adr/0023`, since other UI projects can hit the same friction. Architect raised this; drafting a meta ADR belongs to orchestrator (`meta/adr/0047`).
 - One L4 run failed intermittently and was never explained. Developer's hypothesis (concurrent file edits during the run) was never confirmed. It has not recurred.
 - Whether ADR-0020's harness should be generalized to the meta layer (a shared `meta/verification.md` revision and/or a reusable harness for other UI projects). ADR-0020 decision 10 deliberately scopes itself to this project as the human's chosen proving ground, and defers the generalization judgment to orchestrator once enough evidence accumulates (`meta/adr/0047`). The first evidence is in: the gate caught a real keyboard-activation defect on the slice that introduced it. Note that a meta-layer move would also have to answer how the same invariants reach `reservation-frontend`, whose stack (Playwright/TypeScript) differs from this project's (Playwright/Python), and that `meta/tools/**` is locked by `meta/adr/0046` so a shared harness there needs a human unlock.
+- **新規（2026-08-24、architect）**: 輪と徒歩の上限の連動を将来契約化するなら、フィルタチップの「選択中」状態を機械観測する属性（`data-selected` 相当）をこの契約に新設する設計判断が先に要る（`filterPanel.constraints` は現状これを散文でしか述べていない）。地図リボンの高さ・役割を将来契約化するなら、人間のリボン有り無し比較の結果と、それに応じた `ADR-0020` の対象拡張が先に要る。
 
 ## Approval state
 
