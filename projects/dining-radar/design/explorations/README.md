@@ -1,8 +1,8 @@
 # design/explorations — 探索ラフ
 
 **ここにあるものは承認済み設計ではない。** 方向性を人間が選ぶための探索資料であり、
-`design-preview/`（`ADR-0003` のレビュー専用receiver）とも、承認済みの画面設計とも別物である。
-実装・`design-preview/`・`design/reconciliation/` と食い違う場合は、**常にそちらが正**である。
+承認済みの画面設計とは別物である。実装・`design/reconciliation/` と食い違う場合は、**常にそちらが正**
+である。（`design-preview/`（`ADR-0003` のレビュー専用receiver）は 2026-08-24 に廃止した。`adr/0028`。）
 
 ## 収録物（ADR-0025 に対応する3枚）
 
