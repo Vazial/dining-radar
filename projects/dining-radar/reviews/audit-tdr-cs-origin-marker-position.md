@@ -264,3 +264,135 @@ proves that structurally」）ため、隠された誤りではなく、契約�
 2. F3・F4は Medium/Low の記録であり、必須の差し戻し理由とはしない。人間が許容範囲と判断すれば
    そのまま進めてよい。
 3. F2・F5は指摘としては記録のみで、修正を求めない。
+
+---
+
+## 再監査（2026-08-24、tester/architect/developer の F1・F3 修正を受けて）
+
+- 対象: 初回監査（コミット `a22bb2b`）以降にマージされた対処コミット群（`ffd6937`・`c288e38`・`bec13f8`・
+  マージコミット`49d868b`まで、`docs/record-tdr-cs-slice-state` 最新）。
+  - `contracts/test-support-api.yaml` 1.4.0（`CandidateProposalAcceptanceState.searchOrigin`新設）
+  - `src/dining_radar/suggestions/acceptance_state.py`（`active_search_origin`・`_origin_shifted`）
+  - `src/dining_radar/test_support/views.py`（`_parse_search_origin`）
+  - `tests/acceptance/dsl/candidate_search_browser.py`（`DisplaySnapshot`・`KNOWN_SEARCH_ORIGIN`・
+    `set_lunch_candidates_with_a_known_search_origin`）
+  - `tests/test_suggestions.py`・`tests/test_test_support.py`（新規ユニットテスト）
+- 独立性: 上記コミットのコミットメッセージ・コメントは判断材料にせず、コードと契約を自分で突き合わせた。
+  実装コード（`src/**`）は読んだが変更していない。**依頼文にあった「私の側で欠陥注入も確認した」という
+  orchestrator の報告は、判断の根拠としては採用せず**、自分で数式・フィクスチャ構成を独立に検算して
+  同じ結論に至れるかを確認した（下記F1再判定）。
+- 実行結果（自分で実行）:
+  - `pytest tests/acceptance -q -k "tdr_cs_01 or tdr_cs_02 or tdr_cs_04 or tdr_cs_14 or tdr_cs_15 or tdr_cs_16"`
+    → **6 passed in 65.42s**
+  - `pytest tests/acceptance -q`（フルスイート）→ **22 passed in 307.05s**
+  - `pytest tests/test_suggestions.py tests/test_test_support.py -q` → **83 passed, 26 subtests passed**
+  - 「緑」であること自体は指摘の正しさの根拠にしていない。以下は静的な数式検算とコードの突き合わせに
+    よる判定である。
+
+### F1再判定 — 閉じたと判断する
+
+**結論: F1はブロッカーとして解消したと判断する。**
+
+契約（`test-support-api.yaml` 1.4.0）は、省略時は従来どおりの実装依存の合成定数を返し、指定時は
+その値と厳密に一致することを求める形で`searchOrigin`を新設した。tester は `TDR-CS-01`・`TDR-CS-02`
+のGivenを、`KNOWN_SEARCH_ORIGIN = (12.345678, -98.765432)`——桁の並びと符号がそれぞれ異なる値——を
+明示的に選ぶ形へ書き換えた。`assert_search_origin_marker_is_shown`自体のロジックは無変更で、依然として
+DOM属性を`_current_proposal()`が返す**その回の応答の`searchOrigin`**と比較する自己整合性チェックの
+ままだが、Givenが選ぶ`searchOrigin`の値そのものが「全モード共通の単一定数」でなくなったことで、
+「`candidate.js`が応答を正しく読む実装」と「`0`/`0`を決め打ちする実装」が初めて異なる観測結果を生む
+ようになった——これがF1の核心的な欠落だったので、この点は解消したと判断する。
+
+**依頼文が名指しした懸念（基点の平行移動が`WALKING_TIME_LIMIT_EXCLUDES`の境界・`SHOWN_POOL_PRIORITY`
+の集合判定を壊していないか）を、実装を一切変更せず自分で数式を検算して確認した。**
+
+1. **`WALKING_TIME_LIMIT_EXCLUDES`・`SHOWN_POOL_PRIORITY`は、そもそも`searchOrigin`を指定するGiven
+   へ書き換えられていない**（`grep`で確認: `search_origin=`を渡す呼び出しは
+   `set_lunch_candidates_with_a_known_search_origin`の1箇所のみで、`TDR-CS-01`・`TDR-CS-02`だけが使う）。
+   したがって`WALKING_TIME_LIMIT_EXCLUDES`・`SHOWN_POOL_PRIORITY`を使うシナリオ（TDR-CS-14・15）は
+   常に既定の`_ORIGIN=(0.0, 0.0)`のままで、平行移動の影響を一切受けない。この観点では「壊れていない」
+   のではなく「そもそも触れられていない」。
+2. その上で、developer が追加した`_origin_shifted`が数学的に安全かどうかを独立に検算した。
+   `pipeline._distance`は`hypot(delta_latitude, delta_longitude * cos(radians(origin.latitude)))`
+   という、**絶対緯度に依存する**（経度成分を`origin.latitude`のcosでスケールする、赤道からの緯度に
+   応じて経度1度あたりの実距離が変わる正距円筒図法の近似）計算式である。原点を平行移動すると
+   `origin.latitude`自体が変わるため、**一般には**「候補群を原点と同じデルタだけ平行移動すれば距離が
+   保たれる」という`_origin_shifted`の docstring の主張は、経度差が非ゼロの候補に対しては成り立たない
+   （cosスケール係数が移動前後で変わるため）。**この懸念を最初に自分で数式から導出したうえで、
+   実装を独立に読んで反証した**——`_synthetic_candidate`はこのモジュールの全合成候補に対し
+   `longitude=0.0`を無条件にハードコードしており（経度パラメータ自体が関数シグネチャに存在しない）、
+   `_ORIGIN.longitude`も`0.0`である。したがって`delta_longitude = candidate.longitude - origin.longitude`
+   は移動前後を通じて厳密に`0`のまま（`_origin_shifted`は原点と全候補に同一デルタを加えるため、
+   経度の差分自体が不変に保たれる）であり、cosスケール係数が何であっても`0 × 係数 = 0`で効かない。
+   結果として`_distance`は移動前後で**ビット単位で同一の値**を返す——「壊れていない」ことを、
+   実装の構造そのものから導いた。
+3. **この安全性は、cosスケールの問題を回避する特定の設計判断（経度成分を常にゼロにする合成データ設計）
+   に依存しており、一般に成り立つ性質ではない。** developer 自身の docstring
+   （`_origin_shifted`の「every distance-, walking-time-, radius-ring-, and nearest-first-ordering-
+   dependent scenario ... depends on those exact deltas holding」）は、この依存関係（経度ゼロ設計）を
+   明示していない。将来、経度方向にオフセットを持つ合成候補が追加された場合、`_origin_shifted`は
+   その候補についてのみ静かに不正確になる（距離が保たれなくなる）——ただし今回のdiffにそのような候補は
+   追加されておらず、現状のデータでは発生しない。**指摘としては軽微（Low、記録のみ）とし、修正は
+   求めない。**
+4. developer が追加したユニットテスト（`test_walking_time_limit_boundary_is_unchanged_by_a_pinned_origin`、
+   `Origin(latitude=30.0, longitude=40.0)`という緯度30度の大きな移動、`cos(30°)≈0.866`——スケール
+   係数が変わっても壊れないことを実際に運動させて確認するテスト）と
+   `test_pinned_origin_leaves_default_exclusion_visible_unaffected`を自分で実行し（`pytest
+   tests/test_suggestions.py -k "search_origin or pinned_origin or walking_time_limit_boundary"`、
+   **8 passed**）、上記2の数式検算と整合する結果であることを確認した。
+
+**残る軽微な観測（記録のみ、F1の再オープン理由にはしない）**: L4（acceptance）レベルでは、
+「`searchOrigin`のGiven指定がサーバ側で正しく配線されているか」（例: PUTした値が本当にレスポンスへ
+反映されるか）自体は、`assert_search_origin_marker_is_shown`の自己整合性チェック単体では検出できない
+——応答が指定した`KNOWN_SEARCH_ORIGIN`ではなく既定値へ静かにフォールバックする配線欠陥があっても、
+DOM属性がその（誤った）応答値と一致してさえいれば緑になる。この経路は`tests/test_suggestions.py`
+（`test_every_source_mode_reports_a_pinned_origin_exactly`）・`tests/test_test_support.py`
+（`test_put_accepts_a_search_origin_and_pins_it`）というユニット/L3レベルで別途カバーされており、
+L4単体でこの経路が担保されていないこと自体はテストピラミッドとして妥当な役割分担と判断する
+（F1が閉じたかどうかの判定には影響しない——F1の対象は「クライアント側のハードコード」であり、
+これは今回の修正で確実に検出できる）。
+
+### F3再判定 — 閉じたと判断する
+
+**結論: F3は解消したと判断する。**
+
+`_display_snapshot`/`_assert_display_snapshot`を`DisplaySnapshot`（frozen dataclass）へ整理し、
+`card_selection_states`/`marker_selection_states`（`data-selection-state`をref列と同じ順序で保持）を
+追加した。これにより`_assert_display_snapshot`は、契約`priorDisplayRetained`が明記する
+「unchanged card<->marker data-selection-state correspondence」を直接比較するようになった。
+
+**共有ヘルパー化によって他の検査が緩くなっていないかを、全呼び出し箇所を洗い出して確認した**
+（`grep`で6箇所: `revert_pending_filters`・`close_filter_panel_preserving_pending`・
+`_assert_activation_changes_nothing`（基点マーカー・リングのdisplay-only証明）・
+`_change_pending_filters`・`apply_filters_expecting_failure`/`search_again_expecting_failure`の
+直前スナップショット・`assert_prior_candidates_and_map_remain`）。**このいずれも「操作の前後で
+画面全体が一切変わらないこと」を証明する意図の箇所であり、選択状態が変わってよい操作は1つも
+含まれていない**——フィルタパネルの開閉・pending変更・取消、基点マーカー/リングのクリックが
+no-opであることの証明、取得失敗時の直前表示保持のいずれも、候補の選択操作を一切伴わない。
+したがって`data-selection-state`比較を追加したことは、これら6箇所すべてに対して**検証を厳格化
+するだけであり、どこかを意図せず緩めた形跡は見当たらない**。
+
+### 新しく入った検査のトートロジー確認
+
+- `KNOWN_SEARCH_ORIGIN = (12.345678, -98.765432)`は、緯度・経度で桁の並び・符号を変えてあり、
+  軸の取り違え（緯度と経度を入れ替えて設定する実装欠陥）も1e-9度の許容誤差の外で検出できる値である。
+  恒真になる余地は見当たらない。
+- `assert_search_origin_marker_is_shown`自体は依然として「応答値との自己整合性」チェックであり、
+  DSLが`KNOWN_SEARCH_ORIGIN`定数へ直接比較しているわけではない。これはF1の対処が意図した設計
+  （応答が実際にDOMへ正しく反映されているかを見る）どおりであり、恒真性の問題ではない。
+- 新規ユニットテスト（`test_suggestions.py`・`test_test_support.py`）を自分で読んだ限り、期待値を
+  実装の内部状態から取り出して自分自身と比較するような恒真アサーションは見当たらなかった
+  （いずれも独立した入力値と、公開関数/HTTPレスポンスの出力を比較している）。
+
+### 再監査の結論
+
+- **F1（Blocker）: 閉じたと判断する。** 依頼文が懸念した「基点の平行移動がWALKING_TIME_LIMIT_EXCLUDES・
+  SHOWN_POOL_PRIORITYの判定を壊していないか」は、(a)両モードとも今回のGiven変更の対象外であり、
+  (b)対象内の`_origin_shifted`自体も、合成候補が全て経度ゼロで設計されているため数学的に安全である
+  ことを、実装を変更せず自分で数式から検算して確認した。この安全性が特定のデータ設計に依存している
+  点（一般解ではない）は軽微な観測として記録するが、修正は求めない。
+- **F3（Medium）: 閉じたと判断する。** `DisplaySnapshot`の共有ヘルパー化は、全6箇所の既存呼び出しが
+  いずれも「操作前後で画面が完全に不変であること」を証明する意図であることを確認したうえで、
+  厳格化のみが起きており意図しない緩和は見当たらない。
+- 新規に追加された検査にトートロジーは見当たらなかった。
+- 機械ゲート（フルスイート22件、関連ユニットテスト83件+26 subtests）を自分で実行し、いずれも緑を
+  独立に確認した。
