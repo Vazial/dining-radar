@@ -56,6 +56,12 @@ class CandidateSearchSteps:
     def a_large_pool_of_candidates_can_be_proposed(self) -> None:
         self.dsl.set_candidate_state("SHOWN_POOL_PRIORITY")
 
+    def walking_time_limit_candidates_can_be_proposed(self) -> None:
+        self.dsl.set_candidate_state("WALKING_TIME_LIMIT_EXCLUDES")
+
+    def subsequent_requests_are_rate_limited_after_an_initial_success(self) -> None:
+        self.dsl.set_candidate_state("RATE_LIMITED_AFTER_INITIAL_SUCCESS")
+
     def visitor_opens_candidate_proposal_screen(self) -> None:
         self.dsl.open_candidate_screen_unauthenticated()
 
@@ -116,14 +122,20 @@ class CandidateSearchSteps:
     def default_filters_and_nearest_candidates_are_shown(self) -> None:
         self.dsl.assert_initial_proposal_screen()
 
+    def search_origin_marker_is_shown(self) -> None:
+        self.dsl.assert_search_origin_marker_is_shown()
+
+    def search_range_value_is_not_shown(self) -> None:
+        self.dsl.assert_search_range_value_is_not_shown()
+
+    def search_origin_marker_is_display_only(self) -> None:
+        self.dsl.assert_origin_marker_and_rings_are_display_only()
+
     def initial_display_requests_no_filter_input(self) -> None:
         self.dsl.assert_filter_panel_is_closed_until_requested()
 
     def initial_candidates_have_no_duplicate_shop(self) -> None:
         self.dsl.assert_no_duplicate_shops()
-
-    def screen_has_no_private_disclosures(self) -> None:
-        self.dsl.assert_screen_has_no_private_disclosures()
 
     def source_display_and_detail_link_are_shown(self) -> None:
         self.dsl.assert_provider_credit()
@@ -143,10 +155,16 @@ class CandidateSearchSteps:
     def cards_show_required_shop_fields(self) -> None:
         self.dsl.assert_required_card_fields_match_current_proposal()
 
+    def map_shows_search_origin_marker_and_walking_radius_rings(self) -> None:
+        self.dsl.assert_map_shows_search_origin_marker_and_walking_radius_rings()
+
+    def walking_time_is_shown_as_an_estimate(self) -> None:
+        self.dsl.assert_walking_time_is_shown_as_an_estimate()
+
     def dinner_budget_reference_is_disclosed_once_on_screen(self) -> None:
         self.dsl.assert_dinner_budget_reference_is_shown()
 
-    def map_has_no_forbidden_surfaces(self) -> None:
+    def walking_route_and_current_location_are_not_shown(self) -> None:
         self.dsl.assert_map_has_no_forbidden_surfaces()
 
     def changed_filters_are_sent_in_a_new_proposal_request(self) -> None:
@@ -248,3 +266,34 @@ class CandidateSearchSteps:
 
     def shown_memory_is_not_shared_across_accounts_or_devices(self) -> None:
         self.dsl.assert_shown_memory_is_not_shared_with_another_device()
+
+    # TDR-CS-15: walking-time-max hard filter ------------------------------
+
+    def population_includes_a_candidate_beyond_the_upcoming_walking_time_max(self) -> None:
+        self.dsl.assert_population_includes_a_candidate_beyond_the_upcoming_walking_time_max()
+
+    def organizer_selects_a_walking_time_max_filter(self) -> None:
+        self.dsl.enable_walking_time_max_filter_that_excludes_some_candidates()
+
+    def candidates_over_the_walking_time_max_are_excluded(self) -> None:
+        self.dsl.assert_candidates_over_the_walking_time_max_are_excluded()
+
+    def candidates_at_or_under_the_walking_time_max_remain(self) -> None:
+        self.dsl.assert_candidates_at_or_under_the_walking_time_max_remain()
+
+    def no_candidate_remains_due_to_unknown_walking_time(self) -> None:
+        self.dsl.assert_no_candidate_remains_due_to_unknown_walking_time()
+
+    # TDR-CS-16: a fetch failure retains the prior display -----------------
+
+    def organizer_attempts_to_search_again(self) -> None:
+        self.dsl.search_again_expecting_failure()
+
+    def organizer_attempts_to_apply_changed_filters(self) -> None:
+        self.dsl.apply_filters_expecting_failure()
+
+    def prior_candidates_and_map_remain(self) -> None:
+        self.dsl.assert_prior_candidates_and_map_remain()
+
+    def fetch_failure_is_announced(self) -> None:
+        self.dsl.assert_fetch_failure_is_announced()

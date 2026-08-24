@@ -49,6 +49,10 @@ CARD = "candidate-card"
 MAP = "candidate-map"
 MAP_MARKER = "candidate-map-marker"
 MAP_ATTRIBUTION = "candidate-map-attribution"
+# adr/0025 decision 1: the search origin is now a display-only map marker,
+# with zero-or-more concentric walking-time rings around it.
+SEARCH_ORIGIN_MARKER = "candidate-origin-marker"
+WALKING_RADIUS_RING = "candidate-walking-radius-ring"
 PROVIDER_CREDIT = "candidate-provider-credit"
 FILTER_OPEN = "candidate-filter-open"
 FILTER_PANEL = "candidate-filter-panel"
@@ -58,6 +62,10 @@ FILTER_INCLUDE_IZAKAYA_BAR = "candidate-filter-include-izakaya-bar"
 FILTER_NON_SMOKING_ONLY = "candidate-filter-non-smoking-only"
 FILTER_CARD_PAYMENT_ONLY = "candidate-filter-card-payment-only"
 FILTER_BUDGET_TIER_OPTION = "candidate-filter-budget-tier-option"
+# adr/0025 decision 3: walking-time-max is a hard filter, not a soft one --
+# see _population_match_count's walkingTimeBand handling below.
+FILTER_WALKING_TIME_MAX_OPTION = "candidate-filter-walking-time-max-option"
+WALKING_TIME_MAX_VALUE_ATTRIBUTE = "data-walking-time-max-value"
 FILTER_APPLY = "candidate-filter-apply"
 FILTER_REVERT = "candidate-filter-revert"
 FILTER_PENDING_NOTE = "candidate-filter-pending-note"
@@ -79,14 +87,24 @@ DISPLAY_CAP = 5
 # a stale entry must be strictly older than this to be pruned on the next read.
 SHOWN_MEMORY_MAX_AGE_HOURS = 20
 
+# adr/0025 decision 1 moved candidate-origin-marker from forbidden to
+# required (browser-interface.yaml's disclosureObservations.
+# bodyMustNotExposeTestIds and mapObservations.forbiddenTestIds both dropped
+# it); the old bare candidate-walking-time id no longer exists at all,
+# replaced by the card-scoped candidate-card-walking-time, which is a
+# required field, not a forbidden one.
 DISCLOSURE_FORBIDDEN_TEST_IDS = [
     "private-search-origin",
     "candidate-provider-internals",
-    "candidate-origin-marker",
     "candidate-route",
     "candidate-current-location",
 ]
-MAP_FORBIDDEN_TEST_IDS = [*DISCLOSURE_FORBIDDEN_TEST_IDS, "candidate-walking-time"]
+# mapObservations.forbiddenTestIds is the same list minus
+# candidate-provider-internals, but assert_map_has_no_forbidden_surfaces
+# already checks page-wide rather than scoped to the map element, so the
+# broader DISCLOSURE_FORBIDDEN_TEST_IDS list is reused directly (a strict
+# superset is a safe, pre-existing over-approximation, not a new one).
+SEARCH_RANGE_FORBIDDEN_TOKENS = ["探索範囲", "検索範囲", "半径"]
 UNAUTHENTICATED_FORBIDDEN_TEST_IDS = [
     CONTENT,
     CARDS,
@@ -111,6 +129,14 @@ REQUIRED_CARD_FIELDS: dict[str, tuple[str, str | None]] = {
     "nonSmokingStatus": ("candidate-card-non-smoking", "data-raw-value"),
     "dinnerBudgetTier": ("candidate-card-dinner-budget", "data-raw-value"),
 }
+# walkingTimeMinutes is deliberately not in REQUIRED_CARD_FIELDS: its visible
+# text is wrapped in estimate wording (walkingTimeEstimateWording), not an
+# exact match to str(candidate["walkingTimeMinutes"]) the way the fields
+# above are, so it needs its own checks rather than REQUIRED_CARD_FIELDS'
+# generic exact-match branch. See assert_required_card_fields_match_current_
+# proposal (presence/value-state only) and assert_walking_time_is_shown_as_
+# an_estimate (wording content, TDR-CS-02).
+CARD_WALKING_TIME_TEST_ID = "candidate-card-walking-time"
 CARD_PAYMENT_CAUTION_TEST_ID = "candidate-card-payment-caution"
 CARD_PAYMENT_CAUTION_ATTRIBUTE = "data-card-payment-available"
 CARD_PAYMENT_VALUE_STATE_ATTRIBUTE = "data-card-payment-value-state"
@@ -186,6 +212,10 @@ class CandidateSearchBrowserDsl:
         self.current: CapturedApiResponse | None = None
         self.search_again_response: CapturedApiResponse | None = None
         self.original_seed_response: CapturedApiResponse | None = None
+        self.failed_response: CapturedApiResponse | None = None
+        self._prior_snapshot: tuple[list[str], list[str | None], str, dict[str, object]] | None = (
+            None
+        )
         self._expected_changed_filter: tuple[str, object] | None = None
         self._applied_filters: dict[str, object] = self._normalized_filters({})
         self._pending_filters: dict[str, object] | None = None
@@ -276,6 +306,7 @@ class CandidateSearchBrowserDsl:
                 FILTER_CARD_PAYMENT_ONLY,
                 FILTER_BUDGET_TIER_OPTION,
                 BUDGET_TIER_NOTE,
+                FILTER_WALKING_TIME_MAX_OPTION,
             ],
         )
         self.assertions.assertEqual(self.page.url, url_before)
@@ -309,6 +340,39 @@ class CandidateSearchBrowserDsl:
         self._change_pending_filters(
             lambda: self._click_budget_tier("LOW"), {"budgetTiers": ["LOW"]}
         )
+
+    def enable_walking_time_max_filter_that_excludes_some_candidates(self) -> None:
+        """幹事が徒歩の上限を指定する (TDR-CS-15, adr/0025 決定3).
+
+        The offered preset values are UI-implementation-owned and not fixed
+        by the API schema (CandidateFilters.walkingTimeMaxMinutes
+        description; test-support-api.yaml's WALKING_TIME_LIMIT_EXCLUDES
+        only fixes the *synthetic candidates'* minutes, not the panel's
+        offered presets). This reads the panel's actual
+        data-walking-time-max-value options and picks the smallest one that
+        still splits the already-open unfiltered proposal's candidates
+        (keeps the nearest, excludes the farthest), mirroring how
+        _unknown_safe_filter_configuration searches for a usable
+        configuration for TDR-CS-13 instead of assuming a fixed value.
+        """
+        initial = require(self.initial, "initial proposal was not requested")
+        minutes = sorted({c["walkingTimeMinutes"] for c in initial.payload["candidates"]})
+        options = wait_for_at_least_one(self.page, FILTER_WALKING_TIME_MAX_OPTION)
+        offered = sorted(
+            int(options.nth(index).get_attribute(WALKING_TIME_MAX_VALUE_ATTRIBUTE))
+            for index in range(options.count())
+        )
+        chosen = next((value for value in offered if minutes[0] <= value < minutes[-1]), None)
+        if chosen is None:
+            raise AssertionError(
+                "no offered candidate-filter-walking-time-max-option value both "
+                "keeps and excludes a WALKING_TIME_LIMIT_EXCLUDES candidate"
+            )
+        self._change_pending_filters(
+            lambda: self._click_walking_time_max_option(chosen),
+            {"walkingTimeMaxMinutes": chosen},
+        )
+        self._expected_changed_filter = ("walkingTimeMaxMinutes", chosen)
 
     def enable_filter_with_unknown_candidate_information(self) -> None:
         filters = self._unknown_safe_filter_configuration()
@@ -425,6 +489,40 @@ class CandidateSearchBrowserDsl:
         self.clear_shown_candidate_memory()
         self.search_again()
 
+    def apply_filters_expecting_failure(self) -> None:
+        """絞り込み条件を変更する...で候補情報を取得できない, applyFilters branch (TDR-CS-16).
+
+        Unlike apply_filters(), this expects a problem response rather than
+        200 and does not update _applied_filters/_pending_filters -- the
+        prior applied state is exactly what browser-interface.yaml's
+        priorDisplayRetained requires to survive unchanged. The snapshot is
+        captured immediately before the request, matching that Must's own
+        "immediately before this request" wording.
+        """
+        self._prior_snapshot = self._display_snapshot()
+
+        def trigger() -> None:
+            by_test_id(self.page, FILTER_APPLY).click()
+
+        self.failed_response = capture_candidate_proposal_response(self.page, trigger)
+        self.assertions.assertEqual(self.failed_response.status, 429)
+        self.assertions.assertEqual(
+            self.failed_response.payload.get("code"), "PROPOSAL_RATE_LIMITED"
+        )
+
+    def search_again_expecting_failure(self) -> None:
+        """絞り込み条件を変更する...で候補情報を取得できない, searchAgain branch (TDR-CS-16)."""
+        self._prior_snapshot = self._display_snapshot()
+
+        def trigger() -> None:
+            by_test_id(self.page, SEARCH_AGAIN).click()
+
+        self.failed_response = capture_candidate_proposal_response(self.page, trigger)
+        self.assertions.assertEqual(self.failed_response.status, 429)
+        self.assertions.assertEqual(
+            self.failed_response.payload.get("code"), "PROPOSAL_RATE_LIMITED"
+        )
+
     # Then: initial/authenticated screen ---------------------------------
 
     def assert_visitor_guided_to_sign_in_without_candidate_surface(self) -> None:
@@ -442,6 +540,40 @@ class CandidateSearchBrowserDsl:
         self.assert_current_display_ordering()
         self._assert_no_disclosures()
 
+    def assert_search_origin_marker_is_shown(self) -> None:
+        """地図には検索基点のマーカーが示される (TDR-CS-01, adr/0025 決定1).
+
+        Presence-only. mapObservations.searchOriginMarker's presenceRule
+        also requires the marker's position to derive from the current
+        response's searchOrigin rather than an independently-known
+        constant, but the contract names no observable attribute through
+        which acceptance could read a rendered marker's actual geographic
+        position (markerDataAttributes covers only candidateRef/
+        selectionState, for candidate markers, not this one) -- flagged to
+        architect rather than invented here.
+        """
+        self._current_proposal()
+        assert_present(self.assertions, self.page, SEARCH_ORIGIN_MARKER)
+
+    def assert_search_range_value_is_not_shown(self) -> None:
+        """探索範囲そのものの値は示されない (TDR-CS-01/02, adr/0025 決定4・決定8).
+
+        The response schema already forbids a range/radius field
+        (CandidateProposalResponse/SearchOriginLocation additionalProperties:
+        false, checked by every _current_proposal() call this DSL already
+        performs); this defends the same property from the rendered side,
+        scanning the page's own text for the range vocabulary alone.
+        Deliberately narrower than LOCATION_RANGE_FORBIDDEN_TOKENS, which
+        also includes 検索基点/起点/現在地 -- the origin marker now
+        legitimately carries 検索基点 as its own label
+        (displayOnlyOriginException), so a whole-page scan using that wider
+        list would false-positive on this scenario's own required marker.
+        """
+        self._current_proposal()
+        html = self.page.content()
+        for forbidden in SEARCH_RANGE_FORBIDDEN_TOKENS:
+            self.assertions.assertNotIn(forbidden, html)
+
     def assert_filter_panel_is_closed_until_requested(self) -> None:
         assert_present(self.assertions, self.page, FILTER_OPEN)
         assert_all_absent(self.assertions, self.page, [FILTER_PANEL, BUDGET_TIER_NOTE])
@@ -458,9 +590,6 @@ class CandidateSearchBrowserDsl:
         expected = self._current_proposal()["providerCredit"]
         expect(credit).to_have_attribute("href", expected["url"])
         self.assertions.assertEqual(credit.inner_text().strip(), expected["text"])
-
-    def assert_screen_has_no_private_disclosures(self) -> None:
-        self._assert_no_disclosures()
 
     def assert_no_location_range_or_manual_order_control(self) -> None:
         assert_all_absent(
@@ -510,6 +639,38 @@ class CandidateSearchBrowserDsl:
                 },
             )
 
+    def assert_origin_marker_and_rings_are_display_only(self) -> None:
+        """検索基点は地図上のマーカーとして示されるが、幹事はその位置を変更できない (TDR-CS-04,
+        adr/0025 決定7).
+
+        unavailableControls.locationRangeControlProhibition's
+        displayOnlyOriginException.verificationAllocation.L4 requires
+        driving every available activation of candidate-origin-marker and
+        any candidate-walking-radius-ring and proving none of them starts a
+        public operation or changes the display -- the exception is defined
+        by behavior, not element identity, so this reuses the same
+        pointer/keyboard-activation-then-snapshot technique
+        _perform_without_candidate_request and _display_snapshot already
+        apply to filter-panel controls (e.g. revert_pending_filters).
+        """
+        for test_id in (SEARCH_ORIGIN_MARKER, WALKING_RADIUS_RING):
+            nodes = by_test_id(self.page, test_id)
+            for index in range(nodes.count()):
+                node = nodes.nth(index)
+                self._assert_activation_changes_nothing(lambda: node.click())
+                if node.get_attribute("tabindex") is not None:
+                    self._assert_activation_changes_nothing(
+                        lambda n=node: (n.focus(), n.press("Enter"))
+                    )
+                    self._assert_activation_changes_nothing(
+                        lambda n=node: (n.focus(), n.press("Space"))
+                    )
+
+    def _assert_activation_changes_nothing(self, activate: object) -> None:
+        snapshot = self._display_snapshot()
+        self._perform_without_candidate_request(activate)
+        self._assert_display_snapshot(snapshot)
+
     # Then: cards, map, and disclosures ----------------------------------
 
     def assert_cards_and_map_show_current_proposal(self) -> None:
@@ -544,6 +705,13 @@ class CandidateSearchBrowserDsl:
                         else node.inner_text().strip()
                     )
                     self.assertions.assertEqual(actual, str(expected))
+            # walkingTimeMinutes is never null (candidate-search-api.yaml's
+            # Candidate.walkingTimeMinutes description) and its visible
+            # wording is checked separately by
+            # assert_walking_time_is_shown_as_an_estimate; this only proves
+            # the field itself is present and never unavailable.
+            walking_time = by_test_id(card, CARD_WALKING_TIME_TEST_ID)
+            self.assertions.assertEqual(walking_time.get_attribute("data-value-state"), "provided")
             link = by_test_id(card, PROVIDER_PAGE_LINK_TEST_ID)
             self.assertions.assertEqual(link.get_attribute("data-value-state"), "provided")
             self.assertions.assertEqual(link.get_attribute("href"), candidate["providerPageUrl"])
@@ -577,7 +745,48 @@ class CandidateSearchBrowserDsl:
         )
 
     def assert_map_has_no_forbidden_surfaces(self) -> None:
-        assert_all_absent(self.assertions, self.page, MAP_FORBIDDEN_TEST_IDS)
+        assert_all_absent(self.assertions, self.page, DISCLOSURE_FORBIDDEN_TEST_IDS)
+
+    def assert_map_shows_search_origin_marker_and_walking_radius_rings(self) -> None:
+        """地図には検索基点のマーカーと、それを中心とする徒歩圏の同心リングが示される (TDR-CS-02).
+
+        Ring count/radii are an implementation choice the contract does not
+        fix (walkingRadiusRings.presenceRule), but this scenario's own
+        Gherkin states rings *are* shown (plural "同心リング"), so at least
+        one is required here specifically, unlike the schema-level
+        zero-or-more cardinality.
+        """
+        self._current_proposal()
+        assert_present(self.assertions, self.page, SEARCH_ORIGIN_MARKER)
+        rings = by_test_id(self.page, WALKING_RADIUS_RING)
+        self.assertions.assertGreaterEqual(rings.count(), 1)
+
+    def assert_walking_time_is_shown_as_an_estimate(self) -> None:
+        """徒歩のめやす時間は推定であり、実際に歩いた経路を測った時間ではないことが分かる形で
+        示される (TDR-CS-02, adr/0025 決定2).
+
+        walkingTimeEstimateWording requires an approximation marker on the
+        same element cardDataAttributes.requiredFields' walkingTimeMinutes
+        entry names -- unlike REQUIRED_CARD_FIELDS' exact-text fields, the
+        visible text intentionally differs from the bare number, so this
+        checks value-state and wording content directly rather than
+        REQUIRED_CARD_FIELDS' generic exact-match branch. The exact wording
+        is an implementation choice the contract does not fix; the regex
+        below covers the contract's own examples (約, 推定) plus common
+        synonyms, mirroring how assert_izakaya_bar_fallback_is_shown already
+        accepts several equivalent uncertainty phrasings for a similarly
+        unfixed wording Must.
+        """
+        cards, candidates_by_ref = self._current_cards_by_candidate_ref()
+        for index in range(cards.count()):
+            card = cards.nth(index)
+            candidate = candidates_by_ref[card.get_attribute("data-candidate-ref")]
+            node = by_test_id(card, CARD_WALKING_TIME_TEST_ID)
+            self.assertions.assertEqual(node.get_attribute("data-value-state"), "provided")
+            text = node.inner_text().strip()
+            self.assertions.assertIn(str(candidate["walkingTimeMinutes"]), text)
+            self.assertions.assertNotEqual(text, str(candidate["walkingTimeMinutes"]))
+            self.assertions.assertRegex(text, r"約|およそ|推定|めやす|見込み|くらい|程度")
 
     def select_first_card_and_verify_marker_highlighted(self) -> None:
         card = wait_for_at_least_one(self.page, CARD).first
@@ -737,6 +946,98 @@ class CandidateSearchBrowserDsl:
                 for row in proposal["populationAttributes"]
             )
         )
+
+    # Given/Then: walking-time-max hard filter (TDR-CS-15) ----------------
+
+    def assert_population_includes_a_candidate_beyond_the_upcoming_walking_time_max(
+        self,
+    ) -> None:
+        """提案できる候補に、これから指定する徒歩の上限を超える店舗が含まれている (TDR-CS-15 Given).
+
+        WALKING_TIME_LIMIT_EXCLUDES already guarantees a below/at/above-limit
+        spread (test-support-api.yaml); this reads the already-captured
+        unfiltered proposal to confirm walkingTimeMinutes actually varies,
+        rather than trusting the Given's prose alone.
+        """
+        initial = require(self.initial, "initial proposal was not requested")
+        minutes = {candidate["walkingTimeMinutes"] for candidate in initial.payload["candidates"]}
+        self.assertions.assertGreater(len(minutes), 1)
+
+    def assert_candidates_over_the_walking_time_max_are_excluded(self) -> None:
+        """指定した上限を超える徒歩のめやす時間の店舗は候補から除かれる (TDR-CS-15)."""
+        limit = self._applied_filters["walkingTimeMaxMinutes"]
+        self.assertions.assertIsNotNone(limit)
+        initial = require(self.initial, "initial proposal was not requested")
+        over_limit_refs = {
+            candidate["candidateRef"]
+            for candidate in initial.payload["candidates"]
+            if candidate["walkingTimeMinutes"] > limit
+        }
+        self.assertions.assertTrue(over_limit_refs)
+        current_refs = {
+            candidate["candidateRef"] for candidate in self._current_proposal()["candidates"]
+        }
+        self.assertions.assertEqual(over_limit_refs & current_refs, set())
+
+    def assert_candidates_at_or_under_the_walking_time_max_remain(self) -> None:
+        """上限以内の徒歩のめやす時間の店舗は候補に残る (TDR-CS-15)."""
+        limit = self._applied_filters["walkingTimeMaxMinutes"]
+        self.assertions.assertIsNotNone(limit)
+        initial = require(self.initial, "initial proposal was not requested")
+        at_or_under_refs = {
+            candidate["candidateRef"]
+            for candidate in initial.payload["candidates"]
+            if candidate["walkingTimeMinutes"] <= limit
+        }
+        self.assertions.assertTrue(at_or_under_refs)
+        current_refs = {
+            candidate["candidateRef"] for candidate in self._current_proposal()["candidates"]
+        }
+        self.assertions.assertEqual(at_or_under_refs, current_refs)
+
+    def assert_no_candidate_remains_due_to_unknown_walking_time(self) -> None:
+        """徒歩のめやす時間が確認できないという理由で候補が残ることはない (TDR-CS-15).
+
+        Candidate.walkingTimeMinutes is never null (adr/0025 決定2), so there
+        is no "unknown, kept anyway" path for this hard filter to begin
+        with; this proves that structurally, by asserting every displayed
+        candidate's own field is present, matching-and-excluding refs proof
+        above (never data-value-state=unavailable, never a null value).
+        """
+        cards = wait_for_at_least_one(self.page, CARD)
+        for index in range(cards.count()):
+            node = by_test_id(cards.nth(index), CARD_WALKING_TIME_TEST_ID)
+            self.assertions.assertEqual(node.get_attribute("data-value-state"), "provided")
+        for candidate in self._current_proposal()["candidates"]:
+            self.assertions.assertIsNotNone(candidate["walkingTimeMinutes"])
+
+    # Then: fetch failure retains the prior display (TDR-CS-16) -----------
+
+    def assert_prior_candidates_and_map_remain(self) -> None:
+        """直前まで表示していた候補と地図はそのまま残る (TDR-CS-16).
+
+        Verifies browser-interface.yaml's priorDisplayRetained Must: every
+        card/marker ref, their selection correspondence, and the condition
+        summary from immediately before the failed request are unchanged,
+        and candidate-proposal-cards/candidate-map are not removed the way
+        the `empty` render state removes them.
+        """
+        snapshot = require(self._prior_snapshot, "no prior display snapshot was captured")
+        self._assert_display_snapshot(snapshot)
+        assert_all_present(self.assertions, self.page, [CARDS, MAP])
+
+    def assert_fetch_failure_is_announced(self) -> None:
+        """取得できなかったことが案内される (TDR-CS-16).
+
+        candidate-proposal-problem and its guidance render in addition to,
+        not instead of, the retained cards/map -- assert_prior_candidates_
+        and_map_remain proves the "in addition to" half; this proves the
+        problem surface itself appears.
+        """
+        require(self.failed_response, "no failing request was captured")
+        assert_present(self.assertions, self.page, PROBLEM)
+        guidance = assert_present(self.assertions, self.page, PROBLEM_GUIDANCE)
+        self.assertions.assertTrue(guidance.inner_text().strip())
 
     # Then: repeated search and card-payment caution ---------------------
 
@@ -1120,6 +1421,17 @@ class CandidateSearchBrowserDsl:
                 or row["dinnerBudgetTier"] is None
                 or row["dinnerBudgetTier"] in filters["budgetTiers"]
             )
+            and (
+                filters["walkingTimeMaxMinutes"] is None
+                # A hard filter (adr/0025 決定3): unlike the soft filters
+                # above, a null walkingTimeBand ("farther than every
+                # currently offered preset") never passes -- there is no
+                # unknown-candidate case to preserve for this filter.
+                or (
+                    row["walkingTimeBand"] is not None
+                    and row["walkingTimeBand"] <= filters["walkingTimeMaxMinutes"]
+                )
+            )
         ]
         if filters["includeIzakayaBar"]:
             return len(matching)
@@ -1240,6 +1552,16 @@ class CandidateSearchBrowserDsl:
                 return
         raise AssertionError(f"budget tier {tier!r} is not present in the filter panel")
 
+    def _click_walking_time_max_option(self, minutes: int) -> None:
+        options = wait_for_at_least_one(self.page, FILTER_WALKING_TIME_MAX_OPTION)
+        for index in range(options.count()):
+            if options.nth(index).get_attribute(WALKING_TIME_MAX_VALUE_ATTRIBUTE) == str(minutes):
+                options.nth(index).click()
+                return
+        raise AssertionError(
+            f"walking-time-max option {minutes!r} is not present in the filter panel"
+        )
+
     def _assert_genre_overflow_toggle_preserves_proposal(
         self, expected_genres: list[str], expected_overflow_label: str
     ) -> None:
@@ -1286,6 +1608,7 @@ class CandidateSearchBrowserDsl:
             "nonSmokingOnly": bool(filters.get("nonSmokingOnly", False)),
             "cardPaymentOnly": bool(filters.get("cardPaymentOnly", False)),
             "budgetTiers": list(filters.get("budgetTiers") or []),
+            "walkingTimeMaxMinutes": filters.get("walkingTimeMaxMinutes"),
         }
 
     @staticmethod

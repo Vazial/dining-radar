@@ -63,7 +63,8 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.default_filters_and_nearest_candidates_are_shown()
         self.steps.initial_display_requests_no_filter_input()
         self.steps.initial_candidates_have_no_duplicate_shop()
-        self.steps.screen_has_no_private_disclosures()
+        self.steps.search_origin_marker_is_shown()
+        self.steps.search_range_value_is_not_shown()
         self.steps.source_display_and_detail_link_are_shown()
 
     def test_tdr_cs_02_compare_candidates_on_cards_and_map(self) -> None:
@@ -74,10 +75,13 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.selecting_a_card_highlights_its_marker()
         self.steps.selecting_a_marker_highlights_its_card()
         self.steps.map_shows_displayed_candidates_and_attribution()
+        self.steps.map_shows_search_origin_marker_and_walking_radius_rings()
         self.steps.cards_show_required_shop_fields()
+        self.steps.walking_time_is_shown_as_an_estimate()
         self.steps.organizer_opens_filter_panel()
         self.steps.dinner_budget_reference_is_disclosed_once_on_screen()
-        self.steps.map_has_no_forbidden_surfaces()
+        self.steps.walking_route_and_current_location_are_not_shown()
+        self.steps.search_range_value_is_not_shown()
 
     def test_tdr_cs_03_changed_filters_replace_the_proposal(self) -> None:
         self._sign_in()
@@ -101,6 +105,7 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.lunch_candidates_can_be_proposed()
         self.steps.organizer_opens_candidate_proposal_screen()
         self.steps.no_location_range_or_manual_order_control_exists()
+        self.steps.search_origin_marker_is_display_only()
 
     def test_tdr_cs_05_no_matching_lunch_candidates(self) -> None:
         self._sign_in()
@@ -190,3 +195,31 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.shown_memory_survives_a_reload_within_the_tab()
         self.steps.shown_memory_fades_after_its_retention_period()
         self.steps.shown_memory_is_not_shared_across_accounts_or_devices()
+
+    def test_tdr_cs_15_walking_time_max_excludes_candidates(self) -> None:
+        self._sign_in()
+        self.steps.walking_time_limit_candidates_can_be_proposed()
+        self.steps.organizer_has_filtered_candidates()
+        self.steps.population_includes_a_candidate_beyond_the_upcoming_walking_time_max()
+        self.steps.organizer_selects_a_walking_time_max_filter()
+        self.steps.organizer_applies_changed_filters()
+        self.steps.candidates_over_the_walking_time_max_are_excluded()
+        self.steps.candidates_at_or_under_the_walking_time_max_remain()
+        self.steps.no_candidate_remains_due_to_unknown_walking_time()
+
+    def test_tdr_cs_16_a_fetch_failure_after_success_retains_prior_candidates(self) -> None:
+        self._sign_in()
+
+        self.steps.subsequent_requests_are_rate_limited_after_an_initial_success()
+        self.steps.organizer_has_filtered_candidates()
+        self.steps.organizer_attempts_to_search_again()
+        self.steps.prior_candidates_and_map_remain()
+        self.steps.fetch_failure_is_announced()
+
+        self.steps.subsequent_requests_are_rate_limited_after_an_initial_success()
+        self.steps.organizer_opens_candidate_proposal_screen()
+        self.steps.organizer_opens_filter_panel()
+        self.steps.organizer_enables_card_payment_filter()
+        self.steps.organizer_attempts_to_apply_changed_filters()
+        self.steps.prior_candidates_and_map_remain()
+        self.steps.fetch_failure_is_announced()
