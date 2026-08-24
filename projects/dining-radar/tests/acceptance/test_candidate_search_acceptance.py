@@ -201,6 +201,7 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.walking_time_limit_candidates_can_be_proposed()
         self.steps.organizer_has_filtered_candidates()
         self.steps.population_includes_a_candidate_beyond_the_upcoming_walking_time_max()
+        self.steps.organizer_opens_filter_panel()
         self.steps.organizer_selects_a_walking_time_max_filter()
         self.steps.organizer_applies_changed_filters()
         self.steps.candidates_over_the_walking_time_max_are_excluded()
