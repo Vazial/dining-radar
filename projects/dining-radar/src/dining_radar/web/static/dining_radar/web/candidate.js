@@ -56,8 +56,6 @@
   }
 
   var filterBar = document.getElementById("candidate-filter-bar");
-  var candidateCounter = null;
-  var candidateOrderByRef = {};
 
   // adr/0019 (unchanged by adr/0023): visible labels for the coarse card
   // reference enums. These exact strings are the browser-interface
