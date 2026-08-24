@@ -52,6 +52,14 @@ MAP_ATTRIBUTION = "candidate-map-attribution"
 # adr/0025 decision 1: the search origin is now a display-only map marker,
 # with zero-or-more concentric walking-time rings around it.
 SEARCH_ORIGIN_MARKER = "candidate-origin-marker"
+# contractVersion 1.3.1 (FR-022(1)): mapObservations.searchOriginMarker.
+# positionAttributes -- read-only proxies for the marker's rendered
+# geographic position, checked for exact string equality against the
+# current response's searchOrigin, the same rawValueAttribute-style rule
+# REQUIRED_CARD_FIELDS already applies to totalSeats/nonSmokingStatus/
+# dinnerBudgetTier.
+SEARCH_ORIGIN_LATITUDE_ATTRIBUTE = "data-origin-latitude"
+SEARCH_ORIGIN_LONGITUDE_ATTRIBUTE = "data-origin-longitude"
 WALKING_RADIUS_RING = "candidate-walking-radius-ring"
 PROVIDER_CREDIT = "candidate-provider-credit"
 FILTER_OPEN = "candidate-filter-open"
@@ -543,17 +551,24 @@ class CandidateSearchBrowserDsl:
     def assert_search_origin_marker_is_shown(self) -> None:
         """地図には検索基点のマーカーが示される (TDR-CS-01, adr/0025 決定1).
 
-        Presence-only. mapObservations.searchOriginMarker's presenceRule
-        also requires the marker's position to derive from the current
-        response's searchOrigin rather than an independently-known
-        constant, but the contract names no observable attribute through
-        which acceptance could read a rendered marker's actual geographic
-        position (markerDataAttributes covers only candidateRef/
-        selectionState, for candidate markers, not this one) -- flagged to
-        architect rather than invented here.
+        mapObservations.searchOriginMarker.presenceRule (contractVersion
+        1.3.1) requires the marker's positionAttributes to equal the
+        current response's searchOrigin.latitude/longitude exactly, rather
+        than an independently-known constant -- this is what proves the
+        marker's position derives from the response, not a fixture-baked
+        value (FR-022(1)). It does not read the marker's rendered pixel
+        position; positionAttributes is the DOM-readable proxy the contract
+        defines for that instead.
         """
-        self._current_proposal()
-        assert_present(self.assertions, self.page, SEARCH_ORIGIN_MARKER)
+        proposal = self._current_proposal()
+        marker = assert_present(self.assertions, self.page, SEARCH_ORIGIN_MARKER)
+        origin = proposal["searchOrigin"]
+        self.assertions.assertEqual(
+            marker.get_attribute(SEARCH_ORIGIN_LATITUDE_ATTRIBUTE), str(origin["latitude"])
+        )
+        self.assertions.assertEqual(
+            marker.get_attribute(SEARCH_ORIGIN_LONGITUDE_ATTRIBUTE), str(origin["longitude"])
+        )
 
     def assert_search_range_value_is_not_shown(self) -> None:
         """探索範囲そのものの値は示されない (TDR-CS-01/02, adr/0025 決定4・決定8).
