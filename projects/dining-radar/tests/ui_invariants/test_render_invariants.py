@@ -271,6 +271,129 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         self.assertLessEqual(measurement["right"], measurement["cardRight"])
         self.assertNotEqual(measurement["cardOverflowY"], "hidden")
 
+    def test_map_tiles_still_cover_the_container_after_it_resizes_without_a_window_resize(
+        self,
+    ) -> None:
+        """Regression coverage for activeContext.md's Next work 5.
+
+        This is intentionally a presentation regression, not an additional
+        ADR-0020 gate invariant (decision 4's four invariants are frozen;
+        see this file's module docstring): it exercises one specific,
+        previously-unhandled path to a stale Leaflet view, not a new gate.
+
+        Leaflet's own default ``trackResize: true`` (candidate.js never
+        overrides it) already re-fits the map on a plain browser ``window``
+        "resize" event -- confirmed by reading the vendored leaflet.js's own
+        ``_initEvents`` and, independently, by testing: even before
+        candidate.js grew its own resize handling, a real
+        ``page.set_viewport_size()`` call (which fires a ``window`` resize)
+        already left the map's tiles covering the container correctly. What
+        that built-in handler cannot see is a container-size change with no
+        accompanying ``window`` resize event -- which this screen's own CSS
+        can produce on a phone, since ``candidate-map``'s height is sized in
+        ``dvh``/``vh`` units (home.html): a mobile browser's toolbar
+        collapsing or reappearing while the organizer scrolls (the persona
+        this screen is built for, per human decision 2026-08-22) resizes the
+        container purely through CSS, without reliably firing ``window``
+        "resize" on every mobile browser. This test reproduces that
+        narrower path directly -- changing the container's own box via an
+        inline style, with no viewport change at all -- which a plain
+        ``page.set_viewport_size()``-based test cannot distinguish (Leaflet's
+        own built-in handling already covers that case regardless of
+        candidate.js). Reverting candidate.js's ``ResizeObserver`` and
+        re-running this test reproduces a real, measured failure: the tiles
+        stay at their stale pre-resize extent, leaving a real uncovered gap
+        rather than covering the grown container.
+        """
+        self._sign_in_with_candidates()
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        wait_for_at_least_one(self.page, "candidate-map-marker")
+
+        map_container = by_test_id(self.page, "candidate-map")
+        before = map_container.bounding_box()
+        self.assertIsNotNone(before, "candidate-map has no bounding box before the resize")
+
+        # Force the container's own box to grow well beyond its CSS-driven
+        # size, without any window/viewport resize -- the same kind of
+        # container-only size change a dvh-sized element undergoes when a
+        # mobile browser's toolbar collapses.
+        grown_width = int(before["width"]) + 400
+        grown_height = int(before["height"]) + 200
+        map_container.evaluate(
+            "(node, size) => {"
+            "  node.style.setProperty('width', size.width + 'px', 'important');"
+            "  node.style.setProperty('height', size.height + 'px', 'important');"
+            # candidate-map-wrapper is a column flexbox, so the map's own
+            # main-axis (height) size would otherwise still be shrunk to fit
+            # the wrapper's own fixed height despite the explicit height
+            # above -- pin flex-basis/grow/shrink too so the forced size
+            # actually takes effect.
+            "  node.style.setProperty('flex', '0 0 ' + size.height + 'px', 'important');"
+            "}",
+            {"width": grown_width, "height": grown_height},
+        )
+        self.page.wait_for_timeout(400)
+
+        after = map_container.bounding_box()
+        self.assertIsNotNone(after, "candidate-map has no bounding box after the resize")
+        self.assertAlmostEqual(after["width"], grown_width, delta=1)
+        self.assertAlmostEqual(after["height"], grown_height, delta=1)
+
+        coverage = self.page.evaluate(
+            """() => {
+              const container = document.querySelector('[data-testid="candidate-map"]');
+              const containerBox = container.getBoundingClientRect();
+              const tiles = Array.from(container.querySelectorAll('.leaflet-tile'));
+              let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+              for (const tile of tiles) {
+                const box = tile.getBoundingClientRect();
+                minX = Math.min(minX, box.left);
+                minY = Math.min(minY, box.top);
+                maxX = Math.max(maxX, box.right);
+                maxY = Math.max(maxY, box.bottom);
+              }
+              return {
+                containerLeft: containerBox.left,
+                containerTop: containerBox.top,
+                containerRight: containerBox.right,
+                containerBottom: containerBox.bottom,
+                tileCount: tiles.length,
+                tileMinX: minX,
+                tileMinY: minY,
+                tileMaxX: maxX,
+                tileMaxY: maxY,
+              };
+            }"""
+        )
+
+        self.assertGreater(
+            coverage["tileCount"], 0, "no map tiles rendered at all after the resize"
+        )
+        self.assertLessEqual(
+            coverage["tileMinX"],
+            coverage["containerLeft"],
+            "rendered tiles do not reach the container's left edge -- stale Leaflet "
+            "view after a container-only resize",
+        )
+        self.assertLessEqual(
+            coverage["tileMinY"],
+            coverage["containerTop"],
+            "rendered tiles do not reach the container's top edge -- stale Leaflet "
+            "view after a container-only resize",
+        )
+        self.assertGreaterEqual(
+            coverage["tileMaxX"],
+            coverage["containerRight"],
+            "rendered tiles do not reach the container's right edge -- stale Leaflet "
+            "view after a container-only resize",
+        )
+        self.assertGreaterEqual(
+            coverage["tileMaxY"],
+            coverage["containerBottom"],
+            "rendered tiles do not reach the container's bottom edge -- stale Leaflet "
+            "view after a container-only resize",
+        )
+
     # (a) Narrow-width map reachability ------------------------------------
 
     def test_a_map_is_reachable_without_scrolling_at_narrow_widths(self) -> None:
