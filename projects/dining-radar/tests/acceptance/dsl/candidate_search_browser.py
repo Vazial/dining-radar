@@ -52,14 +52,19 @@ MAP_ATTRIBUTION = "candidate-map-attribution"
 # adr/0025 decision 1: the search origin is now a display-only map marker,
 # with zero-or-more concentric walking-time rings around it.
 SEARCH_ORIGIN_MARKER = "candidate-origin-marker"
-# contractVersion 1.3.1 (FR-022(1)): mapObservations.searchOriginMarker.
-# positionAttributes -- read-only proxies for the marker's rendered
-# geographic position, checked for exact string equality against the
-# current response's searchOrigin, the same rawValueAttribute-style rule
-# REQUIRED_CARD_FIELDS already applies to totalSeats/nonSmokingStatus/
-# dinnerBudgetTier.
+# contractVersion 1.3.2 (FR-022, 3rd recurrence; adr/0027): mapObservations.
+# searchOriginMarker.positionAttributes -- read-only proxies for the
+# marker's rendered geographic position, checked for *numeric* equality
+# (parse both sides, compare within an absolute tolerance) against the
+# current response's searchOrigin. Deliberately not REQUIRED_CARD_FIELDS'
+# rawValueAttribute string-equality style: that style only ever compares
+# integers/closed enum strings with exactly one canonical spelling,
+# whereas latitude/longitude are floating-point measurements with more
+# than one valid decimal-string spelling per language runtime (adr/0027).
 SEARCH_ORIGIN_LATITUDE_ATTRIBUTE = "data-origin-latitude"
 SEARCH_ORIGIN_LONGITUDE_ATTRIBUTE = "data-origin-longitude"
+# searchOriginMarker.presenceRule's stated absolute tolerance (adr/0027 decision 1).
+SEARCH_ORIGIN_POSITION_TOLERANCE_DEGREES = 1e-9
 WALKING_RADIUS_RING = "candidate-walking-radius-ring"
 PROVIDER_CREDIT = "candidate-provider-credit"
 FILTER_OPEN = "candidate-filter-open"
@@ -552,22 +557,32 @@ class CandidateSearchBrowserDsl:
         """地図には検索基点のマーカーが示される (TDR-CS-01, adr/0025 決定1).
 
         mapObservations.searchOriginMarker.presenceRule (contractVersion
-        1.3.1) requires the marker's positionAttributes to equal the
-        current response's searchOrigin.latitude/longitude exactly, rather
-        than an independently-known constant -- this is what proves the
-        marker's position derives from the response, not a fixture-baked
-        value (FR-022(1)). It does not read the marker's rendered pixel
-        position; positionAttributes is the DOM-readable proxy the contract
-        defines for that instead.
+        1.3.2, adr/0027) requires the marker's positionAttributes to be
+        numerically equal -- within an absolute tolerance of
+        SEARCH_ORIGIN_POSITION_TOLERANCE_DEGREES -- to the current
+        response's searchOrigin.latitude/longitude, rather than an
+        independently-known constant -- this is what proves the marker's
+        position derives from the response, not a fixture-baked value
+        (FR-022, 3rd recurrence). Equality is numeric, not lexical: the
+        response is serialized server-side in Python and positionAttributes
+        are set client-side by candidate.js, and the two runtimes do not
+        share one canonical decimal spelling for the same IEEE 754 value
+        (adr/0027). It does not read the marker's rendered pixel position;
+        positionAttributes is the DOM-readable proxy the contract defines
+        for that instead.
         """
         proposal = self._current_proposal()
         marker = assert_present(self.assertions, self.page, SEARCH_ORIGIN_MARKER)
         origin = proposal["searchOrigin"]
-        self.assertions.assertEqual(
-            marker.get_attribute(SEARCH_ORIGIN_LATITUDE_ATTRIBUTE), str(origin["latitude"])
+        self.assertions.assertAlmostEqual(
+            float(marker.get_attribute(SEARCH_ORIGIN_LATITUDE_ATTRIBUTE)),
+            origin["latitude"],
+            delta=SEARCH_ORIGIN_POSITION_TOLERANCE_DEGREES,
         )
-        self.assertions.assertEqual(
-            marker.get_attribute(SEARCH_ORIGIN_LONGITUDE_ATTRIBUTE), str(origin["longitude"])
+        self.assertions.assertAlmostEqual(
+            float(marker.get_attribute(SEARCH_ORIGIN_LONGITUDE_ATTRIBUTE)),
+            origin["longitude"],
+            delta=SEARCH_ORIGIN_POSITION_TOLERANCE_DEGREES,
         )
 
     def assert_search_range_value_is_not_shown(self) -> None:
