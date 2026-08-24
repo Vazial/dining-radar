@@ -161,6 +161,9 @@ class CandidateSearchSteps:
     def map_shows_search_origin_marker_and_walking_radius_rings(self) -> None:
         self.dsl.assert_map_shows_search_origin_marker_and_walking_radius_rings()
 
+    def walking_radius_rings_show_each_bands_minutes(self) -> None:
+        self.dsl.assert_walking_radius_rings_have_legible_band_labels()
+
     def walking_time_is_shown_as_an_estimate(self) -> None:
         self.dsl.assert_walking_time_is_shown_as_an_estimate()
 
@@ -191,6 +194,9 @@ class CandidateSearchSteps:
 
     def organizer_can_change_filters(self) -> None:
         self.dsl.assert_filter_open_is_available()
+
+    def selecting_no_results_guidance_opens_the_filter_panel(self) -> None:
+        self.dsl.open_filter_panel_via_no_results_guidance()
 
     def organizer_is_safely_guided_to_try_later(self) -> None:
         self.dsl.assert_safe_unavailable_guidance("PROVIDER_UNAVAILABLE")

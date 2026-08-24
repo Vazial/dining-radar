@@ -8,6 +8,7 @@ against the same-origin screen or its public candidate-proposal endpoint.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from itertools import product
 from pathlib import Path
@@ -80,6 +81,12 @@ SEARCH_ORIGIN_POSITION_TOLERANCE_DEGREES = 1e-9
 # search origin, name, or address.
 KNOWN_SEARCH_ORIGIN = (12.345678, -98.765432)
 WALKING_RADIUS_RING = "candidate-walking-radius-ring"
+# adr/0030 決定1: mapObservations.walkingRadiusRings.bandAttribute -- the
+# attribute name production already used for the machine-only value; the
+# same decision's bandLabel Must is what assert_walking_radius_rings_have_
+# legible_band_labels checks on top of this (a matching visible/accessible
+# text label, not merely this attribute's presence).
+RING_BAND_ATTRIBUTE = "data-walking-radius-minutes"
 PROVIDER_CREDIT = "candidate-provider-credit"
 FILTER_OPEN = "candidate-filter-open"
 FILTER_PANEL = "candidate-filter-panel"
@@ -100,6 +107,10 @@ SEARCH_AGAIN = "candidate-search-again"
 IZAKAYA_BAR_FALLBACK_NOTICE = "candidate-izakaya-bar-fallback-notice"
 BUDGET_TIER_NOTE = "candidate-budget-tier-note"
 NO_RESULTS = "candidate-no-results"
+# adr/0030 決定2: browserControlSurface.empty.reviseFiltersControl.testId --
+# the dedicated actionable element candidate-no-results must own, distinct
+# from the pre-existing toolbar candidate-filter-open.
+NO_RESULTS_REVISE_FILTERS = "candidate-no-results-revise-filters"
 PROBLEM = "candidate-proposal-problem"
 PROBLEM_GUIDANCE = "candidate-proposal-problem-guidance"
 MANUAL_ORDERING = "candidate-manual-ordering"
@@ -226,6 +237,22 @@ LOCATION_RANGE_FORBIDDEN_TOKENS = [
     "distance",
 ]
 STATUS_BY_PROBLEM_CODE = {"PROVIDER_UNAVAILABLE": 503, "PROPOSAL_RATE_LIMITED": 429}
+# adr/0030 決定1 bandLabel: "whose leading digits, parsed as an integer,
+# equal that same bandAttribute value". Only a run of digits at the very
+# start of the text counts -- a label like "徒歩10分" (digits not leading)
+# does not satisfy this Must even though it visibly contains "10", matching
+# the contract's own wording precisely rather than a looser "contains the
+# number" reading.
+_LEADING_MINUTES_PATTERN = re.compile(r"^\s*(\d+)")
+
+
+def _leading_minutes(text: str | None) -> int | None:
+    if not text:
+        return None
+    match = _LEADING_MINUTES_PATTERN.match(text)
+    if match is None:
+        return None
+    return int(match.group(1))
 
 
 @dataclass(frozen=True)
@@ -358,6 +385,34 @@ class CandidateSearchBrowserDsl:
     def open_filter_panel(self) -> None:
         url_before = self.page.url
         by_test_id(self.page, FILTER_OPEN).click()
+        self._assert_filter_panel_opened(url_before)
+
+    def open_filter_panel_via_no_results_guidance(self) -> None:
+        """0件案内を選ぶと絞り込み条件を変更する画面が開く (TDR-CS-05, adr/0030 決定2).
+
+        browserControlSurface.empty.reviseFiltersControl requires
+        candidate-no-results to own exactly one pressable element that,
+        activated, produces openFilterPanel's own requiredOutcome --
+        openFilterPanel.input now names candidate-filter-open-or-
+        candidate-no-results-revise-filters as two alternative inputs for
+        one outcome, so this reuses the same outcome assertion
+        open_filter_panel already runs for the pre-existing toolbar
+        trigger, rather than a separate reimplementation that could drift
+        from it. candidate-filter-open itself stays reachable in this
+        render state too (it is not a member of browserControlSurface.
+        empty.absent); this only proves the guidance's own dedicated
+        control does the same thing, not that the toolbar button
+        disappeared.
+        """
+        no_results = assert_present(self.assertions, self.page, NO_RESULTS)
+        control = by_test_id(no_results, NO_RESULTS_REVISE_FILTERS)
+        expect(control).to_have_count(1)
+        expect(control).to_be_enabled()
+        url_before = self.page.url
+        control.click()
+        self._assert_filter_panel_opened(url_before)
+
+    def _assert_filter_panel_opened(self, url_before: str) -> None:
         assert_all_present(
             self.assertions,
             self.page,
@@ -851,6 +906,84 @@ class CandidateSearchBrowserDsl:
         assert_present(self.assertions, self.page, SEARCH_ORIGIN_MARKER)
         rings = by_test_id(self.page, WALKING_RADIUS_RING)
         self.assertions.assertGreaterEqual(rings.count(), 1)
+
+    def assert_walking_radius_rings_have_legible_band_labels(self) -> None:
+        """徒歩圏の同心リングにはそれぞれ何分の範囲かを示す表示が添えられる
+        (TDR-CS-02, adr/0030 決定1).
+
+        mapObservations.walkingRadiusRings.bandLabel requires more than the
+        pre-existing machine-only bandAttribute this DSL already reads
+        elsewhere: production shipped bandAttribute on every ring with no
+        visible or accessible indication of which band each ring meant, and
+        an organizer could not tell the rings apart (adr/0030's own
+        motivating incident). So this does not stop at reading the
+        attribute -- for each ring it also requires a non-empty text label,
+        on the ring itself or an element it owns, that is either visibly
+        rendered (Playwright's own actionability check, which accounts for
+        zero-size/display:none/visibility:hidden ancestors) or exposed as
+        an accessible name (aria-label), whose leading digits parse to the
+        same integer as that ring's own bandAttribute. A ring exposing only
+        bandAttribute -- the exact defect the human reported in production,
+        which assert_map_shows_search_origin_marker_and_walking_radius_
+        rings alone would not catch since it only checks ring count -- fails
+        this check.
+        """
+        self._current_proposal()
+        rings = wait_for_at_least_one(self.page, WALKING_RADIUS_RING)
+        ring_count = rings.count()
+        self.assertions.assertGreaterEqual(ring_count, 1)
+        for index in range(ring_count):
+            ring = rings.nth(index)
+            band_value = ring.get_attribute(RING_BAND_ATTRIBUTE)
+            require(band_value, f"walking-radius ring {index} has no {RING_BAND_ATTRIBUTE}")
+            band_minutes = int(band_value)
+            label_minutes = self._first_legible_leading_minutes(ring)
+            self.assertions.assertIsNotNone(
+                label_minutes,
+                f"walking-radius ring for {band_minutes} minutes ({RING_BAND_ATTRIBUTE}) has "
+                "no visible or accessible text label owned by it -- an attribute-only ring "
+                "does not satisfy bandLabel",
+            )
+            self.assertions.assertEqual(
+                label_minutes,
+                band_minutes,
+                f"ring's own readable label ({label_minutes} minutes) does not match its "
+                f"{RING_BAND_ATTRIBUTE} ({band_minutes} minutes)",
+            )
+
+    def _first_legible_leading_minutes(self, ring: Locator) -> int | None:
+        """First leading-digit integer readable on ``ring`` or an element it owns.
+
+        "Readable" mirrors bandLabel's own wording (visible text *or*
+        accessible label): an aria-label is accepted even on a
+        non-visually-rendered node (e.g. an SVG shape carrying its own
+        aria-label with no separate text child), while plain text content is
+        only accepted from an element Playwright judges visible -- an
+        invisible node's text would otherwise let a hidden label pass this
+        check, defeating the point of requiring something legible. Rings
+        are SVG shapes (Leaflet vector layers), so ``text_content`` is used
+        rather than ``inner_text`` -- Playwright's ``inner_text`` (a
+        rendering-aware read that only HTMLElement supports) raises on a
+        non-HTMLElement node such as an SVG path/circle; combining
+        ``text_content`` with the explicit ``is_visible`` gate above still
+        only accepts text from a node Playwright itself judges rendered.
+        """
+        owned = ring.locator("*")
+        candidates = [ring] + [owned.nth(index) for index in range(owned.count())]
+        for node in candidates:
+            aria_label = node.get_attribute("aria-label")
+            leading = _leading_minutes(aria_label)
+            if leading is not None:
+                return leading
+            try:
+                visible = node.is_visible()
+            except Exception:  # noqa: BLE001 - a detached/unstable node is simply not legible
+                visible = False
+            if visible:
+                leading = _leading_minutes(node.text_content())
+                if leading is not None:
+                    return leading
+        return None
 
     def assert_walking_time_is_shown_as_an_estimate(self) -> None:
         """徒歩のめやす時間は推定であり、実際に歩いた経路を測った時間ではないことが分かる形で
