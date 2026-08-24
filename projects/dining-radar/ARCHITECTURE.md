@@ -148,7 +148,8 @@ Leaflet/OSM の公開運用は `Referrer-Policy: strict-origin-when-cross-origin
   構造的に依存し合成DOMでは原理的に再現できない範囲（例: Leafletのマーカー生成タイミング）は、
   このゲートの対象から名指しで除外してよく、その範囲は引き続きL4（次項）とL5（実機測定）が検証する。
   このテスト専用のNode/npmプロジェクトは出荷される`candidate.js`のビルド・バンドルとは無関係であり、
-  `design-preview/`（レビュー専用receiver、本番コードをimportしない）とも同居しない。
+  画面設計レビュー用の受け皿（`ADR-0003`が定めていたが`ADR-0028`が廃止した`design-preview/`。現在の
+  画面設計の成果物は`design/wireframes/`が持つ）とも同居しない。
 - L2: provider固有依存のadapter外流出、`web`からadapter/ORMへの直接アクセス、`recommendation`へのframework依存を検出する。
 - L3: 合成fixtureでadapterの正規化・redactionを検証する。資格情報を用いるlive APIテストはしない。
 - L3: TDR-AUTH-06 の deployment 向け cookie/CSRF/CORS/token 非使用は設定・security-boundary 検証で確認する。ローカル acceptance profile の HTTP は public HTTPS の代替ではなく、実 transport は deployment slice が確認する。

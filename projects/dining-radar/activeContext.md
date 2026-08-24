@@ -221,14 +221,16 @@ testing の対象なのでテストも要る。
 パイプラインを通っておらず orchestrator が直接描いたもので、`meta/adr/0018`・`0020`・`0021` の
 design integrator の定義に沿っていない。現状のまま「設計骨格」の承認材料として提出してはならない。
 
-未決が3つある。**(1)** 上記の由来問題——プロジェクトのモック承認プロセスADRで逸脱を明文化するか、
-designer に描き直させるか。**ラフ3枚の扱いだけは決着している**（人間が選択）——`design/explorations/`
-に**探索資料のまま置く**。README に由来を記録済みで、承認材料に昇格させない。残っているのは画面作業
-そのものを designer 経由でやり直す件である。**(2)** `ADR-0003` 決定2 が `design-preview` に「検索基点」「数値距離」を
-置くことを禁じているが、`ADR-0025` で両方が製品の表示物になった。合成値なら本来問題ないはずの条文が
-修飾なしで並んでおり、実装スライスで読み直しが要る。**(3)** スマホの C 画面は案2（地図を畳む）と
-案3（余地バーを地図に重ねる）が未選択だった——**これは 2026-08-23 に決着した（下記）。残る未決は
-(1) と (2) の2つである。**
+未決だった3つのうち、**すべて解決している**。**(1)** ラフ3枚の由来問題——`design/explorations/` に
+**探索資料のまま置く**（人間が選択、決着済み）。README に由来を記録済みで、承認材料に昇格させない。
+残っていた「画面作業そのものを designer 経由でやり直す」件は、2026-08-23 に designer が `/design` で
+`design/wireframes/` を作成し完了した（下記参照）。**(2)** `ADR-0003` 決定2 が `design-preview` に
+「検索基点」「数値距離」を置くことを禁じており、`ADR-0025` で両方が製品の表示物になったことで生じていた
+条文の衝突は、**`ADR-0028`（2026-08-24、architect）が解消した**——`design-preview` 受け皿そのものを
+廃止したため、禁止条文が適用対象を失った。`ADR-0003` 決定1・2 は `ADR-0028` に置き換わり（superseded）、
+決定3（契約との照合境界）・決定4（runtime別のデザイン作成経路）は、その中身がすでに全プロジェクト共通の
+designer 役割契約（`meta/adr/0050`）へ移っているため引き継がれない。**(3)** スマホの C 画面は案2
+（地図を畳む）と案3（余地バーを地図に重ねる）が未選択だった——**これは 2026-08-23 に決着した（下記）。**
 
 **(3) の前提は確定した（人間裁定 2026-08-22）**——**幹事はスマホ中心でこの作業をする**。したがって
 スマホの C 画面は「一応動く」で済ませられず、案2か案3かは本番の判断である。2026-08-11 に人間承認済みの
@@ -305,7 +307,7 @@ The orchestrator completed L5/control-surface checks using the human-owned `.env
 
 The same feature branch now contains the human-agreed deployment preparation for a zero-cost first release: Render Free Web in Singapore, Neon Free PostgreSQL, one Gunicorn worker, WhiteNoise same-origin static delivery, a DB-only readiness probe, and an idempotent first-organizer bootstrap from write-only runtime secrets. `render.yaml`, `build.sh`, `DEPLOYMENT.md`, and proposed ADR-0021 define the topology and operator flow; no Render/Neon resource or public origin has been created yet. Render refuses to start without `DATABASE_URL`, trusts the forwarded HTTPS signal only when Render identifies the runtime, and appends only Render's supplied hostname. Production collection processed 136 static files successfully after removing Leaflet's stale unvendored source-map reference.
 
-The isolated `design-preview` retains the approved mobile-first placement mock as a synthetic, network-free reference. Its composition has been translated into the production Django screen; it is no longer an unapproved draft.
+~~The isolated `design-preview` retains the approved mobile-first placement mock as a synthetic, network-free reference. Its composition has been translated into the production Django screen; it is no longer an unapproved draft.~~ **Retired (2026-08-24, ADR-0028).** `design-preview` is no longer used — `ci-dining-radar.yml` has never exercised it, and it predates `meta/adr/0050`'s retirement of the external-design-AI economy it was built for. Screen design review now flows through `design/wireframes/` (designer's `/design` output). architect has no git access; a human still needs to delete `projects/dining-radar/design-preview/` and the `dining-radar-design-preview` entry in `.claude/launch.json` (both listed in ADR-0028).
 
 The lens abstraction died by attrition and then by analysis. Three `ConceptKind` values were retired one at a time after live review, each because the lens produced no comparison the organizer could not already see (ADR-0016, ADR-0019). ADR-0023 then retired the concept itself: every surviving lens decomposed into a filter or a sort, so the abstraction was only wrapping those two operations in prose and hiding the controls. Repeat demotion went with it — `previouslyShownProviderPageUrls` and `build_concepts` no longer exist, and randomized pool selection now does the job that demotion was doing.
 
@@ -400,7 +402,7 @@ Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (
 1. Obtain a human go-ahead for the external Render/Neon account mutations and secret entry, then follow `DEPLOYMENT.md` and perform the public HTTPS/privacy/login L5 checks. Every machine gate on this branch is green, so this is what release now waits on. A change to the no-history/no-durable-identifier product policy requires a new human decision before work starts.
 2. Reconfirm the assumed Hot Pepper raw JSON field names against current official documentation. (The provider credit, free-plan, and health-check terms were reconfirmed on 2026-08-12 and are recorded under "Deployment platform terms" above.)
 3. Refresh or retire the `project/toyama-dining-radar` branch (the branch and its ruleset keep the old name; the 2026-08-20 rename deliberately left them alone). It is no longer the leading edge: `main` is well ahead of it and 0 behind, so the branch only lags. Decide whether to fast-forward it or drop it in favour of slicing directly off `main`, which is what recent slices have actually done.
-4. Consider whether ADR-0003's stated design-preview stack (React, TypeScript, Tailwind, shadcn/ui) should match the receiver's actual dependencies (React, TypeScript, `lucide-react` only, with hand-written CSS), by installing the missing packages or amending the ADR. Designer worked around the gap by requiring visually self-contained artifacts; the divergence itself is unresolved.
+4. ~~Consider whether ADR-0003's stated design-preview stack (React, TypeScript, Tailwind, shadcn/ui) should match the receiver's actual dependencies (React, TypeScript, `lucide-react` only, with hand-written CSS), by installing the missing packages or amending the ADR. Designer worked around the gap by requiring visually self-contained artifacts; the divergence itself is unresolved.~~ **Moot (2026-08-24, ADR-0028)** — `design-preview` itself is retired, so its dependency mismatch no longer needs reconciling. Pending action item: a human deletes `projects/dining-radar/design-preview/` and the `dining-radar-design-preview` entry in `.claude/launch.json` (ADR-0028 decision 2).
 ~~5. The candidate map never calls Leaflet's `invalidateSize()`/re-fits when its container is resized after the initial render (no resize handler in `candidate.js`).~~ **解決した（2026-08-24、developer）**——see below. The original framing was partly imprecise: Leaflet's own default `trackResize: true` (confirmed by reading the vendored `leaflet.js`) already re-fits on a plain browser-`window` resize, so a straightforward `page.set_viewport_size()`-style resize was already handled before this fix. The real remaining gap was a container-size change with **no accompanying `window` resize event** — reachable on a phone because `candidate-map`'s height is `dvh`/`vh`-sized, so a mobile browser's toolbar collapsing/reappearing while scrolling resizes the container purely through CSS. `candidate.js` now attaches a `ResizeObserver` directly to the map container (disconnected/reattached on every `initializeMap` re-render) that calls `invalidateSize()` on any container-size change regardless of cause.
 6. `meta/tools/govlint.py`'s `SCENARIO_ID` pattern cannot match `TDR-CS-01` or `TDR-AUTH-01`, so all 19 TDR scenario IDs have never been checked by L0. Fixing it needs a human unlock commit for `meta/tools/**` (`meta/adr/0046`).
 

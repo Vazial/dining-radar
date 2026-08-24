@@ -1,11 +1,11 @@
 ---
 id: 0003
 scope: project/dining-radar
-status: 承認済み
+status: superseded
 date: 2026-08-01
 approved_by: "本PRのマージをもって承認（ADR-0035 方式(i)）"
 supersedes: []
-superseded_by: null
+superseded_by: 0028
 relates_to: [P-01, P-02, P-03, P-04, P-07, P-08, TDR-CS-00, TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05, TDR-CS-06, TDR-CS-07, TDR-CS-08]
 ---
 
@@ -92,3 +92,11 @@ Claudeとの並行作業を調整した別スライスで扱う。
 - Codexのデザイン作成経路では、外部AI成果物の無改変原則ではなく、Codexが作成したsourceを通常の
   reviewable artifactとして扱う。外部AI成果物を使う場合の証跡・無改変原則は引き続きその経路だけに適用する。
 - 本ADRはADR-0035方式(i)で記録する。この設計PRをマージすることが、このreceiver境界への人間承認となる。
+
+---
+
+**2026-08-24 追記（superseded）**: 本ADRの決定1・2は`ADR-0028`が置き換えた——`design-preview`受け皿は
+使われておらず（CIが一度も検査しない、`meta/adr/0050`が外部AI経路を全廃してから更新も無い）、人間が
+2026-08-24にこれを廃止すると選んだ。決定3・4は、その中身がすでに全プロジェクト共通の designer 役割
+契約（`meta/adr/0050`）へ移っており、プロジェクト固有に引き継ぐものが無いため`ADR-0028`は継承しない。
+詳細は`ADR-0028`を参照。本文は編集しない（P-06）。

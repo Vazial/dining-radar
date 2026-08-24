@@ -157,4 +157,4 @@ Hot Pepper の店舗ページへのリンクは、詳細情報と予約可否を
 
 上記の受け入れ契約、API契約、ADR-0004 は PR #65 でコンセプトモデルへ改訂され、その後 PR #90（ADR-0023）で絞り込みモデルへ再度改訂された。現在の契約は `contracts/candidate-search-api.yaml` v1.0.2・`candidate-search.feature`・`candidate-search-browser-interface.yaml`・`test-support-api.yaml` v1.0.2 である。このブリーフの承認だけで、これらの契約・ADRを承認したわけではない。
 
-`design-preview/` は2026-08-11に人間が承認したモバイル優先の配置モックを保持しており、その構成は本番画面へ翻訳済みである。`design-briefs/candidate-search.md` は旧前提のままであり、非権威である。
+2026-08-11に人間が承認したモバイル優先の配置モックは、本番画面へ翻訳済みである（モックを保持していた `design-preview/` は 2026-08-24 に廃止した。`adr/0028`）。`design-briefs/candidate-search.md` は旧前提のままであり、非権威である。
