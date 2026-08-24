@@ -10,6 +10,33 @@ The project is named `dining-radar`. It was renamed from `toyama-dining-radar` o
 
 The rename was built once against the pre-#106 `main`, held when it turned out to collide with the then-unpushed `docs/tdr-cs-origin-and-walking-time`, and redone on top of that branch's merge — the cheaper-to-reproduce change goes last (FR-020).
 
+### 徒歩時間の概算に迂回補正を加える決定（2026-08-24、architect）
+
+本番の実データを人間が触り、「徒歩圏の輪が見にくい。一番内側の輪でさえ実際は20分近くかかりそうに
+見える」と報告した。実測すると、内側リング（直線距離800m、ラベル「10分」）は実際に歩くと13〜17分
+かかる——`adr/0025`決定2が実装スライスへ送っていた算出方式（直線距離を採用、
+`WALKING_METERS_PER_MINUTE=80`で分へ変換）には迂回（実際の道が曲がる分）の補正が入っていなかった。
+
+architectが`adr/0029`を起草した（承認済み、`meta/adr/0035`方式(i)——本PRのマージが人間の承認行為）。
+決定は4点——(1) 補正は距離側に迂回係数を掛ける形にする（速度側を下げる数学的に等価な形は採らない。
+80m/分という外部慣行と迂回という別の現象を別の定数として残すため）、(2) 迂回係数は**1.3**（一般的な
+市街地迂回率1.2〜1.4と、人間が報告した実測から逆算される1.3〜1.7の重なりから選んだ、根拠の薄い値——
+`meta/adr/0059`決定5の精神でそう明記した）、(3) リングと絞り込み上限のプリセット分数（10/15/20/30）は
+変えない——同じラベルが指す直線距離の半径だけが縮む（10分は804m→約615m等）、(4) カードの徒歩時間・
+リング半径・絞り込みの上限は`pipeline.py`の`walking_time_minutes()`という1つの計算を共有し続ける
+（`candidate.js`側のリング描画も同じ迂回係数で追随させる同期責任がdeveloperに生じる）。
+
+**契約は変更していない**——`candidate-search-api.yaml`・`candidate-search-browser-interface.yaml`を
+読み直し、算出方式・係数・プリセットの値はいずれも既存の契約文面が既に実装裁量として明示的に開放して
+いる範囲内であることを確認した（`adr/0029`帰結1節）。
+
+**実装に要ること（developer、未着手）**: `pipeline.py`への迂回係数定数の新設と`walking_time_minutes()`
+への組み込み、`candidate.js`のリング半径計算への同じ係数の反映、`acceptance_state.py`の
+`WALKING_TIME_LIMIT_EXCLUDES`合成データ（直線800m/950m/1100m、しきい値12分）の新しい係数のもとでの
+再計算——迂回係数を足すと現行の合成距離が指す分数がすべてずれる（例: 950m×1.3÷80=15.4375分→切り上げ
+16分、現行は境界の12分）。L1の期待値更新とmutation再実行も要る。designerが並行して進めている「輪の
+見せ方」（線の強さ・分数のラベル）は、`adr/0029`が決めた新しい半径の値を前提にできる。
+
 ### 画面の機能について確定した人間裁定（2026-08-23）
 
 ワイヤフレーム（`https://claude.ai/code/artifact/278c94d2-116e-4bcd-87df-b552607541c7`。designer が
@@ -446,7 +473,19 @@ Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (
 4. ~~Consider whether ADR-0003's stated design-preview stack (React, TypeScript, Tailwind, shadcn/ui) should match the receiver's actual dependencies (React, TypeScript, `lucide-react` only, with hand-written CSS), by installing the missing packages or amending the ADR. Designer worked around the gap by requiring visually self-contained artifacts; the divergence itself is unresolved.~~ **Moot (2026-08-24, ADR-0028)** — `design-preview` itself is retired, so its dependency mismatch no longer needs reconciling. Pending action item: a human deletes `projects/dining-radar/design-preview/` and the `dining-radar-design-preview` entry in `.claude/launch.json` (ADR-0028 decision 2).
 ~~5. The candidate map never calls Leaflet's `invalidateSize()`/re-fits when its container is resized after the initial render (no resize handler in `candidate.js`).~~ **解決した（2026-08-24、developer）**——see below. The original framing was partly imprecise: Leaflet's own default `trackResize: true` (confirmed by reading the vendored `leaflet.js`) already re-fits on a plain browser-`window` resize, so a straightforward `page.set_viewport_size()`-style resize was already handled before this fix. The real remaining gap was a container-size change with **no accompanying `window` resize event** — reachable on a phone because `candidate-map`'s height is `dvh`/`vh`-sized, so a mobile browser's toolbar collapsing/reappearing while scrolling resizes the container purely through CSS. `candidate.js` now attaches a `ResizeObserver` directly to the map container (disconnected/reattached on every `initializeMap` re-render) that calls `invalidateSize()` on any container-size change regardless of cause.
 6. `meta/tools/govlint.py`'s `SCENARIO_ID` pattern cannot match `TDR-CS-01` or `TDR-AUTH-01`, so all 19 TDR scenario IDs have never been checked by L0. Fixing it needs a human unlock commit for `meta/tools/**` (`meta/adr/0046`).
-7. **新規（2026-08-24、architect）**: `adr/0030` の契約改訂（輪の分数ラベル・0件案内の操作化）を満たす実装が要る。`candidate.js` に(a) 各リング要素の可視ラベル、(b) `candidate-no-results` 内の押せる操作を追加する。tester は `TDR-CS-02`・`TDR-CS-05` のstep定義をあわせて拡張する。designerが挙げた残り2件（輪と徒歩の上限の連動、地図リボンの高さ・役割）はこのADRでは意図的に決めていない——理由は`adr/0030`決定3・4を参照。
+7. **実装が未着手（2026-08-24、`adr/0029`）**: 迂回係数の定数を `pipeline.py`・`candidate.js` へ追加し、
+   `acceptance_state.py` の `WALKING_TIME_LIMIT_EXCLUDES` 合成データ（直線800m/950m/1100m、しきい値12分）を
+   新しい係数のもとで境界性を保つよう再計算する。詳細は `adr/0029` 帰結2節。
+8. **実装が未着手（2026-08-24、`adr/0030`）**: 輪の分数ラベルと0件案内の操作化。`candidate.js` に (a) 各リング要素の
+   可視ラベル（`data-walking-radius-minutes` と桁を一致させる）、(b) `candidate-no-results` 内に絞り込みパネルを
+   開く押せる操作を追加する。tester は `TDR-CS-02`・`TDR-CS-05` のstep定義をあわせて拡張する。designer が挙げた
+   残り2件（輪と徒歩の上限の連動、地図リボンの高さ・役割）は `adr/0030` が意図的に決めていない——理由は同ADR
+   決定3・4を参照。
+9. **実装が未着手（2026-08-24、人間裁定）**: 画面の骨格をワイヤフレームへ寄せる。designer の設計は
+   `https://claude.ai/code/artifact/efe1c44f-ead4-40c6-9141-b801583aadd9`（リスト主役＋高さ88pxの地図リボン＋
+   全面シート）。**リボンの有無は人間が実物を見てから決める**ため、リボン有りを本番の作りで実装し、リボン無しは
+   比較用に別途用意する（比較用はマージ対象ではない——リボン無しは初期表示に地図が無くなり
+   `authenticatedInitialOutcome.present` に触れる）。輪の本数（現在4本）も補正後の見た目を見てから決める。
 
 ## Open questions
 
