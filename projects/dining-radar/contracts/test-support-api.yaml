@@ -12,8 +12,8 @@
 # They never reveal or alter a private search origin, provider data or
 # credentials, runtime secrets, or any real account.
 #
-# ステータス: 承認待ち — adr/0024 と adr/0025 のドラフト改訂（いずれも未マージ）が重なっている。承認方式
-#   はいずれもADR-0035の(ii)（記録のみ・承認は後日）。人間はまだこれらの改訂を承認していない。
+# ステータス: 承認待ち — adr/0024 のドラフト改訂（未マージ・frontmatter は status: 提案中）が重なっている。**adr/0025 の改訂は 2026-08-24 に PR #156 のマージをもって承認済み**（ADR-0035 方式(i)）であり、契約・実装・テストが同一スライスで main に載っている。以下の「未承認」の記述は adr/0024 の分にのみ掛かる。承認方式
+#   はいずれもADR-0035の(ii)（記録のみ・承認は後日）。人間は adr/0024 の改訂をまだ承認していない。
 #
 # 以下は2026-08-12に承認済み(PR #90、adr/0023)だったv1.0.2の内容である。この上に2026-08-14の
 # adr/0024ドラフト差分、続けて2026-08-20のadr/0025ドラフト差分（いずれも下記ブロック）が重なる。
@@ -52,9 +52,6 @@
 #   shownPoolExhaustedに基づく未表示優先の3つの集合所属性質
 #   （candidate-search-browser-interface.yamlのproposal.shownPoolPriority）
 #   を決定的に観測するためのGiven（adr/0024決定4、TDR-CS-14）。
-# - randomSeedのdescriptionから「実装のプールサイズ」という語を除き、
-#   「表示上限5件」という条件に置き換える（adr/0024決定3。プール概念の
-#   廃止により、この性質が成立する条件はより緩くなる）。
 #
 # 2026-08-14 追補 (adr/0024 決定4項目8、未承認・本ファイルへの変更なし):
 # shownCandidateMemoryの24時間以下の保持期限（Hot Pepper利用規約対応）は、
@@ -76,6 +73,8 @@
 #   modeの説明文で`walkingTimeMinutes`の具体値まで規定する必要があるのは、
 #   新設のWALKING_TIME_LIMIT_EXCLUDESだけである——他の既存TDR-CSシナリオは
 #   徒歩時間の値そのものを主張しないため。
+#   **2026-08-24 訂正（下記の同日追記を参照）: 「自己整合性だけを検証すれば
+#   足りる」という上記の判断は誤りだった。**
 # - WALKING_TIME_LIMIT_EXCLUDES を新設する。TDR-CS-15（徒歩の上限による
 #   絞り込み、adr/0025決定3）の決定的Given。しきい値ちょうどの境界と、
 #   しきい値超過の両方を、任意のrandomSeedで確定的に観測できるようにする。
@@ -98,10 +97,36 @@
 #   候補は取得失敗時も残る）は失敗の原因（429/503）に依存せず、
 #   429と503を画面で区別するかどうかはproduct-brief.md §8がなお未決と
 #   している別の論点である（design/wireframes/README.mdのD1）。
+#
+# 2026-08-24 追記 (architect、独立監査F1・friction-log FR-022の4回目への対応):
+# - `CandidateProposalAcceptanceState`に`searchOrigin`（新規任意プロパティ、
+#   nullable、緯度経度）を新設する。省略時（既定）は従来どおり実装が選ぶ
+#   合成定数（例: (0.0, 0.0)）を返してよく、既存の全acceptanceシナリオの
+#   挙動は無変更のまま保たれる。指定した場合、当該Given状態が有効な間の
+#   `/candidate-proposals`応答の`searchOrigin`はこの値と厳密に一致しなければ
+#   ならない。
+# - mode節の説明文から「`searchOrigin`の値そのものをこのGiven APIで選択可能
+#   にする必要はないと判断した…自己整合性だけを検証すれば足り…独立に既知の
+#   定数と突き合わせる必要が無い」という記述を削除する。**この記述は
+#   誤りだった。** 独立監査
+#   （`reviews/audit-tdr-cs-origin-marker-position.md`、F1）が指摘した
+#   とおり、`searchOrigin`が全14箇所・全モードで単一の共有定数
+#   （`src/dining_radar/suggestions/acceptance_state.py`の
+#   `_ORIGIN = Origin(latitude=0.0, longitude=0.0)`）である限り、応答と
+#   DOM属性の自己整合性チェックは「正しく配線された実装」と「`0`/`0`を
+#   決め打ちした実装」を区別できない——両方とも同じ固定値から来るため常に
+#   一致する。`candidate-search-browser-interface.yaml`の
+#   `searchOriginMarker.presenceRule`が要求する「マーカーの位置が応答由来
+#   であり独立に知られた定数ではないことの証明」は、このGiven APIが
+#   `searchOrigin`を選択可能にして初めて成立する——選択せず既定値のまま
+#   検証しても、その検証は偽陽性を許す。TDR-CS-01/TDR-CS-02（またはこの
+#   性質を検証する既存・新規シナリオ）は、既定値ではない`searchOrigin`を
+#   このプロパティで明示的に選び、DOM属性がその値と一致することを検証
+#   しなければならない。detailはadr/0027の2026-08-24追記2を参照。
 openapi: 3.0.3
 info:
   title: Dining Radar acceptance test-support API
-  version: 1.3.0
+  version: 1.4.0
   description: >-
     Acceptance-only setup and reset seams for TDR-AUTH-01 through TDR-AUTH-07
     and TDR-CS-00 through TDR-CS-16.
@@ -284,12 +309,21 @@ components:
             description does not discuss their values, because no existing
             TDR-CS-00 through TDR-CS-14 scenario asserts a specific
             `searchOrigin` or `walkingTimeMinutes` value. `searchOrigin`'s
-            value need not be independently known to acceptance: TDR-CS-01
-            and TDR-CS-02 verify the map's origin marker against whatever
-            `searchOrigin` the response under test actually returned (a
-            self-consistency check), not against a separately pinned
-            constant, so no mode-selectable search-origin coordinate is
-            defined here.
+            value defaults to an implementation-chosen synthetic constant
+            when the sibling `searchOrigin` property (below) is omitted --
+            existing TDR-CS-00 through TDR-CS-14 scenarios that do not
+            assert a specific `searchOrigin` value are unaffected by that
+            property's existence. A scenario verifying
+            candidate-search-browser-interface.yaml's
+            searchOriginMarker.presenceRule (TDR-CS-01/TDR-CS-02) must
+            instead set the `searchOrigin` property to a value it chooses,
+            because a self-consistency check against the response alone
+            cannot distinguish a correctly wired implementation from one
+            that hardcodes the same fixed synthetic constant every mode
+            previously always returned (independent-audit finding F1,
+            reviews/audit-tdr-cs-origin-marker-position.md; friction-log
+            FR-022's fourth occurrence -- see adr/0027's 2026-08-24
+            addendum 2).
 
             NORMAL_WITH_WEIGHTED_SAMPLING
             (renamed from NORMAL_WITH_POOL, adr/0024 decision 3 -- the fixed
@@ -497,6 +531,42 @@ components:
             behavior; this property is never exposed on the public
             candidate-search-api.yaml and the production browser has no way
             to send it.
+        searchOrigin:
+          type: object
+          nullable: true
+          additionalProperties: false
+          required: [latitude, longitude]
+          properties:
+            latitude:
+              type: number
+              minimum: -90
+              maximum: 90
+            longitude:
+              type: number
+              minimum: -180
+              maximum: 180
+          description: >-
+            Pins the synthetic `searchOrigin` every /candidate-proposals
+            response returns while this state is active (adr/0025 decision
+            1), independently of which mode is selected. Omit or set to
+            null to use an implementation-chosen synthetic constant --
+            every scenario's behavior from before this property existed is
+            unaffected. A synthetic coordinate only: never a real search
+            origin, and never read from or written to any runtime or
+            production configuration (mirroring this file's existing
+            never-touches-the-configured-search-origin boundary for
+            resetCandidateProposalAcceptanceState above). Verifying that
+            candidate-search-browser-interface.yaml's
+            searchOriginMarker.presenceRule actually derives the map
+            marker's position from the response, rather than from a
+            fixture-baked or hardcoded value, requires setting this
+            property to a value the acceptance test itself chooses --
+            independent-audit finding F1
+            (reviews/audit-tdr-cs-origin-marker-position.md) found that a
+            self-consistency check against a single shared constant
+            returned by every mode cannot make that distinction, because a
+            hardcoded implementation and a correctly wired one are both
+            indistinguishable against a fixed value.
     AcceptanceAccountState:
       type: object
       additionalProperties: false

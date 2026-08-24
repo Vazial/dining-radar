@@ -113,6 +113,12 @@
   var cardElementsByRef = {};
   var markerElementsByRef = {};
   var leafletMap = null;
+  // Tracks the ResizeObserver watching the current map container so a later
+  // re-render (a fresh initializeMap call, e.g. after applying filters or
+  // "search again") can disconnect it before the container it was observing
+  // is discarded. See initializeMap's resize handling below for what this
+  // covers beyond Leaflet's own built-in window-resize handling.
+  var mapResizeObserver = null;
   // TDR-CS-16 (human decision 2026-08-23): whether a proposal has ever been
   // successfully displayed in this page load. While true, a later fetch
   // failure must retain the existing cards/map/filters rather than clear
@@ -519,6 +525,10 @@
 
   function initializeMap(container, candidates, searchOrigin) {
     markerElementsByRef = {};
+    if (mapResizeObserver) {
+      mapResizeObserver.disconnect();
+      mapResizeObserver = null;
+    }
     if (leafletMap) {
       leafletMap.remove();
       leafletMap = null;
@@ -634,11 +644,56 @@
       if (originMarkerEl) {
         originMarkerEl.setAttribute("data-testid", "candidate-origin-marker");
         originMarkerEl.setAttribute("aria-label", "検索基点");
+        // positionAttributes (candidate-search-browser-interface.yaml
+        // mapObservations.searchOriginMarker, contractVersion 1.3.1,
+        // FR-022(1)): the exact canonical decimal string of
+        // response.searchOrigin.latitude/longitude, mirroring the
+        // rawValueAttribute String(value) convention used elsewhere in
+        // this file (see fieldRow above) so acceptance can assert the
+        // marker's position derives from this response rather than a
+        // fixture-baked constant.
+        originMarkerEl.setAttribute(
+          "data-origin-latitude",
+          String(searchOrigin.latitude)
+        );
+        originMarkerEl.setAttribute(
+          "data-origin-longitude",
+          String(searchOrigin.longitude)
+        );
       }
     }
 
     container.setAttribute("data-map-fit-state", "displayed-candidates");
     leafletMap = map;
+
+    // Re-fit Leaflet's internal view whenever the map container's own size
+    // changes after this initial render, even when that change carries no
+    // `window` "resize" event. Leaflet's own default `trackResize: true`
+    // (candidate.js never overrides it) already listens for `window`
+    // "resize" and calls invalidateSize() on a plain browser-window resize,
+    // confirmed by reading the vendored leaflet.js's own `_initEvents` and by
+    // testing: even before this handler existed, a real `window resize`
+    // (e.g. Playwright's set_viewport_size, which fires one) already re-fit
+    // the map correctly. What that built-in handler cannot see is a
+    // container-size change with no accompanying `window` resize -- which
+    // this screen's own CSS can produce on a phone: candidate-map's height
+    // is sized in `dvh` (dynamic viewport height, home.html), so a mobile
+    // browser's toolbar collapsing/reappearing while scrolling (the
+    // organizer persona this screen is built for, per human decision
+    // 2026-08-22) resizes the container purely through CSS, without firing
+    // `window` "resize" on many mobile browsers. Confirmed by testing:
+    // forcing the container's own box to change size via inline style, with
+    // no viewport change, left the rendered tiles at their stale pre-resize
+    // extent (a real uncovered gap) with this ResizeObserver removed, and
+    // correctly grew to cover the new box with it in place (see
+    // activeContext.md Next work 5 for the original, narrower "no resize
+    // handler at all" framing this refines).
+    if (window.ResizeObserver) {
+      mapResizeObserver = new window.ResizeObserver(function () {
+        map.invalidateSize();
+      });
+      mapResizeObserver.observe(container);
+    }
   }
 
   function setMembership(list, value, included) {

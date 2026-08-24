@@ -13,11 +13,13 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from dining_radar.authentication.throttle import LoginThrottle
+from dining_radar.recommendation.pipeline import Origin
 from dining_radar.suggestions import acceptance_state
 
 SYNTHETIC_ACCOUNT_GROUP = "tdr-acceptance-synthetic-accounts"
 ACCOUNT_REF_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
 CANDIDATE_PROPOSAL_MODES = {mode.value for mode in acceptance_state.AcceptanceCandidateProposalMode}
+_SEARCH_ORIGIN_KEYS = {"latitude", "longitude"}
 
 
 def _acceptance_only() -> None:
@@ -33,6 +35,33 @@ def _body(request) -> dict:
     if not isinstance(body, dict):
         raise ValueError
     return body
+
+
+def _parse_search_origin(raw: object) -> Origin | None:
+    """Parse ``CandidateProposalAcceptanceState.searchOrigin`` (1.4.0).
+
+    Returns ``None`` for an omitted or explicitly ``null`` value (the
+    default, unpinned behavior). Raises ``ValueError`` for anything that
+    does not match the contract's schema exactly: an object with exactly
+    ``latitude``/``longitude`` numeric properties, each within its declared
+    range.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or set(raw) != _SEARCH_ORIGIN_KEYS:
+        raise ValueError
+    latitude = raw["latitude"]
+    longitude = raw["longitude"]
+    if (
+        not isinstance(latitude, int | float)
+        or isinstance(latitude, bool)
+        or not isinstance(longitude, int | float)
+        or isinstance(longitude, bool)
+        or not (-90 <= latitude <= 90)
+        or not (-180 <= longitude <= 180)
+    ):
+        raise ValueError
+    return Origin(latitude=float(latitude), longitude=float(longitude))
 
 
 def _synthetic_group() -> Group:
@@ -173,7 +202,7 @@ def candidate_proposal_state(request):
     except (KeyError, ValueError):
         return HttpResponse(status=400)
 
-    if set(body) - {"mode", "randomSeed"} or mode not in CANDIDATE_PROPOSAL_MODES:
+    if set(body) - {"mode", "randomSeed", "searchOrigin"} or mode not in CANDIDATE_PROPOSAL_MODES:
         return HttpResponse(status=400)
 
     random_seed = body.get("randomSeed")
@@ -182,5 +211,12 @@ def candidate_proposal_state(request):
     ):
         return HttpResponse(status=400)
 
-    acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode(mode), random_seed)
+    try:
+        search_origin = _parse_search_origin(body.get("searchOrigin"))
+    except ValueError:
+        return HttpResponse(status=400)
+
+    acceptance_state.set_mode(
+        acceptance_state.AcceptanceCandidateProposalMode(mode), random_seed, search_origin
+    )
     return HttpResponse(status=204)

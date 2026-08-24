@@ -4,8 +4,8 @@
 # observation SSoT for TDR-CS acceptance work. It neither creates a public API
 # nor changes the browser-facing candidate-proposal API.
 #
-# Status: 承認待ち — adr/0024 と adr/0025 のドラフト改訂（いずれも未マージ）が重なっている。承認方式は
-# いずれもADR-0035の(ii)（記録のみ・承認は後日）。人間はまだこれらの改訂を承認していない。
+# Status: 承認待ち — adr/0024 のドラフト改訂（未マージ・frontmatter は status: 提案中）が重なっている。**adr/0025 の改訂は 2026-08-24 に PR #156 のマージをもって承認済み**（ADR-0035 方式(i)）であり、契約・実装・テストが同一スライスで main に載っている。以下の「未承認」の記述は adr/0024 の分にのみ掛かる。承認方式は
+# いずれもADR-0035の(ii)（記録のみ・承認は後日）。人間は adr/0024 の改訂をまだ承認していない。
 #
 # Below is the content approved 2026-08-12 (PR #90, adr/0023) as v1.0.5, over
 # which the 2026-08-14 adr/0024 draft, and then the 2026-08-20 adr/0025 draft
@@ -131,7 +131,44 @@
 #   （検証手段のない要求は追加しない）。429/503を画面で区別するかどうか自体はproduct-brief.md
 #   §8がなお未決としている別の論点である。
 # - profiles.localAcceptance.verifiesScenarios に TDR-CS-16 を加える。
-contractVersion: '1.3.0'
+#
+# 2026-08-24 追記 (architect、FR-022(1)への対応。人間の再承認を要しない記録——理由は下記):
+# - mapObservations.searchOriginMarker に positionAttributes（data-origin-latitude/
+#   data-origin-longitude）を新設する。従来のpresenceRuleは「マーカーの位置が
+#   response.searchOrigin に由来し、独立に知られた定数ではないことを検証せよ」と検証の
+#   目的だけを述べ、それを検証する手段（マーカーの地理的位置を読み取れる属性）を持って
+#   いなかった。tester がL4起草時にこの欠落を報告し（friction-log FR-022、cause_key
+#   `l4-browser-observation-contract-missing` の2回目=FR-003と同型）、属性名を捏造せず
+#   存在確認だけにとどめて報告した。本追記はこれを塞ぐ。
+# - これは新しい開示ではない。`response.searchOrigin.latitude/longitude` は adr/0025
+#   決定1が既に承認した非秘匿の公開APIフィールドであり（candidate-search-api.yaml の
+#   SearchOriginLocation）、この属性追加はその同じ値をネットワーク応答からだけでなく
+#   DOMからも読めるようにするだけである。命名・等価規則は cardDataAttributes の
+#   rawValueAttribute（totalSeats 等の data-raw-value、正確な文字列一致）と同じ様式に
+#   倣う。正確な距離の数値・経路・現在地・設定探索範囲の値を出さないという既存のMust
+#   （adr/0025 決定6・9、mapObservations.forbiddenTestIds、disclosureObservations）は
+#   一切変更しない——この属性が運ぶのは基点の座標だけであり、候補店舗の座標・距離・
+#   経路・現在地・設定探索範囲のいずれも運ばない。
+# - FR-022(2)（基点マーカーが候補デッキに重なりクリックがブロックされた件）はここでは
+#   扱わない。tester が technique を組み替えて解消済みであり、「契約が要求する観測が、
+#   承認済みの画面配置のもとで成立するか」という一般問題は2回では仕組みを起こす確度が
+#   無いと判断し、3回目が出たときにADRを起こす（P-05、FR-022本文の判断を維持）。
+#
+# 2026-08-24 追記2 (architect、FR-022の3回目の再発への対応): 上記のpositionAttributesを
+# 実装・testerのstepへ通したところ、L4が1件落ちた——JavaScriptの`String(0.0)`は`"0"`、
+# Pythonの`str(0.0)`は`"0.0"`であり、同じ値でも言語によって10進表記が異なる。presenceRuleの
+# 「exact canonical decimal string」という文言は、canonicalが何を指すかを定義しておらず、
+# 前例のcardDataAttributes.rawValueAttributeは整数（totalSeats）と閉じたenum文字列
+# （nonSmokingStatus・dinnerBudgetTier）にしか使われていなかった——いずれも正準な10進・enum
+# 表記が一意に決まる値であり、浮動小数点を含まない。この前例がそのままでは届かない範囲だった。
+# presenceRuleを**数値としての一致**（属性の文字列を数値へ解析し、response.searchOriginの
+# 値と絶対誤差1e-9度以内で比較する）へ改める。「マーカーの位置がresponse.searchOriginに由来
+# し、独立に知られた定数ではないことを証明する」という、presenceRuleが実際に必要としている
+# 性質は数値としての同一性であり、字面としての同一性ではない——文字列としての正準表記を定義
+# する案（契約で書式を固定する）は、両側の実装がその書式規約を守っているかを機械で検査する
+# 術がなく、FR-022(1)が塞いだのと同じ「検証できないことを検証せよ」という形を作り直すだけに
+# なるため採らない。詳細と検討した代替案はadr/0025の2026-08-24追記2を参照。
+contractVersion: '1.3.2'
 kind: acceptance-browser-interface
 scope: candidate-search
 profiles:
@@ -407,12 +444,41 @@ browserControlSurface:
       candidateRefUniqueness: every-current-card-has-a-unique-non-empty-data-candidate-ref
       searchOriginMarker:
         testId: candidate-origin-marker
+        positionAttributes: {latitude: data-origin-latitude, longitude: data-origin-longitude}
         presenceRule: >-
           Present exactly once whenever candidate-map is present (adr/0025
-          decision 1). Its position must correspond to the current
-          response's `searchOrigin` coordinates; acceptance reads the
-          response and asserts the marker's position derives from that same
-          value rather than any independently known constant.
+          decision 1). Its two positionAttributes each carry a decimal
+          string that, when parsed as a number, is numerically equal --
+          within an absolute tolerance of 1e-9 degrees -- to the current
+          response's `searchOrigin.latitude` and `searchOrigin.longitude`
+          respectively. Equality is numeric, not lexical: the response and
+          the DOM attribute are produced by different language runtimes
+          (`response.searchOrigin` is serialized server-side in Python;
+          positionAttributes are set client-side by candidate.js), and IEEE
+          754 doubles have more than one valid decimal-string spelling for
+          the same value (e.g. Python's `str(0.0)` is `"0.0"`, JavaScript's
+          `String(0.0)` is `"0"`) -- there is no single canonical spelling
+          both runtimes produce without extra, unenforceable implementation
+          discipline (amended 2026-08-24, second addendum, after a language-
+          dependent string mismatch on exactly this value shape reached L4;
+          see adr/0025's 2026-08-24 second addendum for the discarded
+          alternatives). This intentionally departs from
+          cardDataAttributes.rawValueAttribute's string-equality style,
+          which remains correct there because it compares integers and
+          closed enum strings (totalSeats, nonSmokingStatus,
+          dinnerBudgetTier) -- values with exactly one canonical spelling;
+          latitude/longitude are floating-point measurements, for which the
+          property presenceRule actually needs to prove -- that the
+          marker's position derives from `searchOrigin` and not from an
+          independently known constant -- is numeric identity, not string
+          identity. Acceptance parses both sides to a number before
+          comparing; it does not need to read the marker's rendered pixel
+          position to do so. This does not add a new disclosure:
+          `response.searchOrigin` is already an unobfuscated, approved
+          public field (adr/0025 decision 1, candidate-search-api.yaml's
+          SearchOriginLocation), so positionAttributes only makes that
+          already-disclosed value additionally readable from the DOM
+          instead of only from the network response (FR-022(1)).
         interactivity: >-
           A read-only display element. It may carry an accessible name/
           visible label identifying itself as the search origin (e.g. 検索

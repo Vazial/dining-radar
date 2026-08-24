@@ -34,12 +34,25 @@ public ``candidate-search-api.yaml``. ``propose_with_override`` also forwards
 the caller's ``shown_provider_page_urls`` (adr/0024 decision 4) straight
 through to the same pipeline call, for the same reason: this seam must
 exercise the real not-yet-shown-priority logic, not a hand-rolled copy of it.
+
+A pinned ``searchOrigin`` (via ``set_mode``, test-support-api.yaml 1.4.0,
+independent-audit finding F1) is read back by ``active_search_origin`` and
+reported as every mode's ``ProposalResult.search_origin``, independently of
+which mode is selected; omitted or ``None`` falls back to this module's own
+default ``_ORIGIN``, unchanged from before this property existed. Every
+``_..._source`` function's synthetic candidates are translated by the same
+delta the origin itself moves by (``_origin_shifted``), so a pinned origin
+never changes any distance-, walking-time-, or ordering-dependent property
+those populations were authored to prove -- only the response's absolute
+``searchOrigin`` (and the never-serialized absolute candidate coordinates)
+move.
 """
 
 from __future__ import annotations
 
 import random
 from collections.abc import Collection
+from dataclasses import replace
 from enum import StrEnum
 
 from django.conf import settings
@@ -61,6 +74,7 @@ __all__ = [
     "AcceptanceRateLimited",
     "active_mode",
     "active_random_source",
+    "active_search_origin",
     "propose_with_override",
     "reset_mode",
     "set_mode",
@@ -68,6 +82,13 @@ __all__ = [
 
 _CACHE_KEY_MODE = "suggestions.acceptance-candidate-proposal-mode"
 _CACHE_KEY_SEED = "suggestions.acceptance-candidate-proposal-random-seed"
+# CandidateProposalAcceptanceState.searchOrigin (test-support-api.yaml
+# 1.4.0, independent-audit finding F1 / adr/0027 2026-08-24 addendum 2):
+# stored as a plain (latitude, longitude) tuple, not an Origin instance, so
+# this key stays trivially picklable across whichever CACHES backend the
+# deployed profile configures (mirrors _CACHE_KEY_SEED storing a plain int
+# rather than a richer object).
+_CACHE_KEY_SEARCH_ORIGIN = "suggestions.acceptance-candidate-proposal-search-origin"
 # TDR-CS-16 (human decision 2026-08-23): RATE_LIMITED_AFTER_INITIAL_SUCCESS's
 # own call counter -- the only mode whose synthetic outcome differs between
 # the first and every later /candidate-proposals request within the same
@@ -123,12 +144,24 @@ def _require_acceptance_profile() -> None:
         )
 
 
-def set_mode(mode: AcceptanceCandidateProposalMode, random_seed: int | None = None) -> None:
-    """Select the synthetic mode and (optionally) pin the random pool-sampling seed.
+def set_mode(
+    mode: AcceptanceCandidateProposalMode,
+    random_seed: int | None = None,
+    search_origin: Origin | None = None,
+) -> None:
+    """Select the synthetic mode and (optionally) pin the seed and/or origin.
 
     ``random_seed`` mirrors ``CandidateProposalAcceptanceState.randomSeed``
     (adr/0023 decision 4): omitted or ``None`` leaves sampling
     non-deterministic, matching production.
+
+    ``search_origin`` mirrors ``CandidateProposalAcceptanceState.searchOrigin``
+    (test-support-api.yaml 1.4.0, independent-audit finding F1): omitted or
+    ``None`` leaves every ``_..._source`` reporting this module's own default
+    ``_ORIGIN``, exactly matching every scenario's behavior from before this
+    property existed. A pinned value is read back by
+    ``active_search_origin`` and reported as ``ProposalResult.search_origin``
+    for every mode's response, independently of which mode is selected.
     """
     _require_acceptance_profile()
     cache.set(_CACHE_KEY_MODE, mode.value, timeout=None)
@@ -136,12 +169,21 @@ def set_mode(mode: AcceptanceCandidateProposalMode, random_seed: int | None = No
         cache.delete(_CACHE_KEY_SEED)
     else:
         cache.set(_CACHE_KEY_SEED, random_seed, timeout=None)
+    if search_origin is None:
+        cache.delete(_CACHE_KEY_SEARCH_ORIGIN)
+    else:
+        cache.set(
+            _CACHE_KEY_SEARCH_ORIGIN,
+            (search_origin.latitude, search_origin.longitude),
+            timeout=None,
+        )
     cache.delete(_CACHE_KEY_RATE_LIMITED_AFTER_INITIAL_SUCCESS_CALLS)
 
 
 def reset_mode() -> None:
     cache.delete(_CACHE_KEY_MODE)
     cache.delete(_CACHE_KEY_SEED)
+    cache.delete(_CACHE_KEY_SEARCH_ORIGIN)
     cache.delete(_CACHE_KEY_RATE_LIMITED_AFTER_INITIAL_SUCCESS_CALLS)
 
 
@@ -164,6 +206,30 @@ def active_random_source() -> random.Random:
         cache.get(_CACHE_KEY_SEED) if getattr(settings, "ACCEPTANCE_TEST_SUPPORT", False) else None
     )
     return random.Random(seed) if seed is not None else random.Random()
+
+
+def active_search_origin() -> Origin:
+    """The origin every ``_..._source`` function reports for the active state.
+
+    ``CandidateProposalAcceptanceState.searchOrigin`` (test-support-api.yaml
+    1.4.0, independent-audit finding F1,
+    ``reviews/audit-tdr-cs-origin-marker-position.md``) lets a Given pin a
+    non-default origin so a scenario can prove the map marker's position
+    derives from the response rather than from an independently known
+    constant -- a self-consistency check against a single origin every mode
+    always returned cannot distinguish a correctly wired implementation from
+    one that hardcodes that same fixed value (adr/0027 2026-08-24 addendum
+    2). Falls back to ``_ORIGIN`` when unset or outside the acceptance
+    profile, exactly matching every scenario's behavior from before this
+    property existed.
+    """
+    if not getattr(settings, "ACCEPTANCE_TEST_SUPPORT", False):
+        return _ORIGIN
+    raw = cache.get(_CACHE_KEY_SEARCH_ORIGIN)
+    if raw is None:
+        return _ORIGIN
+    latitude, longitude = raw
+    return Origin(latitude=latitude, longitude=longitude)
 
 
 def _synthetic_candidate(
@@ -209,6 +275,44 @@ def _latitude_degrees_for_meters(meters: float) -> float:
     below -- regardless of any future change to the constant's value.
     """
     return meters / METERS_PER_DEGREE_LATITUDE
+
+
+def _origin_shifted(
+    candidates: tuple[NormalizedCandidate, ...],
+) -> tuple[tuple[NormalizedCandidate, ...], Origin]:
+    """Report ``candidates`` against ``active_search_origin()``, translated.
+
+    Every synthetic population in this module is authored as absolute
+    latitude/longitude values that are, in effect, fixed deltas from
+    ``_ORIGIN`` (see e.g. ``_latitude_degrees_for_meters`` and the module's
+    other distance-dependent Given comments) -- every distance-, walking-
+    time-, radius-ring-, and nearest-first-ordering-dependent scenario this
+    module's populations were built to prove depends on those exact deltas
+    holding. When ``active_search_origin()`` pins a different origin
+    (``CandidateProposalAcceptanceState.searchOrigin``, independent-audit
+    finding F1), every candidate here is translated by the same delta the
+    origin itself moved by, so ``pipeline._distance(origin, candidate)`` --
+    and therefore every property derived from it -- returns exactly the
+    values each population was authored to produce; only the absolute
+    coordinates (never observable to the browser, ADR-0004/0005/0008) move.
+    Returns the untranslated ``candidates`` tuple unchanged when the active
+    origin is still the default ``_ORIGIN``, matching every scenario's
+    behavior from before this property existed.
+    """
+    origin = active_search_origin()
+    if origin == _ORIGIN:
+        return candidates, origin
+    delta_latitude = origin.latitude - _ORIGIN.latitude
+    delta_longitude = origin.longitude - _ORIGIN.longitude
+    shifted = tuple(
+        replace(
+            candidate,
+            latitude=candidate.latitude + delta_latitude,
+            longitude=candidate.longitude + delta_longitude,
+        )
+        for candidate in candidates
+    )
+    return shifted, origin
 
 
 # A default-excluded-genre candidate (adr/0015/adr/0023), reused by both
@@ -612,43 +716,43 @@ _RATE_LIMITED_AFTER_INITIAL_SUCCESS_CANDIDATES: tuple[NormalizedCandidate, ...] 
 
 
 def _normal_with_weighted_sampling_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
-    return _CANDIDATES, _ORIGIN
+    return _origin_shifted(_CANDIDATES)
 
 
 def _izakaya_bar_only_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
-    return _IZAKAYA_BAR_ONLY_CANDIDATES, _ORIGIN
+    return _origin_shifted(_IZAKAYA_BAR_ONLY_CANDIDATES)
 
 
 def _default_exclusion_visible_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
-    return _DEFAULT_EXCLUSION_VISIBLE_CANDIDATES, _ORIGIN
+    return _origin_shifted(_DEFAULT_EXCLUSION_VISIBLE_CANDIDATES)
 
 
 def _card_payment_caution_visible_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
-    return _CARD_PAYMENT_CAUTION_VISIBLE_CANDIDATES, _ORIGIN
+    return _origin_shifted(_CARD_PAYMENT_CAUTION_VISIBLE_CANDIDATES)
 
 
 def _zero_pending_match_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
-    return _ZERO_PENDING_MATCH_CANDIDATES, _ORIGIN
+    return _origin_shifted(_ZERO_PENDING_MATCH_CANDIDATES)
 
 
 def _fallback_preserves_filters_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
-    return _FALLBACK_PRESERVES_FILTERS_CANDIDATES, _ORIGIN
+    return _origin_shifted(_FALLBACK_PRESERVES_FILTERS_CANDIDATES)
 
 
 def _genre_order_by_count_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
-    return _GENRE_ORDER_BY_COUNT_CANDIDATES, _ORIGIN
+    return _origin_shifted(_GENRE_ORDER_BY_COUNT_CANDIDATES)
 
 
 def _shown_pool_priority_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
-    return _SHOWN_POOL_PRIORITY_CANDIDATES, _ORIGIN
+    return _origin_shifted(_SHOWN_POOL_PRIORITY_CANDIDATES)
 
 
 def _walking_time_limit_excludes_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
-    return _WALKING_TIME_LIMIT_EXCLUDES_CANDIDATES, _ORIGIN
+    return _origin_shifted(_WALKING_TIME_LIMIT_EXCLUDES_CANDIDATES)
 
 
 def _rate_limited_after_initial_success_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
-    return _RATE_LIMITED_AFTER_INITIAL_SUCCESS_CANDIDATES, _ORIGIN
+    return _origin_shifted(_RATE_LIMITED_AFTER_INITIAL_SUCCESS_CANDIDATES)
 
 
 def propose_with_override(
@@ -693,7 +797,7 @@ def propose_with_override(
             candidates=(),
             izakaya_bar_fallback_applied=False,
             available_genres=(),
-            search_origin=_ORIGIN,
+            search_origin=active_search_origin(),
         )
     if mode is AcceptanceCandidateProposalMode.WALKING_TIME_LIMIT_EXCLUDES:
         return propose_candidates(

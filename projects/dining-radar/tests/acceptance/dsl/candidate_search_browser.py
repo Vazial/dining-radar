@@ -8,6 +8,7 @@ against the same-origin screen or its public candidate-proposal endpoint.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from itertools import product
 from pathlib import Path
 
@@ -52,6 +53,32 @@ MAP_ATTRIBUTION = "candidate-map-attribution"
 # adr/0025 decision 1: the search origin is now a display-only map marker,
 # with zero-or-more concentric walking-time rings around it.
 SEARCH_ORIGIN_MARKER = "candidate-origin-marker"
+# contractVersion 1.3.2 (FR-022, 3rd recurrence; adr/0027): mapObservations.
+# searchOriginMarker.positionAttributes -- read-only proxies for the
+# marker's rendered geographic position, checked for *numeric* equality
+# (parse both sides, compare within an absolute tolerance) against the
+# current response's searchOrigin. Deliberately not REQUIRED_CARD_FIELDS'
+# rawValueAttribute string-equality style: that style only ever compares
+# integers/closed enum strings with exactly one canonical spelling,
+# whereas latitude/longitude are floating-point measurements with more
+# than one valid decimal-string spelling per language runtime (adr/0027).
+SEARCH_ORIGIN_LATITUDE_ATTRIBUTE = "data-origin-latitude"
+SEARCH_ORIGIN_LONGITUDE_ATTRIBUTE = "data-origin-longitude"
+# searchOriginMarker.presenceRule's stated absolute tolerance (adr/0027 decision 1).
+SEARCH_ORIGIN_POSITION_TOLERANCE_DEGREES = 1e-9
+# Synthetic, non-default search origin (audit F1,
+# reviews/audit-tdr-cs-origin-marker-position.md; test-support-api.yaml
+# 1.4.0's optional CandidateProposalAcceptanceState.searchOrigin). Every
+# mode's omitted-searchOrigin default is an implementation-chosen constant
+# shared across every mode -- a self-consistency check against that shared
+# constant cannot distinguish a correctly wired implementation from one that
+# hardcodes the same constant, so TDR-CS-01/TDR-CS-02 (the scenarios that
+# assert searchOriginMarker's position) must instead pin a value this DSL
+# itself chooses. Latitude and longitude deliberately have differently
+# shaped digit sequences and opposite signs so a swapped-axis bug also fails
+# assert_search_origin_marker_is_shown's tolerance comparison. Not a real
+# search origin, name, or address.
+KNOWN_SEARCH_ORIGIN = (12.345678, -98.765432)
 WALKING_RADIUS_RING = "candidate-walking-radius-ring"
 PROVIDER_CREDIT = "candidate-provider-credit"
 FILTER_OPEN = "candidate-filter-open"
@@ -201,6 +228,25 @@ LOCATION_RANGE_FORBIDDEN_TOKENS = [
 STATUS_BY_PROBLEM_CODE = {"PROVIDER_UNAVAILABLE": 503, "PROPOSAL_RATE_LIMITED": 429}
 
 
+@dataclass(frozen=True)
+class DisplaySnapshot:
+    """Everything browser-interface.yaml's several *-unchanged Musts (and
+    TDR-CS-16's priorDisplayRetained) require to stay identical across an
+    action that must not alter the display: card/marker candidateRef order,
+    each card's and marker's own data-selection-state (in that same ref
+    order, so a card<->marker correspondence break -- e.g. only the marker
+    side losing its selected state -- is caught, not just ref-list
+    equality), the condition summary text, and the applied filters.
+    """
+
+    card_refs: list[str]
+    marker_refs: list[str | None]
+    card_selection_states: list[str | None]
+    marker_selection_states: list[str | None]
+    condition_summary: str
+    applied_filters: dict[str, object]
+
+
 class CandidateSearchBrowserDsl:
     def __init__(self, assertions: SimpleTestCase, page: Page, base_url: str) -> None:
         self.assertions = assertions
@@ -213,9 +259,7 @@ class CandidateSearchBrowserDsl:
         self.search_again_response: CapturedApiResponse | None = None
         self.original_seed_response: CapturedApiResponse | None = None
         self.failed_response: CapturedApiResponse | None = None
-        self._prior_snapshot: tuple[list[str], list[str | None], str, dict[str, object]] | None = (
-            None
-        )
+        self._prior_snapshot: DisplaySnapshot | None = None
         self._expected_changed_filter: tuple[str, object] | None = None
         self._applied_filters: dict[str, object] = self._normalized_filters({})
         self._pending_filters: dict[str, object] | None = None
@@ -234,10 +278,18 @@ class CandidateSearchBrowserDsl:
         response = self.support.request("DELETE", "/test-support/candidate-proposals/state")
         assert_no_content(self.assertions, response, "candidate-proposal state reset")
 
-    def set_candidate_state(self, mode: str, random_seed: int | None = None) -> None:
+    def set_candidate_state(
+        self,
+        mode: str,
+        random_seed: int | None = None,
+        search_origin: tuple[float, float] | None = None,
+    ) -> None:
         payload: dict[str, object] = {"mode": mode}
         if random_seed is not None:
             payload["randomSeed"] = random_seed
+        if search_origin is not None:
+            latitude, longitude = search_origin
+            payload["searchOrigin"] = {"latitude": latitude, "longitude": longitude}
         response = self.support.request(
             "PUT",
             "/test-support/candidate-proposals/state",
@@ -245,6 +297,16 @@ class CandidateSearchBrowserDsl:
             headers={"Content-Type": "application/json"},
         )
         assert_no_content(self.assertions, response, f"candidate-proposal state set to {mode}")
+
+    def set_lunch_candidates_with_a_known_search_origin(self) -> None:
+        """test-support-api.yaml 1.4.0's CandidateProposalAcceptanceState.searchOrigin
+        (audit F1). Pins a synthetic, non-default searchOrigin so
+        assert_search_origin_marker_is_shown's numeric-equality check can
+        actually distinguish a correctly wired implementation from one that
+        hardcodes the previously-shared default constant every mode
+        returned when this property was omitted.
+        """
+        self.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING", search_origin=KNOWN_SEARCH_ORIGIN)
 
     def seed_shown_candidate_memory_from_observed_urls(self, urls: set[str]) -> None:
         """Given-seam: construct shownCandidateMemory directly from providerPageUrl
@@ -543,17 +605,34 @@ class CandidateSearchBrowserDsl:
     def assert_search_origin_marker_is_shown(self) -> None:
         """地図には検索基点のマーカーが示される (TDR-CS-01, adr/0025 決定1).
 
-        Presence-only. mapObservations.searchOriginMarker's presenceRule
-        also requires the marker's position to derive from the current
-        response's searchOrigin rather than an independently-known
-        constant, but the contract names no observable attribute through
-        which acceptance could read a rendered marker's actual geographic
-        position (markerDataAttributes covers only candidateRef/
-        selectionState, for candidate markers, not this one) -- flagged to
-        architect rather than invented here.
+        mapObservations.searchOriginMarker.presenceRule (contractVersion
+        1.3.2, adr/0027) requires the marker's positionAttributes to be
+        numerically equal -- within an absolute tolerance of
+        SEARCH_ORIGIN_POSITION_TOLERANCE_DEGREES -- to the current
+        response's searchOrigin.latitude/longitude, rather than an
+        independently-known constant -- this is what proves the marker's
+        position derives from the response, not a fixture-baked value
+        (FR-022, 3rd recurrence). Equality is numeric, not lexical: the
+        response is serialized server-side in Python and positionAttributes
+        are set client-side by candidate.js, and the two runtimes do not
+        share one canonical decimal spelling for the same IEEE 754 value
+        (adr/0027). It does not read the marker's rendered pixel position;
+        positionAttributes is the DOM-readable proxy the contract defines
+        for that instead.
         """
-        self._current_proposal()
-        assert_present(self.assertions, self.page, SEARCH_ORIGIN_MARKER)
+        proposal = self._current_proposal()
+        marker = assert_present(self.assertions, self.page, SEARCH_ORIGIN_MARKER)
+        origin = proposal["searchOrigin"]
+        self.assertions.assertAlmostEqual(
+            float(marker.get_attribute(SEARCH_ORIGIN_LATITUDE_ATTRIBUTE)),
+            origin["latitude"],
+            delta=SEARCH_ORIGIN_POSITION_TOLERANCE_DEGREES,
+        )
+        self.assertions.assertAlmostEqual(
+            float(marker.get_attribute(SEARCH_ORIGIN_LONGITUDE_ATTRIBUTE)),
+            origin["longitude"],
+            delta=SEARCH_ORIGIN_POSITION_TOLERANCE_DEGREES,
+        )
 
     def assert_search_range_value_is_not_shown(self) -> None:
         """探索範囲そのものの値は示されない (TDR-CS-01/02, adr/0025 決定4・決定8).
@@ -1380,22 +1459,25 @@ class CandidateSearchBrowserDsl:
             self.page.remove_listener("request", record)
         self.assertions.assertEqual(requests, [])
 
-    def _display_snapshot(self) -> tuple[list[str], list[str | None], str, dict[str, object]]:
-        return (
-            self._card_candidate_refs(),
-            self._marker_candidate_refs(),
-            self._condition_summary_text(),
-            dict(self._applied_filters),
+    def _display_snapshot(self) -> DisplaySnapshot:
+        return DisplaySnapshot(
+            card_refs=self._card_candidate_refs(),
+            marker_refs=self._marker_candidate_refs(),
+            card_selection_states=self._card_selection_states(),
+            marker_selection_states=self._marker_selection_states(),
+            condition_summary=self._condition_summary_text(),
+            applied_filters=dict(self._applied_filters),
         )
 
-    def _assert_display_snapshot(
-        self, snapshot: tuple[list[str], list[str | None], str, dict[str, object]]
-    ) -> None:
-        cards, markers, summary, applied = snapshot
-        self.assertions.assertEqual(self._card_candidate_refs(), cards)
-        self.assertions.assertEqual(self._marker_candidate_refs(), markers)
-        self.assertions.assertEqual(self._condition_summary_text(), summary)
-        self.assertions.assertEqual(self._applied_filters, applied)
+    def _assert_display_snapshot(self, snapshot: DisplaySnapshot) -> None:
+        self.assertions.assertEqual(self._card_candidate_refs(), snapshot.card_refs)
+        self.assertions.assertEqual(self._marker_candidate_refs(), snapshot.marker_refs)
+        self.assertions.assertEqual(self._card_selection_states(), snapshot.card_selection_states)
+        self.assertions.assertEqual(
+            self._marker_selection_states(), snapshot.marker_selection_states
+        )
+        self.assertions.assertEqual(self._condition_summary_text(), snapshot.condition_summary)
+        self.assertions.assertEqual(self._applied_filters, snapshot.applied_filters)
 
     def _condition_summary_text(self) -> str:
         filter_control = by_test_id(self.page, FILTER_OPEN)
@@ -1643,6 +1725,19 @@ class CandidateSearchBrowserDsl:
         markers = wait_for_at_least_one(self.page, MAP_MARKER)
         return [
             markers.nth(index).get_attribute("data-candidate-ref")
+            for index in range(markers.count())
+        ]
+
+    def _card_selection_states(self) -> list[str | None]:
+        cards = wait_for_at_least_one(self.page, CARD)
+        return [
+            cards.nth(index).get_attribute("data-selection-state") for index in range(cards.count())
+        ]
+
+    def _marker_selection_states(self) -> list[str | None]:
+        markers = wait_for_at_least_one(self.page, MAP_MARKER)
+        return [
+            markers.nth(index).get_attribute("data-selection-state")
             for index in range(markers.count())
         ]
 

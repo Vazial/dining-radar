@@ -81,6 +81,97 @@ The rename was built once against the pre-#106 `main`, held when it turned out t
   まだ主張している既存のstep定義によるもので、新契約はこれを許可側へ反転しているため、実装が新契約を
   正しく満たしていることの状況証拠になる。既存stepの改訂は tester の領分のため未着手のまま残した。
 
+### `mapObservations.searchOriginMarker.positionAttributes` の実装と地図resizeの不具合修正（2026-08-24、developer）
+
+architect が `contractVersion 1.3.1` で `mapObservations.searchOriginMarker` に `positionAttributes`
+（`data-origin-latitude`/`data-origin-longitude`）を新設した（FR-022(1)。基点マーカーの位置を
+`response.searchOrigin` の値と突き合わせて検証する手段が契約に無かった穴を塞ぐ追記、人間の再承認は
+不要と architect が判断した記録）。`candidate.js` の `initializeMap` で `candidate-origin-marker` の
+`data-testid` を設定している直後に、`String(searchOrigin.latitude)`/`String(searchOrigin.longitude)` を
+2属性へ設定した——契約の `presenceRule` が要求する「正確な文字列一致」を、`fieldRow` の
+`rawValueAttribute`（`data-raw-value` に `String(value)` を入れる）と同じ様式で満たす。
+
+あわせて `activeContext.md` Next work 5 に記録されていた既知の不具合（画面サイズが変わると地図がずれる）
+を修正した。**実測して分かった訂正がある**——元の記述は「resizeハンドラが一切無い」としていたが、
+vendored `leaflet.js`（1.9.4）を読むと `trackResize: true` がデフォルトで有効で、`candidate.js` は
+これを上書きしていないため、**素朴なブラウザ `window` resize（`page.set_viewport_size()` が発火させる
+もの相当）はこの修正の前から既に自己修復していた**（3通りの独立した実験で確認：スタッシュした無修正の
+コードでも、Playwright の `set_viewport_size` を挟んだ前後でタイルの被覆・マーカー位置が完全に一致した）。
+**実際に空いていた穴**は、`window` resize を伴わないコンテナだけの寸法変化——`candidate-map` の高さが
+`home.html` で `dvh`/`vh` 単位のため、スマホでスクロール中にブラウザのツールバーが出入りするとコンテナが
+CSSだけで寸法変化し、多くのモバイルブラウザではこれが `window` の `resize` を発火させない。これは
+「幹事はスマホ中心」（人間裁定2026-08-22）に直結する経路である。修正は `candidate.js` の `initializeMap`
+の末尾で `ResizeObserver` をコンテナへ直接 `observe` し、発火のたびに `map.invalidateSize()` を呼ぶ
+（`initializeMap` の再実行時は先に `disconnect()` してから張り直す）。
+
+再発防止テストは `tests/ui_invariants/test_render_invariants.py` に
+`test_map_tiles_still_cover_the_container_after_it_resizes_without_a_window_resize` として追加した
+（ADR-0020 決定4の4つのゲート不変条件には含めていない——同ファイルの `test_long_regular_holiday_...` と
+同じ「プレゼンテーション回帰」の型に倣った）。判断の理由: (1) `page.set_viewport_size()` ベースのテストは
+Leaflet自身の `trackResize` で既に緑になってしまうため、この変更を入れる前後を判別できない（実測で確認
+済み）。(2) 実際に穴があった経路（`window` resizeを伴わないコンテナ単独の寸法変化）を再現するには、
+コンテナ要素へ直接インラインstyleで寸法を強制する必要があった——`candidate-map-wrapper` が
+`display:flex; flex-direction:column` なので、`height`だけを`!important`で強制してもフレックスの
+主軸shrinkに押し戻される点が実装時のハマりどころで、`flex: 0 0 <height>px !important` も併せて設定する
+ことで解消した。(3) このテストは fix を無効化して実際に赤くなることを確認した（コンテナの新しい下辺まで
+タイルが届かず `assertGreaterEqual` が失敗）うえで、fix を戻して緑に戻ることも確認済み——このプロジェクト
+の他の回帰テスト（keyboard-activation defect等）と同じ「revert-and-rerun」の実証パターンに倣った。
+
+検証（developer が独立に再実行）: L1（ruff・ruff format・334 unit tests・カバレッジ97%——`coverage
+report --fail-under=90` 通過。mutationは今回のスライスで Python ソースを一切変更していないため
+再実行不要、2026-08-14 に確立した先例のとおり）/ L2（構造12件+9 subtests）/ L3（境界171件+23 subtests、
+Django check ×2）/ L5（`tests/ui_invariants` 12件+3 subtests、新規テストを含めすべて緑）が緑。L4
+（`manage.py test tests.acceptance`）も developer の担当外だが健全性確認として実行し、22件すべて緑
+だった（tester が別途 `5bea6c8` で origin/walking-time の step を既に翻訳済みのため、上記の
+「14件中3件失敗」はこの時点で解消している）。
+
+### 独立監査F1（基点マーカー位置検証のトートロジー）を解消した（2026-08-24、developer）
+
+独立監査（`reviews/audit-tdr-cs-origin-marker-position.md`、branch `test/origin-marker-position`
+——このブランチ自体には未マージで、`git show a22bb2b:...`で内容を読んだ。下の「気づいたこと」参照）が
+Blocker 1件（F1）を報告した。基点マーカーの数値一致検証は「マーカーの位置が応答の`searchOrigin`に
+由来し、独立に知られた定数ではないこと」を証明すると契約が主張していたが、`acceptance_state.py`の
+`_ORIGIN = Origin(latitude=0.0, longitude=0.0)`が全14箇所・全モードで共有されていたため、応答を正しく
+読む実装と`0`/`0`を決め打ちする実装が常に同じ結果になり、実際には証明できていなかった。architect が
+`ffd6937`で`test-support-api.yaml`（`1.4.0`）に`CandidateProposalAcceptanceState.searchOrigin`
+（任意・nullable・緯度経度）を新設済み——省略時は従来の合成定数、指定時は応答の`searchOrigin`がその値と
+完全一致することを要求する。本スライスはその実装側を担当した。
+
+**基点を動かしたときに候補との相対関係が壊れないようにした方法**: `acceptance_state.py`の全ての
+`_..._source()`関数が返す合成候補群は、`_ORIGIN=(0.0, 0.0)`からの絶対緯度経度としてハードコードされて
+おり（例: `latitude=0.0010 + index*0.0002`）、徒歩時間・徒歩の上限フィルタ・重み付け選択・
+`SHOWN_POOL_PRIORITY`の集合判定はすべて`pipeline._distance(origin, candidate)`——`origin`と`candidate`の
+絶対座標の差——に依存する。新設`_origin_shifted()`は、`active_search_origin()`が既定値と異なる基点を
+返すとき、候補群の全メンバーを「基点自身が動いた分と全く同じデルタ」で平行移動してから返す。これにより
+`candidate.longitude`と`origin.longitude`は既定では両方とも`0.0`で、平行移動後は両方とも同じ
+`origin.longitude`になる（同じ値どうしの浮動小数点減算は常に厳密にゼロなので、経度方向の距離寄与は
+基点をどこへ動かしても厳密にゼロのまま）。緯度方向も同様に厳密なデルタ保存を確認済みで、
+`WALKING_TIME_LIMIT_EXCLUDES`の12分境界（950m/12分・800m/10分・1100m/14分、マージン40〜150m）が
+基点を合成的に大きく動かしても崩れないことを単体テストで直接検証した
+（`test_walking_time_limit_boundary_is_unchanged_by_a_pinned_origin`）。`NO_RESULTS`（パイプラインを
+経由しない固定応答）も`active_search_origin()`を読むよう配線し、モードによらず一貫して基点を報告する。
+`set_mode`/`reset_mode`/`views.candidate_proposal_state`（PUT）に`searchOrigin`の受け渡しとスキーマ検証
+（`additionalProperties: false`・緯度±90・経度±180・bool値の拒否）を配線し、省略・明示的な`null`の両方が
+既定の合成定数へフォールバックすることを確認した。
+
+検証（すべて developer が実行）: L1（ruff・ruff format・352 unit tests——18件新規・カバレッジ97%、
+`coverage report --fail-under=90`通過）/ mutation（`acceptance_state.py`・`test_support/views.py`へ
+スコープを絞った`--gremlin-targets`実行、139/139 zapped=100%、Windows既知のWinError 206を回避する
+2026-08-14確立の先例どおり）/ L2（構造12件+9 subtests）/ L3（境界181件+23 subtests、Django check ×2）/
+L5（`tests/ui_invariants` 12件+3 subtests、本スライスはレンダリングコードを変更していないため不変のまま
+緑）が緑。加えて、健全性確認として`manage.py test tests`（L4含むフルスイート）を実行し386件すべて緑
+だった（担当外のstep定義側はtesterが並行して進めている）。
+
+**気づいたこと**: 依頼で指定された監査レポート`reviews/audit-tdr-cs-origin-marker-position.md`は、この
+ブランチ（`docs/record-tdr-cs-slice-state`）の作業ツリーには存在しない。コミット`a22bb2b`として
+`test/origin-marker-position`ブランチにのみ存在し、architect の契約改訂コミット`ffd6937`（本ブランチ上、
+親は`a078684`で`a22bb2b`を経由していない）はその内容を参照してはいるが、ファイル自体を本ブランチへは
+持ち込んでいない。`git show a22bb2b:projects/dining-radar/reviews/audit-tdr-cs-origin-marker-position.md`
+で内容を読み、実装はそこに書かれた指摘とADR-0027追記2の記述に基づいて行った。契約自体に矛盾は見つから
+なかった——`test-support-api.yaml`の新設スキーマは省略時/指定時の挙動を明記しており、実装で判断に迷う
+点はなかった。監査レポートをこのブランチへ持ち込むかどうか（ブランチ間のコーディネーションの問題であり
+契約の矛盾ではない）は、developer の権限外として報告のみ行う。
+
 ### `design.md` が2世代古い（2026-08-23 確認）
 
 `design.md` は designer が起動時に読む文書（役割定義の5番目）だが、中身は **`ADR-0023` が廃止した
@@ -310,7 +401,7 @@ Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (
 2. Reconfirm the assumed Hot Pepper raw JSON field names against current official documentation. (The provider credit, free-plan, and health-check terms were reconfirmed on 2026-08-12 and are recorded under "Deployment platform terms" above.)
 3. Refresh or retire the `project/toyama-dining-radar` branch (the branch and its ruleset keep the old name; the 2026-08-20 rename deliberately left them alone). It is no longer the leading edge: `main` is well ahead of it and 0 behind, so the branch only lags. Decide whether to fast-forward it or drop it in favour of slicing directly off `main`, which is what recent slices have actually done.
 4. Consider whether ADR-0003's stated design-preview stack (React, TypeScript, Tailwind, shadcn/ui) should match the receiver's actual dependencies (React, TypeScript, `lucide-react` only, with hand-written CSS), by installing the missing packages or amending the ADR. Designer worked around the gap by requiring visually self-contained artifacts; the divergence itself is unresolved.
-5. The candidate map never calls Leaflet's `invalidateSize()`/re-fits when its container is resized after the initial render (no resize handler in `candidate.js`). A user who resizes their browser window or rotates their device after the screen has loaded would see a stale, misaligned map. Found while building the render-observation tool (ADR-0020 decision 1); not covered by any of ADR-0020 decision 4's four gate invariants, so left unfixed for a future slice to pick up.
+~~5. The candidate map never calls Leaflet's `invalidateSize()`/re-fits when its container is resized after the initial render (no resize handler in `candidate.js`).~~ **解決した（2026-08-24、developer）**——see below. The original framing was partly imprecise: Leaflet's own default `trackResize: true` (confirmed by reading the vendored `leaflet.js`) already re-fits on a plain browser-`window` resize, so a straightforward `page.set_viewport_size()`-style resize was already handled before this fix. The real remaining gap was a container-size change with **no accompanying `window` resize event** — reachable on a phone because `candidate-map`'s height is `dvh`/`vh`-sized, so a mobile browser's toolbar collapsing/reappearing while scrolling resizes the container purely through CSS. `candidate.js` now attaches a `ResizeObserver` directly to the map container (disconnected/reattached on every `initializeMap` re-render) that calls `invalidateSize()` on any container-size change regardless of cause.
 6. `meta/tools/govlint.py`'s `SCENARIO_ID` pattern cannot match `TDR-CS-01` or `TDR-AUTH-01`, so all 19 TDR scenario IDs have never been checked by L0. Fixing it needs a human unlock commit for `meta/tools/**` (`meta/adr/0046`).
 
 ## Open questions

@@ -58,7 +58,7 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
 
     def test_tdr_cs_01_initial_candidates_and_map_are_compared_immediately(self) -> None:
         self._sign_in()
-        self.steps.lunch_candidates_can_be_proposed()
+        self.steps.lunch_candidates_can_be_proposed_at_a_known_search_origin()
         self.steps.organizer_opens_candidate_proposal_screen()
         self.steps.default_filters_and_nearest_candidates_are_shown()
         self.steps.initial_display_requests_no_filter_input()
@@ -69,7 +69,7 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
 
     def test_tdr_cs_02_compare_candidates_on_cards_and_map(self) -> None:
         self._sign_in()
-        self.steps.lunch_candidates_can_be_proposed()
+        self.steps.lunch_candidates_can_be_proposed_at_a_known_search_origin()
         self.steps.organizer_has_filtered_candidates()
         self.steps.current_candidates_are_in_cards_and_map()
         self.steps.selecting_a_card_highlights_its_marker()

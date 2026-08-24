@@ -838,8 +838,12 @@ slice: TDR-CS-origin-and-walking-time
 agents: [architect, tester]
 cause_category: L4 browser observation contract missing
 cause_key: l4-browser-observation-contract-missing
-pushed_to: []
-status: 未対応
+pushed_to:
+  - projects/dining-radar/contracts/candidate-search-browser-interface.yaml
+  - projects/dining-radar/contracts/test-support-api.yaml
+  - projects/dining-radar/adr/0025-disclose-search-origin-and-walking-time-to-the-authenticated-screen.md
+  - projects/dining-radar/adr/0027-numeric-equality-for-float-observed-attributes.md
+status: 対応済み
 principles: [P-01, P-04, P-08]
 ```
 
@@ -859,11 +863,83 @@ principles: [P-01, P-04, P-08]
   browser 操作と観測境界を契約しなかった）と同じ形であり、**cause_key の2回目**にあたる。
   なお (2) は tester 側で技法を組み替えて解消した（`dispatch_event` へ変更。座標ベースの強制クリックは
   重なったカードに当たってしまうため採らなかった）が、**契約が幾何を持っていれば往復は不要だった**。
-- 押し込み先: 未定。**(1) は次のスライスで塞ぐ**——観測可能な属性を契約に足すか、`presenceRule` の要求を
-  存在確認まで緩めるかの判断が要る（architect の領分）。**(2) は一般化すると「契約が要求する観測が、
+- 押し込み先: **(1) を塞いだ。** `contracts/candidate-search-browser-interface.yaml` の
+  `mapObservations.searchOriginMarker` に `positionAttributes`（`data-origin-latitude`/
+  `data-origin-longitude`）を新設し、`presenceRule` を「現在の応答の
+  `searchOrigin.latitude`/`searchOrigin.longitude` と厳密に文字列一致することを検証する」という
+  機械可読な要求へ書き換えた（`cardDataAttributes.rawValueAttribute` と同じ様式）。
+  `response.searchOrigin` は `adr/0025` 決定1が既に承認した非秘匿の公開フィールドであり、この属性は
+  同じ値をDOMからも読めるようにするだけで、新しい開示を追加しない（詳細は `adr/0025` の
+  2026-08-24追記）。実装（`candidate.js`）とtesterのstep定義の書き換えは未着手のまま次のスライスへ
+  残る——architectの領分は契約・ADRの確定までである。**(2) は一般化すると「契約が要求する観測が、
   承認済みの画面配置のもとで成立するか」を契約側が持てるかという問題**であり、`adr/0020` が L5 に置いた
   幾何測定との住み分けを含む。**2回で仕組みを入れるほどの確度はまだ無い**と判断し、3回目が出たときに
-  ADR を起こす（P-05）。
+  ADR を起こす（P-05）。この判断は変えない。
 - 補足: **並行モデル（tester が実装を読まない）そのものは機能している**——2件とも統合の1往復で解消した。
   記録する理由は往復のコストではなく、**契約が「検証できないことを検証せよ」と書ける状態にある**ことに
   ある。これは契約が承認材料として読まれるときに、読み手が「検証されている」と誤解する余地を作る。
+
+### FR-022 follow-up (2026-08-24, architect)
+
+- (1) を塞いだ経緯と理由は上記 `pushed_to` の2ファイルに書いた。塞ぎ方の選択肢は2つあった——
+  (a) 観測可能な属性を契約に足す、(b) `presenceRule` の要求を存在確認まで緩める。**(a) を採った**。
+  理由: `response.searchOrigin.latitude/longitude` は `adr/0025` 決定1が既に承認した非秘匿の公開API
+  フィールドであり、DOM属性として追加で見せることは新しい開示ではない——ネットワーク応答で既に読める
+  値を、DOMからも読めるようにするだけである。(b) を採ると「マーカーの位置が応答に由来する」ことの
+  機械検証そのものを諦めることになり、契約の文言（presenceRuleが検証を要求している）と実際の検証力の
+  乖離が残る。乖離を消すほうを選んだ。
+- 実装・テストは本follow-upの範囲外——`candidate.js`にDOM属性を設定する変更と、testerのstep定義の
+  書き換えが要る（両方とも次のスライスの持ち物）。
+
+### FR-022 follow-up 2 (2026-08-24, architect — cause_keyの3回目)
+
+- (1) を塞ぐために足した `positionAttributes` を実装・testerのstepへ通したところ、L4が1件落ちた。
+  JavaScriptの`String(0.0)`は`"0"`、Pythonの`str(0.0)`は`"0.0"`であり、同じ数値でも言語によって
+  10進表記が異なる。`presenceRule`の「exact canonical decimal string」という文言はcanonicalの定義を
+  持たず、前例の`cardDataAttributes.rawValueAttribute`（文字列一致）は整数・閉じたenum文字列にしか
+  使われておらず、浮動小数点には届いていなかった——**属性を足す判断自体は正しかったが、その等価規則を
+  そのまま前例の様式（文字列一致）で書いたことが2度目の欠落を生んだ**。
+- これは同じcause_key（`l4-browser-observation-contract-missing`）の**3回目**である（1回目=位置を
+  読む属性が無い、2回目=承認済み配置のもとでマーカーに到達できない、3回目=本件）。FR-022本文は
+  「3回目が出たときにADRを起こす」としており、その約束を実施した——`adr/0027`（プロジェクトscope）
+  として、この契約における浮動小数点フィールドの等価規則を数値比較へ改める決定を起票した。
+- `presenceRule`を数値としての一致（属性を数値へ解析し、応答値と絶対誤差1e-9度以内で比較する）へ
+  改めた（`candidate-search-browser-interface.yaml` `1.3.2`）。検討した代替案（canonicalな文字列
+  書式を契約で定義する／属性の値を応答のJSON表記そのものにする）とその不採用理由は`adr/0027`を参照。
+- 切り分け（`meta/adr/0047`）: `adr/0027`はこの契約自身の等価規則を決めるものでありプロジェクトscope
+  で完結する。一方、cause_keyが3回出たという事実そのもの（3件の技術的形がいずれも異なる）をテンプレート
+  全体としてどう扱うか——一般的な機構を入れるべきか、それとも技術的形が毎回違う以上、単一の機構では
+  防げないと判断するか——は`adr/0027`では判断せず、orchestrator（`meta/adr/0047`）へ委ねた。
+
+### FR-022 follow-up 3 (2026-08-24, architect — 独立監査F1、cause_keyの4回目)
+
+- 独立監査（`reviews/audit-tdr-cs-origin-marker-position.md`、F1）が Blocker を1件報告した。数値比較へ
+  改めた `presenceRule`（follow-up 2）の「マーカーの位置が応答由来であり**独立に知られた定数ではない**」
+  という主張を、**テストが実際には証明できていなかった**。原因は
+  `src/dining_radar/suggestions/acceptance_state.py:196` の `_ORIGIN = Origin(latitude=0.0, longitude=0.0)`
+  が全14箇所・全モードで共有されていたことである——acceptance が返す `searchOrigin` は常に `(0.0, 0.0)`
+  であり、応答とDOM属性の自己整合性チェックでは「正しく配線された実装」と「`0`/`0`を決め打ちした実装」
+  を区別できない。数値比較への変更（follow-up 2）はこの点に影響しない——文字列一致でも同じだった。
+- **契約2本が食い違っていた。** `candidate-search-browser-interface.yaml` の `presenceRule`
+  （architectが書いたもの）は「fixture-baked value ではないことを証明する」と強く主張する一方、
+  `contracts/test-support-api.yaml`（2026-08-20起草の該当箇所）は「`searchOrigin` の値そのものを
+  Given API で選択可能にする必要はない。自己整合性だけを検証すれば足りる」と明示的に弱く主張していた。
+  後者が先にあり、`positionAttributes`（2026-08-24）がその上に強い主張を足した時点でこの矛盾を
+  確認しなかった。
+- コーディネータが提示した3択のうち**(a)（Given API で `searchOrigin` を選択可能にする）を採った**。
+  `test-support-api.yaml`（`1.4.0`）の `CandidateProposalAcceptanceState` に任意プロパティ
+  `searchOrigin`（nullable、緯度経度）を新設し、省略時は従来どおりの合成定数で既存シナリオの挙動を
+  無変更のまま保つ。(b)（モードごとに異なる合成基点）は、モードを追加するたびに「どのモードがどの値か」
+  というテスト側の暗黙知識の保守を要求するため不採用。(c)（presenceRuleの主張を弱める）は、FR-022が
+  指摘した欠陥（検証手段のない検証要求）を「検証できていないのに検証したと書く」というより悪い形で
+  残すことになるため不採用。詳細と理由は `adr/0027` の2026-08-24追記2を参照。
+- **cause_keyの4回目を見て、3回目時点の見立て（「3件は異なる技術的形を取っており単一の機械検査は
+  現実的でない」）を部分的に修正した。** (1)属性が無いと(4)本件は、技術的な現れ方は違うが同じ種類の
+  主張の失敗——「独立に知られた定数ではない」という presenceRule の主張は、(i) 値を読む観測可能な属性と
+  (ii) その値を裏付ける Given データが決め打ちでは通せない形で変動すること、の両方が要る。(1)は(i)の
+  欠如、(4)は(ii)の欠如だった。(2)・(3)はこの主張の族には属さない別種の欠落であり、「単一の機械検査は
+  現実的でない」という結論自体は変えない。変えたのは範囲——「独立に知られた定数ではない」
+  「fixture-baked value ではない」という**特定の主張族**に限れば、(i)・(ii)双方の確認という具体的な
+  執筆時チェックリストがはっきりした。機械検査ではなくarchitectの自己点検項目として運用し、この族で
+  5件目が出たら機械化を検討する（P-05）。cause_keyの一般論（テンプレート全体でどこまで先回りするか）は
+  引き続きorchestrator（`meta/adr/0047`）へ委ねる——判断材料は増えていない。
