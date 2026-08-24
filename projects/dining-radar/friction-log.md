@@ -838,8 +838,10 @@ slice: TDR-CS-origin-and-walking-time
 agents: [architect, tester]
 cause_category: L4 browser observation contract missing
 cause_key: l4-browser-observation-contract-missing
-pushed_to: []
-status: 未対応
+pushed_to:
+  - projects/dining-radar/contracts/candidate-search-browser-interface.yaml
+  - projects/dining-radar/adr/0025-disclose-search-origin-and-walking-time-to-the-authenticated-screen.md
+status: 対応済み
 principles: [P-01, P-04, P-08]
 ```
 
@@ -859,11 +861,30 @@ principles: [P-01, P-04, P-08]
   browser 操作と観測境界を契約しなかった）と同じ形であり、**cause_key の2回目**にあたる。
   なお (2) は tester 側で技法を組み替えて解消した（`dispatch_event` へ変更。座標ベースの強制クリックは
   重なったカードに当たってしまうため採らなかった）が、**契約が幾何を持っていれば往復は不要だった**。
-- 押し込み先: 未定。**(1) は次のスライスで塞ぐ**——観測可能な属性を契約に足すか、`presenceRule` の要求を
-  存在確認まで緩めるかの判断が要る（architect の領分）。**(2) は一般化すると「契約が要求する観測が、
+- 押し込み先: **(1) を塞いだ。** `contracts/candidate-search-browser-interface.yaml` の
+  `mapObservations.searchOriginMarker` に `positionAttributes`（`data-origin-latitude`/
+  `data-origin-longitude`）を新設し、`presenceRule` を「現在の応答の
+  `searchOrigin.latitude`/`searchOrigin.longitude` と厳密に文字列一致することを検証する」という
+  機械可読な要求へ書き換えた（`cardDataAttributes.rawValueAttribute` と同じ様式）。
+  `response.searchOrigin` は `adr/0025` 決定1が既に承認した非秘匿の公開フィールドであり、この属性は
+  同じ値をDOMからも読めるようにするだけで、新しい開示を追加しない（詳細は `adr/0025` の
+  2026-08-24追記）。実装（`candidate.js`）とtesterのstep定義の書き換えは未着手のまま次のスライスへ
+  残る——architectの領分は契約・ADRの確定までである。**(2) は一般化すると「契約が要求する観測が、
   承認済みの画面配置のもとで成立するか」を契約側が持てるかという問題**であり、`adr/0020` が L5 に置いた
   幾何測定との住み分けを含む。**2回で仕組みを入れるほどの確度はまだ無い**と判断し、3回目が出たときに
-  ADR を起こす（P-05）。
+  ADR を起こす（P-05）。この判断は変えない。
 - 補足: **並行モデル（tester が実装を読まない）そのものは機能している**——2件とも統合の1往復で解消した。
   記録する理由は往復のコストではなく、**契約が「検証できないことを検証せよ」と書ける状態にある**ことに
   ある。これは契約が承認材料として読まれるときに、読み手が「検証されている」と誤解する余地を作る。
+
+### FR-022 follow-up (2026-08-24, architect)
+
+- (1) を塞いだ経緯と理由は上記 `pushed_to` の2ファイルに書いた。塞ぎ方の選択肢は2つあった——
+  (a) 観測可能な属性を契約に足す、(b) `presenceRule` の要求を存在確認まで緩める。**(a) を採った**。
+  理由: `response.searchOrigin.latitude/longitude` は `adr/0025` 決定1が既に承認した非秘匿の公開API
+  フィールドであり、DOM属性として追加で見せることは新しい開示ではない——ネットワーク応答で既に読める
+  値を、DOMからも読めるようにするだけである。(b) を採ると「マーカーの位置が応答に由来する」ことの
+  機械検証そのものを諦めることになり、契約の文言（presenceRuleが検証を要求している）と実際の検証力の
+  乖離が残る。乖離を消すほうを選んだ。
+- 実装・テストは本follow-upの範囲外——`candidate.js`にDOM属性を設定する変更と、testerのstep定義の
+  書き換えが要る（両方とも次のスライスの持ち物）。

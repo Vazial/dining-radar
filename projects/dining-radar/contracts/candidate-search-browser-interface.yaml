@@ -4,8 +4,8 @@
 # observation SSoT for TDR-CS acceptance work. It neither creates a public API
 # nor changes the browser-facing candidate-proposal API.
 #
-# Status: 承認待ち — adr/0024 と adr/0025 のドラフト改訂（いずれも未マージ）が重なっている。承認方式は
-# いずれもADR-0035の(ii)（記録のみ・承認は後日）。人間はまだこれらの改訂を承認していない。
+# Status: 承認待ち — adr/0024 のドラフト改訂（未マージ・frontmatter は status: 提案中）が重なっている。**adr/0025 の改訂は 2026-08-24 に PR #156 のマージをもって承認済み**（ADR-0035 方式(i)）であり、契約・実装・テストが同一スライスで main に載っている。以下の「未承認」の記述は adr/0024 の分にのみ掛かる。承認方式は
+# いずれもADR-0035の(ii)（記録のみ・承認は後日）。人間は adr/0024 の改訂をまだ承認していない。
 #
 # Below is the content approved 2026-08-12 (PR #90, adr/0023) as v1.0.5, over
 # which the 2026-08-14 adr/0024 draft, and then the 2026-08-20 adr/0025 draft
@@ -131,7 +131,29 @@
 #   （検証手段のない要求は追加しない）。429/503を画面で区別するかどうか自体はproduct-brief.md
 #   §8がなお未決としている別の論点である。
 # - profiles.localAcceptance.verifiesScenarios に TDR-CS-16 を加える。
-contractVersion: '1.3.0'
+#
+# 2026-08-24 追記 (architect、FR-022(1)への対応。人間の再承認を要しない記録——理由は下記):
+# - mapObservations.searchOriginMarker に positionAttributes（data-origin-latitude/
+#   data-origin-longitude）を新設する。従来のpresenceRuleは「マーカーの位置が
+#   response.searchOrigin に由来し、独立に知られた定数ではないことを検証せよ」と検証の
+#   目的だけを述べ、それを検証する手段（マーカーの地理的位置を読み取れる属性）を持って
+#   いなかった。tester がL4起草時にこの欠落を報告し（friction-log FR-022、cause_key
+#   `l4-browser-observation-contract-missing` の2回目=FR-003と同型）、属性名を捏造せず
+#   存在確認だけにとどめて報告した。本追記はこれを塞ぐ。
+# - これは新しい開示ではない。`response.searchOrigin.latitude/longitude` は adr/0025
+#   決定1が既に承認した非秘匿の公開APIフィールドであり（candidate-search-api.yaml の
+#   SearchOriginLocation）、この属性追加はその同じ値をネットワーク応答からだけでなく
+#   DOMからも読めるようにするだけである。命名・等価規則は cardDataAttributes の
+#   rawValueAttribute（totalSeats 等の data-raw-value、正確な文字列一致）と同じ様式に
+#   倣う。正確な距離の数値・経路・現在地・設定探索範囲の値を出さないという既存のMust
+#   （adr/0025 決定6・9、mapObservations.forbiddenTestIds、disclosureObservations）は
+#   一切変更しない——この属性が運ぶのは基点の座標だけであり、候補店舗の座標・距離・
+#   経路・現在地・設定探索範囲のいずれも運ばない。
+# - FR-022(2)（基点マーカーが候補デッキに重なりクリックがブロックされた件）はここでは
+#   扱わない。tester が technique を組み替えて解消済みであり、「契約が要求する観測が、
+#   承認済みの画面配置のもとで成立するか」という一般問題は2回では仕組みを起こす確度が
+#   無いと判断し、3回目が出たときにADRを起こす（P-05、FR-022本文の判断を維持）。
+contractVersion: '1.3.1'
 kind: acceptance-browser-interface
 scope: candidate-search
 profiles:
@@ -407,12 +429,25 @@ browserControlSurface:
       candidateRefUniqueness: every-current-card-has-a-unique-non-empty-data-candidate-ref
       searchOriginMarker:
         testId: candidate-origin-marker
+        positionAttributes: {latitude: data-origin-latitude, longitude: data-origin-longitude}
         presenceRule: >-
           Present exactly once whenever candidate-map is present (adr/0025
-          decision 1). Its position must correspond to the current
-          response's `searchOrigin` coordinates; acceptance reads the
-          response and asserts the marker's position derives from that same
-          value rather than any independently known constant.
+          decision 1). Its two positionAttributes each carry the exact
+          canonical decimal string of the current response's
+          `searchOrigin.latitude` and `searchOrigin.longitude` respectively
+          -- the same string-equality rule cardDataAttributes'
+          rawValueAttribute already uses for totalSeats/nonSmokingStatus/
+          dinnerBudgetTier. Acceptance asserts these attributes for exact
+          equality against the current response, rather than against any
+          independently known constant, which is what proves the marker's
+          position derives from `searchOrigin` and not from a fixture-baked
+          value; it does not need to read the marker's rendered pixel
+          position to do so. This does not add a new disclosure:
+          `response.searchOrigin` is already an unobfuscated, approved
+          public field (adr/0025 decision 1, candidate-search-api.yaml's
+          SearchOriginLocation), so positionAttributes only makes that
+          already-disclosed value additionally readable from the DOM
+          instead of only from the network response (FR-022(1)).
         interactivity: >-
           A read-only display element. It may carry an accessible name/
           visible label identifying itself as the search origin (e.g. 検索
