@@ -841,6 +841,7 @@ cause_key: l4-browser-observation-contract-missing
 pushed_to:
   - projects/dining-radar/contracts/candidate-search-browser-interface.yaml
   - projects/dining-radar/adr/0025-disclose-search-origin-and-walking-time-to-the-authenticated-screen.md
+  - projects/dining-radar/adr/0027-numeric-equality-for-float-observed-attributes.md
 status: 対応済み
 principles: [P-01, P-04, P-08]
 ```
@@ -888,3 +889,23 @@ principles: [P-01, P-04, P-08]
   乖離が残る。乖離を消すほうを選んだ。
 - 実装・テストは本follow-upの範囲外——`candidate.js`にDOM属性を設定する変更と、testerのstep定義の
   書き換えが要る（両方とも次のスライスの持ち物）。
+
+### FR-022 follow-up 2 (2026-08-24, architect — cause_keyの3回目)
+
+- (1) を塞ぐために足した `positionAttributes` を実装・testerのstepへ通したところ、L4が1件落ちた。
+  JavaScriptの`String(0.0)`は`"0"`、Pythonの`str(0.0)`は`"0.0"`であり、同じ数値でも言語によって
+  10進表記が異なる。`presenceRule`の「exact canonical decimal string」という文言はcanonicalの定義を
+  持たず、前例の`cardDataAttributes.rawValueAttribute`（文字列一致）は整数・閉じたenum文字列にしか
+  使われておらず、浮動小数点には届いていなかった——**属性を足す判断自体は正しかったが、その等価規則を
+  そのまま前例の様式（文字列一致）で書いたことが2度目の欠落を生んだ**。
+- これは同じcause_key（`l4-browser-observation-contract-missing`）の**3回目**である（1回目=位置を
+  読む属性が無い、2回目=承認済み配置のもとでマーカーに到達できない、3回目=本件）。FR-022本文は
+  「3回目が出たときにADRを起こす」としており、その約束を実施した——`adr/0027`（プロジェクトscope）
+  として、この契約における浮動小数点フィールドの等価規則を数値比較へ改める決定を起票した。
+- `presenceRule`を数値としての一致（属性を数値へ解析し、応答値と絶対誤差1e-9度以内で比較する）へ
+  改めた（`candidate-search-browser-interface.yaml` `1.3.2`）。検討した代替案（canonicalな文字列
+  書式を契約で定義する／属性の値を応答のJSON表記そのものにする）とその不採用理由は`adr/0027`を参照。
+- 切り分け（`meta/adr/0047`）: `adr/0027`はこの契約自身の等価規則を決めるものでありプロジェクトscope
+  で完結する。一方、cause_keyが3回出たという事実そのもの（3件の技術的形がいずれも異なる）をテンプレート
+  全体としてどう扱うか——一般的な機構を入れるべきか、それとも技術的形が毎回違う以上、単一の機構では
+  防げないと判断するか——は`adr/0027`では判断せず、orchestrator（`meta/adr/0047`）へ委ねた。
