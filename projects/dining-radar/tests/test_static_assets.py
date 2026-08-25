@@ -110,7 +110,8 @@ class CandidateSurfaceSourceTests(SimpleTestCase):
         self.assertIn("candidate-map-open", template)
         self.assertIn('"data-testid": "candidate-map-open"', script)
         self.assertIn('"data-testid": "candidate-map-sheet-close"', script)
-        self.assertIn("candidate-map-sheet-close", template)
+        self.assertIn("candidate-map-sheet-back", template)
+        self.assertIn("candidate-map-sheet-header", template)
         self.assertIn("candidate-map-sheet-panel", template)
         self.assertEqual(
             script.count('{ "data-testid": "candidate-map", "data-map-tile-provider"'),
@@ -126,7 +127,9 @@ class CandidateSurfaceSourceTests(SimpleTestCase):
         template = HOME_TEMPLATE.read_text(encoding="utf-8")
 
         self.assertIn("min-height: 3.25rem", template)
-        self.assertIn("height: 3.5rem", template)
+        # Tokens.dc.html: header 52 / condition bar 48 (E:\AWS\dsg-out;
+        # design realignment 2026-08-25).
+        self.assertIn("height: 3rem", template)
         self.assertIn("height: 3.25rem", template)
         self.assertIn("flex-wrap: nowrap; overflow-x: auto", template)
         self.assertIn("candidate-card-description", template)

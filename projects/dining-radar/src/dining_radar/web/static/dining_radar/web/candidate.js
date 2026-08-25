@@ -192,6 +192,7 @@
   var cardsContainerEl = null;
   var mapWrapperEl = null;
   var mapSheetPanelEl = null;
+  var mapSheetCounterEl = null;
   // The element focus should return to when the sheet closes -- whichever
   // control opened it (the ribbon, or a marker tapped while it was
   // reachable) -- so closing the sheet does not strand keyboard focus on a
@@ -454,27 +455,15 @@
       }
     });
 
-    // Identification row: the same number the map marker shows (so a card
-    // and its marker are visually tied together) and the genre as a small
-    // chip.
+    // Design realignment (human real-device report 2026-08-25, E:\AWS    // dsg-out\Main.dc.html's own .card markup): the id row carries the
+    // badge, the shop name itself, and the walking-time estimate as a
+    // trailing chip, all on one line -- not just the badge with genre
+    // trailing it. Genre moves to its own plain-text line (no chip)
+    // directly above the description, and walking time moves out of the
+    // facts grid entirely (into this row's chip), leaving the facts grid
+    // exactly the four/three items the design's own 2-column grid shows.
     var idRow = el("div", { "class": "candidate-card-id-row" }, [
       el("span", { "class": "candidate-marker-badge", "aria-hidden": "true" }, [String(index + 1)]),
-    ]);
-    idRow.appendChild(
-      el(
-        "p",
-        {
-          "data-testid": "candidate-card-genre",
-          "data-field-label": "ジャンル",
-          "data-value-state": "provided",
-          "class": "candidate-genre-chip",
-        },
-        [candidate.genre]
-      )
-    );
-    card.appendChild(idRow);
-
-    card.appendChild(
       el(
         "h3",
         {
@@ -484,20 +473,61 @@
           "class": "candidate-shop-name",
         },
         [candidate.name]
+      ),
+      el("span", { "class": "candidate-card-id-row-spacer", "aria-hidden": "true" }, []),
+      // adr/0025 decision 2: always provided (never "情報なし" -- walking
+      // time is always computable from the response's own searchOrigin and
+      // this candidate's location), so no rawValueAttribute is declared --
+      // the visible value and the raw response number are the same value,
+      // unlike totalSeats/nonSmokingStatus/dinnerBudgetTier's coarse-label
+      // translations below. The leading "約" is the required estimate-
+      // wording signal (candidate-search-browser-interface.yaml's
+      // walkingTimeEstimateWording): this is an estimate, not a measured
+      // route. Contract only fixes this element's own testid/field-label/
+      // value-state/text -- not that it be a dt/dd fieldRow pair -- so a
+      // standalone chip carries the same attributes fieldRow would have.
+      el(
+        "span",
+        {
+          "data-testid": "candidate-card-walking-time",
+          "data-field-label": "徒歩",
+          "data-value-state": "provided",
+          "class": "candidate-walk-chip",
+        },
+        ["徒歩 約" + candidate.walkingTimeMinutes + "分"]
+      ),
+    ]);
+    card.appendChild(idRow);
+
+    card.appendChild(
+      el("p", { "data-testid": "candidate-card-genre", "data-field-label": "ジャンル", "data-value-state": "provided", "class": "candidate-genre-text" }, [
+        candidate.genre,
+      ])
+    );
+
+    // Design realignment (E:\AWS\dsg-out\Main.dc.html): description is a
+    // plain paragraph directly under genre, not a labelled fact row inside
+    // the facts grid -- design shows no "紹介" heading at all, just the
+    // text itself. fieldRow always renders a visible dt label, so this is
+    // built directly instead; data-field-label/-value-state/rawValueAttribue-
+    // equivalent absence match what fieldRow would have produced for this
+    // same field (fieldRow's own "unavailable" fallback text is kept too).
+    var descriptionProvided =
+      candidate.description !== null && candidate.description !== undefined && candidate.description !== "";
+    card.appendChild(
+      el(
+        "p",
+        {
+          "data-testid": "candidate-card-description",
+          "data-field-label": "紹介",
+          "data-value-state": descriptionProvided ? "provided" : "unavailable",
+          "class": "candidate-description-text",
+        },
+        [descriptionProvided ? candidate.description : "紹介文の登録はありません"]
       )
     );
 
     var facts = el("dl", { "class": "candidate-facts" }, []);
-    facts.appendChild(
-      fieldRow(
-        "紹介",
-        "candidate-card-description",
-        candidate.description,
-        undefined,
-        undefined,
-        "紹介文の登録はありません"
-      )
-    );
     facts.appendChild(
       fieldRow(
         "総席数",
@@ -532,26 +562,6 @@
         "data-raw-value",
         undefined,
         "夜予算"
-      )
-    );
-    // adr/0025 decision 2: always provided (never "情報なし" -- walking time
-    // is always computable from the response's own searchOrigin and this
-    // candidate's location), so no rawValueAttribute is declared -- the
-    // visible value and the raw response number are the same value, unlike
-    // totalSeats/nonSmokingStatus/dinnerBudgetTier's coarse-label
-    // translations above. The leading "約" is the required estimate-wording
-    // signal (candidate-search-browser-interface.yaml's
-    // walkingTimeEstimateWording): this is an estimate, not a measured
-    // route.
-    facts.appendChild(
-      fieldRow(
-        "徒歩のめやす",
-        "candidate-card-walking-time",
-        candidate.walkingTimeMinutes,
-        "約" + candidate.walkingTimeMinutes + "分",
-        undefined,
-        undefined,
-        "徒歩"
       )
     );
     card.appendChild(facts);
@@ -798,6 +808,21 @@
     mapSheetPanelEl.innerHTML = "";
     if (selectedCard) {
       mapSheetPanelEl.appendChild(selectedCard);
+      // Design realignment (E:\AWS\dsg-out\MapSheet.dc.html): a hint
+      // line under the primary action, since there is no card deck here
+      // to imply "there are more of these".
+      mapSheetPanelEl.appendChild(
+        el("p", { "class": "candidate-map-sheet-hint" }, ["ほかの店を見るには地図のピンをタップ"])
+      );
+    }
+    // Design realignment (E:\AWS\dsg-out\MapSheet.dc.html's header bar):
+    // "N / total" position counter, matching the design's own "1 / 5".
+    if (mapSheetCounterEl) {
+      var position = orderedCardElements.findIndex(function (card) {
+        return card.getAttribute("data-candidate-ref") === selectedCandidateRef;
+      });
+      mapSheetCounterEl.textContent =
+        position === -1 ? "" : String(position + 1) + " / " + String(orderedCardElements.length);
     }
   }
 
@@ -934,7 +959,7 @@
     syncMapSheetPanelToSelection();
     refreshMapViewAndRings();
     sheetCloseFocusTarget = document.activeElement;
-    var closeControl = mapWrapperEl.querySelector(".candidate-map-sheet-close");
+    var closeControl = mapWrapperEl.querySelector(".candidate-map-sheet-back");
     if (closeControl) {
       closeControl.focus();
     }
@@ -1905,15 +1930,24 @@
         openMapSheet();
       }
     });
+    // Design realignment (human real-device report 2026-08-25,
+    // E:\AWS\dsg-out\MapSheet.dc.html): a 52px header bar ("リストへ戻る"
+    // + a position counter), not a floating circular X in the corner.
+    // Keeps the existing candidate-map-sheet-close test id/purpose (same
+    // close behavior, no data-candidate-control-purpose -- see this file's
+    // own earlier comment for why) on the back-labelled element itself.
     var sheetCloseButton = el(
       "div",
       {
         "data-testid": "candidate-map-sheet-close",
-        "class": "candidate-map-sheet-close",
+        "class": "candidate-map-sheet-back",
         tabindex: "0",
-        "aria-label": "地図を閉じる",
+        "aria-label": "地図を閉じてリストへ戻る",
       },
-      ["✕"]
+      [
+        el("span", { "class": "candidate-map-sheet-back-icon", "aria-hidden": "true" }, ["←"]),
+        el("span", {}, ["リストへ戻る"]),
+      ]
     );
     sheetCloseButton.addEventListener("click", function () {
       closeMapSheet();
@@ -1924,11 +1958,20 @@
         closeMapSheet();
       }
     });
+    mapSheetCounterEl = el(
+      "span",
+      { "class": "candidate-map-sheet-counter", "aria-live": "polite", "aria-label": "選択中の候補" },
+      [""]
+    );
+    var mapSheetHeader = el("div", { "class": "candidate-map-sheet-header" }, [
+      sheetCloseButton,
+      mapSheetCounterEl,
+    ]);
     mapSheetPanelEl = el("div", { "class": "candidate-map-sheet-panel" }, []);
     var mapWrapper = el("div", { "class": "candidate-map-wrapper" }, [
       mapContainer,
       mapOpenButton,
-      sheetCloseButton,
+      mapSheetHeader,
       mapSheetPanelEl,
       el(
         "a",

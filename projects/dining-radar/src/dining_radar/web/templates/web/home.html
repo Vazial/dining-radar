@@ -388,30 +388,51 @@
     .candidate-main-layout[data-map-sheet-open="true"] .candidate-map-open {
       display: none;
     }
-    .candidate-map-sheet-close {
+    /* Design realignment (human real-device report 2026-08-25,
+       E:\AWS\dsg-out\MapSheet.dc.html's own top bar): a 52px header
+       ("リストへ戻る" + a "N / total" position counter), not a floating
+       circular X. candidate.js keeps the existing candidate-map-sheet-
+       close test id (same close behavior) on the back-labelled element. */
+    .candidate-map-sheet-header {
       display: none;
       position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
       z-index: 502;
-      top: 0.75rem;
-      right: 0.75rem;
+      height: 3.25rem;
+      box-sizing: border-box;
+      padding: 0 0.875rem 0 0.375rem;
       align-items: center;
-      justify-content: center;
-      width: 2.75rem;
-      height: 2.75rem;
-      border-radius: 50%;
-      background: rgb(255 255 255 / 94%);
-      color: #1c2420;
-      font-size: 1.1rem;
-      box-shadow: 0 0.25rem 0.75rem rgb(23 49 36 / 22%);
-      cursor: pointer;
+      justify-content: space-between;
+      background: #fff;
+      border-bottom: 1px solid #dfe4de;
     }
-    .candidate-map-sheet-close:focus-visible { outline: 2px solid #155c42; outline-offset: 2px; }
+    .candidate-map-sheet-back {
+      display: inline-flex; align-items: center; gap: 0.3125rem;
+      min-height: 2.75rem; box-sizing: border-box; padding: 0 0.625rem;
+      font-size: 0.8125rem; font-weight: 500; color: #14614a; cursor: pointer;
+    }
+    .candidate-map-sheet-back-icon { font-size: 1.1rem; line-height: 1; }
+    .candidate-map-sheet-back:focus-visible { outline: 2px solid #155c42; outline-offset: 2px; }
+    .candidate-map-sheet-counter {
+      font-size: 0.78rem; font-weight: 500; color: #4b564e; font-variant-numeric: tabular-nums;
+    }
     /* Task 3: "位置関係と選択中の1店だけを残す" -- no horizontal deck of
        other candidates, just the one selected candidate-card element
        (moved here, never cloned, by candidate.js's
        syncMapSheetPanelToSelection) shown as a compact bottom sheet over
        the full-screen map. Other candidates are reached by tapping their
-       pin (candidate-map-marker), not by swiping. */
+       pin (candidate-map-marker), not by swiping.
+       Design realignment (2026-08-25, MapSheet.dc.html): the panel itself
+       is 156px in the design, holding only the selected candidate's name/
+       genre/walking-time/link -- not the full card (definitely-longer
+       fields description/facts/payment-caution/regular-holiday all stay
+       *attached* to the DOM, satisfying contract presence, but are hidden
+       here, scoped to this panel only; the same card shows every field
+       again once it is back in the list). This is the single largest
+       contributor to the measured 365px (45vh) vs. the design's 156px --
+       see activeContext.md. */
     .candidate-map-sheet-panel {
       display: none;
       position: fixed;
@@ -419,20 +440,54 @@
       left: 0;
       right: 0;
       bottom: 0;
-      max-height: 45vh;
+      max-height: 220px;
       overflow-y: auto;
-      padding: 0.75rem;
-      background: linear-gradient(180deg, transparent, rgb(248 250 247 / 96%) 22%, #f8faf7 55%);
+      background: #fff;
+      border-top: 1px solid #dfe4de;
+      box-shadow: 0 -4px 16px rgb(23 49 36 / 6%);
+      flex-direction: column;
     }
     .candidate-map-sheet-panel [data-testid="candidate-card"] {
-      box-shadow: 0 0.5rem 1.5rem rgb(23 49 36 / 18%);
+      border: 0;
+      border-radius: 0;
+      box-shadow: none;
+      padding: 0.75rem 0.875rem 0.875rem;
+      cursor: default;
+    }
+    .candidate-map-sheet-panel [data-testid="candidate-card"] dl.candidate-facts,
+    .candidate-map-sheet-panel [data-testid="candidate-card-description"],
+    .candidate-map-sheet-panel .candidate-payment-caution,
+    .candidate-map-sheet-panel .candidate-card-detail-footer .candidate-fact-row--candidate-card-regular-holiday {
+      display: none;
+    }
+    .candidate-map-sheet-panel [data-testid="candidate-card-genre"] {
+      margin: 0.125rem 0 0;
+    }
+    /* The one action this panel keeps is styled as the primary button the
+       design shows ("この店の詳しい情報を見る", filled, not the list's
+       outlined secondary style) -- same element/href/test id, restyled
+       only while inside this panel. */
+    .candidate-map-sheet-panel [data-testid="candidate-card-provider-page-link"] {
+      justify-content: center;
+      background: #14614a;
+      border-color: #14614a;
+      color: #fff;
+    }
+    .candidate-map-sheet-panel [data-testid="candidate-card-provider-page-link"]:hover {
+      background: #0e4736;
+    }
+    .candidate-map-sheet-hint {
+      margin: 0.1875rem 0.875rem 0.625rem;
+      font-size: 0.65625rem;
+      color: #77827a;
+      text-align: center;
     }
     [data-testid="candidate-proposal-cards"] {
       display: grid;
       gap: 0.75rem;
     }
 
-    .candidate-main-layout[data-map-sheet-open="true"] .candidate-map-sheet-close,
+    .candidate-main-layout[data-map-sheet-open="true"] .candidate-map-sheet-header,
     .candidate-main-layout[data-map-sheet-open="true"] .candidate-map-sheet-panel {
       display: flex;
     }
@@ -483,45 +538,71 @@
     [data-testid="candidate-card"] {
       background: #fff;
       border: 1px solid #dce3da;
-      border-radius: 0.65rem;
-      padding: 1rem 1.1rem;
+      border-radius: 0.75rem;
+      padding: 0.8125rem 0.875rem;
       cursor: pointer;
       display: flex;
       flex-direction: column;
-      gap: 0.6rem;
+      gap: 0.5625rem;
+      box-sizing: border-box;
     }
     [data-testid="candidate-card"][data-selection-state="selected"] { border-color: #155c42; box-shadow: 0 0 0 1px #155c42; }
     [data-testid="candidate-card"]:focus-visible { outline: 2px solid #155c42; outline-offset: 2px; }
 
-    .candidate-card-id-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+    /* Design realignment (E:\AWS\dsg-out\Main.dc.html .card): the badge,
+       shop name, and walking-time chip share one row (name ellipsizes
+       instead of wrapping so the trailing chip never gets pushed off);
+       genre drops the chip styling for a plain text line directly above
+       the description (no visible box, matching the design). */
+    .candidate-card-id-row { display: flex; align-items: center; gap: 0.5625rem; }
     .candidate-marker-badge {
       display: inline-flex; align-items: center; justify-content: center;
-      width: 1.6rem; height: 1.6rem; border-radius: 0.35rem;
-      background: #1c2420; color: #fff; font-size: 0.8rem; font-weight: 700;
+      width: 1.375rem; height: 1.375rem; border-radius: 50%;
+      background: #1c2420; color: #fff; font-size: 0.6875rem; font-weight: 700;
+      flex: 0 0 auto;
+    }
+    [data-testid="candidate-card-name"] {
+      margin: 0; font-size: 1.0625rem; font-weight: 700; line-height: 1.3;
+      min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .candidate-card-id-row-spacer { flex: 1 1 auto; min-width: 0.5rem; }
+    .candidate-walk-chip {
+      display: inline-flex; align-items: center; gap: 0.25rem; flex: 0 0 auto;
+      background: #e3eee7; color: #14614a; border-radius: 999px;
+      padding: 0.1875rem 0.5625rem 0.1875rem 0.4375rem;
+      font-size: 0.75rem; font-weight: 500; white-space: nowrap;
     }
     [data-testid="candidate-card-genre"] {
-      margin: 0; background: #eef2ee; color: #43524a;
-      font-size: 0.8125rem; font-weight: 650; padding: 0.15rem 0.55rem; border-radius: 999px;
+      margin: 0; font-size: 0.75rem; font-weight: 500; color: #4b564e;
     }
 
-    [data-testid="candidate-card-name"] { margin: 0; font-size: 1.05rem; line-height: 1.35; }
-
+    /* Design realignment (human real-device report 2026-08-25, "designer
+       のキャンバス" -- E:\AWS\dsg-out\Main.dc.html's own .facts rule):
+       a 2-column grid of label-above-value cells, not 4 stacked label-
+       beside-value rows. The previous single-column stack (no
+       grid-template-columns on the outer dl at all -- each fact-row div
+       inheriting only its own internal label|value grid) was the largest
+       single contributor to cards running far taller than the design and
+       fewer than 3 fitting on screen at 375x812; this reduces the same
+       four facts from four rows to two. */
     [data-testid="candidate-card"] dl.candidate-facts {
-      margin: 0; display: grid; gap: 0.35rem;
-      background: #f7f8f5; border: 1px solid #eceee9; border-radius: 0.5rem; padding: 0.65rem 0.75rem;
+      margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.5rem 0.75rem;
+      background: #f7f8f5; border: 1px solid #eceee9; border-radius: 0.5rem; padding: 0.5625rem 0.6875rem;
     }
-    [data-testid="candidate-card"] dl.candidate-facts dt { font-weight: 650; font-size: 0.8125rem; color: #536057; }
-    [data-testid="candidate-card"] dl.candidate-facts dd { margin: 0; font-size: 0.9rem; }
+    [data-testid="candidate-card"] dl.candidate-facts dt { font-weight: 650; font-size: 0.75rem; color: #536057; }
+    [data-testid="candidate-card"] dl.candidate-facts dd { margin: 0; font-size: 0.85rem; }
     /* Each field is a label+value pair wrapped in its own <div> (see
        fieldRow in candidate.js). adr/0019 grows this list from four fields
        to five (access is removed; capacityTier's coarse label, non-smoking
-       reference, and dinner-budget reference are added) -- laying every
-       pair out in two columns (label | value) rather than stacking dt above
-       dd is what keeps the box from growing taller in proportion, at every
-       width, not only the narrow one this rule previously targeted. */
+       reference, and dinner-budget reference are added). */
     [data-testid="candidate-card"] dl.candidate-facts > div {
-      display: grid; grid-template-columns: 4.6rem 1fr; column-gap: 0.5rem; align-items: baseline;
+      display: flex; flex-direction: column; gap: 0.0625rem;
     }
+    /* Design realignment (E:\AWS\dsg-out\Main.dc.html): description is a
+       plain paragraph directly under genre now, not a fact row inside the
+       grid at all (candidate.js). */
+    .candidate-description-text { margin: 0; font-size: 0.8125rem; line-height: 1.62; color: #4b564e; }
 
     /* adr/0019 decision 5: shown only when cardPaymentAvailable is false
        (candidate.js). Styled as a caution, not an error -- it states one
@@ -559,17 +640,7 @@
        column width narrows here to match the smaller font size below. */
     @media (max-width: 63.999rem) {
       [data-testid="candidate-proposal-cards"] { gap: 0.5rem; }
-      [data-testid="candidate-card"] { padding: 0.75rem 0.85rem; gap: 0.45rem; }
-      .candidate-card-id-row { gap: 0.35rem; }
-      [data-testid="candidate-card-name"] { font-size: 1rem; }
-      [data-testid="candidate-card"] dl.candidate-facts {
-        gap: 0.25rem; padding: 0.5rem 0.6rem;
-      }
-      [data-testid="candidate-card"] dl.candidate-facts > div {
-        grid-template-columns: 4.4rem 1fr;
-      }
-      [data-testid="candidate-card"] dl.candidate-facts dt { font-size: 0.75rem; }
-      [data-testid="candidate-card"] dl.candidate-facts dd { font-size: 0.85rem; line-height: 1.35; }
+      [data-testid="candidate-card"] { padding: 0.8125rem 0.875rem; gap: 0.5625rem; }
       [data-testid="candidate-card-description"] {
         display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
       }
@@ -784,7 +855,8 @@
         margin: 0; border-width: 1px 0; border-radius: 0; position: relative; z-index: 5;
         overflow: visible;
       }
-      .candidate-filter-head { box-sizing: border-box; height: 3.5rem; padding: 0.35rem 0.5rem; gap: 0.25rem; }
+      /* Tokens.dc.html: "条件バー 48". */
+      .candidate-filter-head { box-sizing: border-box; height: 3rem; padding: 0.25rem 0.5rem; gap: 0.25rem; }
       .candidate-filter-summary { min-height: 2.75rem; padding: 0 0.35rem; gap: 0.4rem; }
       .candidate-filter-summary-body { flex-direction: row; align-items: center; gap: 0.4rem; }
       .candidate-filter-summary-text { font-size: 0.875rem; }
