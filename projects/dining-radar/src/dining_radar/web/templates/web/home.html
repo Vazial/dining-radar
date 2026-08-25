@@ -570,10 +570,10 @@
       display: inline-flex; align-items: center; gap: 0.25rem; flex: 0 0 auto;
       background: #e3eee7; color: #14614a; border-radius: 999px;
       padding: 0.1875rem 0.5625rem 0.1875rem 0.4375rem;
-      font-size: 0.75rem; font-weight: 500; white-space: nowrap;
+      font-size: 0.75rem; font-weight: 500; line-height: 1.3; white-space: nowrap;
     }
     [data-testid="candidate-card-genre"] {
-      margin: 0; font-size: 0.75rem; font-weight: 500; color: #4b564e;
+      margin: 0; font-size: 0.75rem; font-weight: 500; line-height: 1.3; color: #4b564e;
     }
 
     /* Design realignment (human real-device report 2026-08-25, "designer
@@ -590,8 +590,13 @@
       gap: 0.5rem 0.75rem;
       background: #f7f8f5; border: 1px solid #eceee9; border-radius: 0.5rem; padding: 0.5625rem 0.6875rem;
     }
-    [data-testid="candidate-card"] dl.candidate-facts dt { font-weight: 650; font-size: 0.75rem; color: #536057; }
-    [data-testid="candidate-card"] dl.candidate-facts dd { margin: 0; font-size: 0.85rem; }
+    /* body's own line-height:1.6 (base.html) was inherited unchanged here,
+       inflating each short label/value line well past its font-size --
+       the second-largest contributor to card height after the facts
+       grid's own column count (measured: dt 12px font at 19.2px line
+       height, dd 13.6px font at 21.76px line height, both a 1.6 ratio). */
+    [data-testid="candidate-card"] dl.candidate-facts dt { font-weight: 650; font-size: 0.75rem; line-height: 1.3; color: #536057; }
+    [data-testid="candidate-card"] dl.candidate-facts dd { margin: 0; font-size: 0.85rem; line-height: 1.3; }
     /* Each field is a label+value pair wrapped in its own <div> (see
        fieldRow in candidate.js). adr/0019 grows this list from four fields
        to five (access is removed; capacityTier's coarse label, non-smoking
@@ -825,10 +830,10 @@
     .candidate-card-detail-footer .candidate-fact-row {
       display: flex; align-items: baseline; min-width: 0; gap: 0.3rem;
     }
-    .candidate-card-detail-footer dt { flex: 0 0 auto; color: #68766c; font-size: 0.75rem; font-weight: 650; }
+    .candidate-card-detail-footer dt { flex: 0 0 auto; color: #68766c; font-size: 0.75rem; font-weight: 650; line-height: 1.3; }
     .candidate-card-detail-footer dd {
       margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-      color: #29342e; font-size: 0.8125rem;
+      color: #29342e; font-size: 0.8125rem; line-height: 1.3;
     }
     .candidate-card-detail-footer .candidate-fact-row--candidate-card-regular-holiday {
       width: 100%;
@@ -1041,5 +1046,16 @@
     </main>
 
     <script src="{% static 'dining_radar/web/vendor/leaflet/leaflet.js' %}"></script>
-    <script src="{% static 'dining_radar/web/candidate.js' %}?v=20260811-approved-layout"></script>
+    {% comment %}
+      Cache-busting query string on candidate.js -- bump this on every
+      candidate.js change. Found stale during this slice (still reading
+      "20260811" after five rounds of real-device fixes since): a browser
+      that had already cached candidate.js under this exact URL from an
+      earlier session would keep serving that old script indefinitely,
+      since the URL never changed. This most plausibly explains a
+      real-device report of dimensions matching the *previous* round's
+      code (184px facts grid, no name-in-id-row) even though the server's
+      own file already had this round's fixes.
+    {% endcomment %}
+    <script src="{% static 'dining_radar/web/candidate.js' %}?v=20260825-design-realignment-3"></script>
 {% endblock %}
