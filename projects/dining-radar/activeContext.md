@@ -161,7 +161,10 @@ displayOnlyOriginException.scope`へ`candidate-map-open`・`candidate-map-sheet-
 マップが閉じている間、内部のマーカー（`candidate-map-marker`）は`opacity:0`を親から継承するため
 実際には見えないが、`tabindex="0"`は残るため**キーボードのTabでは到達できてしまう**（実験で確認
 済み：opacityで隠された子要素でも`.press("Enter")`は成功する）。これはG1と同種の未解決論点として
-一緒に見るのが妥当だと考える——今回は追加の対応をしていない。
+一緒に見るのが妥当だと考える——今回は追加の対応をしていない。**続報（同日、第3回の実機報告を受けて）**
+——`candidate-origin-marker`についてはこの後`tabindex`の切り替えで直したが、`candidate-map-marker`は
+`ADR-0020`決定4(c)の凍結ゲートと構造的に両立しないため、意図してこのまま残した。詳細は次節「実機報告
+（第3回）を解消した」参照。
 
 **L4（tester のstepとの突き合わせ、担当外だが依頼により実行）**: `manage.py test tests.acceptance`を
 実行し、**22件すべて緑**（308秒）。`select_first_marker_and_verify_card_highlighted`
@@ -172,6 +175,63 @@ displayOnlyOriginException.scope`へ`candidate-map-open`・`candidate-map-sheet-
 **検証**: L1（ruff・352 unit tests・カバレッジ97%）/ L2（12件）/ L3（Django check×2）/ L5（12件+3
 subtests、`adr/0020`決定4の4不変条件すべて緑）がすべて緑。Python側のソースは変更していないため
 mutation再実行は不要（先例どおり）。
+
+### 実機報告（第3回）を解消した（2026-08-25、developer）——閉じた地図が下のUIへのタップを奪っていた
+
+上記の2件を直した直後、人間が実機で再度触り、**全ゲート緑のまま**新しい不具合を報告した。作業前に
+`git fetch && git pull`（変更なし、`docs/ring-labels-contract`のまま）。
+
+**バグ**: 「地図が閉じた状態で、地図のマーカーが見えないまま画面全体に浮いていて、下にあるものへの
+タップを奪っている」。人間の実測: `document.elementFromPoint()`で「地図で見る」ボタンの中心・1枚目の
+カードのタップ点を調べると、いずれも`candidate-map-marker`が当たっていた（ボタン・カードとも押せない）。
+**原因**: 閉時のマップ入れ物自体は`pointer-events:none`で正しかったが、これは**子要素へ伝播しない**
+——`pointer-events`は継承プロパティだが、要素自身が明示的な値を持てばそちらが勝つ。ベンダリング済みの
+`leaflet.css`が`.leaflet-interactive`（マーカー等）へ**明示的に`pointer-events: auto`**を設定しており、
+これが入れ物からの継承`none`を上書きしていた（`grep`で確認）。
+
+**直した**: `.candidate-main-layout:not([data-map-sheet-open="true"]) [data-testid="candidate-map"] *`
+に対し`pointer-events: none !important;`をCSSへ追加した。`!important`は特異性・出現順序に関わらず
+非`!important`宣言に常に勝つため、Leafletの明示的な`auto`をブラウザ非依存・feature-detection不要で
+確実に上書きする。**実測で確認**——`elementFromPoint`で(1)「地図で見る」ボタンの中心、(2)1〜2枚目
+カードのタップ点、(3)絞り込みトグル（`candidate-filter-open`）、(4)展開後のチップ1個、をそれぞれ
+調べ、**すべて自分自身に当たることを確認した**（使い捨てスクリプトで実行、コミット前に削除）。
+
+**一度は`inert`を入れ物全体へ適用する案を試したが、それは戻した。** `inert`は確かにタップ奪取を
+直したが、`ADR-0020`決定4(c)の**凍結された**検査
+（`test_c_candidate_map_marker_selection_is_keyboard_operable`——このスクリーンの**既定（閉）状態**で
+`candidate-map-marker`にEnter/Spaceを押し選択できることを検査する。シートを開く手順は無い）を赤くした
+——`inert`は子孫を無条件にTab順から除外し、子孫側から個別にオプトアウトする手段が無いことを実験で確認
+した（`.focus()`を直接呼んでも`document.activeElement`は変化しない）。`candidate-map-marker`はこの
+凍結ゲートの対象そのものなので、**緩めるのではなく実装のほうを見直した**——`inert`を使わず、CSSの
+`!important`だけでタップ奪取を直す方式へ切り替えた。
+
+**あわせて指示のあった`tabindex`の件**: 「マーカーが閉じている間もtabindex="0"を持っており、
+キーボードで見えない要素にフォーカスが移る」——**`candidate-origin-marker`についてのみ直した**
+（`setOriginMarkerTabbable()`、開閉に応じて`tabindex`を`0`/`-1`に切り替え）。`candidate-origin-marker`
+はキーボード到達性を契約が要求していない（`displayOnlyOriginException`が明示的に許容）ため、安全に
+直せた。**`candidate-map-marker`は直していない**——直すと`ADR-0020`決定4(c)の凍結ゲート
+（既定状態での`candidate-map-marker`のキーボード操作可能性）を壊す。これは「隠れているのに
+キーボードで触れてしまう」という人間の指摘への**部分的な対応**であり、全面的な解決ではない
+——`candidate-map-marker`は閉時も意図的に`tabindex="0"`のまま、Enter/Space操作可能なまま残した。
+**矛盾の申し送り**: 「閉時は地図を出さない」という今回の設計意図と、「`candidate-map-marker`は
+既定状態で常にキーボード操作可能でなければならない」という`ADR-0020`決定4(c)の凍結要求は、構造的に
+両立しない（見えない物を操作可能なままにするか、キーボード到達性を失わせるかの二択で、後者は凍結
+ゲートを緩めることになる）。今回は前者（凍結ゲートを優先）を選んだ。骨格変更自体が正規の契約審査を
+経ていない（G2の考察と同じ根本原因）ことも踏まえ、`ADR-0020`決定4(c)をこの新しい骨格に照らして
+改訂するかどうかは、architect/人間の判断に委ねる。
+
+**根拠の立て直し（`adr/0020`決定4(a)）**: `opacity:0`が`is_visible()`を通過するという性質そのものが、
+今回のバグを見逃す原因の一部だった（機械が「見える」と判定する一方、`pointer-events`は別の理由で
+壊れていた）。そこで(a)の根拠を、可視性判定に依存しない形へ立て直した——`[data-testid="candidate-map"]`
+は開閉に関わらず常に`position:fixed; top:0; left:0;`であり、`getBoundingClientRect().top`は無条件に
+0——これは(a)が検査する「要素自身の幾何位置」そのものであり、中身が対話可能かどうかとは独立な事実
+である。対話可能性（タップ・キーボードが正しく中身に届く／届かないこと）は`is_visible()`に頼らず、
+`elementFromPoint`による直接実測で別途確認した。
+
+**検証**: L1（ruff・352 unit tests・カバレッジ97%）/ L2（12件）/ L3（Django check×2）/ L5（12件+3
+subtests、`test_c_candidate_map_marker_selection_is_keyboard_operable`を含む4不変条件すべて緑——
+一度reddenしたのを確認したうえで、`inert`を戻し`!important`方式へ切り替えて再度緑になったことを確認）
+が緑。L4（担当外、依頼により実行）は22件すべて緑——落ちたstepは無い。
 
 ### 画面の機能について確定した人間裁定（2026-08-23）
 
