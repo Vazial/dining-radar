@@ -138,6 +138,7 @@
   // new size, and so a fresh initializeMap call starts from none.
   var walkingRadiusRingLayers = [];
   var walkingRadiusRingOrigin = null;
+  var currentMapLatLngs = [];
 
   // adr/0024 decision 4 item 8: shownCandidateMemory's sessionStorage key and
   // retention bound. 20 hours (not the regulatory ceiling of 24) leaves a
@@ -418,10 +419,7 @@
     // duplicating any candidate-card element (see syncMapSheetPanelToSelection).
     if (mapSheetOpen) {
       syncMapSheetPanelToSelection();
-      if (leafletMap && latLngByRef[candidateRef]) {
-        leafletMap.setView(latLngByRef[candidateRef], Math.max(leafletMap.getZoom(), 16));
-        layoutWalkingRadiusRings(leafletMap, walkingRadiusRingOrigin);
-      }
+      refreshMapViewAndRings();
     }
   }
 
@@ -827,6 +825,36 @@
     });
   }
 
+  // Human real-device report (2026-08-25): opening the sheet collapsed the
+  // map to a 0-height box (candidate-map-wrapper's own children -- the map,
+  // the open control, the close control, the sheet panel -- were laid out
+  // by a column flexbox that sized the wrapper by its in-flow content;
+  // toggling the map to position:fixed removed it from that flow, leaving
+  // nothing in-flow to size the wrapper by). Fixed by making the map
+  // element's own box constant at all times (always position:fixed, always
+  // full-viewport width/height) so it never depends on the wrapper's own
+  // sizing -- see [data-testid="candidate-map"]'s CSS in home.html. Closed
+  // vs open is now purely an opacity/pointer-events toggle on that
+  // constant-size box, not a box-model change, so a later resize is no
+  // longer guaranteed to fire (the box's own rendered size does not
+  // necessarily change between the two states) -- refreshMapViewAndRings is
+  // therefore called directly here rather than only from the
+  // ResizeObserver (which still exists, and still matters, for genuine
+  // later resizes: window resize, mobile-toolbar dvh changes, orientation
+  // change).
+  function refreshMapViewAndRings() {
+    if (!leafletMap) {
+      return;
+    }
+    leafletMap.invalidateSize();
+    if (mapSheetOpen && selectedCandidateRef && latLngByRef[selectedCandidateRef]) {
+      leafletMap.setView(latLngByRef[selectedCandidateRef], Math.max(leafletMap.getZoom(), 16));
+    } else if (currentMapLatLngs.length > 0) {
+      leafletMap.fitBounds(window.L.latLngBounds(currentMapLatLngs), { padding: [24, 24] });
+    }
+    layoutWalkingRadiusRings(leafletMap, walkingRadiusRingOrigin);
+  }
+
   function openMapSheet() {
     if (mapSheetOpen || !mapWrapperEl) {
       return;
@@ -835,16 +863,12 @@
     mapWrapperEl.closest(".candidate-main-layout").setAttribute("data-map-sheet-open", "true");
     setBackgroundInert(true);
     syncMapSheetPanelToSelection();
+    refreshMapViewAndRings();
     sheetCloseFocusTarget = document.activeElement;
     var closeControl = mapWrapperEl.querySelector(".candidate-map-sheet-close");
     if (closeControl) {
       closeControl.focus();
     }
-    // The map container's own size changes as a side effect of the
-    // data-map-sheet-open attribute flip above (home.html CSS). The
-    // ResizeObserver registered in initializeMap reacts to that size change
-    // by itself -- centering on the selected candidate and re-laying-out
-    // the walking-radius rings -- so nothing further is done here.
   }
 
   function closeMapSheet() {
@@ -860,17 +884,14 @@
     if (mapSheetPanelEl) {
       mapSheetPanelEl.innerHTML = "";
     }
-    var ribbonOpen = mapWrapperEl.querySelector(".candidate-map-ribbon-open");
+    refreshMapViewAndRings();
+    var openControl = mapWrapperEl.querySelector(".candidate-map-open");
     if (sheetCloseFocusTarget && document.contains(sheetCloseFocusTarget)) {
       sheetCloseFocusTarget.focus();
-    } else if (ribbonOpen) {
-      ribbonOpen.focus();
+    } else if (openControl) {
+      openControl.focus();
     }
     sheetCloseFocusTarget = null;
-    // See openMapSheet's own comment: the container resize this attribute
-    // flip causes drives the re-fit-to-every-candidate view change and the
-    // walking-radius-ring re-layout, both inside initializeMap's
-    // ResizeObserver.
   }
 
   function initializeMap(container, candidates, searchOrigin) {
@@ -896,6 +917,7 @@
     var latLngs = candidates.map(function (candidate) {
       return [candidate.location.latitude, candidate.location.longitude];
     });
+    currentMapLatLngs = latLngs;
     var originLatLng = searchOrigin ? [searchOrigin.latitude, searchOrigin.longitude] : null;
 
     // Leaflet's Map#addLayer defers a layer's onAdd (and therefore marker
@@ -903,10 +925,11 @@
     // Map#whenReady: https://leafletjs.com/reference.html#map-whenready.
     // A map created without initial center/zoom has no view until setView
     // or fitBounds runs, so it must happen before any marker is added below.
-    // This first fit is against the container's own current size (task 3:
-    // the 88px map ribbon by default), which is exactly the overview the
-    // ribbon is meant to show; openMapSheet/closeMapSheet re-fit again once
-    // the container's size actually changes (see the ResizeObserver below).
+    // The map container is always full-viewport-sized (task 3, human
+    // decision 2026-08-25: closed vs open is an opacity toggle, not a box-
+    // model change -- see [data-testid="candidate-map"]'s CSS in
+    // home.html), so this initial fit already targets the real viewport
+    // regardless of whether the sheet happens to be open yet.
     if (latLngs.length > 0) {
       map.fitBounds(window.L.latLngBounds(latLngs), { padding: [24, 24] });
     } else {
@@ -1016,41 +1039,26 @@
     leafletMap = map;
 
     // Re-fit Leaflet's internal view (and re-lay-out the walking-radius
-    // rings, whose visibility/label placement depend on the container's
-    // current pixel size) whenever the map container's own size changes
-    // after this initial render, even when that change carries no `window`
+    // rings) whenever the map container's own size genuinely changes after
+    // this initial render, even when that change carries no `window`
     // "resize" event. Leaflet's own default `trackResize: true` (candidate.js
     // never overrides it) already listens for `window` "resize" and calls
     // invalidateSize() on a plain browser-window resize, confirmed by
-    // reading the vendored leaflet.js's own `_initEvents` and by testing:
-    // even before this handler existed, a real `window resize` (e.g.
-    // Playwright's set_viewport_size, which fires one) already re-fit the
-    // map correctly. What that built-in handler cannot see is a
-    // container-size change with no accompanying `window` resize -- which
-    // this screen's own CSS produces in two cases: a mobile browser's
-    // toolbar collapsing/reappearing while scrolling (candidate-map's
-    // dvh/vh-sized height, human decision 2026-08-22), and -- task 3 --
-    // openMapSheet/closeMapSheet toggling the map container between its
-    // 88px ribbon size and a full-screen sheet purely through a CSS
-    // attribute selector, with no separate map instance. This one observer
-    // is what re-fits the view for both: when the sheet is open, it centers
-    // on the currently selected candidate (designer: "地図はいま選んでいる
-    // 店舗を中心に置く"); otherwise it re-fits every candidate, matching the
-    // ribbon's overview role. Confirmed by testing (activeContext.md Next
-    // work 5's original finding): forcing the container's own box to change
-    // size via inline style, with no viewport change, left the rendered
-    // tiles at their stale pre-resize extent (a real uncovered gap) with
-    // this ResizeObserver removed, and correctly grew to cover the new box
-    // with it in place.
+    // reading the vendored leaflet.js's own `_initEvents`. What that built-
+    // in handler cannot see is a container-size change with no accompanying
+    // `window` resize -- which this screen's own CSS produces when a mobile
+    // browser's toolbar collapsing/reappearing while scrolling changes
+    // `100dvh` (human decision 2026-08-22). Opening/closing the full-screen
+    // map sheet (task 3) is deliberately *not* one of the size changes this
+    // observer needs to catch any more: [data-testid="candidate-map"] is
+    // always position:fixed and full-viewport-sized (human decision
+    // 2026-08-25, fixing a real collapse-to-0-height defect the previous
+    // box-model-toggling design had -- see refreshMapViewAndRings's own
+    // comment), so openMapSheet/closeMapSheet call refreshMapViewAndRings
+    // directly instead of depending on this observer to fire.
     if (window.ResizeObserver) {
       mapResizeObserver = new window.ResizeObserver(function () {
-        map.invalidateSize();
-        if (mapSheetOpen && selectedCandidateRef && latLngByRef[selectedCandidateRef]) {
-          map.setView(latLngByRef[selectedCandidateRef], Math.max(map.getZoom(), 16));
-        } else if (latLngs.length > 0) {
-          map.fitBounds(window.L.latLngBounds(latLngs), { padding: [24, 24] });
-        }
-        layoutWalkingRadiusRings(map, originLatLng);
+        refreshMapViewAndRings();
       });
       mapResizeObserver.observe(container);
     }
@@ -1750,8 +1758,10 @@
       { "data-testid": "candidate-map", "data-map-tile-provider": "openstreetmap-standard" },
       []
     );
-    // The ribbon-open affordance and the sheet's close control only ever
-    // change the *visible map viewport size* (ribbon <-> full-screen sheet)
+    // Human decision 2026-08-25: the map is not shown at all while closed
+    // (previously an always-visible 88px ribbon) -- this is now the sole
+    // visible entry point into it. It, and the sheet's close control, only
+    // ever change the *visible map viewport* (hidden <-> full-screen sheet)
     // -- never a proposal request, selection, filter, origin, or range --
     // the same behavioral property displayOnlyOriginException/Leaflet's own
     // zoom control already rely on (contracts/candidate-search-browser-
@@ -1768,19 +1778,34 @@
     // FORM_CONTROL_SELECTOR, which developer/tester may read but not edit)
     // rather than inventing a new purpose value this contract does not
     // define (developer cannot edit contracts/**).
-    var ribbonOpenButton = el(
+    //
+    // Both still carry a data-testid, though -- reviewer's independent
+    // audit (reviews/audit-detour-ring-labels-skeleton.md, G2) found that
+    // the sole entry point into the map had no machine-observable
+    // identifier at all (not even a bare test id), so nothing would redden
+    // if it broke. A test id alone (no data-candidate-control-purpose) is
+    // the same style candidate-origin-marker already uses for a display-
+    // only element outside the purpose regime, so this does not conflict
+    // with the reasoning above. It does not, on its own, make this
+    // control's presence/behavior a contract Must -- see activeContext.md
+    // for what would still be missing for that.
+    var mapOpenButton = el(
       "div",
       {
-        "class": "candidate-map-ribbon-open",
+        "data-testid": "candidate-map-open",
+        "class": "candidate-map-open",
         tabindex: "0",
-        "aria-label": "地図を大きく表示する",
+        "aria-label": "地図を表示する",
       },
-      []
+      [
+        el("span", { "class": "candidate-map-open-icon", "aria-hidden": "true" }, ["🗺"]),
+        el("span", { "class": "candidate-map-open-label" }, ["地図で見る"]),
+      ]
     );
-    ribbonOpenButton.addEventListener("click", function () {
+    mapOpenButton.addEventListener("click", function () {
       openMapSheet();
     });
-    ribbonOpenButton.addEventListener("keydown", function (event) {
+    mapOpenButton.addEventListener("keydown", function (event) {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
         openMapSheet();
@@ -1789,6 +1814,7 @@
     var sheetCloseButton = el(
       "div",
       {
+        "data-testid": "candidate-map-sheet-close",
         "class": "candidate-map-sheet-close",
         tabindex: "0",
         "aria-label": "地図を閉じる",
@@ -1807,7 +1833,7 @@
     mapSheetPanelEl = el("div", { "class": "candidate-map-sheet-panel" }, []);
     var mapWrapper = el("div", { "class": "candidate-map-wrapper" }, [
       mapContainer,
-      ribbonOpenButton,
+      mapOpenButton,
       sheetCloseButton,
       mapSheetPanelEl,
       el(

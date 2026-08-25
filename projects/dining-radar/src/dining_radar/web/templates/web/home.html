@@ -230,22 +230,44 @@
        (candidate-search-browser-interface.yaml's own
        budgetTierNoteObservation.presenceRule). */
 
-    /* Candidate list + map ribbon + full-screen map sheet (task 3, designer
-       artifact efe1c44f-ead4-40c6-9141-b801583aadd9: list-primary + an
-       88px map ribbon + tap-to-open full-screen sheet). The ribbon is a
-       real, live Leaflet map -- never a collapsed placeholder button --
-       which is what keeps candidate-map/candidate-origin-marker genuinely
-       present on the initial render (authenticatedInitialOutcome.present),
-       and there is exactly one Leaflet map instance throughout: opening/
-       closing the sheet only changes [data-testid="candidate-map"]'s own
-       CSS size via .candidate-main-layout's data-map-sheet-open attribute
-       (candidate.js's openMapSheet/closeMapSheet); candidate.js's
-       ResizeObserver reacts to that size change to re-fit the view and
-       re-lay-out the walking-radius rings. This skeleton is intentionally
-       identical at every width -- the human-approved 2026-08-22/23/24
-       decisions this replaces (the earlier map-led, horizontally-swipable
-       card deck) explicitly excluded PC from this round's agreement, so no
-       separate desktop treatment is introduced here either. */
+    /* Candidate list + a hidden-until-opened full-screen map sheet (task 3,
+       designer artifact efe1c44f-ead4-40c6-9141-b801583aadd9: list-primary,
+       tap an entry point to open a full-screen map). Human real-device
+       reports (2026-08-25) drove two changes from the first version of
+       this skeleton, both explained where they matter below: (1) the map
+       no longer shows an always-visible 88px ribbon while closed -- the
+       closed state is just candidate-map-open, a real, visible entry-point
+       control; (2) [data-testid="candidate-map"] itself is now
+       position:fixed and full-viewport-sized *at all times*, closed or
+       open -- opening/closing only toggles its opacity/pointer-events, not
+       its box model. The previous design toggled the box model itself
+       (in-flow 88px <-> position:fixed full-screen), which collapsed the
+       map to a real, measured 0x0 box on open: candidate-map-wrapper's
+       other children (the ribbon-open overlay, the close control, the
+       sheet panel) were also absolutely/fixed-positioned, so once the map
+       left the wrapper's normal flow too, the flex wrapper had nothing
+       in-flow left to size itself by, and invalidateSize() cannot recover
+       a container that is genuinely 0-sized. Keeping the map's own box
+       constant removes that dependency entirely.
+       There is exactly one Leaflet map instance throughout regardless
+       (candidate.js's openMapSheet/closeMapSheet never call
+       initializeMap again). ADR-0020 decision 4(a) (narrow-width map
+       reachability) still holds under the new closed-state styling --
+       opacity does not affect Playwright's/the DOM's own visibility
+       computation the way display:none or visibility:hidden would
+       (confirmed empirically before choosing this property), and
+       position:fixed with top/left both 0 keeps
+       getBoundingClientRect().top at 0 regardless of viewport width, which
+       trivially satisfies "reachable without scrolling" -- see
+       activeContext.md for the full reasoning developer verified this
+       against, including why visibility:hidden would NOT have worked here
+       (Playwright's own to_be_visible() explicitly excludes it, which
+       empirically confirmed testing showed opacity does not). This
+       skeleton is intentionally identical at every width -- the human-
+       approved 2026-08-22/23/24 decisions this replaces (the earlier map-
+       led, horizontally-swipable card deck) explicitly excluded PC from
+       this round's agreement, so no separate desktop treatment is
+       introduced here either. */
     .candidate-main-layout {
       position: relative;
       display: flex;
@@ -254,21 +276,27 @@
     }
     .candidate-map-wrapper {
       position: relative;
-      isolation: isolate;
-      display: flex;
-      flex-direction: column;
-      gap: 0.35rem;
     }
     [data-testid="candidate-map"] {
-      height: 88px;
-      border-radius: 0.65rem;
-      overflow: hidden;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100vh;
+      height: 100dvh;
+      z-index: 500;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .candidate-main-layout[data-map-sheet-open="true"] [data-testid="candidate-map"] {
+      opacity: 1;
+      pointer-events: auto;
     }
     [data-testid="candidate-map-attribution"] {
-      position: absolute;
+      position: fixed;
       left: 0.4rem;
       bottom: 0.3rem;
-      z-index: 2;
+      z-index: 501;
       margin: 0;
       padding: 0.1rem 0.3rem;
       border-radius: 0.25rem;
@@ -276,23 +304,45 @@
       font-size: 0.65rem;
       color: #536057;
       pointer-events: none;
+      opacity: 0;
     }
-    /* Sits over the ribbon-sized map as a transparent tap target (task 3:
-       "タップで全面シート"). Deliberately not a <button> -- candidate.js's
-       own comment explains why -- so it neither claims a
-       data-candidate-control-purpose the contract does not define nor
-       trips allCandidateScreenFormControlsMustDeclarePurpose. Hidden
-       entirely once the sheet is open, so it never blocks pointer/keyboard
-       interaction with the real, full-screen map underneath. */
-    .candidate-map-ribbon-open {
-      position: absolute;
-      inset: 0;
-      z-index: 1;
+    .candidate-main-layout[data-map-sheet-open="true"] [data-testid="candidate-map-attribution"] {
+      opacity: 1;
+    }
+    /* candidate-map-open (human decision 2026-08-25): the sole visible
+       entry point into the map while it is closed -- real, visible chrome
+       now, not a transparent overlay over a live preview. Reviewer's
+       independent audit (reviews/audit-detour-ring-labels-skeleton.md, G2)
+       found the previous version of this control carried no machine-
+       observable identifier at all; it now carries a data-testid (no
+       data-candidate-control-purpose -- see candidate.js's own comment on
+       why). Deliberately >=44px even though allCandidateScreenFormControls
+       MustDeclarePurpose's 44px gate does not measure this element (it
+       declares no data-candidate-control-purpose) -- a real person still
+       taps it on a real device. */
+    .candidate-map-open {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+      min-height: 2.75rem;
+      padding: 0 1rem;
+      border-radius: 0.65rem;
+      border: 1px solid #dce3da;
+      background: #fff;
+      color: #17201b;
+      font-weight: 650;
+      font-size: 0.9rem;
       cursor: pointer;
     }
-    .candidate-map-ribbon-open:focus-visible {
+    .candidate-map-open:hover { background: #f4f6f2; }
+    .candidate-map-open:focus-visible {
       outline: 2px solid #155c42;
-      outline-offset: -2px;
+      outline-offset: 2px;
+    }
+    .candidate-map-open-icon { font-size: 1.1rem; line-height: 1; }
+    .candidate-main-layout[data-map-sheet-open="true"] .candidate-map-open {
+      display: none;
     }
     .candidate-map-sheet-close {
       display: none;
@@ -338,23 +388,9 @@
       gap: 0.75rem;
     }
 
-    .candidate-main-layout[data-map-sheet-open="true"] .candidate-map-ribbon-open {
-      display: none;
-    }
     .candidate-main-layout[data-map-sheet-open="true"] .candidate-map-sheet-close,
     .candidate-main-layout[data-map-sheet-open="true"] .candidate-map-sheet-panel {
       display: flex;
-    }
-    .candidate-main-layout[data-map-sheet-open="true"] [data-testid="candidate-map"] {
-      position: fixed;
-      inset: 0;
-      z-index: 500;
-      height: 100%;
-      width: 100%;
-      border-radius: 0;
-    }
-    .candidate-main-layout[data-map-sheet-open="true"] [data-testid="candidate-map-attribution"] {
-      z-index: 501;
     }
 
     /* Candidate card (ADR-0012 skeleton block 3, inner hierarchy per the

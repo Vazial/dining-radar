@@ -81,27 +81,37 @@ class LeafletVendoringSourceTests(SimpleTestCase):
 class CandidateSurfaceSourceTests(SimpleTestCase):
     """Guard the presentation boundaries that do not need live provider data."""
 
-    def test_list_primary_map_ribbon_and_full_screen_sheet_keep_one_map_instance(self):
+    def test_list_primary_and_full_screen_sheet_keep_one_map_instance(self):
         # Task 3 (designer artifact efe1c44f-ead4-40c6-9141-b801583aadd9):
-        # list-primary + an 88px map ribbon (a real, always-present Leaflet
-        # map, never a collapsed placeholder) + tap-to-open full-screen
+        # list-primary, tap candidate-map-open to open a full-screen map
         # sheet, retiring the earlier map-led horizontally-swipable card
         # deck this test used to guard (test_map_led_deck_keeps_cards_and_
         # map_in_the_same_surface, superseded here rather than kept
         # alongside a contradictory skeleton). One [data-testid=
-        # "candidate-map"] element is declared once in candidate.js
-        # (the ribbon/sheet toggle only changes its CSS size via the
-        # data-map-sheet-open attribute -- see initializeMap's own
-        # docstring-style comment), never a second map instance.
+        # "candidate-map"] element is declared once in candidate.js, never
+        # a second map instance -- opening/closing only toggles its
+        # opacity/pointer-events via the data-map-sheet-open attribute, not
+        # its box model (human real-device report 2026-08-25: an earlier
+        # box-model-toggling version of this collapsed the map to a
+        # measured 0-height box on open -- see home.html's own comment on
+        # [data-testid="candidate-map"] for the fix). The map is not shown
+        # at all while closed (human decision 2026-08-25): candidate-map-
+        # open is the sole visible entry point, and also carries a
+        # data-testid (reviewer's audit-detour-ring-labels-skeleton.md G2:
+        # the previous entry point had no machine-observable identifier at
+        # all).
         template = HOME_TEMPLATE.read_text(encoding="utf-8")
         script = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
 
-        self.assertIn("height: 88px", template)
+        self.assertIn('[data-testid="candidate-map"] {', template)
+        self.assertIn("opacity: 0;", template)
+        self.assertIn("pointer-events: none;", template)
         self.assertIn('.candidate-main-layout[data-map-sheet-open="true"]', template)
-        self.assertIn("candidate-map-ribbon-open", template)
+        self.assertIn("candidate-map-open", template)
+        self.assertIn('"data-testid": "candidate-map-open"', script)
+        self.assertIn('"data-testid": "candidate-map-sheet-close"', script)
         self.assertIn("candidate-map-sheet-close", template)
         self.assertIn("candidate-map-sheet-panel", template)
-        self.assertIn("isolation: isolate", template)
         self.assertEqual(
             script.count('{ "data-testid": "candidate-map", "data-map-tile-provider"'),
             1,
@@ -110,6 +120,7 @@ class CandidateSurfaceSourceTests(SimpleTestCase):
         self.assertIn("function openMapSheet()", script)
         self.assertIn("function closeMapSheet()", script)
         self.assertIn("function syncMapSheetPanelToSelection()", script)
+        self.assertIn("function refreshMapViewAndRings()", script)
 
     def test_mobile_layout_keeps_decision_controls_compact(self):
         template = HOME_TEMPLATE.read_text(encoding="utf-8")
