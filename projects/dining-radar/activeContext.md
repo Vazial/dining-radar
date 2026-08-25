@@ -89,6 +89,90 @@ browser.py`の`FORM_CONTROL_SELECTOR`（literal `<button>`/`<input>`/`<select>`/
 機械観測したくなった場合は、この判断（purposeless div）を再検討する契約改訂が要るかもしれない——
 今回はそこまでは要求されていないため、architectへの申し送りとして記録するに留める。
 
+### 実機報告2件を解消した（2026-08-25、developer）——地図が0高さに潰れる／閉時は地図を出さない
+
+上記スライスをマージ待ちの状態で人間が実機を触り、2件出た。ブランチはそのまま
+`docs/ring-labels-contract`。作業開始前に`git fetch && git pull`——リモートで既に
+`test/ring-labels-and-empty-guidance`（tester。`selectMarker`のstepを本骨格に合わせて`dispatch_event`
+方式へ組み直した`4e9da16`、独立監査`193f3a6`）がこのブランチへマージ済みだったため、そのマージコミット
+`71d2d38`を含む状態から作業した。
+
+**バグ（高さ0）**: 「地図が開いたらバグってる」——実測で `[data-testid="candidate-map"]` が開いた後
+高さ0px・`clientHeight`0・`.leaflet-map-pane`も0×0になっていた。**原因**: `.candidate-map-wrapper`
+（column flexbox）の子はマップ以外すべて`position:absolute`/`fixed`（開閉トリガー・閉じるボタン・
+シートパネル）だった。マップ自身も開いたときに`position:fixed`へ切り替える設計だったため、開いた瞬間
+wrapperの中にin-flowの子が1つも残らず、wrapperの高さが0に潰れ、マップの`height:100%`もそこから導出
+不能になっていた（`invalidateSize()`を呼んでも直らない、という報告どおり——箱自体が0だったため）。
+**直した**: `[data-testid="candidate-map"]`を**常時**`position:fixed; width:100%; height:100dvh;`に
+固定し、開閉は`opacity`/`pointer-events`の切り替えだけにした（箱のサイズ自体は開閉で変わらない）。
+実ブラウザで確認済み——閉時・開時とも`clientWidth`/`clientHeight`は常に非ゼロ（390×844等）、開いた
+直後にタイルが正しい枚数・位置で描画される（閉時に固定されていた古いタイル数のまま止まる、という
+不具合が再現しないことを確認）。
+
+**設計変更（閉時は地図を出さない）**: 「地図は閉じてるときは表示しなくていいかも」——88pxの常時
+可視リボンを廃止し、閉時は`candidate-map-open`という**実体のある可視な操作の入口**（アイコン＋
+「地図で見る」のテキスト、`min-height:2.75rem`）だけを出す。マップ自身は閉時`opacity:0;
+pointer-events:none;`——**`display:none`でも`visibility:hidden`でもない**。理由は
+`adr/0020`決定4(a)（狭幅での地図の到達可能性、`tests/ui_invariants`が
+`expect(map_node).to_be_visible()`で機械検査するMust、developerが緩めてはならない不変条件）——
+実験で確認したところ、Playwrightの`to_be_visible()`/`is_visible()`は`opacity`を一切見ない
+（`display:none`・`visibility:hidden`は正しく「不可視」と判定するが、`opacity:0`は「可視」のまま
+判定される。使い捨てのHTMLで3パターンを実測して確認した）。加えて`position:fixed; top:0; left:0;`
+にしたことで`getBoundingClientRect().top`は常に0——「スクロールなしで到達可能」という(a)の実体的な
+要求を、以前のリボン（88px、通常フローに配置）よりもむしろ強く（無条件に）満たす。**根拠が変わった**:
+前回は「88pxのリボンが見えているので無条件に成立」だったが、今回は「マップの箱自体が常に
+`position:fixed; top:0`なので、opacity/pointer-eventsの切り替えとは独立に、到達可能性の判定条件
+（bboxの位置）が一切変化しない」という根拠になった。`tests/ui_invariants`は無改変のまま12件+3
+subtestsすべて緑（再実行して確認）。
+
+**`invalidateSize()`の経路（実測）**: 開閉ではマップの箱サイズ自体が変わらなくなったため、既存の
+`ResizeObserver`（コンテナのサイズ変化を検知してinvalidateSize()を呼ぶ）が開閉のたびに確実に発火する
+保証が無くなった。そこで`refreshMapViewAndRings()`という共通関数を新設し、`openMapSheet()`・
+`closeMapSheet()`・`selectCandidate()`（シート内でピンを切り替えたとき）から**直接**呼ぶよう変更した
+——ResizeObserver頼みをやめた。実ブラウザでの実測（`playwright`を直接叩いて確認、使い捨てスクリプト）:
+閉時`390×844`（opacity 0, pointer-events none）→ 開閉トリガーをクリック → 開時`390×844`（opacity 1,
+pointer-events auto、タイル10枚、いずれも妥当なピクセル位置）→ 閉じるボタンで閉時へ戻り`390×844`の
+まま。既存のResizeObserver自体は残してある（実ウィンドウリサイズ・モバイルのdvh変化など、他の実際の
+リサイズには引き続き必要）。
+
+**G2（reviewer独立監査`reviews/audit-detour-ring-labels-skeleton.md`のBlocker）**: 「地図を開く唯一の
+入口が機械観測の外にある」——`candidate-map-open`（旧`candidate-map-ribbon-open`）と
+`candidate-map-sheet-close`の両方に`data-testid`を追加した。**契約が既に定めている識別子の付け方に
+沿った形が取れるかを検討し、取れた**——`candidate-origin-marker`・`candidate-walking-radius-ring`が
+既に持つ「`data-testid`は持つが`data-candidate-control-purpose`は持たない（display-onlyの要素として
+`allowedPurposes`の外に置く）」という様式をそのまま踏襲した。`data-candidate-control-purpose`を
+新設しなかった理由は前回記録済み（`allowedPurposes`は閉じたリストで developer は編集できない）。
+
+**それでも足りないもの（architectへ）**: `data-testid`を持たせただけでは、この要素の**存在・挙動が
+契約上のMustにはならない**。契約の`mapObservations`／`unavailableControls`のどこにも
+`candidate-map-open`／`candidate-map-sheet-close`に相当する記述が無いため、tester が将来この入口を
+acceptanceで検査しようとしても、依拠できる契約文言が無い（「実装が壊れてもどのゲートも赤くならない」
+というG2の指摘の核は、`data-testid`を足しただけでは完全には解消していない）。契約化するなら、
+`candidate-origin-marker`と同様に`unavailableControls.locationRangeControlProhibition.
+displayOnlyOriginException.scope`へ`candidate-map-open`・`candidate-map-sheet-close`を加えるか、
+`mapObservations`に新しい機械観測面（例: 「開くと`candidate-map-sheet-panel`が現れる」「押しても
+公開リクエスト・選択・フィルタ・基点・探索範囲のいずれも変えない」という振る舞い）を追加するかの
+判断が要る——地図リボンの有無・全面シート構成自体がまだ契約審査（designer→architect正規経路）を
+経ていないという、reviewerがG2の考察末尾で指摘した根本原因（骨格変更が契約審査を経ずに実装された
+こと）とも一致する。
+
+**G1（人がピンに触れることを証明していない）は今回手を付けていない**——コーディネーターの指示どおり、
+骨格が変わったので変わってから見る、という扱いのまま。副作用として記録しておく: 新しい設計では
+マップが閉じている間、内部のマーカー（`candidate-map-marker`）は`opacity:0`を親から継承するため
+実際には見えないが、`tabindex="0"`は残るため**キーボードのTabでは到達できてしまう**（実験で確認
+済み：opacityで隠された子要素でも`.press("Enter")`は成功する）。これはG1と同種の未解決論点として
+一緒に見るのが妥当だと考える——今回は追加の対応をしていない。
+
+**L4（tester のstepとの突き合わせ、担当外だが依頼により実行）**: `manage.py test tests.acceptance`を
+実行し、**22件すべて緑**（308秒）。`select_first_marker_and_verify_card_highlighted`
+（tester が`dispatch_event("click")`方式へ既に組み直し済み）は、要素の可視性ではなくDOM上の
+ヒットテスト回避で動く実装のため、マーカーがopacity 0で隠れていても影響を受けなかった。落ちたstepは
+無い。
+
+**検証**: L1（ruff・352 unit tests・カバレッジ97%）/ L2（12件）/ L3（Django check×2）/ L5（12件+3
+subtests、`adr/0020`決定4の4不変条件すべて緑）がすべて緑。Python側のソースは変更していないため
+mutation再実行は不要（先例どおり）。
+
 ### 画面の機能について確定した人間裁定（2026-08-23）
 
 ワイヤフレーム（`https://claude.ai/code/artifact/278c94d2-116e-4bcd-87df-b552607541c7`。designer が
@@ -563,12 +647,15 @@ Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (
    ピンで切替）を最も忠実に翻訳する形で実装した。**キャンバス自体との細部の一致は未確認**——orchestrator
    または人間による実測確認が必要（`meta/adr/0059` 決定5・「Only orchestrator can measure rendered
    geometry」の既存方針どおり、developer はブラウザを持たない）。
-   - リボンは本物のLeaflet地図（畳んだプレースホルダではない）。`[data-testid="candidate-map"]` は
-     `candidate.js` 内で1箇所しか宣言されておらず（`tests/test_static_assets.py` の新規テストで機械的に
-     固定）、リボン⇄全面シートの切替は同じ地図インスタンスのCSSサイズ変更（`.candidate-main-layout` の
-     `data-map-sheet-open` 属性）だけで行う。既存の `ResizeObserver`（地図resize不具合修正の遺産）がこの
-     サイズ変化を検知して `invalidateSize()` ・ビュー再フィット（シート内は選択中候補へ centering、
-     ribbon側は全候補へ fitBounds）・リング再レイアウトを行う——新しいイベント配線は追加していない。
+   - ~~リボンは本物のLeaflet地図（畳んだプレースホルダではない）。開閉は同じ地図インスタンスのCSS
+     サイズ変更だけで行う。~~ **2026-08-25、実機報告を受けて構成を変更した**——「地図が0高さに潰れる／
+     閉時は地図を出さない」節（上）参照。88pxの常時可視リボンは廃止し、閉時は`candidate-map-open`
+     （可視の入口のみ）を出す。地図インスタンスは1つのまま（`[data-testid="candidate-map"]`は
+     `candidate.js`内で1箇所のみ宣言、`tests/test_static_assets.py`で機械的に固定）という性質は維持
+     している——開閉はCSSサイズ変更ではなく`opacity`/`pointer-events`の切り替えに変わった（サイズを
+     常時一定に保つことが、今回見つかった0高さバグの直接の修正でもある）。ビュー再フィット・リング
+     再レイアウトは`refreshMapViewAndRings()`として一本化し、`ResizeObserver`だけでなく
+     `openMapSheet`/`closeMapSheet`/`selectCandidate`からも直接呼ぶよう変更した。
    - 全面シートは選択中の1店の `candidate-card` 要素を**複製せず移動**して表示する
      （`syncMapSheetPanelToSelection`）。リスト側に残る他の候補は `inert` 属性でTab順・アクセシビリティ
      ツリーから外す（対応ブラウザのみ、feature-detect済み）。ピンをタップすると選択中候補が切り替わり、
