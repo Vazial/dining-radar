@@ -130,6 +130,28 @@
   // Nudge margin (pixels) a ring's label is kept inside the visible map
   // container by, so a label is never clipped flush against the edge.
   var WALKING_RADIUS_RING_LABEL_MARGIN_PX = 20;
+  // Real-device report (2026-08-26): a ring's minute label was rendered
+  // directly behind a candidate-map-marker pin, hiding it. Designer's own
+  // spec only says "put the label on top of the line" -- no rule for
+  // avoiding a marker, so this developer-chosen placement strategy tries a
+  // small set of points around each ring's own circumference (clockwise
+  // degrees from due north, the previous fixed position, tried first so a
+  // label only moves when it actually needs to) and picks the first one
+  // that does not overlap any candidate/origin marker or an already-placed
+  // ring label, falling back to the original north position if every
+  // candidate collides (a slightly crowded label still beats none at all).
+  var WALKING_RADIUS_RING_LABEL_ANGLES_DEG = [0, 45, -45, 90, -90, 135, -135, 180];
+  // Conservative estimated half-extents (pixels) used only for this
+  // collision check, not for actual layout -- generous enough to cover the
+  // widest label text ("30分" at this chip's font-size/padding) without
+  // measuring the real (not-yet-attached) DOM element.
+  var WALKING_RADIUS_RING_LABEL_HALF_WIDTH_PX = 30;
+  var WALKING_RADIUS_RING_LABEL_HALF_HEIGHT_PX = 14;
+  // Candidate/origin marker icon half-sizes (iconSize is 44/28px square,
+  // anchored at its own center -- see initializeMap below), used the same
+  // way.
+  var CANDIDATE_MAP_MARKER_HALF_SIZE_PX = 22;
+  var CANDIDATE_ORIGIN_MARKER_HALF_SIZE_PX = 14;
 
   // Layers this module adds beyond candidate/origin markers (walking-radius
   // ring paths, their white casings, minute labels, and the innermost-band
@@ -673,8 +695,60 @@
         index: index,
         radiusMeters: radiusMeters,
         northPoint: northPoint,
+        radiusPx: radiusPx,
         visible: visible,
       };
+    });
+
+    // Nudge an off-center label back into the visible map area (designer:
+    // "画面外に出る輪は画面内へ寄せる"), inset by a margin so it never sits
+    // flush against the edge.
+    function clampLabelPointToContainer(point) {
+      return window.L.point(
+        Math.min(
+          Math.max(point.x, WALKING_RADIUS_RING_LABEL_MARGIN_PX),
+          containerSize.x - WALKING_RADIUS_RING_LABEL_MARGIN_PX
+        ),
+        Math.min(
+          Math.max(point.y, WALKING_RADIUS_RING_LABEL_MARGIN_PX),
+          containerSize.y - WALKING_RADIUS_RING_LABEL_MARGIN_PX
+        )
+      );
+    }
+
+    // A label at candidatePoint overlaps a keep-out entry when both axes'
+    // gaps are smaller than the two boxes' combined half-extents -- a plain
+    // axis-aligned rectangle overlap test, generous enough (see the two
+    // *_HALF_*_PX constants above) to not need the label's real, not-yet-
+    // attached DOM size.
+    function labelPointCollides(candidatePoint, keepOutEntries) {
+      return keepOutEntries.some(function (entry) {
+        return (
+          Math.abs(candidatePoint.x - entry.point.x) <
+            WALKING_RADIUS_RING_LABEL_HALF_WIDTH_PX + entry.halfWidth &&
+          Math.abs(candidatePoint.y - entry.point.y) <
+            WALKING_RADIUS_RING_LABEL_HALF_HEIGHT_PX + entry.halfHeight
+        );
+      });
+    }
+
+    // Every candidate/origin marker's current on-screen position, used only
+    // to steer ring labels away from them (see
+    // WALKING_RADIUS_RING_LABEL_ANGLES_DEG's own comment above) -- markers
+    // themselves are laid out separately by initializeMap, which always
+    // populates latLngByRef before this function runs (both on initial
+    // load and on every later re-layout).
+    var labelKeepOutEntries = Object.keys(latLngByRef).map(function (ref) {
+      return {
+        point: map.latLngToContainerPoint(latLngByRef[ref]),
+        halfWidth: CANDIDATE_MAP_MARKER_HALF_SIZE_PX,
+        halfHeight: CANDIDATE_MAP_MARKER_HALF_SIZE_PX,
+      };
+    });
+    labelKeepOutEntries.push({
+      point: originPoint,
+      halfWidth: CANDIDATE_ORIGIN_MARKER_HALF_SIZE_PX,
+      halfHeight: CANDIDATE_ORIGIN_MARKER_HALF_SIZE_PX,
     });
 
     if (rings.length > 0 && rings[0].visible) {
@@ -737,20 +811,33 @@
         ringEl.setAttribute("aria-label", labelText);
       }
 
-      // Nudge an off-center label back into the visible map area (designer:
-      // "画面外に出る輪は画面内へ寄せる") by clamping its default position
-      // (due north of the origin, on the ring itself) into the container
-      // rect, inset by a margin so it never sits flush against the edge.
-      var clampedPoint = window.L.point(
-        Math.min(
-          Math.max(ring.northPoint.x, WALKING_RADIUS_RING_LABEL_MARGIN_PX),
-          containerSize.x - WALKING_RADIUS_RING_LABEL_MARGIN_PX
-        ),
-        Math.min(
-          Math.max(ring.northPoint.y, WALKING_RADIUS_RING_LABEL_MARGIN_PX),
-          containerSize.y - WALKING_RADIUS_RING_LABEL_MARGIN_PX
-        )
-      );
+      // Try each candidate angle around this ring's own circumference (due
+      // north first, matching the previous fixed position), clamped into
+      // the visible map area the same way as before, until one does not
+      // collide with a marker or an already-placed ring label. Falls back
+      // to the plain north-clamped position (the old, unconditional
+      // behavior) if every candidate collides.
+      var clampedPoint = null;
+      for (var angleIndex = 0; angleIndex < WALKING_RADIUS_RING_LABEL_ANGLES_DEG.length; angleIndex++) {
+        var angleRad = (WALKING_RADIUS_RING_LABEL_ANGLES_DEG[angleIndex] * Math.PI) / 180;
+        var rawPoint = window.L.point(
+          originPoint.x + ring.radiusPx * Math.sin(angleRad),
+          originPoint.y - ring.radiusPx * Math.cos(angleRad)
+        );
+        var candidatePoint = clampLabelPointToContainer(rawPoint);
+        if (!labelPointCollides(candidatePoint, labelKeepOutEntries)) {
+          clampedPoint = candidatePoint;
+          break;
+        }
+      }
+      if (!clampedPoint) {
+        clampedPoint = clampLabelPointToContainer(ring.northPoint);
+      }
+      labelKeepOutEntries.push({
+        point: clampedPoint,
+        halfWidth: WALKING_RADIUS_RING_LABEL_HALF_WIDTH_PX,
+        halfHeight: WALKING_RADIUS_RING_LABEL_HALF_HEIGHT_PX,
+      });
       var labelIcon = window.L.divIcon({
         className:
           "candidate-walking-radius-ring-label" +
@@ -914,7 +1001,20 @@
     }
     leafletMap.invalidateSize();
     if (mapSheetOpen && selectedCandidateRef && latLngByRef[selectedCandidateRef]) {
-      leafletMap.setView(latLngByRef[selectedCandidateRef], Math.max(leafletMap.getZoom(), 16));
+      // animate: false -- layoutWalkingRadiusRings (called synchronously
+      // below) derives each ring label's position from this view's pixel
+      // geometry via containerPointToLatLng, then bakes that into a fixed
+      // marker latLng. An animated setView only updates that pixel geometry
+      // to its final state once the animation's zoomend/moveend fires,
+      // after this call already returned -- so an animated call here baked
+      // a label position from a mid-animation, not the final, view, which
+      // could later re-project somewhere far off (confirmed empirically:
+      // one label rendered above the visible viewport entirely). Snapping
+      // immediately keeps the label geometry and the final rendered view in
+      // agreement.
+      leafletMap.setView(latLngByRef[selectedCandidateRef], Math.max(leafletMap.getZoom(), 16), {
+        animate: false,
+      });
     } else if (currentMapLatLngs.length > 0) {
       leafletMap.fitBounds(window.L.latLngBounds(currentMapLatLngs), { padding: [24, 24] });
     }
