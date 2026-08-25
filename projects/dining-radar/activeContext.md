@@ -233,6 +233,60 @@ subtests、`test_c_candidate_map_marker_selection_is_keyboard_operable`を含む
 一度reddenしたのを確認したうえで、`inert`を戻し`!important`方式へ切り替えて再度緑になったことを確認）
 が緑。L4（担当外、依頼により実行）は22件すべて緑——落ちたstepは無い。
 
+### 実機報告（第4回）を解消した（2026-08-25、developer）——開いた地図で逆向きの同じ問題が起きていた
+
+前節の直後、人間が実機で再々測定し、**「閉じている側は直った。開いている側で同じ問題が逆向きに
+起きている」**と報告した。作業前に`git fetch && git pull`（変更なし）。
+
+**バグ**: 375×812で地図を開いた状態、`elementFromPoint`でマーカー5個の中心を撃つと、y=729/580/543/450
+の4個が`candidate-card`（またはその子孫）に奪われ、y=39の1個だけが自分自身に当たった。**原因**:
+シートを開くと選択中の1枚だけが`syncMapSheetPanelToSelection()`で`candidate-map-sheet-panel`へ
+移動するが、**残りの候補カードは`[data-testid="candidate-proposal-cards"]`に通常フローのまま**
+残っており、全面地図（`position:fixed; z-index:500;`）の上でずっと描画・当たり判定を持ち続けていた。
+`setBackgroundInert(true)`（`cardsContainerEl`を含む3要素に既に適用済み）が`inert`属性を正しく
+持たせていることは実測で確認したが（`hasAttribute('inert')`→`true`）、**この実際のページでは
+`elementFromPoint`が依然として`candidate-card`を返し続けた**——孤立した再現実験では`inert`が
+`elementFromPoint`を正しく回避することを確認していたのに、なぜこの複雑な実ページでは効かなかったのか、
+developerは完全には理解できていない。理解できないメカニズムに頼り続けるより、前回すでに閉時に実証
+済みの手法へ揃えることを選んだ。
+
+**直した**: 前回（閉じた地図）で使った手法をそのまま再利用した——`visibility: hidden`
+（`opacity`と違い、当たり判定・描画・Tab順のすべてを1プロパティで確実に外す。閉じた地図自体には
+`ADR-0020`決定4(a)の`to_be_visible()`要求があるため使えなかったが、カード一覧・ヘッダー・フィルタ
+バーにはその制約が無い）＋冗長な`* { pointer-events: none !important; }`を、シートが開いている間
+`header`・`#candidate-filter-bar`・`[data-testid="candidate-proposal-cards"]`へ適用した。この3要素は
+`.candidate-main-layout`の子孫ではない（`<main>`/`#candidate-app`の外）ため、`candidate.js`は同じ
+`data-map-sheet-open`属性を`document.body`にも設定するよう変更した。
+
+**実測で確認（両方の状態を同時に）**: 閉時——「地図で見る」・「条件」（`candidate-filter-open`）・
+「もう一度探す」・表示されている各カード、すべて自分自身に当たる。開時——到達可能な範囲のピンは
+自分自身に当たる、閉じる操作（`candidate-map-sheet-close`）は自分自身に当たる、選択中の店の情報の
+中の操作（`candidate-card-provider-page-link`）も自分自身に当たる。
+
+**正直に記録しておくこと**: 開時、5個中2〜3個のピンが選択中カードの情報パネル
+（`candidate-map-sheet-panel`、`position:fixed; bottom:0; max-height:45vh;`）の**表示範囲の真下**に
+位置し、そこでは当たり判定がパネル側に渡る。これは今回直したバグ（カード一覧全体が地図の上に残る）
+とは**別の、地図とボトムシートが重なる構成に内在する挙動**であり、パネルの下に隠れているピンは
+実際に画面上でも見えない（パネルが不透明に描画されている）ため、当たらないこと自体は視覚と一致して
+いる。パネルより上にあるピン（例: y=242）は正しく自分自身に当たることを確認済み。この重なりを
+さらに減らす（地図の中心の取り方を変える等）のは今回の依頼の範囲外と判断し、手を付けていない——
+G1（人がピンに触れることを証明していない）と同じ系統の論点として申し送る。
+
+**「地図で見る」に`role="button"`を追加した**（人間裁定2026-08-25）。契約の観測面への影響を確認した
+——`tests/acceptance/dsl/candidate_search_browser.py`の`FORM_CONTROL_SELECTOR`は`[role='checkbox'/
+'radio'/'range'/'combobox'/'listbox'/'slider'/'spinbutton']`という閉じた一覧で、`[role='button']`は
+含まれていない。実際に`getAttribute('role')`で`"button"`が付いていることを確認したうえで、この
+セレクタには一致しないことをコード自体を読んで確認した——影響は無いと判断し追加した。**申し送り
+（architectへ）**: 契約の`machineObservation`の文章そのものは「...or element with an interactive
+ARIA role...」と書いており、素直に読めば`role="button"`はこの対象に含まれるはずである。しかし
+現在tester側が実際に機械実行しているセレクタ（`FORM_CONTROL_SELECTOR`）は`button`ロールを一覧に
+含んでいない——契約の文章と、それを機械化した現行の検査との間に、今回とは別のズレが存在する
+（`candidate-map-sheet-close`には今回`role="button"`を付けていない——依頼の対象が「地図に入る唯一の
+入口」に限定されていたため）。
+
+**検証**: L1（ruff・352 unit tests・カバレッジ97%）/ L2（12件）/ L3（Django check×2）/ L5（12件+3
+subtests、4不変条件すべて緑）が緑。L4（担当外、依頼により実行）は22件すべて緑——落ちたstepは無い。
+
 ### 画面の機能について確定した人間裁定（2026-08-23）
 
 ワイヤフレーム（`https://claude.ai/code/artifact/278c94d2-116e-4bcd-87df-b552607541c7`。designer が
