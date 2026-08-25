@@ -692,36 +692,28 @@
     }
 
     /* Walking-radius rings (adr/0025 decision 1, radius per adr/0029, a
-       legible label per adr/0030 decision 1) -- designer's ring-legibility
-       guidance: a white casing beneath each ring's own line (same dash
-       pattern, a few pixels wider via candidate.js's
-       WALKING_RADIUS_RING_CASING_EXTRA_WEIGHT, mostly opaque) keeps a ring
-       readable over both light and dark map tiles; dash pattern/opacity
-       step down from solid (innermost, band-0) to dotted (outermost,
-       band-3) so rings read apart by look alone even before a reader
-       reaches their label; the ring matching the currently applied
-       walking-time-max filter (if any) is instead drawn as a heavier,
-       fully opaque accent line with an inverted (reversed) label. Stroke
-       *width* itself is set per instance by candidate.js's `weight` option
-       (WALKING_RADIUS_RING_BASE_WEIGHT/ACCENT_WEIGHT/CASING_EXTRA_WEIGHT),
-       not by CSS, so it is not repeated here -- only stroke-dasharray/
-       stroke-opacity/color, which candidate.js does not set via Leaflet
-       options because a CSS rule matching [data-testid=
-       "candidate-walking-radius-ring"] (kept, unchanged selector) would
-       always win that specific cascade regardless (SVG presentation
-       attributes lose to any matching CSS rule). */
-    .candidate-walking-radius-ring-casing { stroke: #fff; stroke-opacity: 0.9; fill: none; pointer-events: none; }
-    .candidate-walking-radius-ring-casing--band-0 { stroke-dasharray: none; }
-    .candidate-walking-radius-ring-casing--band-1 { stroke-dasharray: 12 8; }
-    .candidate-walking-radius-ring-casing--band-2 { stroke-dasharray: 5 5; }
-    .candidate-walking-radius-ring-casing--band-3 { stroke-dasharray: 1 5; }
+       legible label per adr/0030 decision 1). Human decision 2026-08-26:
+       designer's original per-band dash/opacity step-down (solid -> long-
+       dash -> short-dash -> dotted, innermost to outermost) read as
+       "それぞれ線が違います" on a real device -- an unwanted difference,
+       not a helpful cue, once every ring already carries a legible minute
+       label (the label is what tells a reader which ring is which; the
+       line style no longer needs to). All non-accent rings now share one
+       dash pattern/opacity. Kept unchanged, per the same human decision:
+       the white casing beneath each ring's own line (a few pixels wider
+       via candidate.js's WALKING_RADIUS_RING_CASING_EXTRA_WEIGHT, mostly
+       opaque -- this is what keeps a ring readable over both light and
+       dark map tiles) and the stroke width (1.8px base, set per instance
+       by candidate.js's `weight` option, not by CSS, so not repeated
+       here). The ring matching the currently applied walking-time-max
+       filter (if any) is still drawn distinctly -- a heavier, fully
+       opaque accent line with an inverted (reversed) label -- since that
+       distinction was not part of the human's complaint and still ties a
+       ring to the filter control it corresponds to. */
+    .candidate-walking-radius-ring-casing { stroke: #fff; stroke-opacity: 0.9; stroke-dasharray: 5 5; fill: none; pointer-events: none; }
     .candidate-walking-radius-ring-casing--accent { stroke-dasharray: none; }
 
-    [data-testid="candidate-walking-radius-ring"] { stroke: #3f6553; fill: none; pointer-events: none; }
-    .candidate-walking-radius-ring-path--band-0 { stroke-dasharray: none; stroke-opacity: 0.85; }
-    .candidate-walking-radius-ring-path--band-1 { stroke-dasharray: 10 6; stroke-opacity: 0.68; }
-    .candidate-walking-radius-ring-path--band-2 { stroke-dasharray: 4 4; stroke-opacity: 0.55; }
-    .candidate-walking-radius-ring-path--band-3 { stroke-dasharray: 1 4; stroke-opacity: 0.45; }
+    [data-testid="candidate-walking-radius-ring"] { stroke: #3f6553; stroke-dasharray: 5 5; stroke-opacity: 0.75; fill: none; pointer-events: none; }
     .candidate-walking-radius-ring-path--accent {
       stroke: #155c42; stroke-dasharray: none; stroke-opacity: 1;
     }

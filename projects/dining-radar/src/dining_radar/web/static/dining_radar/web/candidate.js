@@ -112,18 +112,14 @@
   // directly in meters.
   var METERS_PER_DEGREE_LATITUDE = 111320;
 
-  // adr/0030 decision 1 + designer's ring-legibility guidance: each ring's
-  // dash pattern/opacity step down from solid (innermost, easiest to reach)
-  // to dotted (outermost), so a reader can tell rings apart by look alone
-  // even before reading a label. Indexed by position in
-  // WALKING_TIME_MAX_PRESETS_MINUTES (ascending radius); the last entry
-  // repeats for any preset beyond this table's length.
-  var WALKING_RADIUS_RING_STYLE_BY_BAND_INDEX = [
-    { className: "candidate-walking-radius-ring-path--band-0" },
-    { className: "candidate-walking-radius-ring-path--band-1" },
-    { className: "candidate-walking-radius-ring-path--band-2" },
-    { className: "candidate-walking-radius-ring-path--band-3" },
-  ];
+  // adr/0030 decision 1 + human decision 2026-08-26: every non-accent ring
+  // now shares one dash pattern/opacity (see the CSS rule for
+  // [data-testid="candidate-walking-radius-ring"] in home.html) -- the
+  // earlier per-band dash/opacity step-down (solid -> dotted, innermost to
+  // outermost) read as "それぞれ線が違います" on a real device once each
+  // ring already carries its own legible minute label. The ring matching
+  // the currently applied walking-time-max filter (if any) still gets a
+  // distinct accent style via the CSS "--accent" modifier classes below.
   var WALKING_RADIUS_RING_BASE_WEIGHT = 1.8;
   var WALKING_RADIUS_RING_CASING_EXTRA_WEIGHT = 3;
   var WALKING_RADIUS_RING_ACCENT_WEIGHT = 2.4;
@@ -695,17 +691,8 @@
         return;
       }
       var isSelected = selectedMinutes === ring.minutes;
-      var styleEntry =
-        WALKING_RADIUS_RING_STYLE_BY_BAND_INDEX[
-          Math.min(ring.index, WALKING_RADIUS_RING_STYLE_BY_BAND_INDEX.length - 1)
-        ];
-      var casingBandClassName = styleEntry.className.replace(
-        "-path--band-",
-        "-casing--band-"
-      );
       var casingClassName =
-        "candidate-walking-radius-ring-casing " +
-        casingBandClassName +
+        "candidate-walking-radius-ring-casing" +
         (isSelected ? " candidate-walking-radius-ring-casing--accent" : "");
       var casing = window.L.circle(originLatLng, {
         radius: ring.radiusMeters,
@@ -720,8 +707,7 @@
       walkingRadiusRingLayers.push(casing);
 
       var ringClassName =
-        "candidate-walking-radius-ring-path " +
-        styleEntry.className +
+        "candidate-walking-radius-ring-path" +
         (isSelected ? " candidate-walking-radius-ring-path--accent" : "");
       var ringLayer = window.L.circle(originLatLng, {
         radius: ring.radiusMeters,
