@@ -912,6 +912,23 @@
     }
     mapSheetOpen = true;
     mapWrapperEl.closest(".candidate-main-layout").setAttribute("data-map-sheet-open", "true");
+    // Human real-device report, third round (2026-08-25): with the sheet
+    // open, the still-in-normal-flow candidate list (everything except the
+    // one selected card, already moved into candidate-map-sheet-panel by
+    // syncMapSheetPanelToSelection below) kept answering taps/painting on
+    // top of the full-screen map -- elementFromPoint measurement confirmed
+    // 4 of 5 markers were unreachable, hit by a candidate-card instead.
+    // inert (setBackgroundInert, already called next) turned out not to
+    // reliably stop this in the real page despite hasAttribute("inert")
+    // reading true (measured directly; the mechanism this project already
+    // trusted for keyboard exclusion did not reproduce the same protection
+    // for elementFromPoint here, unlike an isolated reproduction). Setting
+    // this same attribute on <body> lets home.html's CSS reach
+    // header/#candidate-filter-bar/candidate-proposal-cards (none of which
+    // are descendants of .candidate-main-layout) with the identical
+    // visibility:hidden + `* { pointer-events: none !important; }`
+    // combination already proven robust for the closed map itself.
+    document.body.setAttribute("data-map-sheet-open", "true");
     setBackgroundInert(true);
     setOriginMarkerTabbable(true);
     syncMapSheetPanelToSelection();
@@ -929,6 +946,7 @@
     }
     mapSheetOpen = false;
     mapWrapperEl.closest(".candidate-main-layout").setAttribute("data-map-sheet-open", "false");
+    document.body.removeAttribute("data-map-sheet-open");
     setBackgroundInert(false);
     setOriginMarkerTabbable(false);
     orderedCardElements.forEach(function (card) {
@@ -1829,9 +1847,9 @@
     // interface.yaml's locationRangeControlProhibition invariant; see this
     // file's own comment on the Leaflet zoom control CSS in home.html).
     // Deliberately built as a focusable <div> (tabindex, explicit
-    // click/keydown handlers), never a <button> or role="button" element --
-    // exactly the pattern candidate-origin-marker/candidate-walking-radius-
-    // ring already use -- so it stays outside
+    // click/keydown handlers), not a <button> element -- exactly the
+    // pattern candidate-origin-marker/candidate-walking-radius-ring
+    // already use -- so it stays outside
     // allCandidateScreenFormControlsMustDeclarePurpose's closed
     // allowedPurposes list (that Must's own machineObservation only sweeps
     // literal <button>/<input>/<select>/<textarea>/interactive-ARIA-role
@@ -1850,11 +1868,26 @@
     // with the reasoning above. It does not, on its own, make this
     // control's presence/behavior a contract Must -- see activeContext.md
     // for what would still be missing for that.
+    //
+    // candidate-map-open (only -- not the close control below) additionally
+    // carries role="button" (human decision 2026-08-25: the sole entry
+    // point into the map should not be semantically un-button-like for
+    // assistive technology just to dodge the purpose regime). Verified
+    // this does not add it to that regime after all: FORM_CONTROL_
+    // SELECTOR's role-based clauses are an explicit, closed list --
+    // [role='checkbox'/'radio'/'range'/'combobox'/'listbox'/'slider'/
+    // 'spinbutton'] -- and 'button' is not one of them, so this element
+    // still does not match it. This is a narrower reading of the
+    // contract's own machineObservation prose than what is actually
+    // mechanically checked today ("...or element with an interactive ARIA
+    // role..." reads as though it should include role="button"), which
+    // developer is reporting rather than resolving -- see activeContext.md.
     var mapOpenButton = el(
       "div",
       {
         "data-testid": "candidate-map-open",
         "class": "candidate-map-open",
+        role: "button",
         tabindex: "0",
         "aria-label": "地図を表示する",
       },

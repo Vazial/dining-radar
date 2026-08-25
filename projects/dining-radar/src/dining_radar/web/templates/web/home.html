@@ -437,6 +437,43 @@
       display: flex;
     }
 
+    /* Human real-device report, third round (2026-08-25): with the sheet
+       open, everything except the one selected candidate-card (already
+       moved into candidate-map-sheet-panel by candidate.js's
+       syncMapSheetPanelToSelection -- never cloned/duplicated) and the
+       close control must give up both its hit-testing AND its appearance
+       to the full-screen map (designer: only "位置関係と選択中の1店"
+       survive open). header/#candidate-filter-bar/candidate-proposal-
+       cards are not descendants of .candidate-main-layout (they live
+       outside <main>/#candidate-app entirely), so candidate.js also sets
+       this same data-map-sheet-open attribute on <body> for these three
+       to key off. visibility:hidden (not opacity, not display:none) is
+       what actually removes an element from hit-testing/the Tab order on
+       its own -- confirmed empirically before relying on it, unlike
+       opacity, which is why the closed-map fix above does not use it for
+       [data-testid="candidate-map"] itself (that element must stay
+       to_be_visible() for ADR-0020 decision 4(a) even while closed). The
+       redundant `* { pointer-events: none !important; }` mirrors the
+       identical fix already proven for the closed map: candidate.js's own
+       inert()-based exclusion (setBackgroundInert, still called for the
+       same three elements, kept for keyboard/accessibility-tree exclusion)
+       measured as *not* reliably stopping elementFromPoint from finding a
+       candidate-card here, despite the container correctly carrying the
+       inert attribute -- developer does not fully understand why inert
+       alone was insufficient in this real, complex page when an isolated
+       reproduction showed it working; the CSS-only, previously-proven
+       mechanism is used instead of depending further on that mismatch. */
+    body[data-map-sheet-open="true"] header[data-testid="authenticated-application-shell"],
+    body[data-map-sheet-open="true"] #candidate-filter-bar,
+    body[data-map-sheet-open="true"] [data-testid="candidate-proposal-cards"] {
+      visibility: hidden;
+    }
+    body[data-map-sheet-open="true"] header[data-testid="authenticated-application-shell"] *,
+    body[data-map-sheet-open="true"] #candidate-filter-bar *,
+    body[data-map-sheet-open="true"] [data-testid="candidate-proposal-cards"] * {
+      pointer-events: none !important;
+    }
+
     /* Candidate card (ADR-0012 skeleton block 3, inner hierarchy per the
        approved round 2 design): identification row, name, facts box,
        external link. Every interactive element keeps at least a 44px
