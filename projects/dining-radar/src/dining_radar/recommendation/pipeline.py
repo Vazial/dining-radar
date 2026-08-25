@@ -200,8 +200,15 @@ WALKING_DETOUR_FACTOR = 1.3
 # range (10-30 minutes) -- unlike ``_DINNER_BUDGET_LOW_MAX_YEN`` or
 # ``_CAPACITY_TIER_SMALL_MAX_SEATS`` elsewhere in this codebase, these are
 # not derived from any field survey, because adr/0025 deliberately leaves
-# the concrete preset values and count to implementation discretion.
-WALKING_TIME_MAX_PRESET_MINUTES: tuple[int, ...] = (10, 15, 20, 30)
+# the concrete preset values and count to implementation discretion. Human
+# decision 2026-08-26 added 5: "徒歩5分もあってもいいかも" (a 5-minute ring
+# would be nice too). candidate.js's ring layout and this filter-preset list
+# share one array client-side (WALKING_TIME_MAX_PRESETS_MINUTES), so the
+# developer additionally offers 5 here as a filter upper bound too, per
+# adr/0029's requirement that the ring radius, card display, and filter
+# upper bound all share one walking-time basis -- not itself asked for by
+# the human, called out separately in review.
+WALKING_TIME_MAX_PRESET_MINUTES: tuple[int, ...] = (5, 10, 15, 20, 30)
 
 
 def dinner_budget_tier(budget_average: float | None) -> str | None:

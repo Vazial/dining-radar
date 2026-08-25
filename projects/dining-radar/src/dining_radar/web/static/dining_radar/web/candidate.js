@@ -85,7 +85,11 @@
   // Also reused to draw one walking-radius ring per preset around the
   // search-origin marker, smallest first (ring styling below relies on this
   // ascending order).
-  var WALKING_TIME_MAX_PRESETS_MINUTES = [10, 15, 20, 30];
+  // Human decision 2026-08-26 added 5 ("徒歩5分もあってもいいかも"); the
+  // filter-side 5 preset is the developer's own extension for the same
+  // change, not itself asked for by the human -- see the mirrored Python
+  // constant's own comment.
+  var WALKING_TIME_MAX_PRESETS_MINUTES = [5, 10, 15, 20, 30];
   // Mirrors recommendation.pipeline.WALKING_METERS_PER_MINUTE exactly (the
   // walking-speed convention Japan's real-estate fair-competition rules fix
   // for "徒歩1分" figures), used only to convert a preset minute count into

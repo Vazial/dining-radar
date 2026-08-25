@@ -268,7 +268,12 @@ class PopulationAttributesTests(SimpleTestCase):
         # earlier "is None" tie-break key alone already decides.
         band_ten = candidate(
             provider_page_url="https://example.invalid/band-ten",
-            latitude=100 / METERS_PER_DEGREE_LATITUDE,  # ~2 min -> bucket 10
+            # 460m -> ceil(460*1.3/80) = 8 min -> bucket 10 (the smallest
+            # preset >= 8 once the 5 preset from human decision 2026-08-26
+            # is included; 100m/~2min used before that change fell into the
+            # new 5-min bucket instead, no longer distinguishing this case
+            # from band_thirty's own bucket the way this test needs).
+            latitude=460 / METERS_PER_DEGREE_LATITUDE,
             genre="same-genre",
             non_smoking_status="FULL",
             card_payment_available=True,
