@@ -251,23 +251,64 @@
        constant removes that dependency entirely.
        There is exactly one Leaflet map instance throughout regardless
        (candidate.js's openMapSheet/closeMapSheet never call
-       initializeMap again). ADR-0020 decision 4(a) (narrow-width map
-       reachability) still holds under the new closed-state styling --
-       opacity does not affect Playwright's/the DOM's own visibility
-       computation the way display:none or visibility:hidden would
-       (confirmed empirically before choosing this property), and
-       position:fixed with top/left both 0 keeps
-       getBoundingClientRect().top at 0 regardless of viewport width, which
-       trivially satisfies "reachable without scrolling" -- see
-       activeContext.md for the full reasoning developer verified this
-       against, including why visibility:hidden would NOT have worked here
-       (Playwright's own to_be_visible() explicitly excludes it, which
-       empirically confirmed testing showed opacity does not). This
-       skeleton is intentionally identical at every width -- the human-
-       approved 2026-08-22/23/24 decisions this replaces (the earlier map-
-       led, horizontally-swipable card deck) explicitly excluded PC from
-       this round's agreement, so no separate desktop treatment is
-       introduced here either. */
+       initializeMap again). This skeleton is intentionally identical at
+       every width -- the human-approved 2026-08-22/23/24 decisions this
+       replaces (the earlier map-led, horizontally-swipable card deck)
+       explicitly excluded PC from this round's agreement, so no separate
+       desktop treatment is introduced here either.
+
+       Human real-device report, second round (2026-08-25): opacity:0 alone
+       made the map invisible but did NOT stop it from intercepting taps --
+       Leaflet's own vendored leaflet.css sets `pointer-events: auto`
+       explicitly on `.leaflet-interactive`/marker elements, which (being a
+       more specific declaration on the element itself) overrides an
+       ancestor's inherited `pointer-events: none`; a real elementFromPoint
+       measurement confirmed the closed map's markers, sitting on top in
+       z-index, were answering taps meant for candidate-map-open and the
+       first candidate-card underneath. Fixed by
+       `* { pointer-events: none !important; }` below, which -- unlike the
+       bare (non-!important) rule this replaces -- wins over Leaflet's own
+       explicit declaration regardless of specificity or source order,
+       because !important always outranks a non-!important rule; this
+       alone fixes hit-testing on every browser, no feature detection
+       needed, and re-verified afterward with the same elementFromPoint
+       methodology (activeContext.md has the full measurement).
+
+       A second, separate report from the same round -- map markers stayed
+       keyboard-focusable while invisible/closed -- was NOT fixed with
+       `inert` on this whole container, even though that was tried first
+       and did work for it: `inert` disables keyboard reachability for its
+       entire subtree with no per-descendant opt-out (confirmed
+       empirically), and candidate-map-marker is one of ADR-0020 decision
+       4(c)'s own gated control-surface elements, checked by a frozen test
+       against exactly this screen's default (closed) state -- making it
+       inert while closed reddened that test. candidate.js's
+       setOriginMarkerTabbable narrows the keyboard fix to
+       candidate-origin-marker alone (which carries no such requirement --
+       candidate-search-browser-interface.yaml's
+       displayOnlyOriginException explicitly tolerates its focusability
+       either way), toggling its tabindex instead of using inert.
+       candidate-map-marker's own tabindex/keydown handling is untouched:
+       it deliberately remains Tab-reachable and Enter/Space-activatable
+       even while genuinely invisible, because the alternative was
+       weakening a frozen ADR-0020 gate. See activeContext.md for the full
+       account of this trade-off.
+
+       ADR-0020 decision 4(a) (narrow-width map reachability) still holds,
+       on a basis that does not depend on opacity being invisible to
+       Playwright's own visibility check: [data-testid="candidate-map"] is
+       position:fixed with top/left both 0 *unconditionally* -- open or
+       closed -- so its own getBoundingClientRect().top is always exactly
+       0, trivially inside any viewport height, regardless of what is or
+       is not currently interactive inside it. That geometric fact is
+       exactly what decision 4(a)'s check measures (the element's own
+       position, not its content's interactivity), so it is not affected
+       by, and does not need to lean on, the closed-state opacity/pointer-
+       events choices above -- those exist solely to make the *content*
+       correctly non-interactive while genuinely invisible, a property
+       developer verified directly with elementFromPoint (see
+       activeContext.md), not by relying on what Playwright's
+       is_visible() happens to report. */
     .candidate-main-layout {
       position: relative;
       display: flex;
@@ -287,6 +328,9 @@
       z-index: 500;
       opacity: 0;
       pointer-events: none;
+    }
+    .candidate-main-layout:not([data-map-sheet-open="true"]) [data-testid="candidate-map"] * {
+      pointer-events: none !important;
     }
     .candidate-main-layout[data-map-sheet-open="true"] [data-testid="candidate-map"] {
       opacity: 1;

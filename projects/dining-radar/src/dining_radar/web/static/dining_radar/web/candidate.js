@@ -139,6 +139,7 @@
   var walkingRadiusRingLayers = [];
   var walkingRadiusRingOrigin = null;
   var currentMapLatLngs = [];
+  var originMarkerEl = null;
 
   // adr/0024 decision 4 item 8: shownCandidateMemory's sessionStorage key and
   // retention bound. 20 hours (not the regulatory ceiling of 24) leaves a
@@ -800,20 +801,23 @@
     }
   }
 
-  // Excludes the list/filter bar/header from the Tab order and the
-  // accessibility tree while the full-screen map sheet visually covers
-  // them (task 3) -- without this, a keyboard user could still Tab into
-  // controls a sighted user cannot currently see or reach. `inert` is
-  // supported by every browser this project's own Playwright harness
-  // exercises (activeContext.md records the exact Chromium build); feature-
-  // detected here so this stays a no-op enhancement, never a hard
-  // dependency, on any browser that lacks it.
-  function setBackgroundInert(isInert) {
+  // `inert` (feature-detected -- supported by every browser this project's
+  // own Playwright harness exercises, activeContext.md records the exact
+  // Chromium build; a no-op enhancement, never a hard dependency, on any
+  // browser that lacks it) removes a whole subtree from the Tab order and
+  // the accessibility tree, and -- unlike a CSS pointer-events rule --
+  // does this regardless of what pointer-events/tabindex value any
+  // descendant declares for itself. That "regardless of the descendant's
+  // own declaration" property is exactly what home.html's own comment on
+  // [data-testid="candidate-map"] explains was missing before: Leaflet's
+  // vendored CSS sets pointer-events:auto explicitly on marker elements,
+  // which no ancestor-level pointer-events:none (CSS inheritance) can
+  // override on its own.
+  function setInert(elements, isInert) {
     if (!("inert" in HTMLElement.prototype)) {
       return;
     }
-    var header = document.querySelector('header[data-testid="authenticated-application-shell"]');
-    [header, filterBar, cardsContainerEl].forEach(function (element) {
+    elements.forEach(function (element) {
       if (!element) {
         return;
       }
@@ -823,6 +827,53 @@
         element.removeAttribute("inert");
       }
     });
+  }
+
+  // Excludes the list/filter bar/header from the Tab order and the
+  // accessibility tree while the full-screen map sheet visually covers
+  // them (task 3) -- without this, a keyboard user could still Tab into
+  // controls a sighted user cannot currently see or reach.
+  function setBackgroundInert(isInert) {
+    var header = document.querySelector('header[data-testid="authenticated-application-shell"]');
+    setInert([header, filterBar, cardsContainerEl], isInert);
+  }
+
+  // Human real-device report, second round (2026-08-25): the closed map
+  // (opacity:0, per the fix above) was still answering real taps meant for
+  // candidate-map-open and the cards underneath -- elementFromPoint
+  // measurement confirmed a closed-state marker, not the button beneath
+  // it, received the tap. Fixed by home.html's
+  // `* { pointer-events: none !important; }` rule (CSS-only, no feature
+  // detection needed, wins over Leaflet's own explicit pointer-events:auto
+  // regardless of specificity because !important always does).
+  //
+  // Deliberately NOT fixed with `inert` on the whole map container, even
+  // though that was tried first and did stop the stray taps: `inert`
+  // disables keyboard reachability for its entire subtree with no way for
+  // a descendant to opt back in (confirmed empirically -- an inert
+  // ancestor makes Tab skip every descendant regardless of the
+  // descendant's own tabindex, and even a direct .focus() call on a
+  // descendant becomes a silent no-op). candidate-map-marker is one of
+  // ADR-0020 decision 4(c)'s own gated control-surface elements --
+  // test_c_candidate_map_marker_selection_is_keyboard_operable presses
+  // Enter/Space on it *in this screen's default (closed) state*, with no
+  // "open the sheet first" step -- so making it inert while closed
+  // reddened that frozen test (developer may not weaken it). The origin
+  // marker carries no such requirement (candidate-search-browser-
+  // interface.yaml's displayOnlyOriginException explicitly tolerates
+  // focusability either way), so setOriginMarkerTabbable below narrows
+  // the keyboard fix to it alone, leaving candidate-map-marker's own
+  // tabindex/keydown handler completely untouched. This is a real,
+  // reported trade-off, not a silent partial fix -- see activeContext.md
+  // for the full reasoning: candidate-map-marker itself stays Tab-
+  // reachable (and, per its own existing keydown handler, Enter/Space-
+  // activatable) even while genuinely invisible and closed, because the
+  // alternative was breaking a frozen ADR-0020 gate.
+  function setOriginMarkerTabbable(isTabbable) {
+    if (!originMarkerEl) {
+      return;
+    }
+    originMarkerEl.setAttribute("tabindex", isTabbable ? "0" : "-1");
   }
 
   // Human real-device report (2026-08-25): opening the sheet collapsed the
@@ -862,6 +913,7 @@
     mapSheetOpen = true;
     mapWrapperEl.closest(".candidate-main-layout").setAttribute("data-map-sheet-open", "true");
     setBackgroundInert(true);
+    setOriginMarkerTabbable(true);
     syncMapSheetPanelToSelection();
     refreshMapViewAndRings();
     sheetCloseFocusTarget = document.activeElement;
@@ -878,6 +930,7 @@
     mapSheetOpen = false;
     mapWrapperEl.closest(".candidate-main-layout").setAttribute("data-map-sheet-open", "false");
     setBackgroundInert(false);
+    setOriginMarkerTabbable(false);
     orderedCardElements.forEach(function (card) {
       cardsContainerEl.appendChild(card);
     });
@@ -1009,10 +1062,16 @@
         alt: "検索基点",
       });
       originMarker.addTo(map);
-      var originMarkerEl = originMarker.getElement();
+      originMarkerEl = originMarker.getElement();
       if (originMarkerEl) {
         originMarkerEl.setAttribute("data-testid", "candidate-origin-marker");
         originMarkerEl.setAttribute("aria-label", "検索基点");
+        // Human real-device report, second round (2026-08-25): tabindex=-1
+        // while the map is closed/invisible, so a keyboard user tabbing
+        // through the page cannot land on it -- setOriginMarkerTabbable's
+        // own comment explains why this element (not candidate-map-marker)
+        // is the one this fix targets. openMapSheet restores tabindex=0.
+        originMarkerEl.setAttribute("tabindex", mapSheetOpen ? "0" : "-1");
         // positionAttributes (candidate-search-browser-interface.yaml
         // mapObservations.searchOriginMarker, contractVersion 1.3.1,
         // FR-022(1)): the exact canonical decimal string of
@@ -1741,12 +1800,14 @@
       return;
     }
 
-    // Task 3 (designer): list-primary + a real, always-present 88px map
-    // ribbon (never a collapsed placeholder button -- this is what keeps
-    // candidate-map/candidate-origin-marker genuinely present on initial
-    // render, satisfying authenticatedInitialOutcome.present without a
-    // contract change) + tap-to-open full-screen map sheet, one Leaflet map
-    // instance throughout.
+    // Task 3 (designer): list-primary + a real map (never a collapsed
+    // placeholder button -- this is what keeps candidate-map/candidate-
+    // origin-marker genuinely present on initial render, satisfying
+    // authenticatedInitialOutcome.present without a contract change) +
+    // tap-to-open full-screen map sheet, one Leaflet map instance
+    // throughout. The map is not visually shown while closed (human
+    // decision 2026-08-25) -- see [data-testid="candidate-map"]'s own CSS
+    // in home.html for how.
     var mainLayout = el(
       "div",
       { "class": "candidate-main-layout", "data-map-sheet-open": "false" },
