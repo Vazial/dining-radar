@@ -1997,6 +1997,28 @@
     // mechanically checked today ("...or element with an interactive ARIA
     // role..." reads as though it should include role="button"), which
     // developer is reporting rather than resolving -- see activeContext.md.
+    // Real-device report (2026-08-26): this project's own designer/
+    // wireframe conventions (.claude/agents/designer.md, meta/templates/
+    // wireframe.md) forbid emoji as icon stand-ins -- this control's icon
+    // used to be a literal map emoji. Replaced with the same inline-SVG
+    // line icon designer's own canvas already uses for a map-expand
+    // control (E:\AWS\dsg-out\Main.dc.html's 44px "expand to full screen"
+    // corner-arrows glyph over its own map ribbon -- the same literal path
+    // data, generalized from a fixed accent color to currentColor so it
+    // follows this element's own text color instead of hardcoding one).
+    // innerHTML is used only for this fixed, developer-authored SVG markup
+    // (never user/candidate data), so it carries no injection risk despite
+    // el() itself only supporting plain HTML elements (document.
+    // createElement does not create SVG nodes).
+    var mapOpenIcon = el(
+      "span",
+      { "class": "candidate-map-open-icon", "aria-hidden": "true" },
+      []
+    );
+    mapOpenIcon.innerHTML =
+      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M9 4H4v5M15 20h5v-5M20 9V4h-5M4 15v5h5"></path></svg>';
     var mapOpenButton = el(
       "div",
       {
@@ -2006,10 +2028,7 @@
         tabindex: "0",
         "aria-label": "地図を表示する",
       },
-      [
-        el("span", { "class": "candidate-map-open-icon", "aria-hidden": "true" }, ["🗺"]),
-        el("span", { "class": "candidate-map-open-label" }, ["地図で見る"]),
-      ]
+      [mapOpenIcon, el("span", { "class": "candidate-map-open-label" }, ["地図で見る"])]
     );
     mapOpenButton.addEventListener("click", function () {
       openMapSheet();

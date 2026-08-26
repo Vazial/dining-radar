@@ -365,9 +365,24 @@
        declares no data-candidate-control-purpose) -- a real person still
        taps it on a real device. */
     .candidate-map-open {
+      /* Real-device report (2026-08-26): measured 34x117px (content wrapped
+         nearly one character per line) instead of the intended full-width,
+         44px-tall bar -- correct again in every reproduction developer ran
+         (fresh load, open/close cycle, iPhone-13 emulation, all at the
+         same 375x812/390x844 the report itself used), so the exact prior
+         trigger was not pinned down. width/flex-shrink/flex-wrap are made
+         explicit here defensively regardless -- .candidate-map-wrapper
+         (this element's own parent) is plain `position: relative`, not a
+         flex container, so today these are no-ops; they exist so that if
+         either ever changes (the coordinator's own "親のflex指定" theory),
+         this element keeps its intended full-width, single-line shape
+         instead of silently shrinking to fit its content. */
       display: flex;
       align-items: center;
       justify-content: center;
+      flex-wrap: nowrap;
+      flex-shrink: 0;
+      width: 100%;
       gap: 0.4rem;
       min-height: 2.75rem;
       padding: 0 1rem;
@@ -384,7 +399,12 @@
       outline: 2px solid #155c42;
       outline-offset: 2px;
     }
-    .candidate-map-open-icon { font-size: 1.1rem; line-height: 1; }
+    /* Real-device report (2026-08-26): no emoji as an icon stand-in --
+       candidate.js now injects a real inline SVG (currentColor stroke, so
+       it follows this element's own text color) here instead of a text
+       node, so this only needs to keep it inline and vertically centered
+       alongside the label span. */
+    .candidate-map-open-icon { display: inline-flex; align-items: center; flex-shrink: 0; }
     .candidate-main-layout[data-map-sheet-open="true"] .candidate-map-open {
       display: none;
     }
@@ -424,15 +444,21 @@
        syncMapSheetPanelToSelection) shown as a compact bottom sheet over
        the full-screen map. Other candidates are reached by tapping their
        pin (candidate-map-marker), not by swiping.
-       Design realignment (2026-08-25, MapSheet.dc.html): the panel itself
-       is 156px in the design, holding only the selected candidate's name/
-       genre/walking-time/link -- not the full card (definitely-longer
-       fields description/facts/payment-caution/regular-holiday all stay
-       *attached* to the DOM, satisfying contract presence, but are hidden
-       here, scoped to this panel only; the same card shows every field
-       again once it is back in the list). This is the single largest
-       contributor to the measured 365px (45vh) vs. the design's 156px --
-       see activeContext.md. */
+       Human real-device report (2026-08-26), reiterating a 2026-08-23
+       instruction ("下にその店舗の情報を出す。それ以外の店舗は出さなくて
+       よい" -- only OTHER shops' info may be omitted, not the selected
+       one's own): this panel previously hid description/facts (total
+       seats/non-smoking/dinner budget)/payment-caution/regular-holiday --
+       present in the DOM (satisfying contract presence) but not on screen,
+       which is what the human actually objected to. All of the selected
+       candidate's own fields are shown now, same as the list card. The
+       design's own 156px panel height (MapSheet.dc.html) predates this
+       2026-08-23 instruction and is explicitly superseded by it (human
+       decision, this round) -- the panel is allowed to grow taller. A
+       bounded max-height + internal scroll (below) keeps that growth from
+       ever fully covering the map underneath, e.g. for an unusually long
+       regular-holiday value (tests/ui_invariants' own frozen regression
+       coverage for that field requires it never truncate). */
     .candidate-map-sheet-panel {
       display: none;
       position: fixed;
@@ -440,7 +466,16 @@
       left: 0;
       right: 0;
       bottom: 0;
-      max-height: 220px;
+      /* 50vh: half the viewport is a deliberate, fixed map/panel ratio
+         (the "amount of choice" the coordinator asked developer to make),
+         not the content's own natural height -- keeps at least half the
+         screen's own vertical space free for the map regardless of how
+         long this candidate's own fields run, with the rest reachable by
+         scrolling inside the panel itself (overflow-y below) rather than
+         by shrinking the map further. openMapSheet's own setView already
+         centers the map on the selected candidate at zoom>=16, so that
+         candidate's own pin sits within this top half by construction. */
+      max-height: 50vh;
       overflow-y: auto;
       background: #fff;
       border-top: 1px solid #dfe4de;
@@ -453,12 +488,6 @@
       box-shadow: none;
       padding: 0.75rem 0.875rem 0.875rem;
       cursor: default;
-    }
-    .candidate-map-sheet-panel [data-testid="candidate-card"] dl.candidate-facts,
-    .candidate-map-sheet-panel [data-testid="candidate-card-description"],
-    .candidate-map-sheet-panel .candidate-payment-caution,
-    .candidate-map-sheet-panel .candidate-card-detail-footer .candidate-fact-row--candidate-card-regular-holiday {
-      display: none;
     }
     .candidate-map-sheet-panel [data-testid="candidate-card-genre"] {
       margin: 0.125rem 0 0;
@@ -1067,5 +1096,5 @@
       code (184px facts grid, no name-in-id-row) even though the server's
       own file already had this round's fixes.
     {% endcomment %}
-    <script src="{% static 'dining_radar/web/candidate.js' %}?v=20260826-ring-and-zoom-fixes"></script>
+    <script src="{% static 'dining_radar/web/candidate.js' %}?v=20260826-map-open-svg-and-panel-fields"></script>
 {% endblock %}
