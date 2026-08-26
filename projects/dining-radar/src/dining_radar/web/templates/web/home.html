@@ -765,6 +765,24 @@
       height: 2.75rem !important;
       line-height: 2.75rem !important;
     }
+    /* Real-device measurement (2026-08-26): the candidate-map-sheet-header
+       back bar (left 6px, top 4px, 105x44) and Leaflet's own default
+       top-left zoom control (left 12px, top 12px/56px, 44x44 each) fully
+       overlapped -- the zoom-in button sat entirely on top of the back
+       bar. The back bar's own shape/design must not change (it already
+       matches E:\AWS\dsg-out\MapSheet.dc.html); moving the zoom control
+       out from under it instead. Leaflet's own top-left control corner
+       (`.leaflet-top.leaflet-left`, the ancestor pane the zoom control's
+       own 10px margin is relative to -- see the vendored leaflet.css'
+       `.leaflet-top { top: 0; }` and `.leaflet-top .leaflet-control {
+       margin-top: 10px; }`) is pushed down by the header's own height
+       (3.25rem, matching .candidate-map-sheet-header above) only while
+       that header is actually visible (map sheet open); while closed, the
+       header takes no space and the map itself has no pointer-events, so
+       the zoom control's default position is left alone. */
+    .candidate-main-layout[data-map-sheet-open="true"] [data-testid="candidate-map"] .leaflet-top {
+      top: 3.25rem;
+    }
 
     /* Filter-surface refinements (unrelated to the map/card skeleton
        above). Retired, task 3: the map-led horizontally-scrollable card
@@ -1049,5 +1067,5 @@
       code (184px facts grid, no name-in-id-row) even though the server's
       own file already had this round's fixes.
     {% endcomment %}
-    <script src="{% static 'dining_radar/web/candidate.js' %}?v=20260825-design-realignment-3"></script>
+    <script src="{% static 'dining_radar/web/candidate.js' %}?v=20260826-ring-and-zoom-fixes"></script>
 {% endblock %}
