@@ -230,49 +230,76 @@
        (candidate-search-browser-interface.yaml's own
        budgetTierNoteObservation.presenceRule). */
 
-    /* Candidate list + a hidden-until-opened full-screen map sheet (task 3,
-       designer artifact efe1c44f-ead4-40c6-9141-b801583aadd9: list-primary,
-       tap an entry point to open a full-screen map). Human real-device
-       reports (2026-08-25) drove two changes from the first version of
-       this skeleton, both explained where they matter below: (1) the map
-       no longer shows an always-visible 88px ribbon while closed -- the
-       closed state is just candidate-map-open, a real, visible entry-point
-       control; (2) [data-testid="candidate-map"] itself is now
-       position:fixed and full-viewport-sized *at all times*, closed or
-       open -- opening/closing only toggles its opacity/pointer-events, not
-       its box model. The previous design toggled the box model itself
-       (in-flow 88px <-> position:fixed full-screen), which collapsed the
-       map to a real, measured 0x0 box on open: candidate-map-wrapper's
-       other children (the ribbon-open overlay, the close control, the
-       sheet panel) were also absolutely/fixed-positioned, so once the map
-       left the wrapper's normal flow too, the flex wrapper had nothing
-       in-flow left to size itself by, and invalidateSize() cannot recover
-       a container that is genuinely 0-sized. Keeping the map's own box
-       constant removes that dependency entirely.
-       There is exactly one Leaflet map instance throughout regardless
-       (candidate.js's openMapSheet/closeMapSheet never call
-       initializeMap again). This skeleton is intentionally identical at
-       every width -- the human-approved 2026-08-22/23/24 decisions this
-       replaces (the earlier map-led, horizontally-swipable card deck)
-       explicitly excluded PC from this round's agreement, so no separate
-       desktop treatment is introduced here either.
+    /* Candidate list + a map that is a small always-on-screen band while
+       closed, and a full-screen sheet once opened (task 3, designer
+       artifact efe1c44f-ead4-40c6-9141-b801583aadd9: list-primary, tap an
+       entry point to open a full-screen map; task 2, human decision
+       2026-08-26 -- "地図で見るのところはちょっとだけ地図写すように" --
+       design origin E:\AWS\dsg-out\Main.dc.html lines 76-109's own 88px
+       "地図リボン", read directly rather than summarized). There is
+       exactly one Leaflet map instance throughout regardless of which of
+       these two states is showing (candidate.js's openMapSheet/
+       closeMapSheet never call initializeMap again;
+       tests/test_static_assets.py fixes this mechanically) -- task 2
+       reuses that one instance for the closed band's real pins rather
+       than drawing a second map or a static mockup. This skeleton is
+       intentionally identical at every width -- the human-approved
+       2026-08-22/23/24 decisions this replaces (the earlier map-led,
+       horizontally-swipable card deck) explicitly excluded PC from that
+       round's agreement, and the PC-width decision reached 2026-08-26
+       (see the .app-shell comment above) explicitly keeps this same
+       open/closed control rather than adding a permanent side map column,
+       so no separate desktop map treatment is introduced here either.
 
-       Human real-device report, second round (2026-08-25): opacity:0 alone
-       made the map invisible but did NOT stop it from intercepting taps --
-       Leaflet's own vendored leaflet.css sets `pointer-events: auto`
-       explicitly on `.leaflet-interactive`/marker elements, which (being a
-       more specific declaration on the element itself) overrides an
-       ancestor's inherited `pointer-events: none`; a real elementFromPoint
-       measurement confirmed the closed map's markers, sitting on top in
-       z-index, were answering taps meant for candidate-map-open and the
-       first candidate-card underneath. Fixed by
-       `* { pointer-events: none !important; }` below, which -- unlike the
-       bare (non-!important) rule this replaces -- wins over Leaflet's own
-       explicit declaration regardless of specificity or source order,
-       because !important always outranks a non-!important rule; this
-       alone fixes hit-testing on every browser, no feature detection
-       needed, and re-verified afterward with the same elementFromPoint
-       methodology (activeContext.md has the full measurement).
+       History (2026-08-25, superseded by task 2 below where noted): the
+       first version of this skeleton showed nothing at all while closed
+       (opacity: 0 on [data-testid="candidate-map"] itself, candidate-map-
+       open a plain opaque button bar), after an even earlier version's
+       always-visible ribbon caused a real collapse-to-0-height defect on
+       open. That earlier collapse happened because candidate-map-wrapper
+       had no height of its own -- it was a column flexbox sized purely by
+       its in-flow children, and once the map (and every other child)
+       became position:fixed on open, nothing was left in-flow to size the
+       wrapper by, and invalidateSize() cannot recover a container that is
+       genuinely 0-sized. The 2026-08-25 fix sidestepped this entirely by
+       making the map's own box constant (always position:fixed, always
+       full-viewport) so it never depended on the wrapper's own sizing.
+
+       Task 2 (2026-08-26) reintroduces an 88px closed-state band -- this
+       time without reintroducing the 2026-08-25 collapse, because the
+       rules below give .candidate-map-wrapper itself an explicit,
+       non-auto height (5.5rem/88px) that does not depend on any child,
+       open or closed. [data-testid="candidate-map"] itself now does
+       change box model between states again (position:absolute, filling
+       the 88px band, while closed; the same position:fixed full-viewport
+       box as before while open) -- that is the one part of the 2026-08-25
+       fix task 2 deliberately does not keep, but the wrapper's own fixed
+       height is exactly the missing piece that made the original
+       box-model toggle unsafe, so reintroducing the toggle here does not
+       reintroduce that defect. The band's real tiles/pins are what makes
+       "ちょっとだけ" (just a glimpse) literally true, clipped to the band
+       by .candidate-map-wrapper's own overflow: hidden.
+
+       Human real-device report, second round (2026-08-25, still fully
+       applicable now that the closed band is visible again): a closed map
+       that is merely intended to be non-interactive does NOT stop
+       answering taps on its own -- Leaflet's own vendored leaflet.css
+       sets `pointer-events: auto` explicitly on `.leaflet-interactive`/
+       marker elements, which (being a more specific declaration on the
+       element itself) overrides an ancestor's inherited
+       `pointer-events: none`; a real elementFromPoint measurement
+       confirmed the closed map's markers, sitting on top in z-index, were
+       answering taps meant for candidate-map-open and the first
+       candidate-card underneath. Fixed by
+       `* { pointer-events: none !important; }` below, which -- unlike a
+       bare (non-!important) rule -- wins over Leaflet's own explicit
+       declaration regardless of specificity or source order, because
+       !important always outranks a non-!important rule; this alone fixes
+       hit-testing on every browser, no feature detection needed, and
+       re-verified afterward with the same elementFromPoint methodology
+       (activeContext.md has the full measurement). Task 2 leaves this
+       rule untouched -- the closed band being visible now makes it, if
+       anything, more important to keep exactly as it was, not less.
 
        A second, separate report from the same round -- map markers stayed
        keyboard-focusable while invisible/closed -- was NOT fixed with
@@ -290,120 +317,220 @@
        either way), toggling its tabindex instead of using inert.
        candidate-map-marker's own tabindex/keydown handling is untouched:
        it deliberately remains Tab-reachable and Enter/Space-activatable
-       even while genuinely invisible, because the alternative was
+       even while the band is showing, because the alternative was
        weakening a frozen ADR-0020 gate. See activeContext.md for the full
        account of this trade-off.
 
        ADR-0020 decision 4(a) (narrow-width map reachability) still holds,
-       on a basis that does not depend on opacity being invisible to
-       Playwright's own visibility check: [data-testid="candidate-map"] is
-       position:fixed with top/left both 0 *unconditionally* -- open or
-       closed -- so its own getBoundingClientRect().top is always exactly
-       0, trivially inside any viewport height, regardless of what is or
-       is not currently interactive inside it. That geometric fact is
-       exactly what decision 4(a)'s check measures (the element's own
-       position, not its content's interactivity), so it is not affected
-       by, and does not need to lean on, the closed-state opacity/pointer-
-       events choices above -- those exist solely to make the *content*
-       correctly non-interactive while genuinely invisible, a property
-       developer verified directly with elementFromPoint (see
-       activeContext.md), not by relying on what Playwright's
-       is_visible() happens to report. */
+       though task 2 changes the geometric basis it rests on:
+       [data-testid="candidate-map"] is no longer position:fixed while
+       closed, so its own getBoundingClientRect().top is no longer
+       trivially 0 by construction. It is instead an ordinary in-flow
+       document position -- the 88px band sits directly beneath the
+       header/filter bar, near the very top of the page -- which is what
+       decision 4(a)'s own check (map top < viewport height, unscrolled)
+       actually measures at every one of its three tested widths
+       (test_render_invariants.py's NARROW_VIEWPORTS); the tallest
+       header + filter bar combination on this screen is well under
+       200px, leaving ample margin against the smallest tested viewport
+       height (844px). Playwright's own to_be_visible() check in that same
+       test does not need reconciling with the pointer-events choices
+       above either way: the band is now genuinely visible (not merely
+       geometrically present while invisible), which only strengthens
+       that assertion, not weakens it. */
     .candidate-main-layout {
       position: relative;
       display: flex;
       flex-direction: column;
       gap: 0.75rem;
     }
+    /* Task 2: this wrapper IS the 88px band while closed (Tokens.dc.html:
+       "地図リボン 88"), not an empty shell sized only by its children --
+       see the comment above for why that explicit height, not a
+       resurrected always-fixed map box, is what keeps this safe. */
     .candidate-map-wrapper {
       position: relative;
+      height: 5.5rem;
+      overflow: hidden;
+      border-bottom: 1px solid #dfe4de;
+      background: #f2efe9;
     }
+    /* Real-device report, round 9 (2026-08-26), found *while fixing* the
+       band's own pill/expand/attribution invisibility above -- raising
+       those elements' z-index (700, so they clear Leaflet's markerPane at
+       600 -- see candidate-map-open's own comment) also let them leak out
+       and cover unrelated page UI that happened to overlap the band's
+       screen position, breaking a live acceptance run: with the mobile
+       filter panel open (#candidate-filter-bar's own dropdown, z-index: 8
+       below), it now sat *under* the closed band and could not receive a
+       click. Root cause: .candidate-map-wrapper itself was plain
+       `position: relative` with no z-index, so it formed no stacking
+       context of its own -- every explicit z-index inside it (Leaflet's
+       own panes, and now candidate-map-open/attribution too) competed
+       directly with the whole rest of the page instead of staying scoped
+       to the band. Giving the wrapper its own low z-index (0, comfortably
+       under every other z-indexed element on this page -- the filter
+       panel's 8, the account menu's 20, the open sheet's own 500/501/502)
+       contains all of that inside a single local stacking context, so
+       candidate-map-open's 700 only ever has to out-rank what is inside
+       the band, never anything outside it. Scoped to the closed state
+       only (data-map-sheet-open != "true") -- the open, full-screen sheet
+       needs the opposite: [data-testid="candidate-map"]'s own z-index:500
+       there must keep competing at the top level to cover the entire
+       page (header, filter bar, card list), which containing it here
+       would break. Reverting the wrapper to plain `position: relative`
+       (no z-index, this rule's own selector no longer matching) the
+       instant data-map-sheet-open flips to "true" restores that exactly. */
+    .candidate-main-layout:not([data-map-sheet-open="true"]) .candidate-map-wrapper {
+      z-index: 0;
+    }
+    /* Closed (default): absolutely filled to the 88px band above (100% of
+       .candidate-map-wrapper, the nearest positioned ancestor) -- real
+       tiles/pins render at that size, clipped by the wrapper's own
+       overflow: hidden. Open: the .candidate-main-layout[data-map-sheet-
+       open="true"] override below switches back to the full-viewport
+       position:fixed box this screen has used since 2026-08-25. */
     [data-testid="candidate-map"] {
-      position: fixed;
+      position: absolute;
       top: 0;
       left: 0;
       width: 100%;
-      height: 100vh;
-      height: 100dvh;
-      z-index: 500;
-      opacity: 0;
+      height: 100%;
       pointer-events: none;
     }
     .candidate-main-layout:not([data-map-sheet-open="true"]) [data-testid="candidate-map"] * {
       pointer-events: none !important;
     }
     .candidate-main-layout[data-map-sheet-open="true"] [data-testid="candidate-map"] {
-      opacity: 1;
+      position: fixed;
+      width: 100%;
+      height: 100vh;
+      height: 100dvh;
+      z-index: 500;
       pointer-events: auto;
     }
+    /* candidate-map-attribution: the one credit link this screen ever
+       renders -- task 2 repositions this same element into the closed
+       band's own bottom-right corner (Main.dc.html line 109) rather than
+       drawing a second, duplicate credit. Decorative like every other
+       layer over the closed band (pointer-events: none): the requirement
+       that the band's entire hit-testing area belongs to
+       candidate-map-open extends to this element too while closed. The
+       open-state override below (full-viewport, bottom-left,
+       pointer-events left at none exactly as before this task) is
+       unchanged from the 2026-08-25 skeleton. */
     [data-testid="candidate-map-attribution"] {
+      position: absolute;
+      right: 0.375rem;
+      bottom: 0.25rem;
+      /* Real-device report, round 9 (2026-08-26): same z-index:auto-vs-
+         explicit-pane-z-index defect as candidate-map-open above (see its
+         own comment) -- z-index: 2 still lost to markerPane's 600, so the
+         credit rendered invisible too. Matches candidate-map-open's 700
+         for the same reason. */
+      z-index: 700;
+      margin: 0;
+      padding: 0.0625rem 0.25rem;
+      border-radius: 0.1875rem;
+      background: rgb(255 255 255 / 85%);
+      font-size: 0.5625rem;
+      color: #4b564e;
+      pointer-events: none;
+    }
+    .candidate-main-layout[data-map-sheet-open="true"] [data-testid="candidate-map-attribution"] {
       position: fixed;
       left: 0.4rem;
+      right: auto;
       bottom: 0.3rem;
       z-index: 501;
-      margin: 0;
       padding: 0.1rem 0.3rem;
       border-radius: 0.25rem;
       background: rgb(255 255 255 / 88%);
       font-size: 0.65rem;
       color: #536057;
-      pointer-events: none;
-      opacity: 0;
     }
-    .candidate-main-layout[data-map-sheet-open="true"] [data-testid="candidate-map-attribution"] {
-      opacity: 1;
-    }
-    /* candidate-map-open (human decision 2026-08-25): the sole visible
-       entry point into the map while it is closed -- real, visible chrome
-       now, not a transparent overlay over a live preview. Reviewer's
-       independent audit (reviews/audit-detour-ring-labels-skeleton.md, G2)
-       found the previous version of this control carried no machine-
-       observable identifier at all; it now carries a data-testid (no
+    /* candidate-map-open (human decision 2026-08-25, redesigned 2026-08-26
+       per task 2): the sole visible entry point into the map while
+       closed. Reviewer's independent audit
+       (reviews/audit-detour-ring-labels-skeleton.md, G2) found the
+       original version of this control carried no machine-observable
+       identifier at all; it now carries a data-testid (no
        data-candidate-control-purpose -- see candidate.js's own comment on
-       why). Deliberately >=44px even though allCandidateScreenFormControls
-       MustDeclarePurpose's 44px gate does not measure this element (it
-       declares no data-candidate-control-purpose) -- a real person still
-       taps it on a real device. */
+       why). Task 2 turns the entire 88px band into this element's own hit
+       area (Main.dc.html: the whole ribbon opens the map, not a smaller
+       button drawn over part of it) -- every decorative layer on top of
+       it (the pill, the expand-icon glyph, candidate-map-attribution
+       above) carries pointer-events: none for exactly that reason, so a
+       tap anywhere in the band always reaches this element.
+
+       Real-device report, round 9 (2026-08-26): the pill and expand badge
+       were measured present (correct bounding boxes) but rendered
+       invisible -- a screenshot showed neither, only the map tiles/pins/
+       Leaflet zoom control underneath. Root cause: this element (and its
+       pill/expand children) is `position: absolute` with no z-index, i.e.
+       z-index:auto, while every Leaflet layer inside the sibling map
+       container (tile images, marker/origin icons, and -- until the fix
+       below -- the zoom control and rings) is itself position:absolute
+       with an explicit z-index (leaflet.css: tilePane 200, markerPane
+       600, the control corners 1000). Per the CSS stacking spec, a
+       positioned z-index:auto element always paints *beneath* a sibling
+       positioned element carrying an explicit z-index, regardless of DOM
+       order -- so the whole map content painted over this control no
+       matter how the markup was ordered. z-index: 700 here (a real, non-
+       auto value, so this element and its children now form their own
+       stacking context) is chosen to clear markerPane's 600 -- the
+       highest pane with content left visible once the zoom control/rings
+       are hidden while closed, below. */
     .candidate-map-open {
-      /* Real-device report (2026-08-26): measured 34x117px (content wrapped
-         nearly one character per line) instead of the intended full-width,
-         44px-tall bar -- correct again in every reproduction developer ran
-         (fresh load, open/close cycle, iPhone-13 emulation, all at the
-         same 375x812/390x844 the report itself used), so the exact prior
-         trigger was not pinned down. width/flex-shrink/flex-wrap are made
-         explicit here defensively regardless -- .candidate-map-wrapper
-         (this element's own parent) is plain `position: relative`, not a
-         flex container, so today these are no-ops; they exist so that if
-         either ever changes (the coordinator's own "親のflex指定" theory),
-         this element keeps its intended full-width, single-line shape
-         instead of silently shrinking to fit its content. */
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-wrap: nowrap;
-      flex-shrink: 0;
-      width: 100%;
-      gap: 0.4rem;
-      min-height: 2.75rem;
-      padding: 0 1rem;
-      border-radius: 0.65rem;
-      border: 1px solid #dce3da;
-      background: #fff;
-      color: #17201b;
-      font-weight: 650;
-      font-size: 0.9rem;
+      position: absolute;
+      inset: 0;
+      z-index: 700;
       cursor: pointer;
     }
-    .candidate-map-open:hover { background: #f4f6f2; }
+    .candidate-map-open:hover { background: rgb(255 255 255 / 10%); }
     .candidate-map-open:focus-visible {
       outline: 2px solid #155c42;
-      outline-offset: 2px;
+      outline-offset: -2px;
     }
-    /* Real-device report (2026-08-26): no emoji as an icon stand-in --
-       candidate.js now injects a real inline SVG (currentColor stroke, so
-       it follows this element's own text color) here instead of a text
-       node, so this only needs to keep it inline and vertically centered
-       alongside the label span. */
+    /* Main.dc.html line 102: the "N件の位置" pill, top-left of the band. */
+    .candidate-map-open-pill {
+      position: absolute;
+      left: 0.75rem;
+      top: 0.6875rem;
+      display: inline-flex;
+      align-items: center;
+      background: rgb(255 255 255 / 92%);
+      border: 1px solid #dce3da;
+      border-radius: 999px;
+      padding: 0.25rem 0.625rem;
+      font-size: 0.6875rem;
+      font-weight: 650;
+      color: #17201b;
+      pointer-events: none;
+    }
+    /* Main.dc.html line 106: a 44x44 expand-glyph badge drawn top-right of
+       the band -- decorative only (the whole band already opens the map;
+       a second, real, independently-tappable control here would fight
+       candidate-map-open for the same tap). Real-device report
+       (2026-08-26): no emoji as an icon stand-in -- candidate.js injects
+       the same inline SVG corner-arrows glyph (currentColor stroke) that
+       used to sit centered in the old bar, unchanged, just repositioned
+       here by its parent. */
+    .candidate-map-open-expand {
+      position: absolute;
+      right: 0.5rem;
+      top: 1.375rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 2.75rem;
+      height: 2.75rem;
+      border-radius: 0.625rem;
+      background: rgb(255 255 255 / 94%);
+      border: 1px solid #c6cfc6;
+      color: #14614a;
+      pointer-events: none;
+    }
     .candidate-map-open-icon { display: inline-flex; align-items: center; flex-shrink: 0; }
     .candidate-main-layout[data-map-sheet-open="true"] .candidate-map-open {
       display: none;
@@ -533,10 +660,13 @@
        this same data-map-sheet-open attribute on <body> for these three
        to key off. visibility:hidden (not opacity, not display:none) is
        what actually removes an element from hit-testing/the Tab order on
-       its own -- confirmed empirically before relying on it, unlike
-       opacity, which is why the closed-map fix above does not use it for
-       [data-testid="candidate-map"] itself (that element must stay
-       to_be_visible() for ADR-0020 decision 4(a) even while closed). The
+       its own -- confirmed empirically before relying on it. This is
+       deliberately not reused for [data-testid="candidate-map"] itself
+       (that element must stay to_be_visible() for ADR-0020 decision 4(a)
+       even while closed, and task 2 additionally wants it genuinely
+       visible while closed, not merely present) -- see the pointer-events
+       rule above instead, which removes hit-testing without touching
+       visibility at all. The
        redundant `* { pointer-events: none !important; }` mirrors the
        identical fix already proven for the closed map: candidate.js's own
        inert()-based exclusion (setBackgroundInert, still called for the
@@ -784,6 +914,32 @@
       background: #155c42;
       color: #fff;
     }
+    /* Real-device report, round 9 (2026-08-26): the design origin's closed
+       band (Main.dc.html lines 76-109) shows pins only -- no rings, no
+       minute labels; production instead rendered the full walking-radius
+       ring set (dashed circles + "20分"/"30分" chips) inside the 88px
+       band too, reading as a diagram rather than a map preview.
+       layoutWalkingRadiusRings (candidate.js) keeps running unconditionally
+       for both states -- this is a pure visual suppression, matched by
+       class prefix so it reaches every layer the function adds (casing,
+       path, inner tint, and the label marker/its inner span) without
+       depending on their exact number or order. Nothing here removes the
+       elements, their data-walking-radius-minutes attribute, or their
+       aria-label from the DOM: contracts/candidate-search-browser-
+       interface.yaml's walkingRadiusRings.bandLabel Must is unaffected
+       (rings must exist/be legible once the sheet is open, not while
+       this 88px preview is closed), and the acceptance DSL's own
+       assert_map_shows_search_origin_marker_and_walking_radius_rings/
+       assert_walking_radius_rings_have_legible_band_labels both read
+       data-walking-radius-minutes/aria-label via get_attribute (unaffected
+       by display) and count matching elements via locator.count() (which
+       does not filter by visibility either) -- confirmed by re-running
+       both after this change. Like the zoom-control rule below, this
+       selector only matches while closed, so normal display returns the
+       instant data-map-sheet-open flips to "true". */
+    .candidate-main-layout:not([data-map-sheet-open="true"]) [data-testid="candidate-map"] [class*="candidate-walking-radius-ring"] {
+      display: none;
+    }
 
     /* Leaflet's own zoom control (+/-), not app-authored content but still
        an interactive element on this screen; bumped to the same 44px floor
@@ -806,11 +962,36 @@
        `.leaflet-top { top: 0; }` and `.leaflet-top .leaflet-control {
        margin-top: 10px; }`) is pushed down by the header's own height
        (3.25rem, matching .candidate-map-sheet-header above) only while
-       that header is actually visible (map sheet open); while closed, the
-       header takes no space and the map itself has no pointer-events, so
-       the zoom control's default position is left alone. */
+       that header is actually visible (map sheet open). (Correction,
+       round 9, 2026-08-26: this comment used to say the zoom control's
+       default position was simply "left alone" while closed -- that was
+       wrong even at the time, and became actively harmful once task 2
+       gave the closed map a real, visible 88px band: at its default
+       top:0/left:0 position the control rendered inside that band and was
+       clipped by candidate-map-wrapper's own `overflow: hidden` (the `−`
+       button's bottom half cut off), which the design origin
+       (Main.dc.html lines 76-109) shows no zoom control at all while
+       closed. See the rule immediately below instead.) */
     .candidate-main-layout[data-map-sheet-open="true"] [data-testid="candidate-map"] .leaflet-top {
       top: 3.25rem;
+    }
+    /* Real-device report, round 9 (2026-08-26): the design origin's closed
+       band (Main.dc.html lines 76-109) has no zoom control at all -- only
+       tiles and pins. Leaflet's own default `zoomControl: true` (never
+       overridden by candidate.js's `L.map()` call) is otherwise always
+       present, so it must be suppressed here rather than merely
+       repositioned; `.leaflet-top`/`.leaflet-bottom` (leaflet.css: the two
+       corner panes every one of Leaflet's built-in controls -- zoom,
+       attribution if it were enabled, layers, scale -- is added to) covers
+       any such control this map ever gains, not just the zoom control by
+       name. display: none, not the `* { pointer-events: none !important;
+       }` rule above (which only ever addressed hit-testing, never made
+       anything invisible) -- the control must not paint at all while
+       closed, restored the instant data-map-sheet-open flips to "true"
+       since this selector stops matching then. */
+    .candidate-main-layout:not([data-map-sheet-open="true"]) [data-testid="candidate-map"] .leaflet-top,
+    .candidate-main-layout:not([data-map-sheet-open="true"]) [data-testid="candidate-map"] .leaflet-bottom {
+      display: none;
     }
 
     /* Filter-surface refinements (unrelated to the map/card skeleton
@@ -950,8 +1131,151 @@
 
     /* At desktop widths, filters are a compact working surface. The panel
        stays visually attached to its toolbar. */
+    /* Human real-device report (2026-08-26, ~1555px wide): "レイアウトが
+       崩れてるね。意味もなく引き伸ばされている". Root cause: the 90rem
+       (1440px) shell above gave [data-testid="candidate-proposal-cards"]
+       (a single-column grid, no grid-template-columns at any width) up to
+       ~1400px to stretch a card into, spreading the badge/name/walk-chip
+       row and the 2-column facts grid far apart from each other.
+
+       Correction (2026-08-27, developer, reading E:\AWS\dsg-out\
+       Desktop.dc.html directly rather than the summary that used to sit
+       here): the same-day human decision this comment used to cite was
+       itself retracted later that same day (Desktop.dc.html's own "訂正
+       （2026-08-26、同日中の再裁定）" section) -- the human's own words:
+       「デスクトップは閉じてなくていいんじゃないかな。ずっと右に表示とか
+       で」. The retracted reading ("decision 2 = 案い『同じ開閉パターンを
+       維持』, no permanent side map column even at this width, shell
+       capped to a single 30rem content column") must not stay as this
+       block's stated rationale -- a later reader would otherwise treat an
+       overturned ruling as the reason for code that no longer matches it.
+       The rules below implement the final, same-day-corrected reading
+       instead: decision 1 = 案1 "1列のまま幅を絞る" is still adopted for
+       the card column itself (this part of the original decision was
+       never in question -- the retraction was only about whether the map
+       stayed an open/close control), but decision 2 is now 案あ「常時表示
+       （開閉トグルなし）」-- at >=64rem the map is a permanent column,
+       sticky to the right of the card list, not a control that opens and
+       closes. Decision 3 (orchestrator, same date; developer may re-tune
+       the two numbers below after measuring, per the decision's own
+       "数値は未実測" note) sets the shell's max width to 76rem and the
+       card column to a fixed 25rem (400px, the middle of the 351-414px
+       real-device card-width range decision 1 already measured), leaving
+       the map column the remaining ~748px (`flex: 1 1 auto` below) --
+       close to Desktop.dc.html's own 35:65 target ratio. Decision 4
+       (orchestrator: show every candidate's pin, not only the selected
+       one -- already true structurally, since candidate.js's
+       initializeMap loop always creates one marker per candidate
+       regardless of viewport) and decision 5 (human: pins + walking-radius
+       rings only on the map side, no secondary info panel -- the mobile
+       sheet's own candidate-map-sheet-panel is simply never populated at
+       this width, see candidate.js's isDesktopLayout branch in
+       renderResult) need no new rule of their own here; decision 6
+       (orchestrator: the mobile-only ribbon-open/full-screen-sheet controls
+       do not belong in the DOM at this width, since there is no longer
+       anything for them to open) is implemented the same way, in
+       candidate.js, not by hiding them here with CSS -- see that same
+       isDesktopLayout branch. Header/account-menu are not pulled out of
+       .app-shell for this (the human's own 2026-08-26 instruction allows
+       either) -- they widen along with the shell, which is a valid
+       reading of "ヘッダーは全幅のままで構いません", not a violation of
+       it. */
     @media (min-width: 64rem) {
-      .app-shell { width: min(100% - 3rem, 90rem); }
+      .app-shell { width: min(100% - 3rem, 76rem); }
+      /* Desktop.dc.html decision 1/2 (final): the map stops being a
+         column-stacked, open/close ribbon-then-list pair and becomes a
+         permanent side-by-side pair instead. row-reverse (rather than
+         reordering mainLayout.appendChild calls in candidate.js) is what
+         keeps this a pure CSS change against the same DOM order the
+         88px-band/full-screen-sheet mobile skeleton already uses (map
+         first, cards second) -- the map column visually lands on the
+         right and the card column on the left without candidate.js having
+         to build two different DOM orderings for the two widths.
+         align-items: flex-start keeps the shorter card column from being
+         stretched to the taller (sticky, near-viewport-height) map
+         column's own cross-axis size, which would otherwise fight the
+         sticky positioning below. */
+      .candidate-main-layout {
+        flex-direction: row-reverse;
+        align-items: flex-start;
+        gap: 1.25rem;
+      }
+      /* Decision 3: a fixed 25rem (400px) card column -- the flex-basis
+         is set on candidate-proposal-cards itself (the direct sibling of
+         candidate-map-wrapper inside candidate-main-layout), not on some
+         extra wrapping element, since none was needed for the mobile
+         skeleton either. flex: 0 0 25rem (not 1 1 25rem) keeps this
+         column's own width fixed regardless of how much space the sticky
+         map column below ends up wanting. */
+      .candidate-main-layout > [data-testid="candidate-proposal-cards"] {
+        flex: 0 0 25rem;
+        width: 25rem;
+        min-width: 0;
+      }
+      /* Decision 1/2: the map column is no longer the mobile 88px closed
+         band (home.html's own .candidate-map-wrapper rule above, height:
+         5.5rem) -- it is a tall, always-visible, sticky-to-the-viewport
+         column sized to comfortably show every candidate's pin and every
+         walking-radius ring's own legible minute label (contract's
+         walkingRadiusRings.bandLabel Must) without either being clipped
+         by the map's own edge or crowded together. `position: sticky`
+         (not `fixed`, which is reserved for the mobile full-screen sheet
+         state below) keeps the map in view while the card column -- which
+         can run longer than one screen -- scrolls past it, without
+         removing it from the page's own normal flow the way `fixed`
+         would. min-height/max-height bound this reasonably across both
+         short (720px, Playwright's own default test viewport) and tall
+         (900px+) viewports; developer has not measured this against every
+         possible real viewport height (Desktop.dc.html decision 3's own
+         "数値は未実測" note applies here too), but the acceptance (L4) and
+         ui_invariants (L5) suites, which both open this screen at
+         Playwright's default 1280x720 viewport with no explicit resize,
+         passed against this value during this same change. */
+      .candidate-map-wrapper {
+        flex: 1 1 auto;
+        min-width: 0;
+        position: sticky;
+        top: 1rem;
+        height: calc(100vh - 2rem);
+        min-height: 26rem;
+        max-height: 46rem;
+        border-bottom: 0;
+        border: 1px solid #dfe4de;
+        border-radius: 0.75rem;
+      }
+      /* The mobile 88px band deliberately makes [data-testid="candidate-
+         map"] non-interactive (position:absolute + the `* { pointer-
+         events: none !important; }` rule above) because a real tap there
+         must reach candidate-map-open instead, and Leaflet's own zoom
+         control/ walking-radius rings are deliberately suppressed there
+         (too small to be usable / read as a diagram, per that rule's own
+         comment) -- both scoped to `:not([data-map-sheet-open="true"])`,
+         which candidate.js's mainLayout attribute never leaves "false" at
+         this width now that there is no open/close control left to flip
+         it (decision 6). At >=64rem there is no separate "open" control to
+         protect, so this column is simply the map, always fully
+         interactive and always showing its rings/zoom control, matching
+         what the mobile sheet already looks like once genuinely open --
+         these three rules override the same selectors the closed-band
+         rules above declare, later in the cascade and at equal
+         specificity, which is what lets them win at this width without
+         touching the mobile-only rules themselves. */
+      .candidate-main-layout:not([data-map-sheet-open="true"]) [data-testid="candidate-map"] {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        pointer-events: auto;
+      }
+      .candidate-main-layout:not([data-map-sheet-open="true"]) [data-testid="candidate-map"] * {
+        pointer-events: auto !important;
+      }
+      .candidate-main-layout:not([data-map-sheet-open="true"]) [data-testid="candidate-map"] [class*="candidate-walking-radius-ring"] {
+        display: revert;
+      }
+      .candidate-main-layout:not([data-map-sheet-open="true"]) [data-testid="candidate-map"] .leaflet-top,
+      .candidate-main-layout:not([data-map-sheet-open="true"]) [data-testid="candidate-map"] .leaflet-bottom {
+        display: block;
+      }
       #candidate-filter-bar { position: relative; z-index: 8; overflow: visible; }
       .candidate-filter-head {
         padding: 0.45rem 0.6rem; border-radius: 0.75rem; background: #fff;
@@ -1096,5 +1420,5 @@
       code (184px facts grid, no name-in-id-row) even though the server's
       own file already had this round's fixes.
     {% endcomment %}
-    <script src="{% static 'dining_radar/web/candidate.js' %}?v=20260826-map-open-svg-and-panel-fields"></script>
+    <script src="{% static 'dining_radar/web/candidate.js' %}?v=20260827-desktop-two-column-sticky-map"></script>
 {% endblock %}

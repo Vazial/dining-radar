@@ -89,25 +89,55 @@ class CandidateSurfaceSourceTests(SimpleTestCase):
         # map_in_the_same_surface, superseded here rather than kept
         # alongside a contradictory skeleton). One [data-testid=
         # "candidate-map"] element is declared once in candidate.js, never
-        # a second map instance -- opening/closing only toggles its
-        # opacity/pointer-events via the data-map-sheet-open attribute, not
-        # its box model (human real-device report 2026-08-25: an earlier
-        # box-model-toggling version of this collapsed the map to a
-        # measured 0-height box on open -- see home.html's own comment on
-        # [data-testid="candidate-map"] for the fix). The map is not shown
-        # at all while closed (human decision 2026-08-25): candidate-map-
-        # open is the sole visible entry point, and also carries a
-        # data-testid (reviewer's audit-detour-ring-labels-skeleton.md G2:
-        # the previous entry point had no machine-observable identifier at
-        # all).
+        # a second map instance.
+        #
+        # Task 2 (human decision 2026-08-26, "ちょっとだけ地図写すように"):
+        # the closed state now shows this same instance clipped to an 88px
+        # band (design origin E:\AWS\dsg-out\Main.dc.html lines 76-109),
+        # not an invisible map behind an opaque button -- opening/closing
+        # again toggles the map's own box model (position:absolute 88px
+        # band <-> position:fixed full-viewport), which the 2026-08-25
+        # skeleton this test used to guard deliberately avoided after an
+        # earlier version of exactly that toggle collapsed the map to a
+        # measured 0-height box on open. Task 2 is safe from that same
+        # regression only because .candidate-map-wrapper itself now carries
+        # an explicit, non-auto height that does not depend on the map (or
+        # any other child) to size it -- assertion below pins that
+        # specific fix, not just the box-model toggle itself, so a future
+        # change cannot silently drop the wrapper's own height and
+        # reintroduce the 2026-08-25 defect. candidate-map-open is still
+        # the sole visible entry point while closed (now the entire band's
+        # own hit area, per Main.dc.html's "帯の全面が押せる"), and still
+        # carries a data-testid (reviewer's audit-detour-ring-labels-
+        # skeleton.md G2: the original entry point had no machine-
+        # observable identifier at all).
         template = HOME_TEMPLATE.read_text(encoding="utf-8")
         script = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
 
         self.assertIn('[data-testid="candidate-map"] {', template)
-        self.assertIn("opacity: 0;", template)
         self.assertIn("pointer-events: none;", template)
+        self.assertIn(
+            '.candidate-main-layout:not([data-map-sheet-open="true"]) '
+            '[data-testid="candidate-map"] * {\n      pointer-events: none !important;\n    }',
+            template,
+            "Leaflet's own .leaflet-interactive pointer-events:auto must stay overridden "
+            "for every descendant of the closed map (2026-08-25 real-device fix)",
+        )
         self.assertIn('.candidate-main-layout[data-map-sheet-open="true"]', template)
         self.assertIn("candidate-map-open", template)
+        # Task 2's own anti-regression pin: the wrapper's explicit height is
+        # what keeps the box-model toggle below safe -- see the comment
+        # above [data-testid="candidate-map"] does change box model
+        # (position:absolute while closed, position:fixed while open).
+        self.assertIn(".candidate-map-wrapper {", template)
+        self.assertIn("height: 5.5rem;", template)
+        self.assertIn("position: absolute;", template)
+        self.assertIn("position: fixed;", template)
+        # The band's own decorative layers (Main.dc.html: pill top-left,
+        # expand badge top-right, credit bottom-right) must never steal the
+        # tap from the band itself.
+        self.assertIn(".candidate-map-open-pill {", template)
+        self.assertIn(".candidate-map-open-expand {", template)
         self.assertIn('"data-testid": "candidate-map-open"', script)
         self.assertIn('"data-testid": "candidate-map-sheet-close"', script)
         self.assertIn("candidate-map-sheet-back", template)
@@ -118,6 +148,7 @@ class CandidateSurfaceSourceTests(SimpleTestCase):
             1,
             "exactly one candidate-map element/Leaflet map instance must be declared",
         )
+        self.assertIn("件の位置", script)
         self.assertIn("function openMapSheet()", script)
         self.assertIn("function closeMapSheet()", script)
         self.assertIn("function syncMapSheetPanelToSelection()", script)

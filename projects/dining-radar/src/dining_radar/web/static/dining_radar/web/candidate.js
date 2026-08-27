@@ -153,6 +153,71 @@
   var CANDIDATE_MAP_MARKER_HALF_SIZE_PX = 22;
   var CANDIDATE_ORIGIN_MARKER_HALF_SIZE_PX = 14;
 
+  // Task 2 (human decision 2026-08-26): fitBounds' padding is symmetric on
+  // one axis at a time -- Leaflet's `padding: [x, y]` shrinks the box it
+  // fits the given bounds into by x on the left+right and y on the top+
+  // bottom -- and the open-viewport value below (24, applied to a full-
+  // screen box hundreds of px tall) barely matters there. The closed band
+  // is a fixed 88px tall (home.html's .candidate-map-wrapper), so the same
+  // 24 on *both* axes there left only 88 - 24*2 = 40px of usable height,
+  // forcing fitBounds to pick a far-more-zoomed-out level than the band's
+  // actual ~350-400px width would need on its own -- since a single zoom
+  // level has to satisfy both axes at once, that over-zoomed-out level
+  // compressed every candidate's pixel distance from the others too,
+  // reproducing the real-device report's "5つのピンが帯の中央で重なって
+  // いる" (measured: pins clustered into a single ~15px blob instead of
+  // spreading across the band). Real-device round 9 measurement:
+  // MAP_BAND_FIT_PADDING_PX's asymmetric [16, 6] (16px left/right, only
+  // 6px top/bottom) roughly doubles the usable-height budget (88 - 6*2 =
+  // 76px) while still keeping candidates near the band's own left/right
+  // edges from touching it -- letting the band's own wide-short aspect
+  // ratio actually drive the zoom level instead of being dominated by its
+  // small height. Applied only while the sheet is closed (refreshMapView
+  // AndRings/initializeMap below both branch on mapSheetOpen); the open,
+  // full-screen fitBounds path (reached only when no candidate is
+  // selected to setView on) is unchanged from before this task.
+  //
+  // Measured limit of this fix, worth recording rather than silently
+  // discovering again later: Leaflet's fitBounds floors to the nearest
+  // whole zoom level (zoomSnap defaults to 1), so shrinking the top/bottom
+  // value further than 6 (tried 2 directly against this same local demo)
+  // did not change the outcome at all -- the extra few pixels of budget
+  // were not enough to cross the next zoom-level threshold. Separately,
+  // this local demo's own NORMAL_WITH_WEIGHTED_SAMPLING synthetic
+  // candidates (acceptance_state.py's _synthetic_candidate) all fix
+  // longitude=0.0 by that module's own deliberate, documented design (an
+  // exact 1-D latitude-only distance formula for deterministic walking-
+  // time boundaries) -- so every candidate this padding value was tuned
+  // against is collinear north-south, and no padding choice can spread
+  // them east-west. Production candidates (real provider data) are not
+  // collinear, so this same fix spreads them on both axes there; against
+  // this synthetic fixture specifically it only ever had the latitude
+  // axis to work with, which the measurement above (roughly doubled
+  // vertical marker spread, band-clustering visibly reduced though not
+  // eliminated -- five candidates spaced ~20m apart cannot occupy
+  // visually distinct positions inside an 88px-tall real-scale map view
+  // no matter the zoom) already accounts for.
+  var MAP_BAND_FIT_PADDING_PX = [16, 6];
+  var MAP_OPEN_FIT_PADDING_PX = [24, 24];
+
+  // Desktop 2-column layout (Desktop.dc.html decisions 1/2, human decision
+  // 2026-08-26 "デスクトップは閉じてなくていいんじゃないかな。ずっと右に
+  // 表示とかで"): at >=64rem the map is a permanent sticky column (home.html
+  // `@media (min-width: 64rem)` -- kept in exact agreement with this same
+  // "64rem" literal here, since CSS media queries and JS matchMedia cannot
+  // share one source of truth), not the mobile-only 88px closed band
+  // MAP_BAND_FIT_PADDING_PX's own comment describes. isCompactMapBand tells
+  // the two fitBounds call sites below (initializeMap, refreshMapViewAndRings)
+  // which padding suits the box actually on screen: the closed band's own
+  // asymmetric padding only makes sense for that specific tiny, wide-short
+  // box, never for the desktop column (roughly as tall as it is wide, much
+  // closer in shape to the mobile full-screen sheet MAP_OPEN_FIT_PADDING_PX
+  // was tuned for) or for the mobile sheet itself (already excluded by the
+  // `!mapSheetOpen` check, unchanged from before this task).
+  function isCompactMapBand() {
+    return !mapSheetOpen && !(window.matchMedia && window.matchMedia("(min-width: 64rem)").matches);
+  }
+
   // Layers this module adds beyond candidate/origin markers (walking-radius
   // ring paths, their white casings, minute labels, and the innermost-band
   // tint) -- tracked so a later re-layout (map resize, e.g. opening/closing
@@ -940,8 +1005,9 @@
     setInert([header, filterBar, cardsContainerEl], isInert);
   }
 
-  // Human real-device report, second round (2026-08-25): the closed map
-  // (opacity:0, per the fix above) was still answering real taps meant for
+  // Human real-device report, second round (2026-08-25; still the reason
+  // this fix is needed after task 2 made the closed map genuinely visible
+  // again): the closed map was still answering real taps meant for
   // candidate-map-open and the cards underneath -- elementFromPoint
   // measurement confirmed a closed-state marker, not the button beneath
   // it, received the tap. Fixed by home.html's
@@ -983,17 +1049,22 @@
   // the open control, the close control, the sheet panel -- were laid out
   // by a column flexbox that sized the wrapper by its in-flow content;
   // toggling the map to position:fixed removed it from that flow, leaving
-  // nothing in-flow to size the wrapper by). Fixed by making the map
-  // element's own box constant at all times (always position:fixed, always
-  // full-viewport width/height) so it never depends on the wrapper's own
-  // sizing -- see [data-testid="candidate-map"]'s CSS in home.html. Closed
-  // vs open is now purely an opacity/pointer-events toggle on that
-  // constant-size box, not a box-model change, so a later resize is no
-  // longer guaranteed to fire (the box's own rendered size does not
-  // necessarily change between the two states) -- refreshMapViewAndRings is
-  // therefore called directly here rather than only from the
-  // ResizeObserver (which still exists, and still matters, for genuine
-  // later resizes: window resize, mobile-toolbar dvh changes, orientation
+  // nothing in-flow to size the wrapper by). Fixed at the time by making the
+  // map element's own box constant at all times (always position:fixed,
+  // always full-viewport width/height) so it never depended on the
+  // wrapper's own sizing. Task 2 (2026-08-26) reintroduces a box-model
+  // change (position:absolute 88px band while closed <-> position:fixed
+  // full-viewport while open -- see [data-testid="candidate-map"]'s CSS in
+  // home.html) but keeps this fix's actual lesson: .candidate-map-wrapper
+  // itself now carries an explicit, non-auto height (5.5rem) that does not
+  // depend on the map or any other child, open or closed, so nothing can
+  // collapse it the way the original flex-sized wrapper did. Because the
+  // box genuinely resizes between the two states again, a later resize is
+  // not guaranteed to be the *only* thing that changes its geometry --
+  // refreshMapViewAndRings is therefore still called directly here rather
+  // than relying solely on the ResizeObserver (which still exists, still
+  // fires for this same change too, and still matters for genuine later
+  // resizes: window resize, mobile-toolbar dvh changes, orientation
   // change).
   function refreshMapViewAndRings() {
     if (!leafletMap) {
@@ -1016,7 +1087,20 @@
         animate: false,
       });
     } else if (currentMapLatLngs.length > 0) {
-      leafletMap.fitBounds(window.L.latLngBounds(currentMapLatLngs), { padding: [24, 24] });
+      // mapSheetOpen is false in every real call to this branch (the sibling
+      // branch above already claims every case where the sheet is open and
+      // a candidate is selected, which is always true once any candidate
+      // exists -- see selectedCandidateRef's own initialization). Reading
+      // isCompactMapBand() here anyway, rather than hardcoding the closed-
+      // band padding, keeps this branch correct for the zero-candidate edge
+      // case too, and for the invariant that follows from
+      // MAP_BAND_FIT_PADDING_PX's own comment: whichever box is actually on
+      // screen right now gets its own matching padding -- isCompactMapBand's
+      // own comment covers why the desktop sticky column also takes the
+      // "open" padding, not the closed band's.
+      leafletMap.fitBounds(window.L.latLngBounds(currentMapLatLngs), {
+        padding: isCompactMapBand() ? MAP_BAND_FIT_PADDING_PX : MAP_OPEN_FIT_PADDING_PX,
+      });
     }
     layoutWalkingRadiusRings(leafletMap, walkingRadiusRingOrigin);
   }
@@ -1111,13 +1195,26 @@
     // Map#whenReady: https://leafletjs.com/reference.html#map-whenready.
     // A map created without initial center/zoom has no view until setView
     // or fitBounds runs, so it must happen before any marker is added below.
-    // The map container is always full-viewport-sized (task 3, human
-    // decision 2026-08-25: closed vs open is an opacity toggle, not a box-
-    // model change -- see [data-testid="candidate-map"]'s CSS in
-    // home.html), so this initial fit already targets the real viewport
-    // regardless of whether the sheet happens to be open yet.
+    // container is already connected to the live DOM by the time this runs
+    // (root.appendChild(content) above, itself already attached, ran before
+    // this function was called), so this initial fitBounds already measures
+    // whichever real box the CSS gives the container right now: task 2's
+    // closed-state 88px band by default at narrow widths (mainLayout's own
+    // data-map-sheet-open starts "false" -- see the mainLayout comment
+    // above), the desktop sticky column at >=64rem (also data-map-sheet-
+    // open="false" -- decision 6 leaves no control that could ever flip it
+    // at this width), or the full-viewport open-state box on the rare
+    // initial render where the mobile sheet is somehow already open. Either
+    // way this fit targets the box Leaflet will actually paint into, not a
+    // stale or assumed one -- see [data-testid="candidate-map"]'s CSS in
+    // home.html for all three boxes. Padding matches whichever of those
+    // boxes this fit is targeting -- see isCompactMapBand's own comment for
+    // why the desktop column takes the same padding as the open,
+    // full-viewport mobile sheet, not the closed band's.
     if (latLngs.length > 0) {
-      map.fitBounds(window.L.latLngBounds(latLngs), { padding: [24, 24] });
+      map.fitBounds(window.L.latLngBounds(latLngs), {
+        padding: isCompactMapBand() ? MAP_BAND_FIT_PADDING_PX : MAP_OPEN_FIT_PADDING_PX,
+      });
     } else {
       map.setView([0, 0], 2);
     }
@@ -1241,13 +1338,15 @@
     // `window` resize -- which this screen's own CSS produces when a mobile
     // browser's toolbar collapsing/reappearing while scrolling changes
     // `100dvh` (human decision 2026-08-22). Opening/closing the full-screen
-    // map sheet (task 3) is deliberately *not* one of the size changes this
-    // observer needs to catch any more: [data-testid="candidate-map"] is
-    // always position:fixed and full-viewport-sized (human decision
-    // 2026-08-25, fixing a real collapse-to-0-height defect the previous
-    // box-model-toggling design had -- see refreshMapViewAndRings's own
-    // comment), so openMapSheet/closeMapSheet call refreshMapViewAndRings
-    // directly instead of depending on this observer to fire.
+    // map sheet (task 3, box model changed again by task 2's 2026-08-26
+    // closed-state band -- see [data-testid="candidate-map"]'s CSS in
+    // home.html) does genuinely resize this same container, so this
+    // observer's own callback fires for that too; openMapSheet/
+    // closeMapSheet also call refreshMapViewAndRings directly regardless,
+    // rather than depending solely on the observer -- both call sites
+    // agree on the same idempotent function, so the redundancy costs
+    // nothing (see refreshMapViewAndRings's own comment for why an
+    // animated setView here would be wrong either way).
     if (window.ResizeObserver) {
       mapResizeObserver = new window.ResizeObserver(function () {
         refreshMapViewAndRings();
@@ -1938,9 +2037,9 @@
     // origin-marker genuinely present on initial render, satisfying
     // authenticatedInitialOutcome.present without a contract change) +
     // tap-to-open full-screen map sheet, one Leaflet map instance
-    // throughout. The map is not visually shown while closed (human
-    // decision 2026-08-25) -- see [data-testid="candidate-map"]'s own CSS
-    // in home.html for how.
+    // throughout. While closed, task 2 (human decision 2026-08-26) shows
+    // this same instance clipped to an 88px band rather than hiding it --
+    // see [data-testid="candidate-map"]'s own CSS in home.html for how.
     var mainLayout = el(
       "div",
       { "class": "candidate-main-layout", "data-map-sheet-open": "false" },
@@ -1952,10 +2051,11 @@
       { "data-testid": "candidate-map", "data-map-tile-provider": "openstreetmap-standard" },
       []
     );
-    // Human decision 2026-08-25: the map is not shown at all while closed
-    // (previously an always-visible 88px ribbon) -- this is now the sole
-    // visible entry point into it. It, and the sheet's close control, only
-    // ever change the *visible map viewport* (hidden <-> full-screen sheet)
+    // candidate-map-open (human decision 2026-08-25, redesigned
+    // 2026-08-26 by task 2 to show the closed map itself as an 88px band
+    // instead of hiding it entirely) is the sole visible entry point into
+    // the map. It, and the sheet's close control, only ever change the
+    // *visible map viewport* (compact band <-> full-screen sheet)
     // -- never a proposal request, selection, filter, origin, or range --
     // the same behavioral property displayOnlyOriginException/Leaflet's own
     // zoom control already rely on (contracts/candidate-search-browser-
@@ -2019,6 +2119,27 @@
       '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
       'stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' +
       '<path d="M9 4H4v5M15 20h5v-5M20 9V4h-5M4 15v5h5"></path></svg>';
+    // Task 2 (human decision 2026-08-26, Main.dc.html lines 76-109): the
+    // closed-state band shows a "N件の位置" pill (top-left) and this same
+    // expand icon in its own 44x44 badge (top-right), not a centered
+    // text+icon bar -- both are purely decorative (home.html gives them
+    // pointer-events: none), since the *whole* band is candidate-map-open's
+    // own hit area now, not just this smaller visual. The pill's count is
+    // body.candidates.length -- the same population this map's markers are
+    // drawn from (see the loop above), so it can never disagree with what
+    // is actually pinned. No visible "地図で見る" text label survives this
+    // redesign; aria-label below still carries the control's accessible
+    // name for assistive technology.
+    var mapOpenPill = el(
+      "span",
+      { "class": "candidate-map-open-pill", "aria-hidden": "true" },
+      [String(body.candidates.length) + "件の位置"]
+    );
+    var mapOpenExpand = el(
+      "span",
+      { "class": "candidate-map-open-expand", "aria-hidden": "true" },
+      [mapOpenIcon]
+    );
     var mapOpenButton = el(
       "div",
       {
@@ -2028,7 +2149,7 @@
         tabindex: "0",
         "aria-label": "地図を表示する",
       },
-      [mapOpenIcon, el("span", { "class": "candidate-map-open-label" }, ["地図で見る"])]
+      [mapOpenPill, mapOpenExpand]
     );
     mapOpenButton.addEventListener("click", function () {
       openMapSheet();
@@ -2077,22 +2198,47 @@
       mapSheetCounterEl,
     ]);
     mapSheetPanelEl = el("div", { "class": "candidate-map-sheet-panel" }, []);
-    var mapWrapper = el("div", { "class": "candidate-map-wrapper" }, [
-      mapContainer,
-      mapOpenButton,
-      mapSheetHeader,
-      mapSheetPanelEl,
-      el(
-        "a",
-        {
-          "data-testid": "candidate-map-attribution",
-          href: "https://www.openstreetmap.org/copyright",
-          target: "_blank",
-          rel: "noopener noreferrer",
-        },
-        ["© OpenStreetMap contributors"]
-      ),
-    ]);
+    var mapAttributionLink = el(
+      "a",
+      {
+        "data-testid": "candidate-map-attribution",
+        href: "https://www.openstreetmap.org/copyright",
+        target: "_blank",
+        rel: "noopener noreferrer",
+      },
+      ["© OpenStreetMap contributors"]
+    );
+    // Desktop.dc.html decision 6 (orchestrator, 2026-08-26): at >=64rem the
+    // map is a permanent column with no open/close control (decision 2), so
+    // the mobile-only ribbon-open control, full-screen-sheet header/back
+    // bar, and the sheet's own single-candidate info panel (decision 5:
+    // the desktop map column carries pins/rings only, never a duplicate
+    // detail panel -- full detail stays in the card column alone) do not
+    // belong in the DOM at all at this width, not merely hidden by CSS --
+    // there is nothing left for them to open/close/summarize. isDesktopLayout
+    // is read once per render (matching this file's other one-shot,
+    // render-time-only viewport reads, e.g. isCompactMapBand); it is not
+    // re-evaluated on a later browser-window resize across the 64rem
+    // boundary without a fresh proposal response (search-again/filter apply
+    // both call renderResult again, which re-reads it) -- candidate.js has
+    // no other DOM-rebuilding resize handling today (only the map's own
+    // ResizeObserver, which resizes the existing map, not the surrounding
+    // controls), and adding one only for this edge case was judged not
+    // worth the risk of a new resize-driven re-render regression against
+    // this same screen's already-elaborate open/close history (see the
+    // mapSheetOpen/openMapSheet/closeMapSheet comments above). mapOpenButton/
+    // mapSheetHeader/mapSheetPanelEl are still built unconditionally above
+    // (openMapSheet/closeMapSheet/syncMapSheetPanelToSelection keep
+    // referencing them by variable/class, and they never run at this width
+    // regardless, since nothing can ever set mapSheetOpen=true here) --
+    // only whether they are appended into the live DOM differs.
+    var isDesktopLayout = window.matchMedia && window.matchMedia("(min-width: 64rem)").matches;
+    var mapWrapperChildren = [mapContainer];
+    if (!isDesktopLayout) {
+      mapWrapperChildren.push(mapOpenButton, mapSheetHeader, mapSheetPanelEl);
+    }
+    mapWrapperChildren.push(mapAttributionLink);
+    var mapWrapper = el("div", { "class": "candidate-map-wrapper" }, mapWrapperChildren);
     mapWrapperEl = mapWrapper;
 
     var cardsContainer = el("div", { "data-testid": "candidate-proposal-cards" }, []);
