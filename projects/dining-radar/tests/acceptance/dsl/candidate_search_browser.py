@@ -86,6 +86,15 @@ WALKING_RADIUS_RING = "candidate-walking-radius-ring"
 # legible_band_labels checks on top of this (a matching visible/accessible
 # text label, not merely this attribute's presence).
 RING_BAND_ATTRIBUTE = "data-walking-radius-minutes"
+# reviews/audit-ring-labels-and-empty-guidance.md F1: the ring itself
+# (WALKING_RADIUS_RING, a bare Leaflet SVG <path>) has no descendant that
+# ever carries the readable minutes an organizer sees on screen -- that text
+# is drawn as a *separate* Leaflet L.divIcon marker layer, a DOM sibling of
+# the ring rather than something it owns. This is a CSS class rather than a
+# project data-testid because the implementation does not currently expose
+# one for this element; tester does not add attributes to src/** itself
+# (reported upstream instead -- see this slice's fix report).
+WALKING_RADIUS_RING_LABEL_SELECTOR = ".candidate-walking-radius-ring-label-visual"
 PROVIDER_CREDIT = "candidate-provider-credit"
 FILTER_OPEN = "candidate-filter-open"
 FILTER_PANEL = "candidate-filter-panel"
@@ -910,79 +919,77 @@ class CandidateSearchBrowserDsl:
         """徒歩圏の同心リングにはそれぞれ何分の範囲かを示す表示が添えられる
         (TDR-CS-02, adr/0030 決定1).
 
-        mapObservations.walkingRadiusRings.bandLabel requires more than the
-        pre-existing machine-only bandAttribute this DSL already reads
-        elsewhere: production shipped bandAttribute on every ring with no
-        visible or accessible indication of which band each ring meant, and
-        an organizer could not tell the rings apart (adr/0030's own
-        motivating incident). So this does not stop at reading the
-        attribute -- for each ring it also requires a non-empty text label,
-        on the ring itself or an element it owns, that is either visibly
-        rendered (Playwright's own actionability check, which accounts for
-        zero-size/display:none/visibility:hidden ancestors) or exposed as
-        an accessible name (aria-label), whose leading digits parse to the
-        same integer as that ring's own bandAttribute. A ring exposing only
-        bandAttribute -- the exact defect the human reported in production,
-        which assert_map_shows_search_origin_marker_and_walking_radius_
-        rings alone would not catch since it only checks ring count -- fails
-        this check.
+        reviews/audit-ring-labels-and-empty-guidance.md F1: an earlier
+        version of this check read each ring's own aria-label first and
+        returned as soon as it matched. But candidate.js sets that
+        aria-label from the very same ring.minutes value, on the very same
+        ring element, two lines away from RING_BAND_ATTRIBUTE -- so that
+        path only ever proved the machine-only attribute equals a string
+        copied from itself, never that anything is legible on screen. The
+        minutes an organizer actually sees are drawn as a *separate*
+        Leaflet marker layer (WALKING_RADIUS_RING_LABEL_SELECTOR), a DOM
+        sibling of the ring rather than a descendant of it, so a
+        ring.locator("*") descendant search could never reach it either.
+        This check no longer reads any ring's aria-label at all: it
+        collects the band minutes every ring declares via
+        RING_BAND_ATTRIBUTE and the minutes every *visible*
+        WALKING_RADIUS_RING_LABEL_SELECTOR element on the page actually
+        renders as text, and requires the two multisets to match exactly.
+        A ring with no matching visible label -- undrawn, blanked, or off
+        by one -- fails this check: adr/0030's own motivating incident
+        (bandAttribute present, nothing legible on screen).
+
+        Known gap this does not close: Playwright's visibility check does
+        not model on-screen occlusion (e.g. a candidate pin drawn on top of
+        a label), so a label hidden behind another marker but otherwise
+        rendered would still pass here.
         """
         self._current_proposal()
         rings = wait_for_at_least_one(self.page, WALKING_RADIUS_RING)
         ring_count = rings.count()
         self.assertions.assertGreaterEqual(ring_count, 1)
+        ring_band_minutes: list[int] = []
         for index in range(ring_count):
-            ring = rings.nth(index)
-            band_value = ring.get_attribute(RING_BAND_ATTRIBUTE)
+            band_value = rings.nth(index).get_attribute(RING_BAND_ATTRIBUTE)
             require(band_value, f"walking-radius ring {index} has no {RING_BAND_ATTRIBUTE}")
-            band_minutes = int(band_value)
-            label_minutes = self._first_legible_leading_minutes(ring)
-            self.assertions.assertIsNotNone(
-                label_minutes,
-                f"walking-radius ring for {band_minutes} minutes ({RING_BAND_ATTRIBUTE}) has "
-                "no visible or accessible text label owned by it -- an attribute-only ring "
-                "does not satisfy bandLabel",
-            )
-            self.assertions.assertEqual(
-                label_minutes,
-                band_minutes,
-                f"ring's own readable label ({label_minutes} minutes) does not match its "
-                f"{RING_BAND_ATTRIBUTE} ({band_minutes} minutes)",
-            )
+            ring_band_minutes.append(int(band_value))
+        label_minutes = self._visible_walking_radius_ring_label_minutes()
+        self.assertions.assertEqual(
+            sorted(label_minutes),
+            sorted(ring_band_minutes),
+            "the visible walking-radius ring labels "
+            f"({WALKING_RADIUS_RING_LABEL_SELECTOR}, read minutes {sorted(label_minutes)}) do "
+            f"not match the set of ring {RING_BAND_ATTRIBUTE} values "
+            f"({sorted(ring_band_minutes)}) -- every ring's band must be shown by a legible, "
+            "actually-rendered label, not merely carried in a machine-only attribute or an "
+            "aria-label that only mirrors it",
+        )
 
-    def _first_legible_leading_minutes(self, ring: Locator) -> int | None:
-        """First leading-digit integer readable on ``ring`` or an element it owns.
+    def _visible_walking_radius_ring_label_minutes(self) -> list[int]:
+        """Leading-digit minutes read from every *visible*
+        WALKING_RADIUS_RING_LABEL_SELECTOR element currently on the page.
 
-        "Readable" mirrors bandLabel's own wording (visible text *or*
-        accessible label): an aria-label is accepted even on a
-        non-visually-rendered node (e.g. an SVG shape carrying its own
-        aria-label with no separate text child), while plain text content is
-        only accepted from an element Playwright judges visible -- an
-        invisible node's text would otherwise let a hidden label pass this
-        check, defeating the point of requiring something legible. Rings
-        are SVG shapes (Leaflet vector layers), so ``text_content`` is used
-        rather than ``inner_text`` -- Playwright's ``inner_text`` (a
-        rendering-aware read that only HTMLElement supports) raises on a
-        non-HTMLElement node such as an SVG path/circle; combining
-        ``text_content`` with the explicit ``is_visible`` gate above still
-        only accepts text from a node Playwright itself judges rendered.
+        "Visible" is Playwright's own ``is_visible()`` (zero-size,
+        display:none, or visibility:hidden ancestors all count as not
+        visible) -- a label node that exists in the DOM but is not actually
+        rendered does not count, which is the whole point of bandLabel
+        (adr/0030's motivating incident was exactly that: an attribute
+        present, nothing legible on screen).
         """
-        owned = ring.locator("*")
-        candidates = [ring] + [owned.nth(index) for index in range(owned.count())]
-        for node in candidates:
-            aria_label = node.get_attribute("aria-label")
-            leading = _leading_minutes(aria_label)
-            if leading is not None:
-                return leading
+        labels = self.page.locator(WALKING_RADIUS_RING_LABEL_SELECTOR)
+        minutes: list[int] = []
+        for index in range(labels.count()):
+            label = labels.nth(index)
             try:
-                visible = node.is_visible()
+                visible = label.is_visible()
             except Exception:  # noqa: BLE001 - a detached/unstable node is simply not legible
                 visible = False
-            if visible:
-                leading = _leading_minutes(node.text_content())
-                if leading is not None:
-                    return leading
-        return None
+            if not visible:
+                continue
+            leading = _leading_minutes(label.text_content())
+            if leading is not None:
+                minutes.append(leading)
+        return minutes
 
     def assert_walking_time_is_shown_as_an_estimate(self) -> None:
         """徒歩のめやす時間は推定であり、実際に歩いた経路を測った時間ではないことが分かる形で
