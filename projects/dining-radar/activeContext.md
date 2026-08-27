@@ -1046,6 +1046,151 @@ Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (
      3件の回帰テストは、新しい骨格に合わせて書き換えた（1件は「地図インスタンスが1つだけ」を機械的に
      固定する新規アサーションに置き換え）。
 
+10. 実装済み（2026-08-26、developer）: 実機報告2件への対応。
+   - **課題1（デスクトップ幅で中身が意味なく引き伸ばされる）**: `E:\AWS\dsg-out\Desktop.dc.html`
+     が提示した3つの未決着案から人間が当日チャットで選んだ決定（決定1=案1「1列のまま幅を絞る」、
+     決定2=案い「同じ開閉パターンを維持（サイドに地図列は置かない）」、決定3=器の最大幅を決定1に
+     合わせる）を実装した。`home.html`の`@media (min-width: 64rem)`の`.app-shell`を
+     `min(100% - 3rem, 90rem)`から`min(100% - 3rem, 30rem)`へ変更——中身の列（filter bar・地図帯・
+     カード）の目標幅26rem（Main.dc.html案1の「375px板とほぼ同じ・約390〜420px相当」）に、
+     `.app-card`自身の左右padding（clamp上限2rem×2）を足した値。ヘッダーはこの1つのshellを共有する
+     ため一緒に狭まる——依頼文が明示的に許容した読み方（「ヘッダーは全幅のままで構いません」）。
+     カード自体の内部レイアウト・地図の開閉方式は無変更（決定2により側の地図列を新設していないため）。
+   - **課題2（「地図で見る」がちょっとだけ地図を写すように）**: `E:\AWS\dsg-out\Main.dc.html`
+     76〜107行の設計（88px帯・左上「N件の位置」ピル・右上44x44拡大アイコン・右下OSMクレジット）を、
+     既存の単一Leafletインスタンス（`[data-testid="candidate-map"]`）を再利用して実装した——2つ目の
+     地図インスタンスは作っていない（`tests/test_static_assets.py`が引き続き機械的に1個だけであることを
+     固定）。`.candidate-map-wrapper`自身に明示的な非auto高さ（5.5rem/88px、`overflow:hidden`）を
+     持たせたのが今回の要——2026-08-25に一度直した「wrapperが子要素の在flow配置に依存して0高さへ
+     潰れる」バグの再発条件（wrapperがどの子要素にも依存しない高さを持たない状態）を今回は満たさない
+     ため、地図のbox modelを再びclosed=position:absolute（帯に充填）/open=position:fixed
+     （全画面）で切り替えても安全。閉時の当たり判定は帯全体が`candidate-map-open`——中のピル・拡大
+     アイコン・`candidate-map-attribution`（OSMクレジット、帯右下へ再配置。2つ目の要素は作らず既存の
+     ものを再利用）はすべて`pointer-events:none`の装飾。過去の実機バグの防波堤
+     （`.candidate-main-layout:not([data-map-sheet-open="true"]) [data-testid="candidate-map"] *`
+     への`pointer-events: none !important`、Leaflet自身の`.leaflet-interactive`が祖先の
+     `pointer-events:none`を上書きする問題の対策）は文字どおり無変更のまま維持した。地図を開いた後の
+     挙動（全画面・選択中1店のみ・下の全項目パネル・戻るバーとズームボタンの位置関係）にも触れていない。
+     `home.html`のキャッシュバスターを`?v=20260826-desktop-width-and-map-band`へ更新した。
+   - 検証（developerが自分で実行）: ruff check/format（対象ファイル）緑、単体テスト352件+48
+     subtests緑（97%ブランチカバレッジ、Pythonソースは無変更のためmutation再測定は不要）、
+     `tests/test_static_assets.py`（構造テスト、地図帯の新アサーションを追加）29件緑、
+     `manage.py check`緑。加えて任意で`tests/acceptance`（L4、22件）と`tests/ui_invariants`
+     （ADR-0020のL5回帰ゲート、12件+3 subtests——1440x900の44pxコントロールサイズ検査を含む）も
+     実行し、いずれも緑（凍結済みL5回帰を壊していないことの機械的確認）。
+
+11. 実装済み（2026-08-26 round 9、developer）: 人間が`E:/AWS/run2`のローカルデモで実測した4件の
+   不具合に対応した。いずれも上記10.の「課題2」実装が生んだ新しい不具合で、`Main.dc.html`
+   76〜109行の設計（帯にはピンとOSMクレジットのみ・ズームコントロール無し・輪と分数ラベル無し）
+   からの逸脱を実測ベースで解消した。
+   - **不具合1・2（ズームコントロールと徒歩圏リング/ラベルが閉時の帯に出る）**: どちらもLeafletが
+     `L.map()`のデフォルトで無条件に足すもの（ズームコントロールは`zoomControl`オプションを
+     candidate.js側で明示的に無効化していなかったため。リングは`layoutWalkingRadiusRings`が
+     開閉に関わらず常時実行され続ける既存設計のため）。`home.html`のCSSで、閉時のみ
+     `.leaflet-top`/`.leaflet-bottom`（ズームコントロールの祖先ペイン）と
+     `[class*="candidate-walking-radius-ring"]`（リング本体・白casing・内側tint・分数ラベルの
+     全レイヤーを共通クラス接頭辞でまとめて捕捉）へ`display: none`。DOM・属性
+     （`data-walking-radius-minutes`・`aria-label`）はどちらも無変更のまま残しており、開いた
+     ときの`contracts/candidate-search-browser-interface.yaml`の`bandLabel`要件
+     （存在・可読性）は影響を受けない——`tests/acceptance`のリング関連2チェックは
+     `get_attribute`（表示に依存しない）と`locator.count()`（可視性でフィルタしない）だけを
+     読むことを確認済み。
+   - **不具合3（「N件の位置」ピルと拡大アイコンが見えない）**: 根本原因はLeafletの内部ペイン
+     （tilePane 200・markerPane 600等、`leaflet.css`）がposition:absoluteかつ明示z-indexを
+     持つのに対し、`.candidate-map-open`とその子（ピル・拡大アイコン）・`candidate-map-attribution`
+     はposition:absoluteのままz-index未指定（auto）だったこと——CSSの積み上げ順仕様により、
+     z-index:autoの位置指定要素は同じ積み上げ文脈内の明示z-index要素より必ず下に描画される
+     （DOM順に関係なく）。閉時のみ`.candidate-map-wrapper`自身に`z-index: 0`を与えて
+     独立した積み上げ文脈を作り（開時はこのルールが効かず、`position: relative`のまま——
+     全画面シート用の`z-index: 500`がページ全体を覆う既存の挙動を壊さないため）、その文脈の中で
+     `.candidate-map-open`と閉時の`candidate-map-attribution`に`z-index: 700`
+     （markerPaneの600を上回る値）を与えた。**この修正を最初に帯全体へ無条件のz-indexとして
+     入れたところ、`tests/acceptance`の絞り込みパネル関連4件が実際に赤くなった**——展開中の
+     モバイル絞り込みパネル（`z-index: 8`）が閉じた地図帯の下に隠れてクリックを奪われなくなる
+     はずが、無条件z-index:700がページ全体で絞り込みパネルより上に出てしまい、その逆（パネルが
+     押せなくなる）を引き起こしたため。`.candidate-map-wrapper`側で閉時限定の積み上げ文脈へ
+     封じ込める形に直し、`tests/acceptance`を再実行して解消を確認した——実機計測が無いと
+     気づけなかった類の回帰であり、他のUI要素とのz-index競合は今後も同じ手口
+     （帯を閉時限定で積み上げ文脈として封じ込める）で対処すべきことを記録しておく。
+   - **不具合4（5件のピンが帯の中央で重なる）**: `refreshMapViewAndRings`/`initializeMap`の
+     `fitBounds`が開閉共通で`padding: [24, 24]`を使っており、88px高の帯では上下パディングだけで
+     48px（実質40px）を消費し、単一のzoomレベルで幅・高さ両方を満たそうとする結果、実際に必要な
+     幅よりはるかにズームアウトした——候補間の画面距離が縮み、団子状に重なって見えた。閉時専用の
+     `MAP_BAND_FIT_PADDING_PX = [16, 6]`（左右16px・上下6pxの非対称値）を新設し、
+     `mapSheetOpen`で開時用`MAP_OPEN_FIT_PADDING_PX = [24, 24]`と出し分けた。実測（375×812）で
+     ピン最上端〜最下端の広がりが23px→47pxへ約2倍改善。**完全な分離は達成していない**——
+     ローカルデモの`NORMAL_WITH_WEIGHTED_SAMPLING`合成候補は`acceptance_state.py`の意図的な
+     設計により全候補`longitude=0.0`固定（`_latitude_degrees_for_meters`のdocstring参照、
+     徒歩時間境界を1次元の緯度差だけで正確に作るため）なので、5候補は南北一直線に並んでおり、
+     どんなパディングでも東西方向には広がらない。実測でパディングをさらに`[16, 2]`まで削っても
+     広がりは変化しなかった（Leafletの`fitBounds`は`zoomSnap`既定1でズームを整数へ切り捨てる
+     ため、あるしきい値を跨がない限り効果が出ない）。本番の実データ（実店舗）は経度も分散するため、
+     同じ修正が両軸で効くはずだが**未実測**。
+   - `home.html`のキャッシュバスターを`?v=20260826-map-band-review-round9`へ更新した。
+   - 検証（developerが自分で実行、すべて緑）: ruff check/format（対象ファイル）、単体テスト352件
+     （97%ブランチカバレッジ、Pythonソース無変更のためmutation再測定は不要）、L2構造12件+9
+     subtests、L3境界181件+23 subtests+Django check×2、`tests/acceptance`（L4）22件全件、
+     `tests/ui_invariants`（L5）12件+3 subtests。加えて`E:/AWS/run2`のローカルデモを自分で
+     起動し（`settings_localdemo`、`NORMAL_WITH_WEIGHTED_SAMPLING`・seed 7）、Playwrightの
+     一時測定スクリプト（コミット対象外、リポジトリには置いていない）で閉時・開時それぞれの
+     実際の要素位置・可視性・`elementFromPoint`をこの契約された測定手法で確認し、
+     `closed_band_375.png`/`closed_band_1440.png`/`open_sheet_375.png`のスクリーンショットで
+     目視も行った。
+
+12. 実装済み（2026-08-27 round 10、developer着手／orchestrator検証）: デスクトップ幅（1024px以上）を
+   カード1列＋右に地図sticky常時表示の2カラムへ組み替えた。
+
+   **上記10.の記述の射程について（重要）**: 10.が「決定2=案い（同じ開閉パターンを維持・サイドに
+   地図列は置かない）」と書いているのは、2026-08-26に人間が一度出した裁定であり、**同日中に人間が
+   撤回した**。人間の言葉:「デスクトップは閉じてなくていいんじゃないかな。ずっと右に表示とかで」。
+   10.の記述はその時点の事実として残すが、**現在のコードは10.の決定2には従っていない**——従うのは
+   本項の決定2（案あ「常時表示」）である。撤回の経緯は`E:/AWS/dsg-out/Desktop.dc.html`の
+   「訂正（2026-08-26、同日中の再裁定）」節に一次記録がある。
+
+   - **決定1（人間裁定 2026-08-26）**: 案1「1列のまま幅を絞る」。カード列は`flex: 0 0 25rem`
+     （400px、実機実測のカード幅351〜414pxの中間）で固定。
+   - **決定2（人間裁定 2026-08-26、同日の再裁定）**: 案あ「常時表示（開閉トグルなし）」。
+     `.candidate-main-layout`を`flex-direction: row-reverse`にして、candidate.js側のDOM順
+     （地図が先・カードが後、モバイルの帯／全画面シート骨格と同じ）を変えずに、地図列を視覚的に
+     右へ置いた。`.candidate-map-wrapper`は`position: sticky`（`fixed`はモバイル全画面シート専用
+     のまま）。
+   - **決定3（orchestrator裁定、数値はdesignerが比率から算出した未実測の提案）**: 器の最大幅
+     `76rem`、カード列`25rem`、地図列は残り（1440px幅で実測 730px）。**実測で破綻するなら
+     詰め直してよい**という前提の値であり、確定値ではない。
+   - **決定4（orchestrator裁定）**: 地図には候補全件のピンを常時表示。構造的には既にそうだった
+     （candidate.jsの`initializeMap`は幅に関わらず候補1件につきマーカー1個を作る）。
+   - **決定5（人間裁定）**: 地図側はピンと徒歩圏の輪のみ。**選択中の店の情報パネルは地図側に
+     置かない**——詳細はカード列側だけ。モバイルの`candidate-map-sheet-panel`はこの幅では
+     populateされない。
+   - **決定6（orchestrator裁定）**: モバイル専用の「地図で見る」帯・全画面シート・戻るバー
+     （`candidate-map-open`／`candidate-map-sheet-close`）は1024px以上では**DOMに出さない**。
+     CSSで隠すのではなくcandidate.js側の`isDesktopLayout`分岐で出し分けている。
+
+   **1024px未満（モバイル）の画面には変更を加えていない**——上記11.で直した88px帯（ズーム
+   コントロール非表示・輪と分数ラベル非表示・「N件の位置」ピル・拡大アイコン・OSMクレジット・
+   帯用`fitBounds`パディング）と全画面シートの挙動はそのまま。
+
+   `home.html`のキャッシュバスターを`?v=20260827-desktop-two-column-sticky-map`へ更新した。
+
+   **検証の出どころ（正直に記録する）**: この回を担当したdeveloperのバックグラウンド実行は、
+   完了報告を出す前にプロセスが異常終了した。**developer自身の検証記録は存在しない**。
+   以下はすべて**orchestratorが落ちた後の作業ツリーに対して自分で実行し直したもの**である。
+   - `ruff check`（対象ファイル）緑
+   - 単体テスト 352件+48 subtests 緑（Pythonソース無変更のためmutation再測定は不要）
+   - `tests/acceptance`（L4）・`tests/ui_invariants`（L5）・`tests/test_static_assets.py`
+     を合わせて 63件+11 subtests 緑
+   - ローカルデモ（`settings_localdemo`、`NORMAL_WITH_WEIGHTED_SAMPLING`・seed 7）に対する
+     Playwright実測（コミット対象外）: 1440×900と1555×950で器1216px・カード列400px（x=203）・
+     地図列730px（x=623）・`position: sticky`・`candidate-map-open`と
+     `candidate-map-sheet-close`がDOMに不在・マーカー5個・輪のラベル重なり0件。375×812では
+     帯88px・カード351px・`candidate-map-open`が存在——モバイル無変更を機械的に確認した。
+   - スクリーンショット目視（`desktop1440.png`／`wide1555.png`／`mobile375.png`）でも確認した。
+
+   **測定上の注意**: このローカルデモの合成候補は経度が0.0固定で一直線に並ぶ
+   （`acceptance_state.py`が徒歩時間の境界計算を厳密にするため意図的にそうしている）。地図上で
+   ピンが縦一列に見えるのはこのフィクスチャの性質であって配置の不具合ではない。実データ（2次元に
+   散る）での見え方は**未測定**である。
+
 ## Open questions
 
 - Email delivery and SSO remain deferred; accounts stay invite-only and local. The custom-domain question is closed — a Route 53 subdomain fronts the service, recorded in ADR-0021's 2026-08-14 addendum.
