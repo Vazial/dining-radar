@@ -394,6 +394,93 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
             "view after a container-only resize",
         )
 
+    def test_a_long_shop_name_does_not_push_the_card_past_its_own_column(self) -> None:
+        """Regression coverage for a real-device report (2026-08-28).
+
+        This is intentionally a presentation regression, not an additional
+        ADR-0020 gate invariant (decision 4's four invariants are frozen;
+        see this file's module docstring) -- same framing as
+        ``test_long_regular_holiday_wraps_inside_a_narrow_card_without_
+        truncation`` above, which this test mirrors closely.
+
+        Root cause (activeContext.md): a CSS grid item's ``min-width``
+        initial value is ``auto``, so [data-testid="candidate-proposal-
+        cards"]'s own grid items (the cards) could never shrink below their
+        content's min-content width -- a long, nowrap shop name (real
+        provider data, e.g. "ドラゴンレッドリバー DRAGON RED RIVER") forced
+        the card past its column, hiding the trailing walk-time chip under
+        the map column. The local demo's own synthetic names
+        (``合成母集団食堂 NN号店``) never exercised this because they were
+        all short and near-identical in length -- this test injects one
+        real-length name via route interception instead, so this file
+        keeps proving the behaviour independently of whichever synthetic
+        name acceptance_state.py happens to use today. Reproduced at both
+        the exact widths orchestrator measured by hand: 1253px (desktop,
+        the side-by-side map column) and 442px (mobile, map-above-cards).
+        """
+        long_name = "ドラゴンレッドリバー DRAGON RED RIVER 総本店（回帰テスト用）"
+
+        def with_long_shop_name(route):
+            response = route.fetch()
+            body = response.json()
+            body["candidates"][0]["name"] = long_name
+            route.fulfill(response=response, json=body)
+
+        self._sign_in_with_candidates()
+        self.page.route("**/candidate-proposals", with_long_shop_name)
+        by_test_id(self.page, "candidate-search-again").click()
+
+        for width, height, label in ((1253, 900, "desktop-1253x900"), (442, 900, "mobile-442x900")):
+            with self.subTest(viewport=label):
+                self.page.set_viewport_size({"width": width, "height": height})
+
+                name_node = by_test_id(self.page, "candidate-card-name").first
+                expect(name_node).to_have_text(long_name)
+
+                measurement = name_node.evaluate(
+                    """node => {
+                      const card = node.closest('[data-testid="candidate-card"]');
+                      const track = card.closest('[data-testid="candidate-proposal-cards"]');
+                      const chip = card.querySelector('.candidate-walk-chip');
+                      const cardBox = card.getBoundingClientRect();
+                      const trackBox = track.getBoundingClientRect();
+                      const chipBox = chip.getBoundingClientRect();
+                      return {
+                        cardRight: cardBox.right,
+                        cardWidth: cardBox.width,
+                        trackRight: trackBox.right,
+                        trackWidth: trackBox.width,
+                        chipRight: chipBox.right,
+                        chipWidth: chipBox.width,
+                        nameTextOverflow: getComputedStyle(node).textOverflow,
+                      };
+                    }"""
+                )
+
+                self.assertLessEqual(
+                    measurement["cardRight"],
+                    measurement["trackRight"] + 0.5,
+                    f"card overflows its own column at {label} -- the long name pushed "
+                    "the card past the track, the exact regression the human reported",
+                )
+                self.assertAlmostEqual(
+                    measurement["cardWidth"],
+                    measurement["trackWidth"],
+                    delta=0.5,
+                    msg=f"card width diverged from its column's own width at {label}",
+                )
+                self.assertLessEqual(
+                    measurement["chipRight"],
+                    measurement["trackRight"] + 0.5,
+                    f"walk-time chip is hidden under the map column at {label}",
+                )
+                self.assertGreater(
+                    measurement["chipWidth"],
+                    0,
+                    f"walk-time chip collapsed to zero width at {label}",
+                )
+                self.assertEqual(measurement["nameTextOverflow"], "ellipsis")
+
     # (a) Narrow-width map reachability ------------------------------------
 
     def test_a_map_is_reachable_without_scrolling_at_narrow_widths(self) -> None:

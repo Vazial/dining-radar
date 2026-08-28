@@ -642,6 +642,30 @@
       display: grid;
       gap: 0.75rem;
     }
+    /* Human real-device report (2026-08-28): with a real long shop name
+       ("ドラゴンレッドリバー DRAGON RED RIVER" etc. -- the local demo's own
+       synthetic names never exercised this because they were all short and
+       similarly sized), the card's trailing walk-time chip was hidden under
+       the map column, at both the desktop 400px card column (decision 3
+       above) and the mobile single-column width. Root cause: a grid item's
+       min-width initial value is `auto`, not 0 -- so a grid item can never
+       shrink below its own content's min-content width no matter how narrow
+       its track is. [data-testid="candidate-card"] is nowrap end-to-end
+       (this file's own [data-testid="candidate-card-name"] rule already
+       ellipsizes, so the card was always meant to be shrinkable), so it
+       should be free to shrink to the track's width and let that existing
+       ellipsis do its job, rather than forcing the track wider. min-width: 0
+       here opts every card (the grid's only children -- candidate.js's
+       renderResult appends nothing else into this container) out of that
+       default, matching the same min-width: 0 override already applied one
+       level up, to this whole container itself, at 64rem+ (decision 3's own
+       `.candidate-main-layout > [data-testid="candidate-proposal-cards"]`
+       rule below) -- this fixes the same class of overflow one nesting
+       level deeper, and applies at every width instead of only >=64rem
+       since flex/grid's auto-minimum-size behavior isn't width-specific. */
+    [data-testid="candidate-proposal-cards"] > [data-testid="candidate-card"] {
+      min-width: 0;
+    }
 
     .candidate-main-layout[data-map-sheet-open="true"] .candidate-map-sheet-header,
     .candidate-main-layout[data-map-sheet-open="true"] .candidate-map-sheet-panel {
@@ -713,7 +737,19 @@
        instead of wrapping so the trailing chip never gets pushed off);
        genre drops the chip styling for a plain text line directly above
        the description (no visible box, matching the design). */
-    .candidate-card-id-row { display: flex; align-items: center; gap: 0.5625rem; }
+    /* .candidate-card-id-row is itself a flex item of the column-direction
+       [data-testid="candidate-card"] above; that axis's own automatic
+       minimum size still forces this row no narrower than its own content's
+       min-content width (same `auto` default the grid-item fix above
+       targets, one level deeper) unless overridden here, which is exactly
+       what let the id-row -- and the name/chip inside it -- push the whole
+       card past its 400px/mobile-width track before this line existed
+       (2026-08-28 real-device report, see the grid-item rule above for the
+       full account). min-width: 0 lets it shrink to the card's own
+       (now-shrinkable) width instead, so [data-testid="candidate-card-name"]
+       ellipsizes against that width as this file's own name rule already
+       intends. */
+    .candidate-card-id-row { display: flex; align-items: center; gap: 0.5625rem; min-width: 0; }
     .candidate-marker-badge {
       display: inline-flex; align-items: center; justify-content: center;
       width: 1.375rem; height: 1.375rem; border-radius: 50%;

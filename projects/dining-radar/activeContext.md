@@ -1191,6 +1191,54 @@ Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (
    ピンが縦一列に見えるのはこのフィクスチャの性質であって配置の不具合ではない。実データ（2次元に
    散る）での見え方は**未測定**である。
 
+13. 実装済み（2026-08-28 round 11、developer着手／orchestrator検証・完了）: **本番の実データで
+   カードが自分の列からはみ出し、徒歩分数のバッジが地図列の下に隠れていた**のを直した。
+
+   - 事象: 人間が公開先を実データで見て「レイアウト崩れてるね」と報告。デスクトップで、店名が
+     長い候補ほどカードの右端（徒歩◯分のバッジ）が地図列に隠れて切れていた。
+   - 原因: `[data-testid="candidate-proposal-cards"]` は `display: grid` であり、**グリッド
+     アイテムの `min-width` の初期値は `auto`**。アイテムは自分の min-content 幅より小さく
+     ならないため、`white-space: nowrap` の長い店名が大きな min-content 幅を作り、カードが
+     400px のトラックを突き破っていた。orchestrator の実測（幅1253px、店名を実データ相当に
+     置換）: **カード列 400px に対しカード本体 449px**、id-row 419px、店名 288px（切り詰め
+     されず）。`min-width: auto` はカード本体と `.candidate-card-id-row` の両方で効いていた。
+   - 修正: `[data-testid="candidate-proposal-cards"] > [data-testid="candidate-card"]` と
+     `.candidate-card-id-row` に `min-width: 0`。既存の `[data-testid="candidate-card-name"]`
+     の `text-overflow: ellipsis` が初めて効くようになる。**幅を問わない不具合なので、
+     デスクトップのメディアクエリの中ではなく全幅に適用した**（モバイル幅442pxでも
+     カード列418px対カード449pxで同じはみ出しが出ていた）。
+
+   **なぜ今まで一度も出なかったか（本項の要点）**: ローカルデモの合成候補の店名が
+   `合成母集団食堂 NN号店` のように**短く、かつ長さが揃っていた**ため。実データの店名は
+   「ドラゴンレッドリバー DRAGON RED RIVER」「福寿林 ホテルグランテラス富山」のように長く、
+   ばらつく。**合成データが実データの分布を代表していなかった**ことが、10ラウンドの実機報告を
+   経てもこの不具合が残った理由である。対策として2つ入れた。
+   - `acceptance_state.py` の合成母集団の1件（index 0）の**店名だけ**を実データ相当の長さに
+     置き換えた。座標・ジャンル・席数・禁煙・カード可否・予算は一切変えていないため、
+     距離・順序・境界に依存する既存シナリオの観測結果は変わらない
+   - `tests/ui_invariants` に回帰テストを新設。**合成データに依存せず**、応答を route 傍受で
+     差し替えて実データ相当の長い店名を注入し、幅1253px（デスクトップ2カラム）と442px
+     （モバイル）の両方で「カードが自分のトラックを超えないこと」を検査する
+
+   検証（すべて orchestrator が自分で実行）: ruff check/format 緑、単体352件+48 subtests 緑、
+   `tests/acceptance`・`tests/ui_invariants`・`tests/test_static_assets.py` 併せて64件+13
+   subtests 緑。実測でも幅1253/1440/375のすべてで**はみ出し0px・カードが地図に潜らない・
+   長い店名が省略記号で切り詰まる・横スクロールなし**を確認した。
+   **欠陥注入も行った**（`meta/adr/0065`）: `min-width: 0` の2行を外すと新設の回帰テストが
+   `AssertionError: 639.671875 not less than or equal to 430.5` で落ちることを確認し、戻して
+   緑に戻ることも確認した。
+
+   `candidate.js` は無変更のため、キャッシュ回避文字列は更新していない（変更したのは
+   `home.html` 内のCSSのみで、これはページ本体と一緒に配信される）。
+
+   **あわせて分かったこと（不具合ではない）**: 人間から「地図も開かないね」という報告も出たが、
+   これは不具合ではなかった。幅の判定（`candidate.js` の `isDesktopLayout`）は `renderResult`
+   の中で描画のたびに1回だけ評価され、**描画後に幅が変わっても再評価されない**。人間は
+   DevTools の Device type を切り替えたが再読み込みしていなかったため、表示はPCのままで、
+   決定6により「地図で見る」は**DOMに存在しなかった**。押せなかったのではなく無かった。
+   これは実装時に意図して選ばれた割り切りであり、コード中にその旨のコメントがある。実害が
+   出るのはタブレットを縦横に回したとき（1024px以上→未満）に限られるため、今回は変更していない。
+
 ## Open questions
 
 - Email delivery and SSO remain deferred; accounts stay invite-only and local. The custom-domain question is closed — a Route 53 subdomain fronts the service, recorded in ADR-0021's 2026-08-14 addendum.

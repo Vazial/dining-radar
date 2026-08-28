@@ -357,10 +357,33 @@ _WEIGHTED_SAMPLING_CARD_PAYMENT_CYCLE: tuple[bool | None, ...] = (True, False, N
 _WEIGHTED_SAMPLING_BUDGET_CYCLE: tuple[float | None, ...] = (1500.0, 2500.0, 3500.0, 4500.0, None)
 _WEIGHTED_SAMPLING_POPULATION_SIZE = 40
 
+# Real-device report (2026-08-28): the card's trailing walk-time chip was
+# hidden under the map column for real, long shop names ("ドラゴンレッド
+# リバー DRAGON RED RIVER", "福寿林 ホテルグランテラス富山") -- a layout bug
+# this local demo's own synthetic population never exercised because every
+# generated name here was short (`合成母集団食堂 NN号店`) and near-identical
+# in length. This module's own docstring (adr/0023/adr/0024/adr/0025) is
+# explicit that this population exists to run real production logic against
+# synthetic data, and TDR-CS-13's ordering assertions (see test_suggestions.py)
+# read genre/nonSmokingStatus/cardPaymentAvailable/dinnerBudgetTier -- never
+# `name` -- so substituting one candidate's display name below changes no
+# scenario's observable outcome. Only the string changes: index 0 keeps its
+# own latitude/genre/seats/nonSmokingStatus/cardPaymentAvailable/budget
+# exactly as the cycle below would already assign them, so every
+# distance-, ordering-, and boundary-dependent assertion this population was
+# authored to prove is untouched.
+_WEIGHTED_SAMPLING_LONG_NAME_INDEX = 0
+_WEIGHTED_SAMPLING_LONG_NAME = "ドラゴンレッドリバー DRAGON RED RIVER 総本店（合成データ）"
+
 
 def _weighted_sampling_candidate(index: int) -> NormalizedCandidate:
+    name = (
+        _WEIGHTED_SAMPLING_LONG_NAME
+        if index == _WEIGHTED_SAMPLING_LONG_NAME_INDEX
+        else f"合成母集団食堂 {index:02d}号店"
+    )
     return _synthetic_candidate(
-        name=f"合成母集団食堂 {index:02d}号店",
+        name=name,
         genre=_WEIGHTED_SAMPLING_GENRES[index % len(_WEIGHTED_SAMPLING_GENRES)],
         provider_page_url=f"https://example.invalid/acceptance-pool-shop-{index:02d}",
         latitude=0.0010 + index * 0.0002,
