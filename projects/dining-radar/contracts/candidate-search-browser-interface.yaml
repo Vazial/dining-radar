@@ -191,7 +191,27 @@
 #   条文は加えない——allCandidateScreenFormControlsMustDeclarePurposeにより、この要素は
 #   data-candidate-control-purposeを持つことになり、adr/0020決定4(e)の既存ゲートが自動的に測る
 #   (adr/0030 決定5)。
-contractVersion: '1.4.0'
+#
+# 2026-08-28 起草 (architect、承認待ち、本ファイルはこの追補を反映する。dining-radar/adr/0031):
+# designerがDesktop.dc.htmlで報告した、決定7（案A・地図全面＋下部インセットの横デッキ）・決定8
+# （案あ・送りボタン＋件数カウンタ）（いずれも人間裁定2026-08-28）に対応する契約の穴を塞ぐ。
+# - unavailableControls.allowedPurposesにcandidate-deck-page-previous・candidate-deck-page-nextを
+#   加える (adr/0031 決定1)。
+# - browserControlSurface.proposalにdeckNavigationを新設し、件数カウンタ（candidate-deck-position）
+#   をdata-deck-visible-start/-end/-totalとして機械観測可能にする——値の集合ではなく現在の表示窓の
+#   位置として、送りボタンの前後を検査できるようにする (adr/0031 決定2)。
+# - browserActionsにpageDeckPrevious・pageDeckNextを新設し、選択・適用済み条件・pending条件を
+#   一切変えない純粋なクライアント側の表示窓移動であることを明記する。selectMarkerの
+#   requiredOutcomeにdeckVisibilityを追加し、地図上のマーカーを選んだ結果として選択されたカードが
+#   デッキの表示窓の外に出ないことをMustにする——決定5（地図側に情報パネルを置かず、デッキ自体が
+#   情報を出す）の前提が、このレイアウトで初めて成立条件を必要としたため (adr/0031 決定3)。
+# - renderModesを新設する。candidate-map-open・candidate-map-sheet-close（本ファイルにはこれまで
+#   一度も登場しなかった。activeContext.md申し送り）をlistPrimaryLayoutへ、今回新設した3要素を
+#   mapPrimaryLayoutへ、それぞれ「幅で存在が変わる要素」の一般的な言い回しとして登録する。幅の
+#   しきい値そのものはこの契約が定めず、L5（adr/0020）の管轄のまま残す (adr/0031 決定4)。
+# 徒歩圏リングラベルの検査が集合比較でしか成立しない件（F1b、activeContext.md 2026-08-27）は
+# この改訂に含めない——起源が異なる別件として、別ADRで扱う (adr/0031 決定5)。
+contractVersion: '1.5.0'
 kind: acceptance-browser-interface
 scope: candidate-search
 profiles:
@@ -233,6 +253,60 @@ browserEntry:
              candidate-filter-pending-note,
              candidate-filter-apply, candidate-filter-revert,
              candidate-manual-ordering]
+
+renderModes:
+  description: >-
+    Some application-authored test ids exist only under one of two mutually
+    exclusive implementation-chosen rendering conditions, and never under the
+    other (e.g. a list-primary vs a map-primary layout). This contract does
+    not fix the condition's threshold (mirrors how it already leaves
+    viewport width, breakpoints, and column counts unfixed elsewhere,
+    e.g. authenticatedInitialOutcome above) -- it fixes only that exactly one
+    named mode holds at a time, and which test ids belong to each. This
+    section exists because the same "present under one rendering condition,
+    absent under the other" shape recurred three times without contract text
+    to rely on (candidate-map-open, candidate-map-sheet-close, and this
+    revision's deck navigation elements); adr/0031 introduces this shared
+    vocabulary instead of a fourth ad hoc note.
+  listPrimaryLayout:
+    exclusiveWith: mapPrimaryLayout
+    testIds: [candidate-map-open, candidate-map-sheet-close]
+    note: >-
+      Pre-existing elements (a toggle that opens the map, and a button that
+      closes its full-screen sheet) that this contract never named before
+      this revision (adr/0031), per the open item recorded at
+      projects/dining-radar/activeContext.md.
+  mapPrimaryLayout:
+    exclusiveWith: listPrimaryLayout
+    testIds: [candidate-deck-previous, candidate-deck-next, candidate-deck-position]
+    note: >-
+      New elements this revision introduces for the map-primary desktop
+      layout (adr/0031; human decision 2026-08-28: decision7=案A,
+      decision8=案あ).
+  invariant: >-
+    Exactly one of the two named modes holds for the current render at any
+    time. A test id listed under one mode is present only while that mode
+    holds, and absent while the other mode holds. Each present test id
+    separately obeys its own requirements elsewhere in this contract
+    (allowedPurposes, requiredOutcome, presenceRule, etc.) while its mode
+    holds; renderModes adds only the mutual-exclusivity property, not new
+    per-element behavior.
+  verificationAllocation:
+    L4: >-
+      Acceptance drives the browser at this contract's single fixed test
+      viewport and asserts that whichever named mode's test ids are
+      present, every test id of the other mode is absent. L4 does not
+      itself switch viewport width or otherwise force a mode transition.
+    L5: >-
+      Rendered-geometry invariants (adr/0020) are the layer that varies
+      viewport width. Proving that the correct mode holds at each width a
+      product decision cares about (e.g. mapPrimaryLayout at and above, and
+      listPrimaryLayout below, the width design/wireframes calls "1024px")
+      is not yet one of adr/0020 decision 4's four invariants and requires a
+      follow-up amendment to adr/0020; until that amendment lands, this
+      section fixes only the mutual-exclusivity property L4 can already
+      prove at a single viewport, not the width-dependent property product
+      decisions actually need proven (see adr/0031's 帰結).
 
 browserControlSurface:
   proposal:
@@ -372,7 +446,9 @@ browserControlSurface:
         ordering invariant governs the display order of
         whichever 5 candidates selection returns; it is unaffected by
         shownPoolPriority's selection-stage partitioning (adr/0024), which
-        happens before this re-ordering, not after it.
+        happens before this re-ordering, not after it. Deck paging
+        (deckNavigation below, adr/0031) never changes this order -- it only
+        windows which already-ordered cards are currently visible.
       verificationAllocation:
         L1: >-
           Pure recommendation tests independently prove that each confirmed
@@ -456,6 +532,54 @@ browserControlSurface:
           only the deterministic set-membership properties in
           shownPoolPriority and the seed-pinned reproducibility already
           required by test-support-api.yaml's randomSeed.
+    deckNavigation:
+      description: >-
+        Applies only while renderModes.mapPrimaryLayout holds (adr/0031).
+        The paging controls and position counter for the card deck overlaid
+        on the map in the desktop, map-primary layout (human decision
+        2026-08-28: decision7=案A, decision8=案あ). Card content, order, and
+        count are otherwise governed by displayOrdering and cardDataAttributes
+        above; this section adds only the windowing/paging observation the
+        deck needs.
+      previousControl: {testId: candidate-deck-previous, purpose: candidate-deck-page-previous}
+      nextControl: {testId: candidate-deck-next, purpose: candidate-deck-page-next}
+      position:
+        testId: candidate-deck-position
+        attributes:
+          visibleStart: data-deck-visible-start
+          visibleEnd: data-deck-visible-end
+          total: data-deck-total
+        valueShape: >-
+          Each attribute carries a decimal integer string. visibleStart and
+          visibleEnd are the 1-based inclusive range, within the current
+          response's displayed candidates in displayOrdering order, of the
+          cards currently within the deck's visible window; total equals the
+          number of currently displayed candidate-card elements (the
+          post-selection display count, at most 5 -- independent of
+          filterPanel.matchCountObservation's pending-population count).
+          1 <= visibleStart <= visibleEnd <= total always holds while
+          candidate-deck-position is present.
+        presenceRule: >-
+          Present exactly once whenever renderModes.mapPrimaryLayout holds;
+          absent whenever renderModes.listPrimaryLayout holds (mirrors how
+          the list-primary layout has never needed a position counter,
+          since its full card list is visible without paging).
+      disabledState: >-
+        candidate-deck-previous carries the native disabled state exactly
+        when data-deck-visible-start equals "1"; candidate-deck-next carries
+        it exactly when data-deck-visible-end equals data-deck-total. This
+        mirrors filterPanel.matchCountObservation.zeroState's existing
+        disabled-not-absent convention for a boundary condition.
+      orderingInvariant: >-
+        Paging changes only which already-ordered cards are within the
+        visible window; it never changes displayOrdering's card order,
+        never removes or adds a data-candidate-ref, and is not a
+        manual-ordering capability within the meaning of
+        unavailableControls.forbiddenPurposes (adr/0023) -- the near-first
+        order remains fixed and organizer-unchangeable, exactly as before
+        this revision. Selecting a card or marker does not page the deck by
+        itself except as required by browserActions.selectMarker's
+        deckVisibility clause.
     mapObservations:
       fitStateAttribute: {testId: candidate-map, attribute: data-map-fit-state, value: displayed-candidates}
       tileProviderAttribute: {testId: candidate-map, attribute: data-map-tile-provider, value: openstreetmap-standard}
@@ -542,7 +666,11 @@ browserControlSurface:
             ring meant -- designer's report, adr/0030). The exact wording,
             unit spelling (分 / 分圏 / min), and visual placement remain
             implementation choices this contract does not fix, mirroring
-            walkingTimeEstimateWording.
+            walkingTimeEstimateWording. Whether this check proves a correct
+            per-ring pairing (as opposed to only a matching set of values)
+            is tracked separately (activeContext.md F1b, 2026-08-27) and is
+            not resolved by this contract revision -- see adr/0031's 帰結
+            for the design sketch a follow-up ADR is expected to adopt.
       forbiddenTestIds:
         [candidate-route, candidate-current-location, private-search-origin]
     providerCreditObservation:
@@ -850,6 +978,7 @@ browserControlSurface:
        candidate-filter-card-payment-toggle, candidate-filter-budget-tier-selection,
        candidate-filter-walking-time-max-selection,
        candidate-filter-apply, candidate-filter-revert, candidate-search-again,
+       candidate-deck-page-previous, candidate-deck-page-next,
        auth-sign-out, auth-password-change-open, auth-account-menu-toggle]
     forbiddenPurposes:
       [sort, manual-ordering, free-text-search, search-origin,
@@ -934,7 +1063,8 @@ browserControlSurface:
       "secondary-condition" and "filter", which adr/0015 relied on to
       justify representing IZAKAYA_BAR_INCLUDED as a "concept" rather than a
       toggle. That reasoning no longer applies once filters are the primary
-      operation.
+      operation. Deck paging (deckNavigation, adr/0031) is likewise not a
+      manual-ordering capability -- see deckNavigation.orderingInvariant.
   empty:
     requiredTestIds: [candidate-no-results]
     absent: [candidate-proposal-cards, candidate-map]
@@ -1001,6 +1131,47 @@ browserActions:
       selectedMarkerAttribute: {attribute: data-selection-state, value: selected}
       matchingCardAttribute: {attribute: data-selection-state, value: selected}
       allOtherCardsAndMarkers: {attribute: data-selection-state, value: unselected}
+      deckVisibility: >-
+        While renderModes.mapPrimaryLayout holds, the selected candidate's
+        card is within candidate-deck-position's visible window
+        (visibleStart <= its 1-based displayOrdering position <= visibleEnd)
+        immediately after this action -- the deck pages itself to reveal it
+        if it was previously outside the window. Not applicable while
+        renderModes.listPrimaryLayout holds, where the full card list is
+        already visible without paging. This closes a gap decision5 (no
+        separate map-side info panel; the deck itself is the only place
+        candidate detail is shown, human decision 2026-08-28 keeps this
+        conclusion) did not need to state under the prior side-panel
+        layout, and is what keeps decision5's conclusion true under the
+        new deck layout (adr/0031).
+  pageDeckNext:
+    input: candidate-deck-next
+    precondition: renderModes.mapPrimaryLayout-holds-and-data-deck-visible-end-is-less-than-data-deck-total
+    requiredOutcome:
+      visibleWindow: >-
+        data-deck-visible-start strictly increases and data-deck-visible-end
+        does not decrease; data-deck-visible-end never exceeds
+        data-deck-total afterward. The step size (one card, one full window,
+        etc.) is an implementation choice this contract does not fix.
+      unaffected: [cardsAndMarkersSet, dataCandidateRefValues,
+                   dataSelectionStateValues, appliedFilters, pendingFilters,
+                   conditionSummary]
+      publicOperation: none
+  pageDeckPrevious:
+    input: candidate-deck-previous
+    precondition: renderModes.mapPrimaryLayout-holds-and-data-deck-visible-start-is-greater-than-1
+    requiredOutcome:
+      visibleWindow: >-
+        data-deck-visible-end strictly decreases and data-deck-visible-start
+        does not increase; data-deck-visible-start never falls below 1
+        afterward. The step size mirrors pageDeckNext's; this contract does
+        not mandate that the two use the same implementation value, only
+        that each independently obeys the boundary and monotonicity rules
+        above.
+      unaffected: [cardsAndMarkersSet, dataCandidateRefValues,
+                   dataSelectionStateValues, appliedFilters, pendingFilters,
+                   conditionSummary]
+      publicOperation: none
   openFilterPanel:
     input: candidate-filter-open-or-candidate-no-results-revise-filters
     stateVariants:
