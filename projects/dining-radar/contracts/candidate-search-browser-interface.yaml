@@ -4,8 +4,9 @@
 # observation SSoT for TDR-CS acceptance work. It neither creates a public API
 # nor changes the browser-facing candidate-proposal API.
 #
-# Status: 承認待ち — adr/0024 のドラフト改訂（未マージ・frontmatter は status: 提案中）が重なっている。**adr/0025 の改訂は 2026-08-24 に PR #156 のマージをもって承認済み**（ADR-0035 方式(i)）であり、契約・実装・テストが同一スライスで main に載っている。以下の「未承認」の記述は adr/0024 の分にのみ掛かる。承認方式は
-# いずれもADR-0035の(ii)（記録のみ・承認は後日）。人間は adr/0024 の改訂をまだ承認していない。
+# Status: 承認済み — adr/0024 の改訂は 2026-08-29 にチャットで承認された（同ADRの approved_by 参照）。
+# **adr/0025 の改訂は 2026-08-24 に PR #156 のマージをもって承認済み**（ADR-0035 方式(i)）。adr/0031 の
+# 追補（v1.5.0）は 2026-08-28 にチャットで承認済み。本ファイルに未承認の改訂は残っていない。
 #
 # Below is the content approved 2026-08-12 (PR #90, adr/0023) as v1.0.5, over
 # which the 2026-08-14 adr/0024 draft, and then the 2026-08-20 adr/0025 draft
@@ -192,7 +193,7 @@
 #   data-candidate-control-purposeを持つことになり、adr/0020決定4(e)の既存ゲートが自動的に測る
 #   (adr/0030 決定5)。
 #
-# 2026-08-28 起草 (architect、承認待ち、本ファイルはこの追補を反映する。dining-radar/adr/0031):
+# 2026-08-28 起草 (architect)、2026-08-28 チャットで承認済み。本ファイルはこの追補を反映する (dining-radar/adr/0031):
 # designerがDesktop.dc.htmlで報告した、決定7（案A・地図全面＋下部インセットの横デッキ）・決定8
 # （案あ・送りボタン＋件数カウンタ）（いずれも人間裁定2026-08-28）に対応する契約の穴を塞ぐ。
 # - unavailableControls.allowedPurposesにcandidate-deck-page-previous・candidate-deck-page-nextを
