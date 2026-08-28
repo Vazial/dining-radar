@@ -299,14 +299,17 @@ renderModes:
       itself switch viewport width or otherwise force a mode transition.
     L5: >-
       Rendered-geometry invariants (adr/0020) are the layer that varies
-      viewport width. Proving that the correct mode holds at each width a
-      product decision cares about (e.g. mapPrimaryLayout at and above, and
-      listPrimaryLayout below, the width design/wireframes calls "1024px")
-      is not yet one of adr/0020 decision 4's four invariants and requires a
-      follow-up amendment to adr/0020; until that amendment lands, this
-      section fixes only the mutual-exclusivity property L4 can already
-      prove at a single viewport, not the width-dependent property product
-      decisions actually need proven (see adr/0031's 帰結).
+      viewport width, and adr/0032 -- agreed in the same slice as this
+      revision (human ruling 2026-08-28: add the width gate now rather than
+      after the layout ships) -- adds invariant (f) to adr/0020 decision 4's
+      frozen set for exactly this: that the correct mode holds at each
+      tested width. The width value itself lives in that L5 test, not in
+      this contract (adr/0032 decision 2), which is why this section names
+      the two modes without fixing a pixel threshold. Each tested width is
+      checked on an independent page load; the implementation is not
+      required to switch modes on a live resize without a re-render
+      (adr/0032 decision 3) -- that remains a separate, unmade product
+      decision.
 
 browserControlSurface:
   proposal:
