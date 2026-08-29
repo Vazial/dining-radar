@@ -72,6 +72,7 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.lunch_candidates_can_be_proposed_at_a_known_search_origin()
         self.steps.organizer_has_filtered_candidates()
         self.steps.current_candidates_are_in_cards_and_map()
+        self.steps.render_mode_test_ids_are_mutually_exclusive()
         self.steps.selecting_a_card_highlights_its_marker()
         self.steps.selecting_a_marker_highlights_its_card()
         self.steps.map_shows_displayed_candidates_and_attribution()
@@ -83,6 +84,28 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.dinner_budget_reference_is_disclosed_once_on_screen()
         self.steps.walking_route_and_current_location_are_not_shown()
         self.steps.search_range_value_is_not_shown()
+
+    def test_tdr_cs_02_desktop_deck_navigation_windows_candidates_without_changing_them(
+        self,
+    ) -> None:
+        """TDR-CS-02のUI実装詳細 (adr/0031): デスクトップの地図主役レイアウトでは、送りボタン・
+        件数カウンタがデッキの表示窓を動かすだけで、カード集合・選択・絞り込み条件のいずれも
+        変えない。地図上のピンを選ぶと対応するカードが表示窓の中に見えるようになる
+        (selectMarker.deckVisibility)。renderModes.verificationAllocation.L4 のとおり、この
+        テストは単一の固定ビューポート（DESKTOP_MAP_PRIMARY_VIEWPORT）でmapPrimaryLayoutが
+        成立する前提のもとで動く——幅ごとの正しさそのものはADR-0032/L5の管轄で、ここでは扱わない。
+        """
+        self._sign_in()
+        self.steps.lunch_candidates_can_be_proposed_at_a_known_search_origin()
+        self.steps.organizer_compares_candidates_at_map_primary_viewport()
+        self.steps.map_primary_layout_holds()
+        self.steps.render_mode_test_ids_are_mutually_exclusive()
+        self.steps.deck_position_counter_is_well_formed()
+        self.steps.deck_paging_controls_declare_correct_purposes()
+        self.steps.deck_paging_controls_disabled_state_matches_window()
+        self.steps.organizer_pages_the_deck_forward()
+        self.steps.organizer_pages_the_deck_backward()
+        self.steps.selecting_a_marker_outside_the_deck_window_brings_its_card_into_view()
 
     def test_tdr_cs_03_changed_filters_replace_the_proposal(self) -> None:
         self._sign_in()

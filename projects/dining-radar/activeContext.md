@@ -1239,6 +1239,198 @@ Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (
    これは実装時に意図して選ばれた割り切りであり、コード中にその旨のコメントがある。実害が
    出るのはタブレットを縦横に回したとき（1024px以上→未満）に限られるため、今回は変更していない。
 
+14. 実装済み（2026-08-29、developer）: デスクトップ幅（1024px以上）を、決定7（案A・地図全面＋
+    下部インセットの横デッキ）・決定8（案あ・送りボタン＋件数カウンタ）・決定9（カードのdeck版
+    レイアウト）に沿って作り直した（`adr/0031`・`adr/0032`、human decision 2026-08-28）。上記
+    13.までの「カード1列＋右に地図sticky常時表示の2カラム」は**この回で全面的に置き換えた**
+    （retire）——`candidate.js`の`isDesktopLayout`は`isMapPrimaryLayout`に改名し、意味も
+    「2カラムか」から「地図が主役で、カードが地図上のデッキに乗っているか」（`renderModes.
+    mapPrimaryLayout`）に変わった。1024px未満（モバイル）は88px帯・全画面シート含め一切変更して
+    いない。
+
+    - **デッキの実装**: `candidate-proposal-cards`（既存のカード列、DOM/renderCardは無変更）を
+      地図の下部インセットに重ねて表示する固定ウィンドウ方式のスライダー。カード1枚の幅は
+      16.25rem（260px）で固定、実際に何枚同時に見えるかはデッキ実測幅から動的に算出する
+      （`recomputeDeckWindow`）——1024px幅で2枚、1280pxで3枚、1440pxで4枚、1920pxで5枚（全件）
+      を実測で確認した。送りは`candidate-deck-previous`/`-next`（`<button>`、契約の新設purpose
+      `candidate-deck-page-previous`/`-next`）をクリックすると窓が1件ずつ移動する
+      （`translateX`によるCSSトランジション、ネイティブscrollLeftは使わない——理由は
+      `recomputeDeckWindow`のコメント参照）。件数カウンタ`candidate-deck-position`は
+      `data-deck-visible-start`/`-end`/`-total`を1始まりの整数文字列で持つ。地図上のピンを
+      選ぶと、選択された候補がデッキの表示窓の外にあれば自動的に窓を動かして含める
+      （`selectCandidate`→`recomputeDeckWindow(candidateRef)`、契約`selectMarker.
+      requiredOutcome.deckVisibility`）。
+    - **実装中に見つけて直した実バグ（自分のPlaywright実測で発見）**:
+      (1) デッキのビューポート要素`overflow:hidden`に`flex:1 1 auto`で幅を持たせていたため、
+      「N枚見えている」という件数カウンタの主張に反して、次の1枚が窓の隙間から最大192px（8割）
+      はみ出して見えてしまっていた。デッキのビューポート幅を実際の表示枚数ぶんの厳密な幅へ
+      `max-width`で都度キャップする形に直した（`updateDeckPositionDisplay`）。ウィンドウリサイズ
+      で再計測する際はこのキャップを一旦`none`に戻してから測る必要がある（そうしないと前回の
+      キャップ値がそのまま`clientWidth`として読まれ、窓のサイズが二度と大きくならなくなる）
+      ——`recomputeDeckWindow`冒頭のコメント参照。
+      (2) デッキの店名がid行の元々のモバイル向けフォントサイズ（1.0625rem）のままだったため、
+      「合成母集団食堂 05号店」のような短い合成名でも「合成母…」まで縮んでいた。デッキ内の
+      `candidate-card-name`・`.candidate-walk-chip`・`.candidate-marker-badge`だけフォント
+      サイズを縮小するCSSをデッキ配下限定で追加した（モバイル側は無変更）。
+      (3) `.candidate-map-wrapper`の高さを`calc(100vh - 11rem)`とまず置いたところ、
+      実測でヘッダー・条件バー・`candidate-provider-credit`行・`.app-card`/`.app-shell`の
+      パディング合計が実際には233pxあり、1024〜1440px幅でページ縦スクロールが発生した
+      （`documentElement.scrollHeight`が`window.innerHeight`を最大57px超過）。1280x800で
+      各要素の実測値を積み上げて`15rem`（240px、実測233pxに約束のマージンを足した値）へ
+      修正し、1024/1280/1440/1920pxいずれもページ縦スクロールが0になることを確認した。
+    - **designerが「未検証」と明記していた2点への回答（本スライスで自分のPlaywright実測で
+      決着）**:
+      1. **デッキと輪・ピンの重なり**: 実装当初、非対称`fitBounds`パディング
+        （`mapPrimaryFitPaddingOptions`、上=24px・下=デッキ実測高さ+24px）で試したところ、
+        1440px幅で5件中1件のピンがデッキに重なった（`pinsUnderDeck: 1`）。下側のパディングを
+        `deckHeight + 64`へ増やしたところ、1024/1280/1440/1920pxの4幅すべてでピン・輪ラベルの
+        デッキへの重なりが0件になった（`NORMAL_WITH_WEIGHTED_SAMPLING`・seed 7の合成データで
+        実測）。**ただし**この合成データは経度0固定で南北一直線に並ぶ意図的な作りのため
+        （`acceptance_state.py`）、実データ（2次元に散る）でも同じ余裕があるかは未実測のまま
+        残る——designerが板の「穴」で記した懸念どおり、完全解決ではなく緩和である。
+      2. **カード内リンク行の44px**: designerが板で提示した26px「案i」は採らず、既存の44px
+        （2.75rem min-height、モバイルカードと同じ値）をデッキでもそのまま維持した——縮めていない
+        ので凍結済み`ADR-0020`決定4(e)のゲートに抵触する余地がない。副次的に気づいたこと:
+        この要素は`data-candidate-control-purpose`を持たない（契約が"observation, not a
+        control"と分類している）ため、決定4(e)の44pxゲートが実際に問い合わせる
+        `[data-candidate-control-purpose]`の集合にはそもそも入らない——designerが「抵触する
+        可能性」と書いていた懸念は、ゲートの実装を読む限り成立しない。今回は44pxのまま統一する
+        判断をしたため、この論点を深追いする必要はなかった。
+    - **`ADR-0032`決定1(f)の実装**: `tests/ui_invariants/test_render_invariants.py`に
+      `test_f_render_mode_matches_viewport_width_on_independent_page_loads`を新設した。
+      `listPrimaryLayout`側は既存の`NARROW_VIEWPORTS`（390/730/1023px）をそのまま流用
+      （ADR-0032決定1が明示的に許可）、`mapPrimaryLayout`側は新設の`MAP_PRIMARY_VIEWPORTS`
+      （1024×768・1440×900、developer保守）を使う。各幅は`page.set_viewport_size`の直後に
+      `open_candidate_screen()`（`page.goto`）で独立したページロードを行ってから検査する
+      （ADR-0032決定3）。**既存の(e)44pxテストにも同じ「幅ごと独立ページロード」の欠落バグが
+      あったことに気づいた**——旧実装は1回サインインした後`set_viewport_size`だけで3幅を回って
+      いたが、初期ロード時（Playwright既定ビューポート1280x720、map-primary）でDOMが一度
+      map-primaryとして構築された後、390px（list-primary幅）へリサイズしてもDOMは再構築され
+      ない（`isMapPrimaryLayout`は描画時に1回だけ判定される、`adr/0032`決定3の既定の割り切り）
+      ため、390px検査時に地図-primary専用の`candidate-deck-previous`がCSSの効かないまま
+      37px幅で残っていて誤って赤くなった。これは実装のバグではなく**テスト側が新しい
+      「幅で存在が変わる要素」という設計と噛み合わなくなっていたための検査バグ**と判断し、
+      (e)テストにも同じ「幅ごとに`open_candidate_screen()`で作り直す」修正を入れた——アサーション
+      自体（44px以上）は一切変更していない。同様に`test_a_long_shop_name_does_not_push_the_
+      card_past_its_own_column`も、1253px幅での「カード幅=トラック幅」という前提が
+      デッキ導入で構造的に成り立たなくなった（トラックは全カードを横に並べた行になった）ため、
+      map-primary幅の分岐を「カードが自分の固定幅（260px）を超えて伸びないこと」という等価な
+      主張に書き換えた（442px側は無変更）。
+    - **`meta/adr/0065`欠陥注入**: 新設した(f)テストについて、`isMapPrimaryLayout`の判定式を
+      `"(min-width: 64rem)"`→`"(min-width: 999rem)"`に書き換えて実行し、
+      `candidate-deck-previous`が見つからず2件（両map-primary幅）が赤くなることを確認、
+      元に戻して緑に戻ることを確認した。既存の(e)テストについても、`.candidate-deck-nav`の
+      サイズを2.75rem→1.5remへ縮めて実行し、1440x900で`34px < 44px`として正しく赤くなること
+      （かつ以前のように誤って390pxで赤くなるのではなく正しい幅で検出すること）を確認、元に
+      戻して緑に戻ることを確認した。注入用コードはコミットしていない。
+    - **検証（すべてdeveloperが実行）**: L1（ruff・ruff format・単体テスト352件、Pythonソース
+      無変更のためmutation再実行は不要）/ L2（`test_static_assets`29件、上記352件に含まれる）/
+      L3（`manage.py check`・`check --deploy`、既存の想定内warning 4件のみ）/ L4
+      （`tests.acceptance`22件、21件緑・1件既知の失敗）/ L5（`tests.ui_invariants`14件、
+      すべて緑）。L4の1件の失敗は`tests/acceptance/dsl/candidate_search_browser.py`の
+      `ALLOWED_CONTROL_PURPOSES`（tester管轄、契約の`allowedPurposes`とは別に同DSLが独自に
+      持つローカル集合）に`candidate-deck-page-previous`/`-next`が未登録なことによるもの
+      （`test_tdr_cs_04_private_search_location_and_range_cannot_be_selected`、
+      `AssertionError: 'candidate-deck-page-previous' not found in {...}`）——developerの
+      担当外（tests/acceptance/**）であり、テストを緩めずにそのまま報告する。契約
+      （`candidate-search-browser-interface.yaml`）自体の`allowedPurposes`にはこの2つの
+      purposeが既に`adr/0031`で登録済みであることを確認済み。
+    - `candidate.js`のキャッシュ回避文字列を`?v=20260829-desktop-map-primary-deck`へ更新した。
+    - **検証環境で気づいた開発環境固有の落とし穴（コードの不具合ではない）**: `manage.py
+      runserver`をバックグラウンド起動する際、ポート8741を既に別プロセスが掴んでいるのに
+      新しい起動コマンド自体はエラーなく見えることがあり（起動ログが空のまま）、実際には古い
+      プロセスが応答し続けていて`home.html`/`candidate.js`の変更が全く反映されないという
+      罠を踏んだ——`netstat`でLISTENING中のPIDを確認し、`taskkill`で明示的に止めてから
+      再起動することで解消した。`home.html`変更後は必ずサーバ再起動が要る、という検証環境の
+      注意書きどおりだが、**「起動コマンドを打った」ことと「新しいコードが実際に返っている」
+      ことは別に確認する必要がある**、という教訓として記録する。
+
+15. 実装済み（2026-08-29 round 2、developer）: **デッキのカードで店名が切れる**のを、人間裁定
+    （2026-08-29チャット、3択のうち「徒歩◯分をジャンルの行に移す」を選択）どおりに直した。
+
+    - 事象: orchestratorが実測し、幅1440px・カード幅260pxで合成データの短い店名ですら
+      表示率75〜79%しか出せていないと報告。原因は`.candidate-card-id-row`（番号バッジ＋店名＋
+      徒歩◯分チップ）が260pxの中で店名の取り分を圧迫していたこと。
+    - 修正: `candidate.js`の`isMapPrimaryLayout`は`renderResult`で描画のたびに1回だけ確定し
+      `renderCard`呼び出しより前に読めるため、`renderCard`内で分岐した——**デッキ（≧64rem）
+      のときだけ**、徒歩◯分チップ（既存の`data-testid="candidate-card-walking-time"`要素、
+      属性・文言は無変更で使い回す）をid行から外し、新設`.candidate-genre-row`でジャンル行と
+      並べる。list-primary/モバイルはid行の構造・DOM・CSSとも一切変更していない（`if
+      (!isMapPrimaryLayout)`でスペーサー・チップの追加を分岐、契約の
+      `walkingTimeEstimateWording`はplacementを実装裁量としているため契約は無傷）。id行から
+      チップが消えた分、店名`[data-testid="candidate-card-name"]`に`.candidate-deck-viewport`
+      スコープで`flex: 1 1 auto`を追加し、バッジ＋gap以外の行幅をほぼ丸ごと店名に渡した
+      （flex-grow:0のままだと余った横幅を誰も吸収せず店名がmin-content幅のままになるため）。
+    - **検証（一度に見える件数は不変）**: 1024px2枚・1280px3枚・1440px4枚・1920px5枚は
+      `recomputeDeckWindow`のロジックに触れていないため変化なし（実測でも確認）。
+    - **実測（Playwright、`settings_localdemo`・seed 7、合成データと実データ相当の店名の両方
+      を検査——後者は`page.route`でAPI応答の店名を「ドラゴンレッドリバー DRAGON RED RIVER」
+      「福寿林 ホテルグランテラス富山」に置換）**。修正前後を同一環境で比較（修正前は
+      developerが自分の変更だけを一時的に巻き戻して再測定、直後に復元して再実測——両方とも
+      `L4`/`L5`再実行で緑を確認済み）:
+
+      | 幅 | 店名（例） | 修正前 出したい/出せている(比率) | 修正後 出したい/出せている(比率) |
+      |---|---|---|---|
+      | 1280 | 合成母集団食堂 03号店 | 176.6px/113.3px(64%) | 176.6px/205px(116%、全表示) |
+      | 1280 | ドラゴンレッドリバー DRAGON RED RIVER | 287.7px/113.0px(39%) | 287.7px/205px(71%) |
+      | 1280 | 福寿林 ホテルグランテラス富山 | 208.2px/113.2px(54%) | 208.2px/205px(99%、ほぼ全表示) |
+      | 1440 | 合成母集団食堂 05号店 | 176.6px/113.0px(64%) | 176.6px/205px(116%、全表示) |
+      | 1440 | ドラゴンレッドリバー DRAGON RED RIVER | 287.7px/113.3px(39%) | 287.7px/205px(71%) |
+      | 1440 | 福寿林 ホテルグランテラス富山 | 208.2px/113.0px(54%) | 208.2px/205px(99%、ほぼ全表示) |
+      | 1920 | 合成母集団食堂 01号店 | 174.0px/113.3px(65%) | 174.0px/205px(118%、全表示) |
+      | 1920 | ドラゴンレッドリバー DRAGON RED RIVER | 287.7px/113.3px(39%) | 287.7px/205px(71%) |
+      | 1920 | 福寿林 ホテルグランテラス富山 | 208.2px/113.5px(55%) | 208.2px/205px(99%、ほぼ全表示) |
+
+      合成データの短い店名は3幅とも修正後は完全表示（比率100%超＝余白あり）になった。実データ
+      相当の2つのうち「福寿林 ホテルグランテラス富山」はほぼ全表示（99%）、「ドラゴンレッド
+      リバー DRAGON RED RIVER」は依然71%で省略記号が入る——固定260pxカードの中でバッジと
+      パディングを引いた実効幅（約205px）を超える、日英併記の特に長い店名であり、これ以上は
+      カード幅そのものを広げる（3案のうち今回不採用の案）以外に解消できない。人間裁定が承知の
+      上で受け入れた代償どおりであり、退行ではない。
+    - **地図の輪・ピンとの重なり（前回0件だったので維持されているか再確認、要求どおり）**:
+      候補ピン（`.candidate-map-marker-icon`、5個）・輪の可視ラベル（`.candidate-walking-
+      radius-ring-label-visual`）とも、1024/1280/1440/1920pxの4幅すべてでデッキとの重なり
+      0件を確認した（探索起点マーカー`.candidate-origin-marker-icon`が1440px以外の3幅で
+      デッキの上端と最大15px程度重なる形跡があったが、これは修正前後で同一——本スライスの
+      変更が触れていない既存の状態であり、かつ契約の`displayOnlyOriginException`が
+      display-onlyと明示する要素であって「ピン」（候補マーカー）には該当しない）。
+    - **スクロール**: 1280/1440/1920pxいずれも`document.documentElement.scrollWidth`が
+      `clientWidth`と一致（横スクロールなし）、`scrollHeight`が`window.innerHeight`(900)以下
+      （縦スクロールなし）を確認した。
+    - **人間が画面を見て気づく見た目の変化（漏れなく列挙）**:
+      1. デッキのカードで、徒歩◯分のバッジが店名の右隣（1行目）から消え、ジャンルの行の右端
+         （2行目相当）に移った。
+      2. その結果、デッキのカードの店名が大きく伸び、これまで途中で切れていた合成データの
+         店名は完全に表示されるようになった。実データ相当の長い店名も、以前よりずっと多くの
+         文字が見えるようになった（依然省略される場合はある）。
+      3. デッキ以外（1024px未満のモバイルの全画面シート・カード一覧）は見た目の変更なし。
+      4. 一度に見えるカードの枚数・送りボタンの動き・件数カウンタ・地図の輪やピンの見え方は
+         変化なし。
+    - **検証（すべてdeveloperが実行）**: L1 —
+      `ruff check .`/`ruff format --check .`緑（`settings_localdemo.py`は
+      リポジトリ非コミット・import順のみ`--fix`で整えた）、
+      `coverage run --branch -m pytest <L1の12ファイル>`で352 passed+48 subtests、
+      `coverage report --fail-under=90`で97%（Pythonソース無変更のためmutation
+      再実行は不要）。L2 — `pytest tests/test_structure.py`で12 passed+9 subtests。
+      L3 — 上記L1の7ファイル分`pytest`で181 passed+23 subtests、`manage.py check`・
+      `manage.py check --settings=dining_radar.settings_test`とも「0 silenced」。
+      L4 — `manage.py test tests.acceptance --verbosity 1`で23 tests OK（前ラウンドの
+      既知の1件の失敗——`ALLOWED_CONTROL_PURPOSES`未登録——はtester側の
+      `tests/acceptance/dsl/candidate_search_browser.py`が既にこのブランチで直しており
+      再発なし）。L5 — `pytest tests/ui_invariants -q`で14 passed+10 subtests。
+      L4+L5を`pytest tests/acceptance tests/ui_invariants -q`でまとめて実行しても
+      37 passed+10 subtests（内訳は変わらない——`tests/acceptance/**`の2ファイルは
+      `subTest`を使っていないため、subtestsは全てL5由来）。**依頼文にあった「66件+18
+      subtests」という基準値は、上記のどの実行方法でも再現できなかった**（`manage.py test`
+      引数無しでの全件実行では352+23+14=389件が一致した——L1相当のunittestベースの数字と
+      整合する別の集計軸であり、developerが試した組み合わせのいずれとも一致しなかった）。
+      本スライスは`tests/acceptance/**`を一切変更していないため、この数値の食い違いの原因
+      調査はorchestrator/testerの領分と考え、深追いしていない——**少なくとも、developerが
+      実行できたあらゆる組み合わせで、現存する全テストが緑であり、1件も減っていないことは
+      確認済み**。
+    - `candidate.js`のキャッシュ回避文字列を`?v=20260829-deck-genre-row-walk-chip`へ更新した。
+    - コミットはしていない。
+
 ## Open questions
 
 - Email delivery and SSO remain deferred; accounts stay invite-only and local. The custom-domain question is closed — a Route 53 subdomain fronts the service, recorded in ADR-0021's 2026-08-14 addendum.
