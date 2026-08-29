@@ -112,6 +112,35 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.organizer_pages_the_deck_forward_until_it_reaches_the_end()
         self.steps.deck_paging_controls_disabled_state_matches_window()
 
+    def test_tdr_cs_02_mobile_deck_navigation_swipes_candidates_without_changing_them(
+        self,
+    ) -> None:
+        """TDR-CS-02のUI実装詳細 (adr/0033): モバイル幅の地図主役レイアウトでは、指のスワイプが
+        デッキの表示窓を動かすだけで、カード集合・選択・適用済み/pending絞り込み条件のいずれも
+        変えない。デスクトップ版 (test_tdr_cs_02_desktop_deck_navigation_...) と対をなす、
+        mapPrimaryTouchLayout側の検査。renderModes.verificationAllocation.L4 のとおり、この
+        テストは単一の固定ビューポート（MOBILE_MAP_PRIMARY_TOUCH_VIEWPORT）で
+        mapPrimaryTouchLayoutが成立する前提のもとで動く。pageDeckSwipeForward/Backwardの
+        boundaryOvershootは、先に反対方向の到達点まで実際に送って正のコントロールを取ってから
+        でなければ検査できない設計にしてある（meta/adr/0065; 送りが一度も届かない場合との
+        取り違えを防ぐ） -- 各境界検査の直前に、その方向の「until」ヘルパーを必ず経由する。
+
+        限界: dispatch_deck_swipeが送るのは合成のポインタイベント列であり、実機で人間の指が
+        この範囲を実際につまんでスワイプできることまでは証明しない
+        (adr/0033 決定4; activeContext.md G1と同種、ドラッグ操作へ初めて広げた限界)。
+        """
+        self._sign_in()
+        self.steps.lunch_candidates_can_be_proposed_at_a_known_search_origin()
+        self.steps.organizer_compares_candidates_at_map_primary_touch_viewport()
+        self.steps.map_primary_touch_layout_holds()
+        self.steps.render_mode_test_ids_are_mutually_exclusive()
+        self.steps.deck_position_counter_is_well_formed()
+        self.steps.organizer_swipes_the_deck_forward_until_it_reaches_the_end()
+        self.steps.deck_swipe_forward_is_a_no_op_at_the_boundary()
+        self.steps.organizer_swipes_the_deck_backward_until_it_reaches_the_start()
+        self.steps.deck_swipe_backward_is_a_no_op_at_the_boundary()
+        self.steps.selecting_a_marker_outside_the_deck_window_brings_its_card_into_view()
+
     def test_tdr_cs_03_changed_filters_replace_the_proposal(self) -> None:
         self._sign_in()
         self.steps.zero_pending_match_can_be_observed()
