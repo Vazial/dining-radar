@@ -6,7 +6,8 @@
 #
 # Status: 承認済み — adr/0024 の改訂は 2026-08-29 にチャットで承認された（同ADRの approved_by 参照）。
 # **adr/0025 の改訂は 2026-08-24 に PR #156 のマージをもって承認済み**（ADR-0035 方式(i)）。adr/0031 の
-# 追補（v1.5.0）は 2026-08-28 にチャットで承認済み。本ファイルに未承認の改訂は残っていない。
+# 追補（v1.5.0）は 2026-08-28 にチャットで承認済み。adr/0033 の追補（v1.6.0、本ブロック）は 2026-08-29
+# にチャットで承認済み。本ファイルに未承認の改訂は残っていない。
 #
 # Below is the content approved 2026-08-12 (PR #90, adr/0023) as v1.0.5, over
 # which the 2026-08-14 adr/0024 draft, and then the 2026-08-20 adr/0025 draft
@@ -212,7 +213,45 @@
 #   しきい値そのものはこの契約が定めず、L5（adr/0020）の管轄のまま残す (adr/0031 決定4)。
 # 徒歩圏リングラベルの検査が集合比較でしか成立しない件（F1b、activeContext.md 2026-08-27）は
 # この改訂に含めない——起源が異なる別件として、別ADRで扱う (adr/0031 決定5)。
-contractVersion: '1.5.0'
+#
+# 2026-08-29 起草 (architect、dining-radar/adr/0033)、2026-08-29 チャットで承認済み。本ファイルは
+# この追補を反映する (v1.5.0 -> v1.6.0):
+# designerがMobile.dc.htmlで報告した契約の穴を塞ぐ。人間裁定2026-08-29により、1024px未満の幅も
+# 地図主体になり、「地図で見る」帯・全画面シート・戻るバー（listPrimaryLayoutの2要素、
+# candidate-map-open・candidate-map-sheet-close）を廃し、デッキの送りは指のスワイプで行う
+# （送りボタンは置かない）。
+# - renderModes.listPrimaryLayoutを退役させる。どの幅でもこの2要素を選ばなくなったため、この
+#   契約はもう定義しない。代わりにrenderModes.mapPrimaryTouchLayoutを新設し、
+#   renderModes.mapPrimaryLayout（従来のデスクトップ・送りボタン版）と互いに排他な、名前付き
+#   モードを引き続き2つ保つ——両方とも地図主体になり、違いはデッキの送り方（ボタンかスワイプか）
+#   だけになる (adr/0033 決定1)。designerが板で挙げた2案（案あ=新モード新設／案い=送りボタンを
+#   DOM上に残し視覚的に隠す）のうち、人間は案あを選んだ——理由はテストが押せるボタンを人間が
+#   押せない状態を自ら作らないため (adr/0033 決定1、検討した代替案)。
+# - candidate-deck-position（件数カウンタ）を、どちらか一方のモード専有ではなく、現在名前を
+#   持つ2モードいずれでも共通に存在する要素として扱う。renderModesの各モードのtestIds配列からは
+#   外し、deckNavigation.position.presenceRule自身がその条件を直接述べる形にした (adr/0033 決定2)。
+# - deckNavigation.swipeSurfaceを新設する（candidate-deck-swipe-surface、mapPrimaryTouchLayout
+#   専有）。ボタンではなくコンテナ要素であり、allCandidateScreenFormControlsMustDeclarePurpose
+#   の対象外——新しいallowedPurposesは要らない (adr/0033 決定2)。
+# - browserActionsにpageDeckSwipeForward・pageDeckSwipeBackwardを新設する。合成のポインタ/タッチ
+#   ジェスチャで検証し、`unaffected`は既存のpageDeckNext/Previousと同じ6項目（pendingFiltersを
+#   含む）を保つ。L4検証がactiveContext.mdのG1（合成クリックは人間の指の到達可能性を証明しない）
+#   と同種の限界をドラッグ操作へ初めて広げることを明記した (adr/0033 決定3)。
+# - deckNavigation.disabledStateはmapPrimaryLayout（ボタンのある側）専有のまま無変更。
+#   mapPrimaryTouchLayoutには対応するnative disabled状態が無いため、両端での挙動は
+#   pageDeckSwipeForward/Backwardのboundaryovershoot条項が別途定める (adr/0033 決定4)。
+# - selectMarker.deckVisibilityの適用条件を、mapPrimaryLayout専有からmapPrimaryLayout/
+#   mapPrimaryTouchLayoutいずれでも適用される形へ一般化する (adr/0033 決定5)。
+# - adr/0032決定1(f)の本文は編集しない(P-06)が、本追補により(f)の狭幅側の期待値の意味が
+#   listPrimaryLayoutからmapPrimaryTouchLayoutへ変わる。renderModes.verificationAllocation.L5に
+#   その旨を明記した (adr/0033 決定6)。
+# - 徒歩圏リングラベルの集合比較の穴（F1b）・可視ラベルのdata-testid欠落・デッキ送りの
+#   pendingFilters不変性が未検証である件（activeContext.md）は、いずれも起源が異なる別件として
+#   本改訂に含めない (adr/0033 決定7)。
+# - contractVersionを1.5.0から1.6.0へ上げる。`candidate-search.feature`は無変更——adr/0031と同じ
+#   理由（デッキの送り方はTDR-CS-02のUI実装詳細であり、新しい業務能力を語っていない）による。
+
+contractVersion: '1.6.0'
 kind: acceptance-browser-interface
 scope: candidate-search
 profiles:
@@ -258,32 +297,48 @@ browserEntry:
 renderModes:
   description: >-
     Some application-authored test ids exist only under one of two mutually
-    exclusive implementation-chosen rendering conditions, and never under the
-    other (e.g. a list-primary vs a map-primary layout). This contract does
-    not fix the condition's threshold (mirrors how it already leaves
-    viewport width, breakpoints, and column counts unfixed elsewhere,
-    e.g. authenticatedInitialOutcome above) -- it fixes only that exactly one
-    named mode holds at a time, and which test ids belong to each. This
-    section exists because the same "present under one rendering condition,
-    absent under the other" shape recurred three times without contract text
-    to rely on (candidate-map-open, candidate-map-sheet-close, and this
-    revision's deck navigation elements); adr/0031 introduces this shared
-    vocabulary instead of a fourth ad hoc note.
-  listPrimaryLayout:
-    exclusiveWith: mapPrimaryLayout
-    testIds: [candidate-map-open, candidate-map-sheet-close]
-    note: >-
-      Pre-existing elements (a toggle that opens the map, and a button that
-      closes its full-screen sheet) that this contract never named before
-      this revision (adr/0031), per the open item recorded at
-      projects/dining-radar/activeContext.md.
+    exclusive implementation-chosen rendering conditions, and never under
+    the other. This contract does not fix the condition's threshold
+    (mirrors how it already leaves viewport width, breakpoints, and column
+    counts unfixed elsewhere, e.g. authenticatedInitialOutcome above) -- it
+    fixes only that exactly one named mode holds at a time, and which test
+    ids belong to each. adr/0031 introduced this section with two modes:
+    listPrimaryLayout (a pre-adr/0031 list-primary mobile layout with an
+    open/close map sheet, candidate-map-open / candidate-map-sheet-close)
+    and mapPrimaryLayout (a map-primary desktop layout with a button-paged
+    card deck). adr/0033 retires listPrimaryLayout: the human decision that
+    made mobile widths map-primary too (2026-08-29) means no width selects
+    listPrimaryLayout's two test ids any longer, so this contract no longer
+    defines them (mirrors how TDR-CS-07's reproposal test ids were removed
+    outright, not kept as a dead mode, when adr/0023 retired that feature).
+    adr/0033 adds mapPrimaryTouchLayout in listPrimaryLayout's place, so
+    this section still names exactly two mutually exclusive modes -- both
+    are now map-primary, differing only in how their deck is paged (buttons
+    vs a swipe gesture; see browserControlSurface.proposal.deckNavigation
+    below).
   mapPrimaryLayout:
-    exclusiveWith: listPrimaryLayout
-    testIds: [candidate-deck-previous, candidate-deck-next, candidate-deck-position]
+    exclusiveWith: mapPrimaryTouchLayout
+    testIds: [candidate-deck-previous, candidate-deck-next]
     note: >-
-      New elements this revision introduces for the map-primary desktop
-      layout (adr/0031; human decision 2026-08-28: decision7=案A,
-      decision8=案あ).
+      The pointer-driven desktop layout (adr/0031; human decision
+      2026-08-28: decision7=案A, decision8=案あ). candidate-deck-position is
+      no longer listed here: adr/0033 moved it out of both modes'
+      exclusivity arrays because it is common to both currently-named modes
+      (see deckNavigation.position.presenceRule, which states its condition
+      directly instead of relying on this array).
+  mapPrimaryTouchLayout:
+    exclusiveWith: mapPrimaryLayout
+    testIds: [candidate-deck-swipe-surface]
+    note: >-
+      The touch-driven mobile layout (adr/0033; human decision 2026-08-29:
+      mobile widths become map-primary, replacing the prior list-primary
+      layout, and their deck is paged by a horizontal swipe gesture rather
+      than buttons). orchestrator presented two options for this gap --
+      adding this new named mode, or keeping candidate-deck-previous/-next
+      in the DOM but visually minimized -- and the human chose the former
+      because the latter would leave a button in the DOM that an automated
+      test can press but an organizer cannot (see adr/0033's 検討した代替案
+      for the full reasoning).
   invariant: >-
     Exactly one of the two named modes holds for the current render at any
     time. A test id listed under one mode is present only while that mode
@@ -291,26 +346,42 @@ renderModes:
     separately obeys its own requirements elsewhere in this contract
     (allowedPurposes, requiredOutcome, presenceRule, etc.) while its mode
     holds; renderModes adds only the mutual-exclusivity property, not new
-    per-element behavior.
+    per-element behavior. candidate-deck-position is present under both
+    currently-named modes (deckNavigation.position.presenceRule) and is
+    therefore not itself a member of either mode's testIds array above --
+    the "absent while the other mode holds" clause applies to each mode's
+    own listed test ids, not to an element this contract states is common
+    to multiple modes.
   verificationAllocation:
     L4: >-
       Acceptance drives the browser at this contract's single fixed test
       viewport and asserts that whichever named mode's test ids are
       present, every test id of the other mode is absent. L4 does not
-      itself switch viewport width or otherwise force a mode transition.
+      itself switch viewport width or otherwise force a mode transition;
+      dispatching the swipe gesture to verify pageDeckSwipeForward/
+      Backward's own requiredOutcome is a separate concern covered by
+      those actions' own verificationAllocation, not by this exclusivity
+      check.
     L5: >-
       Rendered-geometry invariants (adr/0020) are the layer that varies
-      viewport width, and adr/0032 -- agreed in the same slice as this
-      revision (human ruling 2026-08-28: add the width gate now rather than
-      after the layout ships) -- adds invariant (f) to adr/0020 decision 4's
-      frozen set for exactly this: that the correct mode holds at each
-      tested width. The width value itself lives in that L5 test, not in
-      this contract (adr/0032 decision 2), which is why this section names
-      the two modes without fixing a pixel threshold. Each tested width is
-      checked on an independent page load; the implementation is not
+      viewport width, and adr/0032 -- agreed in the same slice as
+      adr/0031's revision (human ruling 2026-08-28: add the width gate now
+      rather than after the layout ships) -- adds invariant (f) to
+      adr/0020 decision 4's frozen set for exactly this: that the correct
+      mode holds at each tested width, using listPrimaryLayout as the
+      narrow-width expectation and mapPrimaryLayout as the wide-width
+      expectation. adr/0033 does not edit adr/0032's text (P-06), but
+      changes what (f)'s narrow-width expectation now means in practice:
+      since listPrimaryLayout no longer exists, the narrow-width member of
+      (f)'s developer-maintained viewport set must now expect
+      mapPrimaryTouchLayout's test ids present and mapPrimaryLayout's test
+      ids absent, mirroring the same present/absent structure (f) already
+      had -- only which named mode narrow widths expect has changed. The
+      width value itself still lives in that L5 test, not in this contract
+      (adr/0032 decision 2, unchanged by adr/0033). Each tested width is
+      still checked on an independent page load; the implementation is not
       required to switch modes on a live resize without a re-render
-      (adr/0032 decision 3) -- that remains a separate, unmade product
-      decision.
+      (adr/0032 decision 3, unchanged).
 
 browserControlSurface:
   proposal:
@@ -451,8 +522,9 @@ browserControlSurface:
         whichever 5 candidates selection returns; it is unaffected by
         shownPoolPriority's selection-stage partitioning (adr/0024), which
         happens before this re-ordering, not after it. Deck paging
-        (deckNavigation below, adr/0031) never changes this order -- it only
-        windows which already-ordered cards are currently visible.
+        (deckNavigation below, adr/0031, adr/0033) never changes this order
+        -- it only windows which already-ordered cards are currently
+        visible.
       verificationAllocation:
         L1: >-
           Pure recommendation tests independently prove that each confirmed
@@ -538,15 +610,32 @@ browserControlSurface:
           required by test-support-api.yaml's randomSeed.
     deckNavigation:
       description: >-
-        Applies only while renderModes.mapPrimaryLayout holds (adr/0031).
-        The paging controls and position counter for the card deck overlaid
-        on the map in the desktop, map-primary layout (human decision
-        2026-08-28: decision7=案A, decision8=案あ). Card content, order, and
-        count are otherwise governed by displayOrdering and cardDataAttributes
-        above; this section adds only the windowing/paging observation the
-        deck needs.
+        Applies while renderModes.mapPrimaryLayout or
+        renderModes.mapPrimaryTouchLayout holds (adr/0031, adr/0033). The
+        paging controls and position counter for the card deck overlaid on
+        the map, in both the pointer-driven desktop layout (mapPrimaryLayout:
+        previousControl/nextControl buttons, human decision 2026-08-28:
+        decision7=案A, decision8=案あ) and the touch-driven mobile layout
+        (mapPrimaryTouchLayout: swipeSurface, human decision 2026-08-29:
+        mobile becomes map-primary too, and its deck is paged by a
+        horizontal swipe gesture instead of buttons). Card content, order,
+        and count are otherwise governed by displayOrdering and
+        cardDataAttributes above; this section adds only the
+        windowing/paging observation the deck needs.
       previousControl: {testId: candidate-deck-previous, purpose: candidate-deck-page-previous}
       nextControl: {testId: candidate-deck-next, purpose: candidate-deck-page-next}
+      swipeSurface:
+        testId: candidate-deck-swipe-surface
+        presenceRule: >-
+          Present exactly once whenever renderModes.mapPrimaryTouchLayout
+          holds; absent whenever renderModes.mapPrimaryLayout holds
+          (adr/0033). It is a container element that bounds where a paging
+          swipe gesture may begin (see browserActions.pageDeckSwipeForward/
+          Backward below), not a form control -- it carries no button/input
+          role and is not itself subject to
+          unavailableControls.allCandidateScreenFormControlsMustDeclarePurpose,
+          unlike previousControl/nextControl above. It needs no
+          allowedPurposes entry for this reason.
       position:
         testId: candidate-deck-position
         attributes:
@@ -564,16 +653,31 @@ browserControlSurface:
           1 <= visibleStart <= visibleEnd <= total always holds while
           candidate-deck-position is present.
         presenceRule: >-
-          Present exactly once whenever renderModes.mapPrimaryLayout holds;
-          absent whenever renderModes.listPrimaryLayout holds (mirrors how
-          the list-primary layout has never needed a position counter,
-          since its full card list is visible without paging).
+          Present exactly once whenever renderModes.mapPrimaryLayout or
+          renderModes.mapPrimaryTouchLayout holds -- the only two
+          currently-named renderModes as of adr/0033, which retired
+          listPrimaryLayout (mirrors how the retired list-primary layout
+          never needed a position counter, since its full card list was
+          visible without paging). Because every currently-named mode is
+          deck-bearing, this element is in practice always present at every
+          render this contract currently describes; the conditional wording
+          is kept so a future renderModes addition that does not bear a
+          deck would correctly leave it absent.
       disabledState: >-
-        candidate-deck-previous carries the native disabled state exactly
-        when data-deck-visible-start equals "1"; candidate-deck-next carries
-        it exactly when data-deck-visible-end equals data-deck-total. This
-        mirrors filterPanel.matchCountObservation.zeroState's existing
+        Applies only to previousControl/nextControl, which exist only while
+        renderModes.mapPrimaryLayout holds: candidate-deck-previous carries
+        the native disabled state exactly when data-deck-visible-start
+        equals "1"; candidate-deck-next carries it exactly when
+        data-deck-visible-end equals data-deck-total. This mirrors
+        filterPanel.matchCountObservation.zeroState's existing
         disabled-not-absent convention for a boundary condition.
+        renderModes.mapPrimaryTouchLayout has no button affordance and
+        therefore no native disabled state to observe (adr/0033): a
+        continuous drag gesture has no third "disabled" state the way a
+        discrete button does, so the same boundary property (cannot page
+        past either end) is expressed instead as a no-op requirement on the
+        gesture's outcome -- see
+        browserActions.pageDeckSwipeForward/Backward's boundaryOvershoot.
       orderingInvariant: >-
         Paging changes only which already-ordered cards are within the
         visible window; it never changes displayOrdering's card order,
@@ -583,7 +687,8 @@ browserControlSurface:
         order remains fixed and organizer-unchangeable, exactly as before
         this revision. Selecting a card or marker does not page the deck by
         itself except as required by browserActions.selectMarker's
-        deckVisibility clause.
+        deckVisibility clause. pageDeckSwipeForward/Backward (adr/0033)
+        obey the same restriction as pageDeckPrevious/Next.
     mapObservations:
       fitStateAttribute: {testId: candidate-map, attribute: data-map-fit-state, value: displayed-candidates}
       tileProviderAttribute: {testId: candidate-map, attribute: data-map-tile-provider, value: openstreetmap-standard}
@@ -1067,8 +1172,9 @@ browserControlSurface:
       "secondary-condition" and "filter", which adr/0015 relied on to
       justify representing IZAKAYA_BAR_INCLUDED as a "concept" rather than a
       toggle. That reasoning no longer applies once filters are the primary
-      operation. Deck paging (deckNavigation, adr/0031) is likewise not a
-      manual-ordering capability -- see deckNavigation.orderingInvariant.
+      operation. Deck paging (deckNavigation, adr/0031, adr/0033) is
+      likewise not a manual-ordering capability -- see
+      deckNavigation.orderingInvariant.
   empty:
     requiredTestIds: [candidate-no-results]
     absent: [candidate-proposal-cards, candidate-map]
@@ -1136,18 +1242,21 @@ browserActions:
       matchingCardAttribute: {attribute: data-selection-state, value: selected}
       allOtherCardsAndMarkers: {attribute: data-selection-state, value: unselected}
       deckVisibility: >-
-        While renderModes.mapPrimaryLayout holds, the selected candidate's
-        card is within candidate-deck-position's visible window
-        (visibleStart <= its 1-based displayOrdering position <= visibleEnd)
-        immediately after this action -- the deck pages itself to reveal it
-        if it was previously outside the window. Not applicable while
-        renderModes.listPrimaryLayout holds, where the full card list is
-        already visible without paging. This closes a gap decision5 (no
-        separate map-side info panel; the deck itself is the only place
-        candidate detail is shown, human decision 2026-08-28 keeps this
-        conclusion) did not need to state under the prior side-panel
-        layout, and is what keeps decision5's conclusion true under the
-        new deck layout (adr/0031).
+        While renderModes.mapPrimaryLayout or renderModes.mapPrimaryTouchLayout
+        holds (adr/0033 generalizes this from mapPrimaryLayout alone), the
+        selected candidate's card is within candidate-deck-position's
+        visible window (visibleStart <= its 1-based displayOrdering position
+        <= visibleEnd) immediately after this action -- the deck pages
+        itself to reveal it if it was previously outside the window. Not
+        applicable while neither named renderMode holds (there is currently
+        no such render, since listPrimaryLayout was retired by adr/0033;
+        this clause is kept in case a future non-deck-bearing mode is
+        added). This closes a gap decision5 (no separate map-side info
+        panel; the deck itself is the only place candidate detail is shown,
+        human decision 2026-08-28 keeps this conclusion) did not need to
+        state under the prior side-panel layout, and is what keeps
+        decision5's conclusion true under the deck layout (adr/0031),
+        including its mobile/touch variant (adr/0033).
   pageDeckNext:
     input: candidate-deck-next
     precondition: renderModes.mapPrimaryLayout-holds-and-data-deck-visible-end-is-less-than-data-deck-total
@@ -1176,6 +1285,90 @@ browserActions:
                    dataSelectionStateValues, appliedFilters, pendingFilters,
                    conditionSummary]
       publicOperation: none
+  pageDeckSwipeForward:
+    input: candidate-deck-swipe-surface
+    precondition: renderModes.mapPrimaryTouchLayout-holds
+    gesture: >-
+      A horizontal drag/swipe (pointer or touch) that begins inside
+      candidate-deck-swipe-surface's bounding box and completes (release)
+      after moving in the implementation-chosen "forward" horizontal
+      direction (adr/0033 does not fix which screen-relative direction --
+      e.g. leftward -- reads as forward; it fixes only that exactly one of
+      the two horizontal directions is forward and pageDeckSwipeBackward's
+      is the opposite direction). The distance threshold that counts as a
+      completed paging gesture, as opposed to a tap or an aborted drag, is
+      an implementation choice this contract does not fix, mirroring how
+      pageDeckNext/Previous do not fix step size.
+    requiredOutcome:
+      visibleWindow: >-
+        Same shape as pageDeckNext's requiredOutcome.visibleWindow:
+        data-deck-visible-start strictly increases and data-deck-visible-end
+        does not decrease; data-deck-visible-end never exceeds
+        data-deck-total afterward. Applies only when the gesture completes
+        while data-deck-visible-end is less than data-deck-total before the
+        gesture; see boundaryOvershoot for the other case.
+      boundaryOvershoot: >-
+        When data-deck-visible-end already equals data-deck-total before
+        the gesture, completing the gesture is a no-op on the visible
+        window: it must not error, must not start a public operation, and
+        start/end/total must be unchanged afterward. mapPrimaryTouchLayout
+        has no disabledState affordance (deckNavigation.disabledState does
+        not apply to it), so this no-op requirement is the continuous-
+        gesture analogue of pageDeckNext's precondition guard.
+      unaffected: [cardsAndMarkersSet, dataCandidateRefValues,
+                   dataSelectionStateValues, appliedFilters, pendingFilters,
+                   conditionSummary]
+      publicOperation: none
+    verificationAllocation:
+      L4: >-
+        Acceptance dispatches this gesture as a synthetic pointer/touch
+        sequence (e.g. a pointer/mouse down-move-up sequence, or an
+        equivalent touch-event dispatch) at coordinates inside
+        candidate-deck-swipe-surface's bounding box, then asserts
+        requiredOutcome through the same before/after DOM comparison
+        pageDeckNext/Previous already use. **This is a synthetic gesture
+        dispatched directly into the browser's input pipeline, not contact
+        from a real touchscreen or a human finger** -- it proves the code
+        path that pages the deck fires; it does not prove a human finger can
+        physically perform the gesture on a real device (e.g. past an
+        occluding element, or with a hit target too small to reliably
+        start a drag on). activeContext.md's G1 (a synthetic click on
+        candidate-map-marker proves the code path fires, not that a human
+        finger can reach and activate the real element) already accepts
+        this class of limitation for click-style activation; adr/0033
+        extends the identical, already-accepted limitation to a drag-style
+        gesture for the first time in this contract, and records that
+        extension explicitly here rather than leaving it implicit. This
+        does not narrow or widen G1's existing scope for click-style
+        activation, and it does not claim to close G1 for gestures either.
+  pageDeckSwipeBackward:
+    input: candidate-deck-swipe-surface
+    precondition: renderModes.mapPrimaryTouchLayout-holds
+    gesture: >-
+      The horizontal drag/swipe in the direction opposite
+      pageDeckSwipeForward's gesture (adr/0033) -- see its gesture entry for
+      what is and is not fixed.
+    requiredOutcome:
+      visibleWindow: >-
+        Same shape as pageDeckPrevious's requiredOutcome.visibleWindow:
+        data-deck-visible-end strictly decreases and data-deck-visible-start
+        does not increase; data-deck-visible-start never falls below 1
+        afterward. Applies only when the gesture completes while
+        data-deck-visible-start is greater than "1" before the gesture; see
+        boundaryOvershoot for the other case.
+      boundaryOvershoot: >-
+        When data-deck-visible-start already equals "1" before the gesture,
+        completing the gesture is a no-op on the visible window, for the
+        same reason pageDeckSwipeForward's boundaryOvershoot states.
+      unaffected: [cardsAndMarkersSet, dataCandidateRefValues,
+                   dataSelectionStateValues, appliedFilters, pendingFilters,
+                   conditionSummary]
+      publicOperation: none
+    verificationAllocation:
+      L4: >-
+        Same synthetic-gesture method, and the same explicit extension of
+        G1's known limitation, as pageDeckSwipeForward's
+        verificationAllocation states.
   openFilterPanel:
     input: candidate-filter-open-or-candidate-no-results-revise-filters
     stateVariants:
