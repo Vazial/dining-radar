@@ -94,6 +94,9 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         (selectMarker.deckVisibility)。renderModes.verificationAllocation.L4 のとおり、この
         テストは単一の固定ビューポート（DESKTOP_MAP_PRIMARY_VIEWPORT）でmapPrimaryLayoutが
         成立する前提のもとで動く——幅ごとの正しさそのものはADR-0032/L5の管轄で、ここでは扱わない。
+        deckNavigation.disabledStateは両端を定めるため、先頭（candidate-deck-previousが
+        disabled）だけでなく末尾（candidate-deck-nextがdisabled、かつcandidate-deck-previousは
+        disabledでない）にも実際に到達して検査する。
         """
         self._sign_in()
         self.steps.lunch_candidates_can_be_proposed_at_a_known_search_origin()
@@ -106,6 +109,8 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.organizer_pages_the_deck_forward()
         self.steps.organizer_pages_the_deck_backward()
         self.steps.selecting_a_marker_outside_the_deck_window_brings_its_card_into_view()
+        self.steps.organizer_pages_the_deck_forward_until_it_reaches_the_end()
+        self.steps.deck_paging_controls_disabled_state_matches_window()
 
     def test_tdr_cs_03_changed_filters_replace_the_proposal(self) -> None:
         self._sign_in()

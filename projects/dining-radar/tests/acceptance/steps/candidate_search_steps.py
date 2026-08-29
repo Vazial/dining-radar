@@ -333,5 +333,8 @@ class CandidateSearchSteps:
     def organizer_pages_the_deck_backward(self) -> None:
         self.dsl.page_deck_previous_and_verify_window_recedes()
 
+    def organizer_pages_the_deck_forward_until_it_reaches_the_end(self) -> None:
+        self.dsl.page_deck_forward_until_the_window_reaches_the_end()
+
     def selecting_a_marker_outside_the_deck_window_brings_its_card_into_view(self) -> None:
         self.dsl.select_marker_outside_deck_window_and_verify_it_becomes_visible()

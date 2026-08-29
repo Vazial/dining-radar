@@ -1225,6 +1225,29 @@ class CandidateSearchBrowserDsl:
         self.assertions.assertGreaterEqual(start_after, 1)
         self._assert_display_snapshot(snapshot)
 
+    def page_deck_forward_until_the_window_reaches_the_end(self) -> None:
+        """次へを、窓の末尾 (data-deck-visible-end) が data-deck-total に一致する
+        まで繰り返し押す。デッキの窓の枚数は幅ごとに異なる (adr/0032) ため回数を
+        決め打ちにしない。1クリックごとに page_deck_next_and_verify_window_advances
+        を経由するため、送りの途中も含めて並び・data-candidate-ref集合が保たれる
+        こと (deckNavigation.orderingInvariant) を毎回検査する。無限ループ防止の
+        上限 (data-deck-total 回) に達しても末尾へ到達していなければ、それ自体を
+        成功とはせず明示的に失敗させる
+        (adr/0031 決定3; browserActions.pageDeckNext, deckNavigation.disabledState)."""
+        _, end, total = self._deck_window()
+        clicks = 0
+        while end < total and clicks < total:
+            self.page_deck_next_and_verify_window_advances()
+            clicks += 1
+            _, end, total = self._deck_window()
+        self.assertions.assertEqual(
+            end,
+            total,
+            f"deck window did not reach the end after {clicks} forward clicks "
+            f"(data-deck-visible-end={end}, data-deck-total={total}); "
+            "candidate-deck-next may not be advancing the window toward the last card",
+        )
+
     def select_marker_outside_deck_window_and_verify_it_becomes_visible(self) -> None:
         """地図上のピンを選ぶと、対応するカードがデッキの表示窓の中に見えるようになる
         (adr/0031 決定3; browserActions.selectMarker.deckVisibility).
