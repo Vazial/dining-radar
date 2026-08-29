@@ -1431,6 +1431,54 @@ Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (
     - `candidate.js`のキャッシュ回避文字列を`?v=20260829-deck-genre-row-walk-chip`へ更新した。
     - コミットはしていない。
 
+16. 実装済み（2026-08-29、developer＋tester／orchestrator検証）: **スマホ（1024px未満）を地図主体にし、
+   カードを地図の上に浮かせ、指のスワイプで送る**構成へ作り直した。開閉の仕掛け（「地図で見る」帯・
+   全画面シート・戻るバー・inert制御・`mapSheetOpen` の状態機械）は**機構ごと廃止**した。
+
+   - **人間裁定（2026-08-29 チャット）**: 「もう地図主体にしてクリックして開く意味もなくしたほうが
+     いいかもしれないね」→ 選択肢提示後「少なくともスマホは前のやつでいいかな…地図に店舗カードを
+     浮かせて、スクロールで切り替え」。**方針の巻き戻しではない**——`activeContext.md` は
+     2026-08-24 時点で「人間は比較用にリボン無し案も別途作る予定」と記録しており、地図主体の
+     スマホ案が却下されたことは一度もない
+   - 契約 v1.6.0（`adr/0033`、承認済み）の `mapPrimaryTouchLayout` / `swipeSurface` /
+     `pageDeckSwipeForward`・`Backward` / `boundaryOvershoot` / `selectMarker.deckVisibility` を実装。
+     `adr/0033` 決定6に従い、L5（`adr/0032` 決定1(f)）の狭幅側の期待モードを読み替えた
+   - PC版（1024px以上）は無変更
+
+   **合流して初めて出た実バグを1件直した（このスライスで最も記録に値すること）。**
+   - **developer 単独の検証では緑だった。** tester は実装を読まずに契約から検査を書いており、
+     **その2つを合流させた瞬間に落ちた**（`AssertionError: 4 not less than 4`）
+   - 症状は「戻す方向が効かない」に見えた。orchestrator が独立に測ったところ、実際には
+     **ドラッグ中にポインタイベントが 11個→4個 で途切れ、以降は前送りも効かなくなる**というもの
+     だった。方向のロジックの問題ではない
+   - 原因は、ドラッグの出だし（方向確定前で `preventDefault()` を呼ばない数px）に広がる
+     **ブラウザの文字選択**。往復のたびに選択が蓄積し、選択済み範囲の内側から次のドラッグを
+     始めると Chromium が「選択テキストのネイティブドラッグ」と解釈して `pointercancel` を
+     即発火していた
+   - 修正はスワイプ面への `user-select: none` のみ。**イベント処理・`setPointerCapture`・
+     `preventDefault` のタイミングには一切触れていない**
+   - **orchestrator が最初に立てた仮説（`setPointerCapture` の失敗）は、実測で否定された**
+     ——`hasPointerCapture` は常に `true` だった。仮説をブリーフに書いたが「そのまま信じるな」と
+     添えており、developer は実測で否定して別の原因に到達している
+
+   **役割分離が効いた実例として記録する。** 実装者単独では緑、契約から独立に書かれた検査との
+   合流で赤。`meta/adr/0036`・`meta/agents.md` が role separation に期待している性質が、
+   このスライスで初めて「実装者が気づけなかった実バグを捕まえる」形で観測された。
+
+   もう1件、2026-08-29 の「徒歩◯分をジャンル行に移す」裁定が PC 版にしか入っておらず、
+   スマホの店名が半分しか出ていなかったのも直した（同じデッキ形式になった以上、裁定の素直な適用と
+   判断。orchestrator 裁定）。実データ相当の長い店名で **46〜71% → 81〜100%**。
+
+   検証（すべて orchestrator が合流後に自分で実行）: ruff check/format 緑、単体352件+48 subtests 緑、
+   `tests/acceptance`・`tests/ui_invariants`・`tests/test_static_assets.py` 併せて **67件+18 subtests 緑**。
+   実測（幅390/375/1440、店名を実データ相当に差し替え）: 輪ラベル・ピンがカードに隠れる数 **0**、
+   縦横スクロールなし。スワイプ往復はポインタイベント11個で安定。
+   **独立監査を実施**（`reviews/audit-mobile-swipe-deck-navigation.md`）: ブロッカーなし、
+   指摘1件（Low、未使用のstepが2つ）。
+
+   **測定上の限界（実データでは未確認）**: 輪ラベル・ピンの非重なりは、合成候補が経度0固定で
+   南北一直線に並ぶフィクスチャでしか測っていない。実データの2次元の散らばりでの見え方は未測定。
+
 ## Open questions
 
 - Email delivery and SSO remain deferred; accounts stay invite-only and local. The custom-domain question is closed — a Route 53 subdomain fronts the service, recorded in ADR-0021's 2026-08-14 addendum.
