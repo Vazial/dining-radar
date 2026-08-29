@@ -978,7 +978,9 @@ Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (
 
 ## Next work
 
-1. Obtain a human go-ahead for the external Render/Neon account mutations and secret entry, then follow `DEPLOYMENT.md` and perform the public HTTPS/privacy/login L5 checks. Every machine gate on this branch is green, so this is what release now waits on. A change to the no-history/no-durable-identifier product policy requires a new human decision before work starts.
+1. ~~Obtain a human go-ahead for the external Render/Neon account mutations and secret entry, then follow `DEPLOYMENT.md` and perform the public HTTPS/privacy/login L5 checks.~~ **完了（2026-08-26、人間が「公開しました」）。**
+   以降このサービスは公開運用されており、`main` へのマージは CI 通過後に Render が自動デプロイする（`render.yaml` の `autoDeployTrigger: checksPass`）。**次に読む人へ**: 公開先のURLはリポジトリに書かれていない（カスタムドメイン。`ADR-0021` の 2026-08-14 追記）。実データでの見え方を確かめたいときは人間に開いてもらう必要がある。
+   no-history/no-durable-identifier の製品方針を変えるには、着手前に新しい人間の決定が要る（これは変わらない）。
 2. Reconfirm the assumed Hot Pepper raw JSON field names against current official documentation. (The provider credit, free-plan, and health-check terms were reconfirmed on 2026-08-12 and are recorded under "Deployment platform terms" above.)
 3. Refresh or retire the `project/toyama-dining-radar` branch (the branch and its ruleset keep the old name; the 2026-08-20 rename deliberately left them alone). It is no longer the leading edge: `main` is well ahead of it and 0 behind, so the branch only lags. Decide whether to fast-forward it or drop it in favour of slicing directly off `main`, which is what recent slices have actually done.
 4. ~~Consider whether ADR-0003's stated design-preview stack (React, TypeScript, Tailwind, shadcn/ui) should match the receiver's actual dependencies (React, TypeScript, `lucide-react` only, with hand-written CSS), by installing the missing packages or amending the ADR. Designer worked around the gap by requiring visually self-contained artifacts; the divergence itself is unresolved.~~ **Moot (2026-08-24, ADR-0028)** — `design-preview` itself is retired, so its dependency mismatch no longer needs reconciling. Pending action item: a human deletes `projects/dining-radar/design-preview/` and the `dining-radar-design-preview` entry in `.claude/launch.json` (ADR-0028 decision 2).
@@ -1479,6 +1481,38 @@ Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (
    **測定上の限界（実データでは未確認）**: 輪ラベル・ピンの非重なりは、合成候補が経度0固定で
    南北一直線に並ぶフィクスチャでしか測っていない。実データの2次元の散らばりでの見え方は未測定。
 
+10. **次の大きな一手（2026-08-29 時点。人間の意向）: 会そのものを扱う画面群（幹事の画面）へ移る。**
+   店を絞る画面は 2026-08-29 までに PC・スマホとも地図主体で仕上がり、公開運用に載っている。
+   人間は 2026-08-29 に「幹事とかできるようにする画面…そっちのほうが大きかったかな」と述べ、
+   **スマホを仕上げてから移る**ことを選んだ。その仕上げは完了している（16節）。
+
+   **着手前に必ず要ること**: 会・日程調整・出欠・承認投票は `product-brief.md` §6 が
+   **「現時点では製品境界の外」**と明記しており、**取り込むにはブリーフの改訂（＝製品が何であるかの
+   再定義）が要る**。これは人間の決定であり、AI が先に進めてはならない。**着手前に人間へ問うこと。**
+
+   **入口は2か所**（どちらも `product-brief.md` §6 に記録済み）:
+   - `https://claude.ai/code/artifact/503d1b46-d560-43e2-bf6d-3744f33c5b3c`（キャンバス8枚。うち
+     リポジトリに取り込んだのは店を絞る3枚だけ。会・日程調整・出欠・承認投票・履歴の5枚は未取り込み）
+   - issue #104「dining-radarの画面刷新案」（OPEN。ラフ4枚。案A 幹事ダッシュボード／案B スマホ
+     一問一答／案C 候補ボード／地図）
+
+   **どちらも designer のパイプラインを通っていない**（`design/explorations/README.md` と同じ由来の
+   問題）。取り込むなら **designer に描き直させる前提**で扱うこと。
+
+   **履歴だけは扱いが違う**——§7 が「現在の製品方針として採用しない」と明記しており、他の4つと
+   同列に並べてはならない。再検討には人の意思決定と ADR を要する。
+
+11. **ローカルで画面を確かめる手順**（このスライスで何度も踏んだので残す）。
+    - `python manage.py runserver 127.0.0.1:8741 --settings=dining_radar.settings_localdemo --noreload --insecure`
+    - `settings_localdemo.py` と `localdemo.sqlite3` は**リポジトリに入れない**（`.gitignore` 済み、FR-027）。
+      無ければ `settings_acceptance` を継承して sqlite のパスと `ALLOWED_HOSTS` を差し替えるだけの数行で作れる
+    - **サーバ起動のたびにデータの再投入が要る**（モードは LocMem キャッシュ保持のため再起動で消える）:
+      `curl -X PUT http://127.0.0.1:8741/test-support/candidate-proposals/state -H "Content-Type: application/json" -d '{"mode":"NORMAL_WITH_WEIGHTED_SAMPLING","randomSeed":7}'`
+    - **`home.html` を変えたらサーバの再起動が要る**（`DEBUG=False` で Django がテンプレートをキャッシュする）。
+      これを忘れて「直っていない」と誤報告した事故がある（FR-025）
+    - **合成候補は経度0固定で南北一直線に並び、現在地は海の上**である。ピンが縦一列なのはデータの
+      性質であって不具合ではない。**実データの2次元の散らばりでの見え方は、この環境では確かめられない**
+
 ## Open questions
 
 - Email delivery and SSO remain deferred; accounts stay invite-only and local. The custom-domain question is closed — a Route 53 subdomain fronts the service, recorded in ADR-0021's 2026-08-14 addendum.
@@ -1489,6 +1523,20 @@ Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (
 - **新規（2026-08-27、reviewer再監査）**: 徒歩圏の輪の分数ラベル（`bandLabel`）の検査は、**可視ラベルの分数の集合と輪の `data-walking-radius-minutes` の集合が一致すること**までしか証明していない（F1b、Medium）。値の集合が保たれたまま**輪とラベルの対応だけが入れ替わる欠陥**（5分の輪に「15分」と出る等）は検出できない。現在の実装は同一ループ内で半径とラベル文言を同じ変数から生成しているため発現しにくく、reviewerはマージ前必須のブロッカーとはしていない。**恒久的に閉じるには実装と契約の両方が要る**: ラベル要素に輪と相関する属性（`bandAttribute` と同名の値）を持たせ、それを `bandLabel` の Must として契約に載せる。architect の判断が要る。
 - **新規（2026-08-27、tester申し送り＋reviewer見解）**: 可視ラベル要素には `data-testid` が無く、テストDSLはCSSクラス（`.candidate-walking-radius-ring-label-visual`）を手がかりにしている——このプロジェクトの `by_test_id` 規約からの逸脱である。reviewerの見解は「`data-testid` を足すだけでは不十分で、上記の相関属性と契約改訂をセットで行うべき」。上のF1bと同じ1件として扱ってよい。
 - **未解決のまま（2026-08-27）**: ラベルがピン等に**遮蔽されて読めない**ケースは、Playwright の可視判定が遮蔽をモデル化しないため、今回の検査では証明できない。人間の実機報告「15分の表記が店の位置により隠れて見えない」に直接対応する性質であり、現状は実装側の回避（ラベルの衝突回避配置）に依存している。機械的な関所は無い。
+- **新規（2026-08-29、reviewer監査）**: デッキ送りの前後で「未適用の絞り込み条件（`pendingFilters`）が
+  変わらないこと」は、**スマホのスワイプ側では検査されたが、PC のボタン側は未検査のまま**である。
+  契約（`browserActions.pageDeckPrevious`／`pageDeckNext` の `unaffected`）は既に両方を要求しており、
+  欠けているのはテスト側のコードだけ。次に `tests/acceptance/**` を触る人が拾うこと。
+- **新規（2026-08-29、reviewer監査、Low）**: `organizer_swipes_the_deck_forward`／`_backward` の単発版
+  step が、テストから一度も呼ばれていない（対応するDSLメソッド自体は `_until_` ループ経由で使われて
+  いるため機能の欠落ではない）。掃除の対象。
+- **新規（2026-08-29、orchestrator）**: 作業ツリー `E:/AWS/arc2` が、マージ済みブランチ
+  `docs/walking-time-detour`（PR #161、2026-08-26 マージ）のまま残っている。**別セッションが使って
+  いる可能性があるため触っていない。** 放置すると `meta/adr/0062` が記録した「古いツリーのまま作業して
+  役割定義が届かない」事故の再発条件になる。所有者を確かめて片付けること。
+- **未解決のまま（2026-08-29）**: 輪のラベル・ピンがカードに隠れないことは、**合成データ（経度0固定・
+  南北一直線）でしか測っていない**。実データの2次元の散らばりでの見え方は未測定であり、この環境では
+  測れない（Next work 11 参照）。
 
 ## Approval state
 
