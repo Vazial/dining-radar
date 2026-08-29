@@ -338,3 +338,29 @@ class CandidateSearchSteps:
 
     def selecting_a_marker_outside_the_deck_window_brings_its_card_into_view(self) -> None:
         self.dsl.select_marker_outside_deck_window_and_verify_it_becomes_visible()
+
+    # touch-swipe deck navigation (adr/0033, contractVersion 1.6.0) --------
+
+    def organizer_compares_candidates_at_map_primary_touch_viewport(self) -> None:
+        self.dsl.open_candidate_screen_at_map_primary_touch_viewport()
+
+    def map_primary_touch_layout_holds(self) -> None:
+        self.dsl.assert_map_primary_touch_layout_holds()
+
+    def organizer_swipes_the_deck_forward(self) -> None:
+        self.dsl.page_deck_swipe_forward_and_verify_window_advances()
+
+    def organizer_swipes_the_deck_backward(self) -> None:
+        self.dsl.page_deck_swipe_backward_and_verify_window_recedes()
+
+    def organizer_swipes_the_deck_forward_until_it_reaches_the_end(self) -> None:
+        self.dsl.page_deck_swipe_forward_until_the_window_reaches_the_end()
+
+    def organizer_swipes_the_deck_backward_until_it_reaches_the_start(self) -> None:
+        self.dsl.page_deck_swipe_backward_until_the_window_reaches_the_start()
+
+    def deck_swipe_forward_is_a_no_op_at_the_boundary(self) -> None:
+        self.dsl.assert_deck_swipe_forward_is_a_no_op_at_the_boundary()
+
+    def deck_swipe_backward_is_a_no_op_at_the_boundary(self) -> None:
+        self.dsl.assert_deck_swipe_backward_is_a_no_op_at_the_boundary()

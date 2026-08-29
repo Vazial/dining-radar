@@ -123,18 +123,27 @@ PROBLEM = "candidate-proposal-problem"
 PROBLEM_GUIDANCE = "candidate-proposal-problem-guidance"
 MANUAL_ORDERING = "candidate-manual-ordering"
 
-# contractVersion 1.5.0 (adr/0031): renderModes -- two mutually exclusive
-# "implementation-chosen rendering condition" element sets. listPrimaryLayout
-# is the pre-existing mobile/narrow toggle (never named by the contract
-# before this revision); mapPrimaryLayout is this revision's new
-# desktop-width deck-navigation surface.
-MAP_OPEN = "candidate-map-open"
-MAP_SHEET_CLOSE = "candidate-map-sheet-close"
-LIST_PRIMARY_TEST_IDS = [MAP_OPEN, MAP_SHEET_CLOSE]
+# contractVersion 1.6.0 (adr/0033) renderModes -- two mutually exclusive
+# "implementation-chosen rendering condition" element sets, both map-primary.
+# adr/0033 retired the pre-adr/0031 list-primary mode (candidate-map-open /
+# candidate-map-sheet-close) outright: no width selects it any longer, so
+# this contract no longer defines it and this DSL no longer references it
+# (mirrors adr/0023's TDR-CS-07 retirement precedent -- a dead mode is
+# removed, not kept around as an always-false condition). The two
+# currently-named modes differ only in how the card deck is paged: buttons
+# (mapPrimaryLayout, adr/0031, desktop) or a swipe gesture
+# (mapPrimaryTouchLayout, adr/0033, mobile).
 DECK_PREVIOUS = "candidate-deck-previous"
 DECK_NEXT = "candidate-deck-next"
+DECK_SWIPE_SURFACE = "candidate-deck-swipe-surface"
 DECK_POSITION = "candidate-deck-position"
-MAP_PRIMARY_TEST_IDS = [DECK_PREVIOUS, DECK_NEXT, DECK_POSITION]
+# renderModes.mapPrimaryLayout.testIds / renderModes.mapPrimaryTouchLayout.
+# testIds (v1.6.0): candidate-deck-position is deliberately *not* a member of
+# either list below -- adr/0033 decision 2 moved it out of both modes'
+# exclusivity arrays because deckNavigation.position.presenceRule makes it
+# common to both currently-named modes, not a distinguishing element.
+MAP_PRIMARY_LAYOUT_TEST_IDS = [DECK_PREVIOUS, DECK_NEXT]
+MAP_PRIMARY_TOUCH_LAYOUT_TEST_IDS = [DECK_SWIPE_SURFACE]
 DECK_VISIBLE_START_ATTRIBUTE = "data-deck-visible-start"
 DECK_VISIBLE_END_ATTRIBUTE = "data-deck-visible-end"
 DECK_TOTAL_ATTRIBUTE = "data-deck-total"
@@ -149,6 +158,22 @@ DECK_PAGE_NEXT_PURPOSE = "candidate-deck-page-next"
 # narrow/mobile breakpoint so this choice cannot be read as testing the
 # breakpoint value itself (that remains ADR-0032/L5's job, not this file's).
 DESKTOP_MAP_PRIMARY_VIEWPORT = {"width": 1440, "height": 900}
+# adr/0033 決定1: mapPrimaryTouchLayout is the mobile/narrow surface (human
+# decision 2026-08-29, all widths under the still-unfixed threshold). Chosen
+# well below any plausible breakpoint (mirrors DESKTOP_MAP_PRIMARY_VIEWPORT's
+# own reasoning in the opposite direction) so this choice cannot be read as
+# testing the breakpoint value itself.
+MOBILE_MAP_PRIMARY_TOUCH_VIEWPORT = {"width": 390, "height": 844}
+# adr/0033 決定3: the contract fixes neither the swipe's completion distance
+# threshold nor which literal screen direction reads as "forward" -- both are
+# implementation choices (gesture note), mirroring how pageDeckNext/Previous
+# already leave step size unfixed. This DSL cannot read the implementation to
+# learn either value (tester does not read src/**), so
+# _forward_swipe_direction discovers the direction empirically instead of
+# hardcoding a guess (see its docstring); _SWIPE_DRAG_PX only needs to be
+# larger than any plausible completion threshold, not equal to one.
+_SWIPE_DIRECTIONS = ("leftward", "rightward")
+_SWIPE_DRAG_PX = 260
 
 # contracts/candidate-search-browser-interface.yaml shownCandidateMemory (adr/0024 decision 4).
 SHOWN_CANDIDATE_MEMORY_KEY = "dining-radar:shown-provider-page-urls"
@@ -329,6 +354,15 @@ class CandidateSearchBrowserDsl:
         self._pending_filters: dict[str, object] | None = None
         self._organizer_credentials: tuple[str, str] | None = None
         self._shown_pool_rounds: dict[str, object] | None = None
+        # adr/0033 決定3: which literal drag direction pageDeckSwipeForward
+        # answers to, discovered empirically once per test by
+        # _forward_swipe_direction and reused afterward -- see that method's
+        # docstring. _swipe_backward_confirmed separately records whether a
+        # *backward* gesture has itself been positively observed to move the
+        # window (direction symmetry alone does not prove backward is wired;
+        # see assert_deck_swipe_backward_is_a_no_op_at_the_boundary).
+        self._swipe_forward_direction: str | None = None
+        self._swipe_backward_confirmed: bool = False
 
     # Given seams ---------------------------------------------------------
 
@@ -431,6 +465,21 @@ class CandidateSearchBrowserDsl:
         only while mapPrimaryLayout holds.
         """
         self.page.set_viewport_size(DESKTOP_MAP_PRIMARY_VIEWPORT)
+        self.open_candidate_screen()
+
+    def open_candidate_screen_at_map_primary_touch_viewport(self) -> None:
+        """renderModes.mapPrimaryTouchLayout is the touch-driven mobile layout
+        adr/0033 introduces (human decision 2026-08-29: mobile widths become
+        map-primary too, paged by a swipe gesture instead of buttons).
+
+        Mirrors open_candidate_screen_at_map_primary_viewport's own reasoning
+        in the opposite direction: MOBILE_MAP_PRIMARY_TOUCH_VIEWPORT is the
+        one fixed viewport this file applies for the deckNavigation.
+        swipeSurface / pageDeckSwipeForward/Backward checks that apply only
+        while mapPrimaryTouchLayout holds -- the breakpoint value itself
+        remains ADR-0032/L5's job, not this file's.
+        """
+        self.page.set_viewport_size(MOBILE_MAP_PRIMARY_TOUCH_VIEWPORT)
         self.open_candidate_screen()
 
     def open_filter_panel(self) -> None:
@@ -1116,44 +1165,74 @@ class CandidateSearchBrowserDsl:
     # Then: renderModes and deck navigation (adr/0031, contractVersion 1.5.0) --
 
     def assert_render_mode_test_ids_are_mutually_exclusive(self) -> None:
-        """renderModesの2モードは互いに排他的である (adr/0031 決定4).
+        """renderModesの2モードは互いに排他的である (adr/0033 決定1; contractVersion 1.6.0).
 
         renderModes.invariant: exactly one named mode holds at any time, and
-        every test id of the *other* mode is absent while it does. This
-        reads DOM presence directly for both id sets -- it does not compare
-        two attributes the implementation derived from a single shared
-        source, so a defect that leaks one mode's element while the other
-        mode's elements are already present is genuinely detectable (unlike
-        a same-origin-value comparison).
+        every test id of the *other* mode is absent while it does. adr/0033
+        retired listPrimaryLayout, so the two currently-named modes compared
+        here are mapPrimaryLayout (buttons) and mapPrimaryTouchLayout (swipe
+        surface) -- both map-primary. This reads DOM presence directly for
+        both id sets -- it does not compare two attributes the
+        implementation derived from a single shared source, so a defect that
+        leaks one mode's element while the other mode's elements are already
+        present is genuinely detectable (unlike a same-origin-value
+        comparison). candidate-deck-position is deliberately excluded from
+        both id sets (MAP_PRIMARY_LAYOUT_TEST_IDS /
+        MAP_PRIMARY_TOUCH_LAYOUT_TEST_IDS): adr/0033 decision 2 made it
+        common to both modes, so it cannot itself say which one holds.
         """
-        list_primary_present = any(
-            by_test_id(self.page, test_id).count() > 0 for test_id in LIST_PRIMARY_TEST_IDS
-        )
         map_primary_present = any(
-            by_test_id(self.page, test_id).count() > 0 for test_id in MAP_PRIMARY_TEST_IDS
+            by_test_id(self.page, test_id).count() > 0 for test_id in MAP_PRIMARY_LAYOUT_TEST_IDS
+        )
+        map_primary_touch_present = any(
+            by_test_id(self.page, test_id).count() > 0
+            for test_id in MAP_PRIMARY_TOUCH_LAYOUT_TEST_IDS
         )
         self.assertions.assertTrue(
-            list_primary_present or map_primary_present,
-            "neither renderModes.listPrimaryLayout nor renderModes.mapPrimaryLayout test ids "
-            "are present at this fixed viewport, but renderModes.invariant requires exactly "
-            "one named mode to hold",
+            map_primary_present or map_primary_touch_present,
+            "neither renderModes.mapPrimaryLayout nor renderModes.mapPrimaryTouchLayout test "
+            "ids are present at this fixed viewport, but renderModes.invariant requires "
+            "exactly one named mode to hold",
         )
         self.assertions.assertFalse(
-            list_primary_present and map_primary_present,
-            "test ids from both renderModes.listPrimaryLayout and renderModes.mapPrimaryLayout "
-            "are present simultaneously, but renderModes.invariant requires exactly one named "
-            "mode to hold",
+            map_primary_present and map_primary_touch_present,
+            "test ids from both renderModes.mapPrimaryLayout and renderModes."
+            "mapPrimaryTouchLayout are present simultaneously, but renderModes.invariant "
+            "requires exactly one named mode to hold",
         )
-        if list_primary_present:
-            assert_all_absent(self.assertions, self.page, MAP_PRIMARY_TEST_IDS)
+        if map_primary_present:
+            assert_all_absent(self.assertions, self.page, MAP_PRIMARY_TOUCH_LAYOUT_TEST_IDS)
         else:
-            assert_all_absent(self.assertions, self.page, LIST_PRIMARY_TEST_IDS)
+            assert_all_absent(self.assertions, self.page, MAP_PRIMARY_LAYOUT_TEST_IDS)
 
     def assert_map_primary_layout_holds(self) -> None:
         """このスライスのデッキ検査は renderModes.mapPrimaryLayout が成立する前提である
-        (adr/0031 決定4; deckNavigation.description)."""
-        assert_all_present(self.assertions, self.page, MAP_PRIMARY_TEST_IDS)
-        assert_all_absent(self.assertions, self.page, LIST_PRIMARY_TEST_IDS)
+        (adr/0031 決定4; deckNavigation.description).
+
+        Unchanged assertions from before contractVersion 1.6.0: still
+        requires candidate-deck-previous/-next *and* candidate-deck-position
+        present, and every mapPrimaryTouchLayout-only test id absent.
+        candidate-deck-position is listed explicitly here (rather than via
+        MAP_PRIMARY_LAYOUT_TEST_IDS) only because adr/0033 decision 2 moved
+        it out of that array's contract definition -- it is still required
+        while mapPrimaryLayout holds (deckNavigation.position.presenceRule).
+        """
+        assert_all_present(
+            self.assertions, self.page, [*MAP_PRIMARY_LAYOUT_TEST_IDS, DECK_POSITION]
+        )
+        assert_all_absent(self.assertions, self.page, MAP_PRIMARY_TOUCH_LAYOUT_TEST_IDS)
+
+    def assert_map_primary_touch_layout_holds(self) -> None:
+        """このスライスのデッキ検査は renderModes.mapPrimaryTouchLayout が成立する前提である
+        (adr/0033 決定1; deckNavigation.description). Mirrors
+        assert_map_primary_layout_holds for the touch-driven mobile mode:
+        requires candidate-deck-swipe-surface and candidate-deck-position
+        present, and every mapPrimaryLayout-only (button) test id absent.
+        """
+        assert_all_present(
+            self.assertions, self.page, [*MAP_PRIMARY_TOUCH_LAYOUT_TEST_IDS, DECK_POSITION]
+        )
+        assert_all_absent(self.assertions, self.page, MAP_PRIMARY_LAYOUT_TEST_IDS)
 
     def assert_deck_position_counter_is_well_formed(self) -> None:
         """件数カウンタは表示窓の位置を1始まりの整数で示す
@@ -1293,6 +1372,298 @@ class CandidateSearchBrowserDsl:
             value, r"^\d+$", f"{attribute}={value!r} is not a decimal integer string"
         )
         return int(value)
+
+    # Then: touch-swipe deck navigation (adr/0033, contractVersion 1.6.0) --
+
+    def _dispatch_deck_swipe(self, direction: str) -> None:
+        """Dispatches one synthetic horizontal drag (pointer down-move-up)
+        across candidate-deck-swipe-surface's own bounding box
+        (browserActions.pageDeckSwipeForward/Backward's gesture).
+
+        This is a synthetic pointer sequence injected directly into the
+        browser's input pipeline, not contact from a real touchscreen or a
+        human finger -- it can prove the paging code path fires, not that a
+        human finger can physically perform the gesture on a real device.
+        adr/0033 decision 4 explicitly extends activeContext.md's G1 (a
+        synthetic click on candidate-map-marker proves the code path fires,
+        not finger reachability) to this drag-style gesture for the first
+        time in this contract; it does not newly widen or narrow G1's
+        existing scope for click-style activation.
+        """
+        surface = assert_present(self.assertions, self.page, DECK_SWIPE_SURFACE)
+        box = surface.bounding_box()
+        require(box, f"{DECK_SWIPE_SURFACE} has no bounding box to dispatch a swipe gesture into")
+        center_x = box["x"] + box["width"] / 2
+        center_y = box["y"] + box["height"] / 2
+        # Clamp the drag distance so the release point stays inside the
+        # surface's own bounding box -- an implementation that hit-tests
+        # (rather than pointer-capturing) the release coordinate would
+        # otherwise never see the "up" as belonging to the surface at all,
+        # which is a fact about how this DSL dispatches the gesture, not
+        # about pageDeckSwipeForward/Backward's own required outcome.
+        distance = min(_SWIPE_DRAG_PX, max(box["width"] / 2 - 5, 10))
+        offset = distance if direction == "rightward" else -distance
+        self.page.mouse.move(center_x, center_y)
+        self.page.mouse.down()
+        self.page.mouse.move(center_x + offset / 2, center_y, steps=5)
+        self.page.mouse.move(center_x + offset, center_y, steps=5)
+        self.page.mouse.up()
+
+    @staticmethod
+    def _other_swipe_direction(direction: str) -> str:
+        return "rightward" if direction == "leftward" else "leftward"
+
+    def _forward_swipe_direction(self) -> str:
+        """Empirically discovers, then caches, which literal horizontal drag
+        direction answers to browserActions.pageDeckSwipeForward for the
+        implementation currently under test.
+
+        The contract deliberately leaves this unfixed (gesture: "adr/0033
+        does not fix which screen-relative direction ... reads as forward"),
+        mirroring how pageDeckNext/Previous already leave step size unfixed
+        -- and tester does not read src/** to learn it directly. Discovery
+        is only trustworthy from the deck's initial post-load state
+        (data-deck-visible-start == 1, data-deck-total > 1): there, forward
+        is guaranteed *not* already at its own boundary (so a real forward
+        gesture must move the window), while backward *is* already at its
+        boundary (so a no-op result from trying backward first is expected,
+        not evidence of a broken gesture) -- this is what makes it possible
+        to tell "tried the gesture but it was the wrong direction, correctly
+        blocked at that direction's own boundary" apart from "the gesture
+        never reaches the implementation at all" (meta/adr/0065): only if
+        *neither* direction ever advances the window is that a failure.
+        """
+        if self._swipe_forward_direction is not None:
+            return self._swipe_forward_direction
+        start, end, total = self._deck_window()
+        if start != 1 or total <= 1:
+            raise AssertionError(
+                "pageDeckSwipeForward's direction has not been discovered yet, and the deck "
+                "is not in the initial state (data-deck-visible-start=1, data-deck-total>1) "
+                "this discovery needs to safely distinguish a wrong-direction boundary no-op "
+                "from a broken gesture; call this from the initial post-load render first"
+            )
+        for direction in _SWIPE_DIRECTIONS:
+            self._dispatch_deck_swipe(direction)
+            after_start, after_end, after_total = self._deck_window()
+            if after_start > start:
+                self._swipe_forward_direction = direction
+                return direction
+            self.assertions.assertEqual(
+                (after_start, after_end, after_total),
+                (start, end, total),
+                f"a {direction} swipe changed the deck window without advancing it forward "
+                "from the initial state (neither a forward advance nor a boundary no-op) -- "
+                "expected either data-deck-visible-start to increase, or the window to be "
+                "completely unchanged",
+            )
+        raise AssertionError(
+            "neither horizontal swipe direction advanced the deck window from its initial "
+            "state (data-deck-visible-start=1, data-deck-total>1); candidate-deck-swipe-surface "
+            "does not appear wired to browserActions.pageDeckSwipeForward"
+        )
+
+    def page_deck_swipe_forward_and_verify_window_advances(self) -> None:
+        """指でスワイプすると表示窓が前へ動くが、カード集合・選択・条件は変えない
+        (adr/0033 決定3; browserActions.pageDeckSwipeForward).
+
+        This also doubles as pageDeckSwipeForward's own positive control:
+        assert_deck_swipe_forward_is_a_no_op_at_the_boundary refuses to run
+        until this method (directly, or via
+        page_deck_swipe_forward_until_the_window_reaches_the_end) has
+        already proven the gesture moves the window from a non-boundary
+        state -- otherwise a boundary check alone could not distinguish "the
+        gesture reached the boundary and correctly stopped" from "the
+        gesture never reached the implementation at all" (meta/adr/0065).
+        Includes the same six browserActions.pageDeckSwipeForward.unaffected
+        properties pageDeckNext's own check covers (via
+        _display_snapshot/_assert_display_snapshot) plus pendingFilters,
+        which those five cover implicitly but do not name (reviews/
+        audit-desktop-deck-navigation.md G2; adr/0033's 帰結 asks any new
+        deck-paging action to include it rather than repeat that gap).
+        """
+        start_before, end_before, total = self._deck_window()
+        self.assertions.assertLess(
+            end_before,
+            total,
+            "deck window already covers every card; cannot exercise a positive-control "
+            "pageDeckSwipeForward here (use assert_deck_swipe_forward_is_a_no_op_at_the_"
+            "boundary instead)",
+        )
+        snapshot = self._display_snapshot()
+        pending_before = dict(
+            require(self._pending_filters, "pending filters were not initialized")
+        )
+        direction = self._swipe_forward_direction
+
+        def dispatch() -> None:
+            if direction:
+                self._dispatch_deck_swipe(direction)
+            else:
+                self._forward_swipe_direction()
+
+        self._perform_without_candidate_request(dispatch)
+        start_after, end_after, total_after = self._deck_window()
+        self.assertions.assertEqual(total_after, total)
+        self.assertions.assertGreater(start_after, start_before)
+        self.assertions.assertGreaterEqual(end_after, end_before)
+        self.assertions.assertLessEqual(end_after, total)
+        self._assert_display_snapshot(snapshot)
+        self.assertions.assertEqual(self._pending_filters, pending_before)
+
+    def page_deck_swipe_backward_and_verify_window_recedes(self) -> None:
+        """指でスワイプ（逆方向）すると表示窓が後ろへ動くが、カード集合・選択・条件は変えない
+        (adr/0033 決定3; browserActions.pageDeckSwipeBackward).
+
+        Requires pageDeckSwipeForward's direction to already be known (call
+        page_deck_swipe_forward_and_verify_window_advances at the initial
+        render first) -- backward is defined only as forward's opposite
+        direction (gesture note), so there is nothing to derive it from
+        otherwise. A successful call here is itself the positive control
+        assert_deck_swipe_backward_is_a_no_op_at_the_boundary requires,
+        mirroring the forward side's own guard for the same
+        meta/adr/0065 reason.
+        """
+        forward_direction = require(
+            self._swipe_forward_direction,
+            "pageDeckSwipeForward's direction is not known yet; call "
+            "page_deck_swipe_forward_and_verify_window_advances from the initial render first",
+        )
+        backward_direction = self._other_swipe_direction(forward_direction)
+        start_before, end_before, total = self._deck_window()
+        self.assertions.assertGreater(
+            start_before,
+            1,
+            "deck window is already at the start; cannot exercise a positive-control "
+            "pageDeckSwipeBackward here (use assert_deck_swipe_backward_is_a_no_op_at_the_"
+            "boundary instead)",
+        )
+        snapshot = self._display_snapshot()
+        pending_before = dict(
+            require(self._pending_filters, "pending filters were not initialized")
+        )
+        self._perform_without_candidate_request(
+            lambda: self._dispatch_deck_swipe(backward_direction)
+        )
+        start_after, end_after, total_after = self._deck_window()
+        self.assertions.assertEqual(total_after, total)
+        self.assertions.assertLess(end_after, end_before)
+        self.assertions.assertLessEqual(start_after, start_before)
+        self.assertions.assertGreaterEqual(start_after, 1)
+        self._assert_display_snapshot(snapshot)
+        self.assertions.assertEqual(self._pending_filters, pending_before)
+        self._swipe_backward_confirmed = True
+
+    def page_deck_swipe_forward_until_the_window_reaches_the_end(self) -> None:
+        """指のスワイプ（前方向）を、窓の末尾が総数に一致するまで繰り返す。
+        page_deck_forward_until_the_window_reaches_the_end と同じ理由で回数を
+        決め打ちにしない (adr/0033 決定3; browserActions.pageDeckSwipeForward)."""
+        _, end, total = self._deck_window()
+        swipes = 0
+        while end < total and swipes < total:
+            self.page_deck_swipe_forward_and_verify_window_advances()
+            swipes += 1
+            _, end, total = self._deck_window()
+        self.assertions.assertEqual(
+            end,
+            total,
+            f"deck window did not reach the end after {swipes} forward swipes "
+            f"(data-deck-visible-end={end}, data-deck-total={total}); "
+            "candidate-deck-swipe-surface may not be advancing the window toward the last card",
+        )
+
+    def page_deck_swipe_backward_until_the_window_reaches_the_start(self) -> None:
+        """指のスワイプ（後方向）を、窓の先頭が1に一致するまで繰り返す
+        (adr/0033 決定3; browserActions.pageDeckSwipeBackward)."""
+        start, _, total = self._deck_window()
+        swipes = 0
+        while start > 1 and swipes < total:
+            self.page_deck_swipe_backward_and_verify_window_recedes()
+            swipes += 1
+            start, _, total = self._deck_window()
+        self.assertions.assertEqual(
+            start,
+            1,
+            f"deck window did not reach the start after {swipes} backward swipes "
+            f"(data-deck-visible-start={start}); "
+            "candidate-deck-swipe-surface may not be receding the window toward the first card",
+        )
+
+    def assert_deck_swipe_forward_is_a_no_op_at_the_boundary(self) -> None:
+        """境界（末尾）を超えて指でスワイプしても表示窓は動かない
+        (adr/0033 決定3; browserActions.pageDeckSwipeForward.boundaryOvershoot).
+
+        Only trustworthy after a positive control already proved, in this
+        same test, that this exact gesture direction moves the window from a
+        non-boundary state -- otherwise a swipe that never reaches
+        candidate-deck-swipe-surface at all would also read as a "no-op",
+        which is not what boundaryOvershoot means (meta/adr/0065). Raises
+        immediately, rather than silently discovering a direction here, if
+        that positive control has not run yet.
+        """
+        forward_direction = require(
+            self._swipe_forward_direction,
+            "pageDeckSwipeForward's direction has not been positively confirmed in this test "
+            "yet; call page_deck_swipe_forward_and_verify_window_advances (directly, or via "
+            "page_deck_swipe_forward_until_the_window_reaches_the_end) at least once first",
+        )
+        start_before, end_before, total = self._deck_window()
+        self.assertions.assertEqual(
+            end_before,
+            total,
+            "deck window is not yet at the end; call "
+            "page_deck_swipe_forward_until_the_window_reaches_the_end first",
+        )
+        snapshot = self._display_snapshot()
+        pending_before = dict(
+            require(self._pending_filters, "pending filters were not initialized")
+        )
+        self._perform_without_candidate_request(
+            lambda: self._dispatch_deck_swipe(forward_direction)
+        )
+        self.assertions.assertEqual(self._deck_window(), (start_before, end_before, total))
+        self._assert_display_snapshot(snapshot)
+        self.assertions.assertEqual(self._pending_filters, pending_before)
+
+    def assert_deck_swipe_backward_is_a_no_op_at_the_boundary(self) -> None:
+        """境界（先頭）を超えて指でスワイプ（逆方向）しても表示窓は動かない
+        (adr/0033 決定3; browserActions.pageDeckSwipeBackward.boundaryOvershoot).
+
+        Same positive-control requirement as the forward side, but for the
+        backward direction specifically: forward having been confirmed does
+        not by itself prove backward is wired too (an implementation could
+        wire only one direction), so this additionally requires
+        page_deck_swipe_backward_and_verify_window_recedes to have already
+        succeeded at least once in this test.
+        """
+        if not self._swipe_backward_confirmed:
+            raise AssertionError(
+                "pageDeckSwipeBackward's direction has not been positively confirmed in this "
+                "test yet; call page_deck_swipe_backward_and_verify_window_recedes (directly, "
+                "or via page_deck_swipe_backward_until_the_window_reaches_the_start) at least "
+                "once first"
+            )
+        forward_direction = require(
+            self._swipe_forward_direction, "pageDeckSwipeForward's direction is not known"
+        )
+        backward_direction = self._other_swipe_direction(forward_direction)
+        start_before, end_before, total = self._deck_window()
+        self.assertions.assertEqual(
+            start_before,
+            1,
+            "deck window is not at the start; call "
+            "page_deck_swipe_backward_until_the_window_reaches_the_start first",
+        )
+        snapshot = self._display_snapshot()
+        pending_before = dict(
+            require(self._pending_filters, "pending filters were not initialized")
+        )
+        self._perform_without_candidate_request(
+            lambda: self._dispatch_deck_swipe(backward_direction)
+        )
+        self.assertions.assertEqual(self._deck_window(), (start_before, end_before, total))
+        self._assert_display_snapshot(snapshot)
+        self.assertions.assertEqual(self._pending_filters, pending_before)
 
     # Then: filters and ordering -----------------------------------------
 

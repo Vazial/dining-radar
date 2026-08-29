@@ -83,33 +83,43 @@ CONTROL_SIZE_VIEWPORTS = [
 ]
 
 # ADR-0032 decision1 (f): the two width sets renderModes' mode-correctness
-# check runs against. listPrimaryLayout's own set reuses NARROW_VIEWPORTS
-# outright (ADR-0032 decision1 explicitly allows this: "決定4(a)が既に定め
-# る狭幅ビューポート集合をそのまま流用してよい"). mapPrimaryLayout's set is
-# new, developer-maintained (ADR-0032 decision2: the contract does not fix
-# this threshold) -- 1024px is home.html's own 64rem breakpoint's exact
-# pixel boundary (the narrowest width mapPrimaryLayout must already hold at,
-# a stronger check than only testing a comfortably-wide value like 1440px),
-# plus 1440px (already CONTROL_SIZE_VIEWPORTS' own desktop width above, so
-# this reuses a width already exercised elsewhere in this file rather than
-# inventing a third).
+# check runs against. adr/0033 decision6 (2026-08-29, human decision: mobile
+# widths become map-primary too, paged by a swipe gesture instead of
+# listPrimaryLayout's retired "地図で見る" ribbon/sheet) retires
+# listPrimaryLayout and reads the narrow-width member of this pair as
+# mapPrimaryTouchLayout instead -- adr/0032's own text is not edited (P-06),
+# but this file's own allowlist below is the "developer-maintained" half of
+# that decision (adr/0032 decision2), so it is what actually changes.
+# mapPrimaryTouchLayout's own set reuses NARROW_VIEWPORTS outright (same
+# reuse adr/0032 decision1 explicitly allowed for the narrow-width member
+# originally: "決定4(a)が既に定める狭幅ビューポート集合をそのまま流用して
+# よい" -- unaffected by adr/0033, since it only renamed which mode the
+# narrow-width member expects, not the widths themselves). mapPrimaryLayout's
+# own set is unchanged by adr/0033 -- 1024px is home.html's own 64rem
+# breakpoint's exact pixel boundary (the narrowest width mapPrimaryLayout
+# must already hold at, a stronger check than only testing a comfortably-wide
+# value like 1440px), plus 1440px (already CONTROL_SIZE_VIEWPORTS' own
+# desktop width above, so this reuses a width already exercised elsewhere in
+# this file rather than inventing a third).
 MAP_PRIMARY_VIEWPORTS = [
     (1024, 768, "map-primary-boundary-1024x768"),
     (1440, 900, "map-primary-1440x900"),
 ]
 
-# adr/0031 decision4's own two named modes' own testIds
-# (contracts/candidate-search-browser-interface.yaml's renderModes.
-# listPrimaryLayout/mapPrimaryLayout), duplicated here (not imported) since
-# this file does not read the contract YAML directly -- same style as the
-# other developer-maintained allowlists in this module (FORBIDDEN_INTERNAL_
-# ENUM_TOKENS, CONTROL_SIZE_ALLOWLIST_TEST_IDS above).
-RENDER_MODE_LIST_PRIMARY_TEST_IDS = ["candidate-map-open", "candidate-map-sheet-close"]
-RENDER_MODE_MAP_PRIMARY_TEST_IDS = [
-    "candidate-deck-previous",
-    "candidate-deck-next",
-    "candidate-deck-position",
-]
+# adr/0031 decision4's mapPrimaryLayout/adr/0033 decision1's
+# mapPrimaryTouchLayout -- each named mode's own exclusive testIds
+# (contracts/candidate-search-browser-interface.yaml's renderModes section),
+# duplicated here (not imported) since this file does not read the contract
+# YAML directly -- same style as the other developer-maintained allowlists in
+# this module (FORBIDDEN_INTERNAL_ENUM_TOKENS, CONTROL_SIZE_ALLOWLIST_TEST_IDS
+# above). candidate-deck-position is deliberately absent from both lists --
+# adr/0033 decision2 moved it out of either mode's own exclusivity array
+# (it is common to both currently-named modes, contract's own
+# deckNavigation.position.presenceRule) -- see
+# RENDER_MODE_COMMON_TEST_IDS below, checked separately.
+RENDER_MODE_TOUCH_TEST_IDS = ["candidate-deck-swipe-surface"]
+RENDER_MODE_MAP_PRIMARY_TEST_IDS = ["candidate-deck-previous", "candidate-deck-next"]
+RENDER_MODE_COMMON_TEST_IDS = ["candidate-deck-position"]
 
 MINIMUM_TARGET_PX = 44
 
@@ -954,18 +964,27 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         """ADR-0032 decision1's fifth gate invariant.
 
         contracts/candidate-search-browser-interface.yaml's renderModes
-        section (adr/0031 decision4) fixes only that exactly one of
-        listPrimaryLayout/mapPrimaryLayout holds at a time and which testIds
-        belong to each -- not the width threshold, which
-        renderModes.verificationAllocation.L5 explicitly assigns to this
-        ADR-0020 decision4 gate set instead (adr/0032 decision2: the width
-        value lives in this test, not the contract). Each width below is
-        checked via its own fresh navigation (self.dsl.open_candidate_screen
-        calls page.goto internally) rather than a live self.page.
-        set_viewport_size-then-assert -- ADR-0032 decision3 deliberately
-        does not require candidate.js to switch modes without a re-render,
-        so a resize-only check would not be testing what this gate actually
-        guarantees.
+        section (adr/0031 decision4, adr/0033 decision1) fixes only that
+        exactly one of mapPrimaryLayout/mapPrimaryTouchLayout holds at a
+        time and which testIds belong to each -- not the width threshold,
+        which renderModes.verificationAllocation.L5 explicitly assigns to
+        this ADR-0020 decision4 gate set instead (adr/0032 decision2: the
+        width value lives in this test, not the contract). Each width below
+        is checked via its own fresh navigation (self.dsl.
+        open_candidate_screen calls page.goto internally) rather than a live
+        self.page.set_viewport_size-then-assert -- ADR-0032 decision3
+        deliberately does not require candidate.js to switch modes without a
+        re-render, so a resize-only check would not be testing what this
+        gate actually guarantees.
+
+        adr/0033 decision6 (human decision 2026-08-29): the narrow-width
+        member of this pair now expects mapPrimaryTouchLayout, not the
+        retired listPrimaryLayout -- adr/0032's own text is unedited (P-06);
+        only this test's own developer-maintained allowlists (module-level
+        RENDER_MODE_TOUCH_TEST_IDS etc.) changed to track that. The
+        candidate-deck-position counter is common to both currently-named
+        modes (adr/0033 decision2), so it is checked separately below rather
+        than folded into either mode's own exclusivity loop.
         """
         self.dsl.reset_authentication_state()
         self.dsl.reset_candidate_state()
@@ -974,13 +993,15 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING")
 
         for width, height, label in NARROW_VIEWPORTS:
-            with self.subTest(mode="listPrimaryLayout", viewport=label):
+            with self.subTest(mode="mapPrimaryTouchLayout", viewport=label):
                 self.page.set_viewport_size({"width": width, "height": height})
                 self.dsl.open_candidate_screen()
-                for test_id in RENDER_MODE_LIST_PRIMARY_TEST_IDS:
+                for test_id in RENDER_MODE_TOUCH_TEST_IDS:
                     expect(by_test_id(self.page, test_id)).to_have_count(1, timeout=10_000)
                 for test_id in RENDER_MODE_MAP_PRIMARY_TEST_IDS:
                     expect(by_test_id(self.page, test_id)).to_have_count(0)
+                for test_id in RENDER_MODE_COMMON_TEST_IDS:
+                    expect(by_test_id(self.page, test_id)).to_have_count(1, timeout=10_000)
 
         for width, height, label in MAP_PRIMARY_VIEWPORTS:
             with self.subTest(mode="mapPrimaryLayout", viewport=label):
@@ -988,5 +1009,7 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
                 self.dsl.open_candidate_screen()
                 for test_id in RENDER_MODE_MAP_PRIMARY_TEST_IDS:
                     expect(by_test_id(self.page, test_id)).to_have_count(1, timeout=10_000)
-                for test_id in RENDER_MODE_LIST_PRIMARY_TEST_IDS:
+                for test_id in RENDER_MODE_TOUCH_TEST_IDS:
                     expect(by_test_id(self.page, test_id)).to_have_count(0)
+                for test_id in RENDER_MODE_COMMON_TEST_IDS:
+                    expect(by_test_id(self.page, test_id)).to_have_count(1, timeout=10_000)

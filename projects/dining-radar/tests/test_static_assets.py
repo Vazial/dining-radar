@@ -81,78 +81,63 @@ class LeafletVendoringSourceTests(SimpleTestCase):
 class CandidateSurfaceSourceTests(SimpleTestCase):
     """Guard the presentation boundaries that do not need live provider data."""
 
-    def test_list_primary_and_full_screen_sheet_keep_one_map_instance(self):
-        # Task 3 (designer artifact efe1c44f-ead4-40c6-9141-b801583aadd9):
-        # list-primary, tap candidate-map-open to open a full-screen map
-        # sheet, retiring the earlier map-led horizontally-swipable card
-        # deck this test used to guard (test_map_led_deck_keeps_cards_and_
-        # map_in_the_same_surface, superseded here rather than kept
-        # alongside a contradictory skeleton). One [data-testid=
-        # "candidate-map"] element is declared once in candidate.js, never
-        # a second map instance.
-        #
-        # Task 2 (human decision 2026-08-26, "ちょっとだけ地図写すように"):
-        # the closed state now shows this same instance clipped to an 88px
-        # band (design origin E:\AWS\dsg-out\Main.dc.html lines 76-109),
-        # not an invisible map behind an opaque button -- opening/closing
-        # again toggles the map's own box model (position:absolute 88px
-        # band <-> position:fixed full-viewport), which the 2026-08-25
-        # skeleton this test used to guard deliberately avoided after an
-        # earlier version of exactly that toggle collapsed the map to a
-        # measured 0-height box on open. Task 2 is safe from that same
-        # regression only because .candidate-map-wrapper itself now carries
-        # an explicit, non-auto height that does not depend on the map (or
-        # any other child) to size it -- assertion below pins that
-        # specific fix, not just the box-model toggle itself, so a future
-        # change cannot silently drop the wrapper's own height and
-        # reintroduce the 2026-08-25 defect. candidate-map-open is still
-        # the sole visible entry point while closed (now the entire band's
-        # own hit area, per Main.dc.html's "帯の全面が押せる"), and still
-        # carries a data-testid (reviewer's audit-detour-ring-labels-
-        # skeleton.md G2: the original entry point had no machine-
-        # observable identifier at all).
+    def test_map_primary_at_every_width_keeps_one_map_instance_and_retires_the_sheet(self):
+        # adr/0033 (human decision 2026-08-29, Mobile.dc.html): the map is
+        # primary at every width now, with the card deck floating over its
+        # own bottom inset -- the earlier task 2/3 skeleton this test used
+        # to guard (candidate-map-open/candidate-map-sheet-close/-panel, an
+        # 88px closed band toggling to a full-screen sheet) is retired
+        # outright, not merely hidden: contracts/candidate-search-browser-
+        # interface.yaml v1.6.0 no longer defines renderModes.
+        # listPrimaryLayout, and this screen must never emit those three
+        # test ids into the DOM, or build the functions that used to create
+        # them, at any width. One [data-testid="candidate-map"] element is
+        # still declared once in candidate.js, never a second map instance
+        # -- unchanged through every skeleton revision this file has
+        # guarded (test_map_led_deck_keeps_cards_and_map_in_the_same_
+        # surface, then task 3's list-primary/sheet, now this one).
         template = HOME_TEMPLATE.read_text(encoding="utf-8")
         script = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
 
         self.assertIn('[data-testid="candidate-map"] {', template)
-        self.assertIn("pointer-events: none;", template)
-        self.assertIn(
-            '.candidate-main-layout:not([data-map-sheet-open="true"]) '
-            '[data-testid="candidate-map"] * {\n      pointer-events: none !important;\n    }',
-            template,
-            "Leaflet's own .leaflet-interactive pointer-events:auto must stay overridden "
-            "for every descendant of the closed map (2026-08-25 real-device fix)",
-        )
-        self.assertIn('.candidate-main-layout[data-map-sheet-open="true"]', template)
-        self.assertIn("candidate-map-open", template)
-        # Task 2's own anti-regression pin: the wrapper's explicit height is
-        # what keeps the box-model toggle below safe -- see the comment
-        # above [data-testid="candidate-map"] does change box model
-        # (position:absolute while closed, position:fixed while open).
         self.assertIn(".candidate-map-wrapper {", template)
-        self.assertIn("height: 5.5rem;", template)
-        self.assertIn("position: absolute;", template)
-        self.assertIn("position: fixed;", template)
-        # The band's own decorative layers (Main.dc.html: pill top-left,
-        # expand badge top-right, credit bottom-right) must never steal the
-        # tap from the band itself.
-        self.assertIn(".candidate-map-open-pill {", template)
-        self.assertIn(".candidate-map-open-expand {", template)
-        self.assertIn('"data-testid": "candidate-map-open"', script)
-        self.assertIn('"data-testid": "candidate-map-sheet-close"', script)
-        self.assertIn("candidate-map-sheet-back", template)
-        self.assertIn("candidate-map-sheet-header", template)
-        self.assertIn("candidate-map-sheet-panel", template)
         self.assertEqual(
             script.count('{ "data-testid": "candidate-map", "data-map-tile-provider"'),
             1,
             "exactly one candidate-map element/Leaflet map instance must be declared",
         )
-        self.assertIn("件の位置", script)
-        self.assertIn("function openMapSheet()", script)
-        self.assertIn("function closeMapSheet()", script)
-        self.assertIn("function syncMapSheetPanelToSelection()", script)
         self.assertIn("function refreshMapViewAndRings()", script)
+
+        # The retired ribbon/sheet mechanism must not resurface anywhere --
+        # neither its markup, its CSS, nor the JS functions that built it.
+        # Matched by actual emission syntax (a CSS selector's own opening
+        # brace, a JS attribute literal, a function declaration) rather
+        # than a bare substring, since this file's own historical comments
+        # (and this test's docstring above) legitimately name the retired
+        # identifiers in prose without emitting them.
+        self.assertNotIn(".candidate-map-open {", template)
+        self.assertNotIn(".candidate-map-sheet-header {", template)
+        self.assertNotIn(".candidate-map-sheet-panel {", template)
+        self.assertNotIn(".candidate-map-sheet-back {", template)
+        self.assertNotIn('"data-testid": "candidate-map-open"', script)
+        self.assertNotIn('"data-testid": "candidate-map-sheet-close"', script)
+        self.assertNotIn("function openMapSheet()", script)
+        self.assertNotIn("function closeMapSheet()", script)
+        self.assertNotIn("function syncMapSheetPanelToSelection()", script)
+        self.assertNotIn("var mapSheetOpen", script)
+        self.assertNotIn('"data-map-sheet-open", "true"', script)
+
+        # The deck (adr/0031, extended below 64rem by adr/0033) is now
+        # unconditional: both named renderModes' own testIds must be
+        # buildable from this one script, and the position counter
+        # (common to both, adr/0033 decision2) must be present.
+        self.assertIn('"data-testid": "candidate-deck-previous"', script)
+        self.assertIn('"data-testid": "candidate-deck-next"', script)
+        self.assertIn('setAttribute("data-testid", "candidate-deck-swipe-surface")', script)
+        self.assertIn('"data-testid": "candidate-deck-position"', script)
+        self.assertIn("function attachSwipeGesture(", script)
+        self.assertIn("function pageDeckNext()", script)
+        self.assertIn("function pageDeckPrevious()", script)
 
     def test_mobile_layout_keeps_decision_controls_compact(self):
         template = HOME_TEMPLATE.read_text(encoding="utf-8")

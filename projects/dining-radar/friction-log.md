@@ -1000,7 +1000,8 @@ principles: [P-04, P-11]
 
 
 - **再確認（2026-08-29、独立した2例目）**: デスクトップを地図主役に戻すスライスで、同じエラーが
-  **architect 5回・developer 4回**出た。**このセッションで起動した全7件のブリーフは、いずれも
+  **architect 11回・developer 7回**出た（セッション終了時点。追記時は 5回・4回だった——スライスが
+  進むほど積み上がる）。**このセッションで起動した全12件のブリーフは、いずれも
   冒頭で作業ツリーを絶対パスで明示している**（例: 「作業ツリーは **`E:/AWS/run2/projects/dining-radar`**
   （`origin/main` の `3a2b45d` に同期済み、detached HEAD）」）。2026-08-24 の反証と**独立した
   2例目**であり、`brief-omits-working-directory` という cause_key の名前が指す因果が成り立たない
@@ -1145,3 +1146,37 @@ principles: [P-01, P-04]
   `meta/adr/0064` は 2026-08-28 にマージされたばかりで、**その規程を最初に適用した回で
   順序を取り違えた**。規程を足した直後の初回適用は、同種の取り違えが起きやすい地点として
   記録しておく。
+
+---
+
+## FR-027: ローカル確認専用の設定ファイルを、同じスライスで2回コミットに混入させた
+
+```yaml
+id: FR-027
+date: 2026-08-29
+found_at: AI
+slice: 画面を地図主体に戻す（PC・スマホ）
+agents: [orchestrator]
+cause_category: 無視されるべきファイルが無視の設定に載っていない
+cause_key: local-only-file-not-gitignored
+pushed_to:
+  - .gitignore
+status: 対応済み
+principles: [P-01]
+```
+
+- 事象: `projects/dining-radar/src/dining_radar/settings_localdemo.py`（ローカルで画面を確かめるための
+  設定。**ファイル自身の docstring が「リポジトリにはコミットしない」と書いている**）を、
+  同じスライスの中で**2回**コミットに含めてしまった。どちらも `git commit --amend` で外している。
+  実害は無い（push 前に気づいた）。
+- 原因の仮説: `git add <ディレクトリ>` でまとめて追加していたこと、そして**このファイルが
+  `.gitignore` に載っていなかった**こと。docstring に「コミットしない」と書いてあっても、
+  `git status` では他の未追跡ファイルと区別が付かない。**規約が人間（AI）の注意力に依存していた。**
+- 押し込み先: **`.gitignore` に追加した**（`projects/*/src/*/settings_localdemo.py` と
+  `projects/*/localdemo.sqlite3`）。**この摩擦は、規約ではなく機構で塞げる数少ない種類である**
+  ——`record-update-needs-second-pr` が規約で6回連続すり抜けたのと違い、`.gitignore` は
+  機械が実行する。1回目で気づいた時点で入れておくべきだった。
+- 補足: このファイルは `.gitignore` に載せる以外の選択肢もあった（リポジトリに入れて共有する）。
+  採らなかったのは、**ローカル専用の設定は環境ごとに違う**（DBのパス、ALLOWED_HOSTS）ためで、
+  共有すると各自が編集して衝突する。同種の設定を共有したいなら、`.example` を置いて各自がコピーする
+  形が要る——今回はその必要が観測されていないので入れていない（P-05）。
