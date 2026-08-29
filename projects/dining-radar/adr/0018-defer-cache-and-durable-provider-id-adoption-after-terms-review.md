@@ -1,9 +1,9 @@
 ---
 id: 0018
 scope: project/dining-radar
-status: 提案中
+status: 承認済み
 date: 2026-08-09
-approved_by: null
+approved_by: "人間裁定（2026-08-29 チャット: 短命キャッシュとprovider IDをどちらも見送るという結論を承認する。orchestrator が「承認して閉じる／中身を要約してから決める／このまま置く」の3択を提示し、「承認して閉じる」が選ばれた。この先AIがキャッシュを勝手に入れないことを縛るため、meta/adr/0061 の分け方では制約側と判断した）"
 supersedes: []
 superseded_by: null
 relates_to:
