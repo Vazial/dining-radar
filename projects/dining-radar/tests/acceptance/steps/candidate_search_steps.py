@@ -306,3 +306,35 @@ class CandidateSearchSteps:
 
     def fetch_failure_is_announced(self) -> None:
         self.dsl.assert_fetch_failure_is_announced()
+
+    # renderModes and deck navigation (adr/0031, contractVersion 1.5.0) ----
+
+    def render_mode_test_ids_are_mutually_exclusive(self) -> None:
+        self.dsl.assert_render_mode_test_ids_are_mutually_exclusive()
+
+    def organizer_compares_candidates_at_map_primary_viewport(self) -> None:
+        self.dsl.open_candidate_screen_at_map_primary_viewport()
+
+    def map_primary_layout_holds(self) -> None:
+        self.dsl.assert_map_primary_layout_holds()
+
+    def deck_position_counter_is_well_formed(self) -> None:
+        self.dsl.assert_deck_position_counter_is_well_formed()
+
+    def deck_paging_controls_declare_correct_purposes(self) -> None:
+        self.dsl.assert_deck_paging_controls_declare_correct_purposes()
+
+    def deck_paging_controls_disabled_state_matches_window(self) -> None:
+        self.dsl.assert_deck_paging_controls_disabled_state_matches_window()
+
+    def organizer_pages_the_deck_forward(self) -> None:
+        self.dsl.page_deck_next_and_verify_window_advances()
+
+    def organizer_pages_the_deck_backward(self) -> None:
+        self.dsl.page_deck_previous_and_verify_window_recedes()
+
+    def organizer_pages_the_deck_forward_until_it_reaches_the_end(self) -> None:
+        self.dsl.page_deck_forward_until_the_window_reaches_the_end()
+
+    def selecting_a_marker_outside_the_deck_window_brings_its_card_into_view(self) -> None:
+        self.dsl.select_marker_outside_deck_window_and_verify_it_becomes_visible()

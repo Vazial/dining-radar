@@ -200,22 +200,61 @@
   var MAP_BAND_FIT_PADDING_PX = [16, 6];
   var MAP_OPEN_FIT_PADDING_PX = [24, 24];
 
-  // Desktop 2-column layout (Desktop.dc.html decisions 1/2, human decision
-  // 2026-08-26 "デスクトップは閉じてなくていいんじゃないかな。ずっと右に
-  // 表示とかで"): at >=64rem the map is a permanent sticky column (home.html
-  // `@media (min-width: 64rem)` -- kept in exact agreement with this same
-  // "64rem" literal here, since CSS media queries and JS matchMedia cannot
-  // share one source of truth), not the mobile-only 88px closed band
-  // MAP_BAND_FIT_PADDING_PX's own comment describes. isCompactMapBand tells
-  // the two fitBounds call sites below (initializeMap, refreshMapViewAndRings)
-  // which padding suits the box actually on screen: the closed band's own
-  // asymmetric padding only makes sense for that specific tiny, wide-short
-  // box, never for the desktop column (roughly as tall as it is wide, much
-  // closer in shape to the mobile full-screen sheet MAP_OPEN_FIT_PADDING_PX
-  // was tuned for) or for the mobile sheet itself (already excluded by the
-  // `!mapSheetOpen` check, unchanged from before this task).
+  // Desktop map-primary layout (adr/0031; Desktop.dc.html decision7=案A/
+  // decision8=案あ, human decision 2026-08-28, superseding the 2026-08-26
+  // sticky-2-column reading this comment used to describe): at >=64rem the
+  // map fills essentially the whole viewport-height area below the header/
+  // filter bar (home.html `@media (min-width: 64rem)` -- kept in exact
+  // agreement with this same "64rem" literal here, since CSS media queries
+  // and JS matchMedia cannot share one source of truth), with the card deck
+  // overlaid on its own bottom inset (see renderDeck/isMapPrimaryLayout
+  // below), not the mobile-only 88px closed band MAP_BAND_FIT_PADDING_PX's
+  // own comment describes. isCompactMapBand tells the two fitBounds call
+  // sites below (initializeMap, refreshMapViewAndRings) which padding suits
+  // the box actually on screen: the closed band's own asymmetric padding
+  // only makes sense for that specific tiny, wide-short box, never for the
+  // full-viewport map-primary box (see mapPrimaryFitPaddingOptions below for
+  // its own, deck-aware padding) or for the mobile sheet itself (already
+  // excluded by the `!mapSheetOpen` check, unchanged from before this task).
   function isCompactMapBand() {
     return !mapSheetOpen && !(window.matchMedia && window.matchMedia("(min-width: 64rem)").matches);
+  }
+
+  // adr/0031 decisions 1-3 (desktop map-primary deck paging). Card width/gap
+  // mirror Desktop.dc.html decision9's dcard (250px design value, rounded
+  // here to 16.25rem/260px, measured to leave the shop name enough room to
+  // read past 2-3 characters before ellipsizing at this card's own font
+  // size, see activeContext.md) and this file's own 0.75rem inter-card gap
+  // -- mirrored here (not just in CSS) so the sliding-window transform math
+  // below (recomputeDeckWindow) stays exact rather than approximated from a
+  // measured width, the same manual-sync obligation this file already
+  // carries for WALKING_TIME_MAX_PRESETS_MINUTES/WALKING_DETOUR_FACTOR
+  // above. Update these two values in the same change that edits
+  // .candidate-deck-viewport [data-testid="candidate-card"]'s own
+  // width/flex-basis and .candidate-deck-viewport [data-testid="candidate-
+  // proposal-cards"]'s own gap rule in home.html.
+  var DECK_CARD_WIDTH_PX = 260;
+  var DECK_CARD_GAP_PX = 12;
+
+  // adr/0031 decision7 (Desktop.dc.html "デッキを地図の下部4割程度に収め、
+  // 上部6割を開けておく" -- the map-primary deck overlaps the bottom of the
+  // map by design, human decision 2026-08-28). Leaflet's fitBounds `padding`
+  // option applies one [x,y] pair symmetrically to every edge; `paddingTopLeft`/
+  // `paddingBottomRight` accept an asymmetric box instead, which is what
+  // actually lets the fitted view bias toward the map's own upper region,
+  // clear of the deck's own measured height, rather than the deck's bottom
+  // inset squeezing every edge equally. This is a best-effort mitigation,
+  // not a guarantee -- a wide-enough candidate spread can still place a
+  // marker or a ring under the deck regardless of padding (Desktop.dc.html's
+  // own "穴" section calls this unverified; see activeContext.md for this
+  // slice's own real-device measurement of how well it holds up).
+  function mapPrimaryFitPaddingOptions() {
+    var deckEl = mapWrapperEl ? mapWrapperEl.querySelector(".candidate-deck") : null;
+    var deckHeight = deckEl ? deckEl.getBoundingClientRect().height : 0;
+    return {
+      paddingTopLeft: window.L.point(24, 24),
+      paddingBottomRight: window.L.point(24, deckHeight > 0 ? deckHeight + 64 : 24),
+    };
   }
 
   // Layers this module adds beyond candidate/origin markers (walking-radius
@@ -285,6 +324,26 @@
   // reachable) -- so closing the sheet does not strand keyboard focus on a
   // now-detached/moved element.
   var sheetCloseFocusTarget = null;
+
+  // adr/0031 (desktop map-primary deck, Desktop.dc.html decision7=案A/
+  // decision8=案あ). isMapPrimaryLayout mirrors mapSheetOpen's own role
+  // above -- a render-time flag renderResult sets once per response
+  // (adr/0032 decision3: no live-resize mode switching) that selectCandidate
+  // (defined before renderResult in this file, hence this module-scope
+  // variable rather than a local one) also needs to decide whether to page
+  // the deck to reveal a newly selected candidate (deckVisibility, adr/0031
+  // decision3). deckWindowStart/deckWindowSize track the sliding window's
+  // own state (1-based, see recomputeDeckWindow); the four *El variables are
+  // renderDeck's own built elements, reset on every renderResult call the
+  // same way cardsContainerEl/mapWrapperEl already are above.
+  var isMapPrimaryLayout = false;
+  var deckWindowStart = 1;
+  var deckWindowSize = 1;
+  var deckViewportEl = null;
+  var deckPreviousEl = null;
+  var deckNextEl = null;
+  var deckPositionEl = null;
+  var deckResizeObserver = null;
 
   function defaultFilters() {
     return {
@@ -510,6 +569,17 @@
       syncMapSheetPanelToSelection();
       refreshMapViewAndRings();
     }
+    // adr/0031 decision3 (deckVisibility): while the map-primary deck holds,
+    // the newly selected candidate's own card must be inside the deck's
+    // visible window immediately after selection, regardless of whether
+    // selection came from a card click (already visible, since only visible
+    // cards are clickable outside the deck's clipped overflow) or a marker
+    // click/keydown (may name a candidate currently outside the window).
+    // Applying this unconditionally, not only for the marker path, keeps
+    // one shared rule rather than branching on the caller.
+    if (isMapPrimaryLayout) {
+      recomputeDeckWindow(candidateRef);
+    }
   }
 
   function renderCard(candidate, selected, index) {
@@ -543,13 +613,52 @@
     });
 
     // Design realignment (human real-device report 2026-08-25, E:\AWS    // dsg-out\Main.dc.html's own .card markup): the id row carries the
-    // badge, the shop name itself, and the walking-time estimate as a
-    // trailing chip, all on one line -- not just the badge with genre
-    // trailing it. Genre moves to its own plain-text line (no chip)
-    // directly above the description, and walking time moves out of the
-    // facts grid entirely (into this row's chip), leaving the facts grid
-    // exactly the four/three items the design's own 2-column grid shows.
-    var idRow = el("div", { "class": "candidate-card-id-row" }, [
+    // badge, the shop name itself, and (list-primary/mobile only, see
+    // below) the walking-time estimate as a trailing chip, all on one
+    // line -- not just the badge with genre trailing it. Genre moves to
+    // its own plain-text line (no chip) directly above the description,
+    // and walking time moves out of the facts grid entirely, leaving the
+    // facts grid exactly the four/three items the design's own 2-column
+    // grid shows.
+    //
+    // Human real-device report, deck round (2026-08-29): at the deck's
+    // fixed 16.25rem card width, cramming badge+name+chip onto one row
+    // left the shop name -- "この画面で一番大事な情報" per the human's own
+    // chat decision -- as little as ~75-79% of its needed width even for
+    // the synthetic population's own longest name, and far worse for real
+    // names ("ドラゴンレッドリバー DRAGON RED RIVER" etc). Human decision
+    // (2026-08-29 chat, choosing among three costed options) moved the
+    // walking-time chip out of the id row and onto the genre line,
+    // *in the deck only* -- list-primary/mobile keeps the chip in the id
+    // row exactly as before (unchanged pixel-for-pixel). isMapPrimaryLayout
+    // is already read once per render before renderCard is ever called
+    // (renderResult, above), so it is safe to branch on it here per card.
+    var walkChip = el(
+      "span",
+      {
+        "data-testid": "candidate-card-walking-time",
+        "data-field-label": "徒歩",
+        "data-value-state": "provided",
+        "class": "candidate-walk-chip",
+      },
+      // adr/0025 decision 2: always provided (never "情報なし" -- walking
+      // time is always computable from the response's own searchOrigin and
+      // this candidate's location), so no rawValueAttribute is declared --
+      // the visible value and the raw response number are the same value,
+      // unlike totalSeats/nonSmokingStatus/dinnerBudgetTier's coarse-label
+      // translations below. The leading "約" is the required estimate-
+      // wording signal (candidate-search-browser-interface.yaml's
+      // walkingTimeEstimateWording): this is an estimate, not a measured
+      // route. Contract only fixes this element's own testid/field-label/
+      // value-state/text and content-only wording -- not which row it
+      // lives in or that it be a dt/dd fieldRow pair (placement is left an
+      // implementation choice, per that same Must's own text) -- so a
+      // standalone chip carries the same attributes fieldRow would have,
+      // relocatable without touching any of them.
+      ["徒歩 約" + candidate.walkingTimeMinutes + "分"]
+    );
+
+    var idRowChildren = [
       el("span", { "class": "candidate-marker-badge", "aria-hidden": "true" }, [String(index + 1)]),
       el(
         "h3",
@@ -561,36 +670,30 @@
         },
         [candidate.name]
       ),
-      el("span", { "class": "candidate-card-id-row-spacer", "aria-hidden": "true" }, []),
-      // adr/0025 decision 2: always provided (never "情報なし" -- walking
-      // time is always computable from the response's own searchOrigin and
-      // this candidate's location), so no rawValueAttribute is declared --
-      // the visible value and the raw response number are the same value,
-      // unlike totalSeats/nonSmokingStatus/dinnerBudgetTier's coarse-label
-      // translations below. The leading "約" is the required estimate-
-      // wording signal (candidate-search-browser-interface.yaml's
-      // walkingTimeEstimateWording): this is an estimate, not a measured
-      // route. Contract only fixes this element's own testid/field-label/
-      // value-state/text -- not that it be a dt/dd fieldRow pair -- so a
-      // standalone chip carries the same attributes fieldRow would have.
-      el(
-        "span",
-        {
-          "data-testid": "candidate-card-walking-time",
-          "data-field-label": "徒歩",
-          "data-value-state": "provided",
-          "class": "candidate-walk-chip",
-        },
-        ["徒歩 約" + candidate.walkingTimeMinutes + "分"]
-      ),
-    ]);
+    ];
+    if (!isMapPrimaryLayout) {
+      idRowChildren.push(
+        el("span", { "class": "candidate-card-id-row-spacer", "aria-hidden": "true" }, []),
+        walkChip
+      );
+    }
+    var idRow = el("div", { "class": "candidate-card-id-row" }, idRowChildren);
     card.appendChild(idRow);
 
-    card.appendChild(
-      el("p", { "data-testid": "candidate-card-genre", "data-field-label": "ジャンル", "data-value-state": "provided", "class": "candidate-genre-text" }, [
-        candidate.genre,
-      ])
+    var genreText = el(
+      "p",
+      { "data-testid": "candidate-card-genre", "data-field-label": "ジャンル", "data-value-state": "provided", "class": "candidate-genre-text" },
+      [candidate.genre]
     );
+    if (isMapPrimaryLayout) {
+      // Deck-only: genre and the walking-time chip share one row so the id
+      // row above can give the shop name essentially the whole card width
+      // (home.html's own .candidate-deck-viewport [data-testid="candidate-
+      // card-name"] flex-grow rule) instead of splitting it with the chip.
+      card.appendChild(el("div", { "class": "candidate-genre-row" }, [genreText, walkChip]));
+    } else {
+      card.appendChild(genreText);
+    }
 
     // Design realignment (E:\AWS\dsg-out\Main.dc.html): description is a
     // plain paragraph directly under genre, not a labelled fact row inside
@@ -1096,13 +1199,231 @@
       // case too, and for the invariant that follows from
       // MAP_BAND_FIT_PADDING_PX's own comment: whichever box is actually on
       // screen right now gets its own matching padding -- isCompactMapBand's
-      // own comment covers why the desktop sticky column also takes the
-      // "open" padding, not the closed band's.
-      leafletMap.fitBounds(window.L.latLngBounds(currentMapLatLngs), {
-        padding: isCompactMapBand() ? MAP_BAND_FIT_PADDING_PX : MAP_OPEN_FIT_PADDING_PX,
-      });
+      // own comment covers why the full-viewport map-primary box also takes
+      // the "open" padding by default, further biased toward the deck-clear
+      // upper region via mapPrimaryFitPaddingOptions when isMapPrimaryLayout
+      // holds (adr/0031 decision7).
+      leafletMap.fitBounds(
+        window.L.latLngBounds(currentMapLatLngs),
+        isMapPrimaryLayout
+          ? mapPrimaryFitPaddingOptions()
+          : { padding: isCompactMapBand() ? MAP_BAND_FIT_PADDING_PX : MAP_OPEN_FIT_PADDING_PX }
+      );
     }
     layoutWalkingRadiusRings(leafletMap, walkingRadiusRingOrigin);
+  }
+
+  // adr/0031 decisions 2-3 (deckNavigation, browserActions.pageDeckPrevious/
+  // pageDeckNext): a fixed-size sliding window over the same ordered card
+  // list the mobile list already renders (orderedCardElements) -- paging
+  // never reorders, adds, or removes a data-candidate-ref
+  // (deckNavigation.orderingInvariant), it only moves which already-ordered
+  // cards sit inside the window (contract's own "windowing/paging"
+  // language). Window size adapts to the deck viewport's own measured
+  // width (recomputeDeckWindow), not a fixed card count, so it naturally
+  // shows fewer cards on a narrower desktop window and more on a wider one
+  // -- DECK_CARD_WIDTH_PX/DECK_CARD_GAP_PX above are the same fixed
+  // per-card footprint the CSS itself uses.
+  function deckTotal() {
+    return orderedCardElements.length;
+  }
+
+  function deckMaxWindowStart(windowSize) {
+    return Math.max(1, deckTotal() - windowSize + 1);
+  }
+
+  // contracts/candidate-search-browser-interface.yaml's deckNavigation.
+  // position.presenceRule/valueShape and disabledState: 1-based
+  // visibleStart/visibleEnd/total decimal-string attributes, and native
+  // `disabled` on candidate-deck-previous/-next exactly at the start/end
+  // boundary (mirrors filterPanel.matchCountObservation.zeroState's own
+  // disabled-not-absent convention, reused by reference in the contract).
+  function updateDeckPositionDisplay() {
+    if (!deckPositionEl) {
+      return;
+    }
+    var total = deckTotal();
+    var visibleStart = total === 0 ? 0 : deckWindowStart;
+    var visibleEnd = total === 0 ? 0 : Math.min(deckWindowStart + deckWindowSize - 1, total);
+    deckPositionEl.setAttribute("data-deck-visible-start", String(visibleStart));
+    deckPositionEl.setAttribute("data-deck-visible-end", String(visibleEnd));
+    deckPositionEl.setAttribute("data-deck-total", String(total));
+    deckPositionEl.textContent =
+      total === 0
+        ? ""
+        : visibleStart === visibleEnd
+          ? String(visibleStart) + " / " + String(total)
+          : String(visibleStart) + "–" + String(visibleEnd) + " / " + String(total);
+    if (deckPreviousEl) {
+      deckPreviousEl.disabled = visibleStart <= 1;
+    }
+    if (deckNextEl) {
+      deckNextEl.disabled = visibleEnd >= total;
+    }
+    if (cardsContainerEl) {
+      var offsetPx = (deckWindowStart - 1) * (DECK_CARD_WIDTH_PX + DECK_CARD_GAP_PX);
+      cardsContainerEl.style.transform = "translateX(" + String(-offsetPx) + "px)";
+    }
+    // deckViewportEl's own CSS (`flex: 1 1 auto`) lets it grow past
+    // deckWindowSize cards' combined width whenever the deck bar has more
+    // room than exactly deckWindowSize cards need (e.g. deckWindowSize=4
+    // leaves slack once 4 cards only need 1064px of a 1200px-wide
+    // viewport) -- real-device measurement found this let a 5th,
+    // uncounted card visibly peek in through that slack despite
+    // overflow: hidden, contradicting the "1–4 / 5" counter next to it
+    // (activeContext.md). Capping the viewport's own max-width to exactly
+    // deckWindowSize cards' width removes that slack, so overflow: hidden
+    // clips flush at the boundary the counter itself reports; any leftover
+    // deck-bar space instead stays empty next to candidate-deck-next
+    // rather than partially revealing an uncounted card.
+    if (deckViewportEl) {
+      var deckWidthPx = total === 0 ? 0 : deckWindowSize * DECK_CARD_WIDTH_PX + (deckWindowSize - 1) * DECK_CARD_GAP_PX;
+      deckViewportEl.style.maxWidth = deckWidthPx + "px";
+    }
+  }
+
+  // Recomputes how many cards currently fit the deck viewport's own
+  // measured width (called on initial render and on every later viewport
+  // resize via the ResizeObserver renderDeck attaches -- adr/0032 decision3
+  // only exempts *render-mode* switching, listPrimaryLayout<->
+  // mapPrimaryLayout, from a live-resize requirement, not this in-mode
+  // window-size recalculation), clamping the current window and, when
+  // revealRef names a candidate currently outside it, moving the window to
+  // include that candidate without changing card order (browserActions.
+  // selectMarker's deckVisibility clause, adr/0031 decision3).
+  function recomputeDeckWindow(revealRef) {
+    if (!isMapPrimaryLayout || !deckViewportEl) {
+      return;
+    }
+    var total = deckTotal();
+    if (total === 0) {
+      deckWindowSize = 1;
+      deckWindowStart = 1;
+      updateDeckPositionDisplay();
+      return;
+    }
+    // updateDeckPositionDisplay (called at the end of this function, and by
+    // every earlier call to it) caps deckViewportEl's own max-width to
+    // exactly deckWindowSize cards' width (see that function's own
+    // comment). Measuring clientWidth against that constrained box on a
+    // later call -- e.g. a real window resize firing the ResizeObserver
+    // renderDeck attaches -- would read back a stale, self-imposed limit
+    // instead of the deck bar's actual currently-available width, getting
+    // permanently stuck at whatever window size the previous measurement
+    // produced. Releasing the cap first restores the CSS `flex: 1 1 auto`
+    // sizing this measurement needs.
+    deckViewportEl.style.maxWidth = "none";
+    var viewportWidth = deckViewportEl.clientWidth;
+    var fit = Math.floor((viewportWidth + DECK_CARD_GAP_PX) / (DECK_CARD_WIDTH_PX + DECK_CARD_GAP_PX));
+    deckWindowSize = Math.max(1, Math.min(fit, total));
+
+    if (revealRef) {
+      var position = orderedCardElements.findIndex(function (card) {
+        return card.getAttribute("data-candidate-ref") === revealRef;
+      });
+      if (position !== -1) {
+        var position1 = position + 1;
+        if (position1 < deckWindowStart) {
+          deckWindowStart = position1;
+        } else if (position1 > deckWindowStart + deckWindowSize - 1) {
+          deckWindowStart = position1 - deckWindowSize + 1;
+        }
+      }
+    }
+
+    deckWindowStart = Math.max(1, Math.min(deckWindowStart, deckMaxWindowStart(deckWindowSize)));
+    updateDeckPositionDisplay();
+  }
+
+  function pageDeckNext() {
+    if (!isMapPrimaryLayout || !deckNextEl || deckNextEl.disabled) {
+      return;
+    }
+    deckWindowStart = Math.min(deckMaxWindowStart(deckWindowSize), deckWindowStart + 1);
+    updateDeckPositionDisplay();
+  }
+
+  function pageDeckPrevious() {
+    if (!isMapPrimaryLayout || !deckPreviousEl || deckPreviousEl.disabled) {
+      return;
+    }
+    deckWindowStart = Math.max(1, deckWindowStart - 1);
+    updateDeckPositionDisplay();
+  }
+
+  // adr/0031 (Desktop.dc.html decision7=案A/decision8=案あ, human decision
+  // 2026-08-28): builds the desktop map-primary deck -- previous/next
+  // paging buttons (allowedPurposes candidate-deck-page-previous/-next,
+  // adr/0031 decision1) and the position counter (candidate-deck-position,
+  // decision2) -- around the same candidate-proposal-cards element
+  // renderResult already built (never a second/cloned card set). Only
+  // called while isMapPrimaryLayout is true (renderModes.mapPrimaryLayout,
+  // adr/0031 decision4); mirrors mapOpenButton/mapSheetHeader's own
+  // one-shot render-time gating in renderResult below. The position
+  // counter is a plain, non-interactive <span> (not itself a control, so
+  // it needs no allowedPurposes entry -- adr/0031's own text: "件数カウン
+  // タ自体は操作ではないためこの規則には掛からない") and, deliberately, a
+  // sibling of deckViewportEl rather than a child of it, so its own
+  // negative top offset (home.html) is not clipped by the viewport's
+  // overflow: hidden.
+  function renderDeck(cardsContainer) {
+    deckPreviousEl = el(
+      "button",
+      {
+        type: "button",
+        "class": "candidate-deck-nav candidate-deck-nav--previous",
+        "data-testid": "candidate-deck-previous",
+        "data-candidate-control-category": "button",
+        "data-candidate-control-purpose": "candidate-deck-page-previous",
+        "aria-label": "前の候補を表示",
+      },
+      ["‹"]
+    );
+    deckPreviousEl.addEventListener("click", function () {
+      pageDeckPrevious();
+    });
+    deckNextEl = el(
+      "button",
+      {
+        type: "button",
+        "class": "candidate-deck-nav candidate-deck-nav--next",
+        "data-testid": "candidate-deck-next",
+        "data-candidate-control-category": "button",
+        "data-candidate-control-purpose": "candidate-deck-page-next",
+        "aria-label": "次の候補を表示",
+      },
+      ["›"]
+    );
+    deckNextEl.addEventListener("click", function () {
+      pageDeckNext();
+    });
+    deckPositionEl = el(
+      "span",
+      {
+        "data-testid": "candidate-deck-position",
+        "class": "candidate-deck-position",
+        "aria-live": "polite",
+        "aria-label": "表示中の候補の位置",
+      },
+      [""]
+    );
+    deckViewportEl = el("div", { "class": "candidate-deck-viewport" }, [cardsContainer]);
+    var deck = el("div", { "class": "candidate-deck" }, [
+      deckPreviousEl,
+      deckViewportEl,
+      deckNextEl,
+      deckPositionEl,
+    ]);
+    if (window.ResizeObserver) {
+      if (deckResizeObserver) {
+        deckResizeObserver.disconnect();
+      }
+      deckResizeObserver = new window.ResizeObserver(function () {
+        recomputeDeckWindow();
+      });
+      deckResizeObserver.observe(deckViewportEl);
+    }
+    return deck;
   }
 
   function openMapSheet() {
@@ -1201,20 +1522,26 @@
     // whichever real box the CSS gives the container right now: task 2's
     // closed-state 88px band by default at narrow widths (mainLayout's own
     // data-map-sheet-open starts "false" -- see the mainLayout comment
-    // above), the desktop sticky column at >=64rem (also data-map-sheet-
-    // open="false" -- decision 6 leaves no control that could ever flip it
-    // at this width), or the full-viewport open-state box on the rare
-    // initial render where the mobile sheet is somehow already open. Either
-    // way this fit targets the box Leaflet will actually paint into, not a
-    // stale or assumed one -- see [data-testid="candidate-map"]'s CSS in
-    // home.html for all three boxes. Padding matches whichever of those
-    // boxes this fit is targeting -- see isCompactMapBand's own comment for
-    // why the desktop column takes the same padding as the open,
-    // full-viewport mobile sheet, not the closed band's.
+    // above), the full-viewport map-primary box at >=64rem (also
+    // data-map-sheet-open="false" -- decision 6 leaves no control that could
+    // ever flip it at this width), or the full-viewport open-state box on
+    // the rare initial render where the mobile sheet is somehow already
+    // open. Either way this fit targets the box Leaflet will actually paint
+    // into, not a stale or assumed one -- see [data-testid="candidate-map"]'s
+    // CSS in home.html for all three boxes. Padding matches whichever of
+    // those boxes this fit is targeting -- see isCompactMapBand's own
+    // comment for why the map-primary box also takes the open, full-viewport
+    // mobile sheet's padding by default, further deck-biased via
+    // mapPrimaryFitPaddingOptions when isMapPrimaryLayout holds (this
+    // function's own caller, renderResult, always sets isMapPrimaryLayout
+    // before calling initializeMap -- see that assignment below).
     if (latLngs.length > 0) {
-      map.fitBounds(window.L.latLngBounds(latLngs), {
-        padding: isCompactMapBand() ? MAP_BAND_FIT_PADDING_PX : MAP_OPEN_FIT_PADDING_PX,
-      });
+      map.fitBounds(
+        window.L.latLngBounds(latLngs),
+        isMapPrimaryLayout
+          ? mapPrimaryFitPaddingOptions()
+          : { padding: isCompactMapBand() ? MAP_BAND_FIT_PADDING_PX : MAP_OPEN_FIT_PADDING_PX }
+      );
     } else {
       map.setView([0, 0], 2);
     }
@@ -1993,6 +2320,20 @@
     cardsContainerEl = null;
     mapWrapperEl = null;
     mapSheetPanelEl = null;
+    // adr/0031: reset every render, mirroring the resets above -- a fresh
+    // proposal (search-again/apply-filters) always starts the deck's own
+    // window back at its first card, not wherever a previous response's
+    // paging happened to leave it.
+    deckWindowStart = 1;
+    deckWindowSize = 1;
+    deckViewportEl = null;
+    deckPreviousEl = null;
+    deckNextEl = null;
+    deckPositionEl = null;
+    if (deckResizeObserver) {
+      deckResizeObserver.disconnect();
+      deckResizeObserver = null;
+    }
     root.innerHTML = "";
 
     // The filter bar is not part of this element: it lives outside the
@@ -2208,38 +2549,40 @@
       },
       ["© OpenStreetMap contributors"]
     );
-    // Desktop.dc.html decision 6 (orchestrator, 2026-08-26): at >=64rem the
-    // map is a permanent column with no open/close control (decision 2), so
-    // the mobile-only ribbon-open control, full-screen-sheet header/back
-    // bar, and the sheet's own single-candidate info panel (decision 5:
-    // the desktop map column carries pins/rings only, never a duplicate
-    // detail panel -- full detail stays in the card column alone) do not
-    // belong in the DOM at all at this width, not merely hidden by CSS --
-    // there is nothing left for them to open/close/summarize. isDesktopLayout
-    // is read once per render (matching this file's other one-shot,
-    // render-time-only viewport reads, e.g. isCompactMapBand); it is not
-    // re-evaluated on a later browser-window resize across the 64rem
-    // boundary without a fresh proposal response (search-again/filter apply
-    // both call renderResult again, which re-reads it) -- candidate.js has
-    // no other DOM-rebuilding resize handling today (only the map's own
-    // ResizeObserver, which resizes the existing map, not the surrounding
-    // controls), and adding one only for this edge case was judged not
-    // worth the risk of a new resize-driven re-render regression against
-    // this same screen's already-elaborate open/close history (see the
-    // mapSheetOpen/openMapSheet/closeMapSheet comments above). mapOpenButton/
-    // mapSheetHeader/mapSheetPanelEl are still built unconditionally above
-    // (openMapSheet/closeMapSheet/syncMapSheetPanelToSelection keep
-    // referencing them by variable/class, and they never run at this width
-    // regardless, since nothing can ever set mapSheetOpen=true here) --
-    // only whether they are appended into the live DOM differs.
-    var isDesktopLayout = window.matchMedia && window.matchMedia("(min-width: 64rem)").matches;
-    var mapWrapperChildren = [mapContainer];
-    if (!isDesktopLayout) {
-      mapWrapperChildren.push(mapOpenButton, mapSheetHeader, mapSheetPanelEl);
-    }
-    mapWrapperChildren.push(mapAttributionLink);
-    var mapWrapper = el("div", { "class": "candidate-map-wrapper" }, mapWrapperChildren);
-    mapWrapperEl = mapWrapper;
+    // adr/0031 (Desktop.dc.html decision7=案A/decision8=案あ, human decision
+    // 2026-08-28, superseding decision6's 2026-08-26 "permanent side
+    // column" reading this comment used to describe): at >=64rem the map
+    // fills essentially the whole area below the header/filter bar
+    // (renderModes.mapPrimaryLayout), with the card deck (renderDeck)
+    // overlaid on the map's own bottom inset instead of living beside it as
+    // a separate column -- so the mobile-only ribbon-open control,
+    // full-screen-sheet header/back bar, and the sheet's own single-
+    // candidate info panel (decision5: the map side carries pins/rings
+    // only, never a duplicate detail panel -- full detail stays in the
+    // deck's own cards) still do not belong in the DOM at all at this
+    // width, not merely hidden by CSS -- there is nothing left for them to
+    // open/close/summarize, unchanged from decision6's original reasoning.
+    // isMapPrimaryLayout is read once per render (matching this file's
+    // other one-shot, render-time-only viewport reads, e.g.
+    // isCompactMapBand; adr/0032 decision3 explicitly does not require a
+    // live-resize mode switch); it is not re-evaluated on a later
+    // browser-window resize across the 64rem boundary without a fresh
+    // proposal response (search-again/filter apply both call renderResult
+    // again, which re-reads it) -- candidate.js has no other DOM-rebuilding
+    // resize handling today (only the map's own ResizeObserver, which
+    // resizes the existing map, and the deck's own ResizeObserver, which
+    // only recomputes the deck's window size, neither of which rebuilds
+    // the surrounding controls), and adding one only for this edge case
+    // was judged not worth the risk of a new resize-driven re-render
+    // regression against this same screen's already-elaborate open/close
+    // history (see the mapSheetOpen/openMapSheet/closeMapSheet comments
+    // above). mapOpenButton/mapSheetHeader/mapSheetPanelEl are still built
+    // unconditionally above (openMapSheet/closeMapSheet/
+    // syncMapSheetPanelToSelection keep referencing them by variable/class,
+    // and they never run at this width regardless, since nothing can ever
+    // set mapSheetOpen=true here) -- only whether they are appended into
+    // the live DOM differs.
+    isMapPrimaryLayout = window.matchMedia && window.matchMedia("(min-width: 64rem)").matches;
 
     var cardsContainer = el("div", { "data-testid": "candidate-proposal-cards" }, []);
     body.candidates.forEach(function (candidate, index) {
@@ -2250,12 +2593,30 @@
     cardsContainerEl = cardsContainer;
     selectedCandidateRef = body.candidates.length > 0 ? body.candidates[0].candidateRef : null;
 
+    var mapWrapperChildren = [mapContainer];
+    if (isMapPrimaryLayout) {
+      // adr/0031 decision3: the deck is the sole place candidate detail
+      // renders at this width (decision5) -- cardsContainer moves inside
+      // the map wrapper's own deck overlay instead of being appended as
+      // mainLayout's own second child (the listPrimaryLayout branch below).
+      mapWrapperChildren.push(renderDeck(cardsContainer));
+    } else {
+      mapWrapperChildren.push(mapOpenButton, mapSheetHeader, mapSheetPanelEl);
+    }
+    mapWrapperChildren.push(mapAttributionLink);
+    var mapWrapper = el("div", { "class": "candidate-map-wrapper" }, mapWrapperChildren);
+    mapWrapperEl = mapWrapper;
+
     // DOM order is ribbon-then-list (the ribbon is the compact map preview
-    // sitting above the list, task 3) -- CSS lays this out as a simple
-    // vertical stack at every width (home.html), so this DOM order is what
-    // keyboard/reader users encounter throughout.
+    // sitting above the list, task 3) at listPrimaryLayout widths -- CSS
+    // lays this out as a simple vertical stack (home.html), so this DOM
+    // order is what keyboard/reader users encounter there. At
+    // mapPrimaryLayout widths cardsContainer is not a second mainLayout
+    // child at all -- it already moved inside mapWrapper's own deck above.
     mainLayout.appendChild(mapWrapper);
-    mainLayout.appendChild(cardsContainer);
+    if (!isMapPrimaryLayout) {
+      mainLayout.appendChild(cardsContainer);
+    }
     content.appendChild(mainLayout);
 
     content.appendChild(
@@ -2273,6 +2634,9 @@
 
     root.appendChild(content);
     initializeMap(mapContainer, body.candidates, body.searchOrigin);
+    if (isMapPrimaryLayout) {
+      recomputeDeckWindow();
+    }
   }
 
   function handleProposalResponse(status, body) {

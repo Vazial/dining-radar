@@ -123,6 +123,33 @@ PROBLEM = "candidate-proposal-problem"
 PROBLEM_GUIDANCE = "candidate-proposal-problem-guidance"
 MANUAL_ORDERING = "candidate-manual-ordering"
 
+# contractVersion 1.5.0 (adr/0031): renderModes -- two mutually exclusive
+# "implementation-chosen rendering condition" element sets. listPrimaryLayout
+# is the pre-existing mobile/narrow toggle (never named by the contract
+# before this revision); mapPrimaryLayout is this revision's new
+# desktop-width deck-navigation surface.
+MAP_OPEN = "candidate-map-open"
+MAP_SHEET_CLOSE = "candidate-map-sheet-close"
+LIST_PRIMARY_TEST_IDS = [MAP_OPEN, MAP_SHEET_CLOSE]
+DECK_PREVIOUS = "candidate-deck-previous"
+DECK_NEXT = "candidate-deck-next"
+DECK_POSITION = "candidate-deck-position"
+MAP_PRIMARY_TEST_IDS = [DECK_PREVIOUS, DECK_NEXT, DECK_POSITION]
+DECK_VISIBLE_START_ATTRIBUTE = "data-deck-visible-start"
+DECK_VISIBLE_END_ATTRIBUTE = "data-deck-visible-end"
+DECK_TOTAL_ATTRIBUTE = "data-deck-total"
+DECK_PAGE_PREVIOUS_PURPOSE = "candidate-deck-page-previous"
+DECK_PAGE_NEXT_PURPOSE = "candidate-deck-page-next"
+# adr/0031 決定4: the contract deliberately does not fix a pixel threshold
+# (renderModes.verificationAllocation.L4/L5); this DSL is the one place that
+# chooses a single fixed viewport wide enough that mapPrimaryLayout (a
+# desktop-only surface per human decision 2026-08-28, decision7) is the mode
+# expected to hold, for the deckNavigation/selectMarker.deckVisibility checks
+# that apply only while it does. Deliberately far from any plausible
+# narrow/mobile breakpoint so this choice cannot be read as testing the
+# breakpoint value itself (that remains ADR-0032/L5's job, not this file's).
+DESKTOP_MAP_PRIMARY_VIEWPORT = {"width": 1440, "height": 900}
+
 # contracts/candidate-search-browser-interface.yaml shownCandidateMemory (adr/0024 decision 4).
 SHOWN_CANDIDATE_MEMORY_KEY = "dining-radar:shown-provider-page-urls"
 # test-support-api.yaml's SHOWN_POOL_PRIORITY Given (adr/0024 decision 4): exactly 10 candidates
@@ -200,6 +227,8 @@ ALLOWED_CONTROL_PURPOSES = {
     "candidate-filter-apply",
     "candidate-filter-revert",
     "candidate-search-again",
+    DECK_PAGE_PREVIOUS_PURPOSE,
+    DECK_PAGE_NEXT_PURPOSE,
     "auth-sign-out",
     "auth-password-change-open",
     "auth-account-menu-toggle",
@@ -389,6 +418,20 @@ class CandidateSearchBrowserDsl:
             self._current_proposal()
             self._applied_filters = self._normalized_filters(self._current_filters())
             self._pending_filters = dict(self._applied_filters)
+
+    def open_candidate_screen_at_map_primary_viewport(self) -> None:
+        """renderModes.mapPrimaryLayout is the desktop deck-navigation layout
+        adr/0031 introduces (human decision 2026-08-28, decision7=案A).
+
+        L4 fixes a single viewport per scenario rather than switching width
+        mid-test (verificationAllocation.L4/L5 -- width-dependent mode
+        *selection* correctness is ADR-0032/L5's job, not this file's); this
+        method is the one place DESKTOP_MAP_PRIMARY_VIEWPORT is applied, for
+        the deckNavigation/selectMarker.deckVisibility checks that apply
+        only while mapPrimaryLayout holds.
+        """
+        self.page.set_viewport_size(DESKTOP_MAP_PRIMARY_VIEWPORT)
+        self.open_candidate_screen()
 
     def open_filter_panel(self) -> None:
         url_before = self.page.url
@@ -1069,6 +1112,187 @@ class CandidateSearchBrowserDsl:
         card = self.page.locator(f'[data-testid="{CARD}"][data-candidate-ref="{candidate_ref}"]')
         expect(card).to_have_attribute("data-selection-state", "selected")
         self._assert_all_other_cards_and_markers_unselected(candidate_ref)
+
+    # Then: renderModes and deck navigation (adr/0031, contractVersion 1.5.0) --
+
+    def assert_render_mode_test_ids_are_mutually_exclusive(self) -> None:
+        """renderModesの2モードは互いに排他的である (adr/0031 決定4).
+
+        renderModes.invariant: exactly one named mode holds at any time, and
+        every test id of the *other* mode is absent while it does. This
+        reads DOM presence directly for both id sets -- it does not compare
+        two attributes the implementation derived from a single shared
+        source, so a defect that leaks one mode's element while the other
+        mode's elements are already present is genuinely detectable (unlike
+        a same-origin-value comparison).
+        """
+        list_primary_present = any(
+            by_test_id(self.page, test_id).count() > 0 for test_id in LIST_PRIMARY_TEST_IDS
+        )
+        map_primary_present = any(
+            by_test_id(self.page, test_id).count() > 0 for test_id in MAP_PRIMARY_TEST_IDS
+        )
+        self.assertions.assertTrue(
+            list_primary_present or map_primary_present,
+            "neither renderModes.listPrimaryLayout nor renderModes.mapPrimaryLayout test ids "
+            "are present at this fixed viewport, but renderModes.invariant requires exactly "
+            "one named mode to hold",
+        )
+        self.assertions.assertFalse(
+            list_primary_present and map_primary_present,
+            "test ids from both renderModes.listPrimaryLayout and renderModes.mapPrimaryLayout "
+            "are present simultaneously, but renderModes.invariant requires exactly one named "
+            "mode to hold",
+        )
+        if list_primary_present:
+            assert_all_absent(self.assertions, self.page, MAP_PRIMARY_TEST_IDS)
+        else:
+            assert_all_absent(self.assertions, self.page, LIST_PRIMARY_TEST_IDS)
+
+    def assert_map_primary_layout_holds(self) -> None:
+        """このスライスのデッキ検査は renderModes.mapPrimaryLayout が成立する前提である
+        (adr/0031 決定4; deckNavigation.description)."""
+        assert_all_present(self.assertions, self.page, MAP_PRIMARY_TEST_IDS)
+        assert_all_absent(self.assertions, self.page, LIST_PRIMARY_TEST_IDS)
+
+    def assert_deck_position_counter_is_well_formed(self) -> None:
+        """件数カウンタは表示窓の位置を1始まりの整数で示す
+        (adr/0031 決定2; deckNavigation.position.valueShape)."""
+        start, end, total = self._deck_window()
+        self.assertions.assertEqual(total, len(self._card_candidate_refs()))
+        self.assertions.assertGreaterEqual(start, 1)
+        self.assertions.assertLessEqual(start, end)
+        self.assertions.assertLessEqual(end, total)
+
+    def assert_deck_paging_controls_declare_correct_purposes(self) -> None:
+        """送りボタンはそれぞれ別名の目的を宣言する (adr/0031 決定1)."""
+        expect(by_test_id(self.page, DECK_PREVIOUS)).to_have_attribute(
+            "data-candidate-control-purpose", DECK_PAGE_PREVIOUS_PURPOSE
+        )
+        expect(by_test_id(self.page, DECK_NEXT)).to_have_attribute(
+            "data-candidate-control-purpose", DECK_PAGE_NEXT_PURPOSE
+        )
+
+    def assert_deck_paging_controls_disabled_state_matches_window(self) -> None:
+        """送りボタンは窓の端で無効化される。不在ではなく disabled であること
+        (adr/0031 決定2; deckNavigation.disabledState)."""
+        position = assert_present(self.assertions, self.page, DECK_POSITION)
+        start = position.get_attribute(DECK_VISIBLE_START_ATTRIBUTE)
+        end = position.get_attribute(DECK_VISIBLE_END_ATTRIBUTE)
+        total = position.get_attribute(DECK_TOTAL_ATTRIBUTE)
+        previous = assert_present(self.assertions, self.page, DECK_PREVIOUS)
+        next_ = assert_present(self.assertions, self.page, DECK_NEXT)
+        if start == "1":
+            expect(previous).to_be_disabled()
+        else:
+            expect(previous).to_be_enabled()
+        if end == total:
+            expect(next_).to_be_disabled()
+        else:
+            expect(next_).to_be_enabled()
+
+    def page_deck_next_and_verify_window_advances(self) -> None:
+        """次へを押すと表示窓が動くが、カード集合・選択・条件は変えない
+        (adr/0031 決定3; browserActions.pageDeckNext)."""
+        start_before, end_before, total = self._deck_window()
+        self.assertions.assertLess(
+            end_before, total, "deck window already covers every card; cannot exercise pageDeckNext"
+        )
+        snapshot = self._display_snapshot()
+        self._perform_without_candidate_request(lambda: by_test_id(self.page, DECK_NEXT).click())
+        start_after, end_after, total_after = self._deck_window()
+        self.assertions.assertEqual(total_after, total)
+        self.assertions.assertGreater(start_after, start_before)
+        self.assertions.assertGreaterEqual(end_after, end_before)
+        self.assertions.assertLessEqual(end_after, total)
+        self._assert_display_snapshot(snapshot)
+
+    def page_deck_previous_and_verify_window_recedes(self) -> None:
+        """前へを押すと表示窓が動くが、カード集合・選択・条件は変えない
+        (adr/0031 決定3; browserActions.pageDeckPrevious)."""
+        start_before, end_before, total = self._deck_window()
+        self.assertions.assertGreater(
+            start_before, 1, "deck window is already at the start; cannot exercise pageDeckPrevious"
+        )
+        snapshot = self._display_snapshot()
+        self._perform_without_candidate_request(
+            lambda: by_test_id(self.page, DECK_PREVIOUS).click()
+        )
+        start_after, end_after, total_after = self._deck_window()
+        self.assertions.assertEqual(total_after, total)
+        self.assertions.assertLess(end_after, end_before)
+        self.assertions.assertLessEqual(start_after, start_before)
+        self.assertions.assertGreaterEqual(start_after, 1)
+        self._assert_display_snapshot(snapshot)
+
+    def page_deck_forward_until_the_window_reaches_the_end(self) -> None:
+        """次へを、窓の末尾 (data-deck-visible-end) が data-deck-total に一致する
+        まで繰り返し押す。デッキの窓の枚数は幅ごとに異なる (adr/0032) ため回数を
+        決め打ちにしない。1クリックごとに page_deck_next_and_verify_window_advances
+        を経由するため、送りの途中も含めて並び・data-candidate-ref集合が保たれる
+        こと (deckNavigation.orderingInvariant) を毎回検査する。無限ループ防止の
+        上限 (data-deck-total 回) に達しても末尾へ到達していなければ、それ自体を
+        成功とはせず明示的に失敗させる
+        (adr/0031 決定3; browserActions.pageDeckNext, deckNavigation.disabledState)."""
+        _, end, total = self._deck_window()
+        clicks = 0
+        while end < total and clicks < total:
+            self.page_deck_next_and_verify_window_advances()
+            clicks += 1
+            _, end, total = self._deck_window()
+        self.assertions.assertEqual(
+            end,
+            total,
+            f"deck window did not reach the end after {clicks} forward clicks "
+            f"(data-deck-visible-end={end}, data-deck-total={total}); "
+            "candidate-deck-next may not be advancing the window toward the last card",
+        )
+
+    def select_marker_outside_deck_window_and_verify_it_becomes_visible(self) -> None:
+        """地図上のピンを選ぶと、対応するカードがデッキの表示窓の中に見えるようになる
+        (adr/0031 決定3; browserActions.selectMarker.deckVisibility).
+
+        Picks the marker for the card immediately after the current window's
+        end -- guaranteed outside [visibleStart, visibleEnd] -- so the
+        assertion below cannot pass merely because the target happened to
+        already be visible.
+        """
+        start, end, total = self._deck_window()
+        if end >= total:
+            raise AssertionError(
+                "deck window already covers every card; deckVisibility needs an "
+                "out-of-window candidate to select"
+            )
+        card_refs = self._card_candidate_refs()
+        target_ref = card_refs[end]  # 0-based index == the (end+1)-th card, 1-based position end+1
+        target_position = end + 1
+        self.assertions.assertTrue(target_position < start or target_position > end)
+        marker = self.page.locator(
+            f'[data-testid="{MAP_MARKER}"][data-candidate-ref="{target_ref}"]'
+        )
+        marker.dispatch_event("click")
+        expect(marker).to_have_attribute("data-selection-state", "selected")
+        card = self.page.locator(f'[data-testid="{CARD}"][data-candidate-ref="{target_ref}"]')
+        expect(card).to_have_attribute("data-selection-state", "selected")
+        new_start, new_end, new_total = self._deck_window()
+        self.assertions.assertEqual(new_total, total)
+        self.assertions.assertLessEqual(new_start, target_position)
+        self.assertions.assertLessEqual(target_position, new_end)
+
+    def _deck_window(self) -> tuple[int, int, int]:
+        position = assert_present(self.assertions, self.page, DECK_POSITION)
+        start = self._deck_int_attribute(position, DECK_VISIBLE_START_ATTRIBUTE)
+        end = self._deck_int_attribute(position, DECK_VISIBLE_END_ATTRIBUTE)
+        total = self._deck_int_attribute(position, DECK_TOTAL_ATTRIBUTE)
+        return start, end, total
+
+    def _deck_int_attribute(self, node: Locator, attribute: str) -> int:
+        value = node.get_attribute(attribute)
+        require(value, f"{attribute} is missing from {DECK_POSITION}")
+        self.assertions.assertRegex(
+            value, r"^\d+$", f"{attribute}={value!r} is not a decimal integer string"
+        )
+        return int(value)
 
     # Then: filters and ordering -----------------------------------------
 

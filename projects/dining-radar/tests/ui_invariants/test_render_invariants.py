@@ -4,14 +4,16 @@ ADR-0020 decision 4 defines four Must, gate invariants -- (a) narrow-width map
 reachability, (c) keyboard reachability/activation, (d) internal-enum
 non-exposure, (e) 44px minimum activatable-control size -- as independent DOM/
 geometry checks, deliberately not full-screen pixel comparison (decision 2,
-decision 5; ``meta/adr/0021``/``meta/adr/0024`` are not superseded). This file
-implements them.
+decision 5; ``meta/adr/0021``/``meta/adr/0024`` are not superseded). ADR-0032
+(2026-08-28) adds a fifth, (f) renderModes matches the tested viewport width,
+to this same frozen set without editing ADR-0020 itself (ADR-0020 decision 2's
+own "new ADR to add a gate" procedure). This file implements all five.
 
 This is not a Gherkin/step/DSL translation of a business scenario (ADR-0020
-decision 6, decision 9): it directly asserts the four mechanical rules
-against ``contracts/candidate-search-browser-interface.yaml``'s own control
-surface. It lives outside ``tests/acceptance/steps``/``dsl`` on purpose --
-those are the tester's domain (``developer.md``); this file, like ordinary
+decision 6, decision 9): it directly asserts the mechanical rules against
+``contracts/candidate-search-browser-interface.yaml``'s own control surface.
+It lives outside ``tests/acceptance/steps``/``dsl`` on purpose -- those are
+the tester's domain (``developer.md``); this file, like ordinary
 implementation code and unit tests, is maintained by developer.
 
 It reuses the same JS-capable browser harness
@@ -21,14 +23,17 @@ explicitly allows this), and reuses ``CandidateSearchBrowserDsl`` only for its
 already-reviewed Given-seam setup and screen navigation (``reset_*``,
 ``enable_organizer``, ``sign_in``, ``set_candidate_state``,
 ``open_candidate_screen``) -- never for assertions, which are this file's own
-and specific to ADR-0020 decision 4, not to any TDR-CS business scenario.
+and specific to ADR-0020 decision 4 / ADR-0032 decision 1, not to any TDR-CS
+business scenario.
 
-Floor changes: decision 4's four invariants (and the (d)/(e) allowlists this
-file maintains) are this ADR's own initial baseline (decision 2's "initial
-approval doubles as baseline approval"). Loosening any of them, or adding a
-fifth gate invariant, needs a new ADR (decision 2); the allowlists themselves
-may be updated here, by developer, only to track a contract change the
-allowlists' own comments cite (decision 4(d), decision 4(e)).
+Floor changes: decision 4's four invariants plus ADR-0032's fifth (and the
+(d)/(e)/(f) allowlists and viewport sets this file maintains) are each their
+own ADR's initial baseline (ADR-0020 decision 2's "initial approval doubles
+as baseline approval", which ADR-0032 decision 1 extends to (f)). Loosening
+any of them, or adding a sixth gate invariant, needs a new ADR; the
+allowlists/viewport sets themselves may be updated here, by developer, only
+to track a contract change their own comments cite (decision 4(d),
+decision 4(e), ADR-0032 decision 1/2 for (f)'s own MAP_PRIMARY_VIEWPORTS).
 """
 
 from __future__ import annotations
@@ -75,6 +80,35 @@ CONTROL_SIZE_VIEWPORTS = [
     (390, 844, "phone-390x844"),
     (730, 900, "original-defect-730x900"),
     (1440, 900, "desktop-1440x900"),
+]
+
+# ADR-0032 decision1 (f): the two width sets renderModes' mode-correctness
+# check runs against. listPrimaryLayout's own set reuses NARROW_VIEWPORTS
+# outright (ADR-0032 decision1 explicitly allows this: "決定4(a)が既に定め
+# る狭幅ビューポート集合をそのまま流用してよい"). mapPrimaryLayout's set is
+# new, developer-maintained (ADR-0032 decision2: the contract does not fix
+# this threshold) -- 1024px is home.html's own 64rem breakpoint's exact
+# pixel boundary (the narrowest width mapPrimaryLayout must already hold at,
+# a stronger check than only testing a comfortably-wide value like 1440px),
+# plus 1440px (already CONTROL_SIZE_VIEWPORTS' own desktop width above, so
+# this reuses a width already exercised elsewhere in this file rather than
+# inventing a third).
+MAP_PRIMARY_VIEWPORTS = [
+    (1024, 768, "map-primary-boundary-1024x768"),
+    (1440, 900, "map-primary-1440x900"),
+]
+
+# adr/0031 decision4's own two named modes' own testIds
+# (contracts/candidate-search-browser-interface.yaml's renderModes.
+# listPrimaryLayout/mapPrimaryLayout), duplicated here (not imported) since
+# this file does not read the contract YAML directly -- same style as the
+# other developer-maintained allowlists in this module (FORBIDDEN_INTERNAL_
+# ENUM_TOKENS, CONTROL_SIZE_ALLOWLIST_TEST_IDS above).
+RENDER_MODE_LIST_PRIMARY_TEST_IDS = ["candidate-map-open", "candidate-map-sheet-close"]
+RENDER_MODE_MAP_PRIMARY_TEST_IDS = [
+    "candidate-deck-previous",
+    "candidate-deck-next",
+    "candidate-deck-position",
 ]
 
 MINIMUM_TARGET_PX = 44
@@ -415,8 +449,24 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         real-length name via route interception instead, so this file
         keeps proving the behaviour independently of whichever synthetic
         name acceptance_state.py happens to use today. Reproduced at both
-        the exact widths orchestrator measured by hand: 1253px (desktop,
-        the side-by-side map column) and 442px (mobile, map-above-cards).
+        the exact widths orchestrator measured by hand: 1253px (desktop)
+        and 442px (mobile, map-above-cards).
+
+        adr/0031 (2026-08-28) changed what "its own column" means at
+        1253px: [data-testid="candidate-proposal-cards"] is no longer a
+        single, card-width column there -- it is the map-primary deck's own
+        sliding row, holding every currently-loaded card side by side at a
+        fixed 15rem width each (home.html). The property this test actually
+        guards -- a long name must not grow a card past its own allotted
+        box, hiding the walk-time chip -- still applies at this width, just
+        against the card's own fixed width rather than the row's total
+        width; the two widths below branch on that geometry difference
+        while keeping this test's job identical (card does not overflow
+        its own box; chip stays visible; name still ellipsizes). Also
+        re-navigates instead of resizing mid-test (isMapPrimaryLayout is
+        read once per render, not on a live resize -- adr/0032 decision3;
+        see test_e_activatable_controls_meet_44px_minimum_target's own
+        comment for the same fix and the failure it reproduces without it).
         """
         long_name = "ドラゴンレッドリバー DRAGON RED RIVER 総本店（回帰テスト用）"
 
@@ -426,13 +476,17 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
             body["candidates"][0]["name"] = long_name
             route.fulfill(response=response, json=body)
 
-        self._sign_in_with_candidates()
+        self.dsl.reset_authentication_state()
+        self.dsl.reset_candidate_state()
+        self.dsl.enable_organizer(ORGANIZER_ACCOUNT_REF, ORGANIZER_IDENTIFIER, ORGANIZER_PASSWORD)
+        self.dsl.sign_in(ORGANIZER_IDENTIFIER, ORGANIZER_PASSWORD)
+        self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING")
         self.page.route("**/candidate-proposals", with_long_shop_name)
-        by_test_id(self.page, "candidate-search-again").click()
 
         for width, height, label in ((1253, 900, "desktop-1253x900"), (442, 900, "mobile-442x900")):
             with self.subTest(viewport=label):
                 self.page.set_viewport_size({"width": width, "height": height})
+                self.dsl.open_candidate_screen()
 
                 name_node = by_test_id(self.page, "candidate-card-name").first
                 expect(name_node).to_have_text(long_name)
@@ -457,29 +511,50 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
                     }"""
                 )
 
-                self.assertLessEqual(
-                    measurement["cardRight"],
-                    measurement["trackRight"] + 0.5,
-                    f"card overflows its own column at {label} -- the long name pushed "
-                    "the card past the track, the exact regression the human reported",
-                )
-                self.assertAlmostEqual(
-                    measurement["cardWidth"],
-                    measurement["trackWidth"],
-                    delta=0.5,
-                    msg=f"card width diverged from its column's own width at {label}",
-                )
-                self.assertLessEqual(
-                    measurement["chipRight"],
-                    measurement["trackRight"] + 0.5,
-                    f"walk-time chip is hidden under the map column at {label}",
-                )
+                self.assertEqual(measurement["nameTextOverflow"], "ellipsis")
                 self.assertGreater(
                     measurement["chipWidth"],
                     0,
                     f"walk-time chip collapsed to zero width at {label}",
                 )
-                self.assertEqual(measurement["nameTextOverflow"], "ellipsis")
+
+                if label == "mobile-442x900":
+                    # listPrimaryLayout (unchanged by adr/0031): candidate-
+                    # proposal-cards is still the single-column list track
+                    # this assertion was originally written for.
+                    self.assertLessEqual(
+                        measurement["cardRight"],
+                        measurement["trackRight"] + 0.5,
+                        f"card overflows its own column at {label} -- the long name pushed "
+                        "the card past the track, the exact regression the human reported",
+                    )
+                    self.assertAlmostEqual(
+                        measurement["cardWidth"],
+                        measurement["trackWidth"],
+                        delta=0.5,
+                        msg=f"card width diverged from its column's own width at {label}",
+                    )
+                    self.assertLessEqual(
+                        measurement["chipRight"],
+                        measurement["trackRight"] + 0.5,
+                        f"walk-time chip is hidden under the map column at {label}",
+                    )
+                else:
+                    # mapPrimaryLayout (adr/0031): the row holds every card
+                    # side by side, so the regression to guard against is a
+                    # card growing past its own fixed 16.25rem/260px width
+                    # (home.html), not past the row's total width.
+                    self.assertAlmostEqual(
+                        measurement["cardWidth"],
+                        260,
+                        delta=1,
+                        msg=f"deck card width diverged from its own fixed 16.25rem at {label}",
+                    )
+                    self.assertLessEqual(
+                        measurement["chipRight"],
+                        measurement["cardRight"] + 0.5,
+                        f"walk-time chip pushed past its own card's right edge at {label}",
+                    )
 
     # (a) Narrow-width map reachability ------------------------------------
 
@@ -813,9 +888,28 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         )
 
     def test_e_activatable_controls_meet_44px_minimum_target(self) -> None:
-        self._sign_in_with_candidates()
+        # adr/0031/0032: isMapPrimaryLayout (renderModes.mapPrimaryLayout)
+        # is read once per render, not on a live resize (adr/0032
+        # decision3) -- unlike this test's own pre-adr/0031 shape (a single
+        # sign-in/render, then set_viewport_size alone across all three
+        # widths), each width below now gets its own fresh navigation
+        # (self.dsl.open_candidate_screen, after setting the viewport, not
+        # before) so the DOM this test measures at each width actually
+        # matches that width's own render mode -- the same fresh-render
+        # discipline the (f) gate below applies for the identical reason.
+        # A live-resize-without-reload run against this same code left a
+        # map-primary-only candidate-deck-previous behind at 390px (CSS no
+        # longer sizing it, since @media (min-width:64rem) had stopped
+        # matching, while the JS-built DOM had not rebuilt to remove it) --
+        # confirmed by reproducing that exact failure before this fix.
+        self.dsl.reset_authentication_state()
+        self.dsl.reset_candidate_state()
+        self.dsl.enable_organizer(ORGANIZER_ACCOUNT_REF, ORGANIZER_IDENTIFIER, ORGANIZER_PASSWORD)
+        self.dsl.sign_in(ORGANIZER_IDENTIFIER, ORGANIZER_PASSWORD)
+        self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING")
         for width, height, label in CONTROL_SIZE_VIEWPORTS:
             self.page.set_viewport_size({"width": width, "height": height})
+            self.dsl.open_candidate_screen()
 
             # Default screen: cards, markers, filter-open, search-again.
             wait_for_at_least_one(self.page, "candidate-card")
@@ -853,3 +947,46 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
             expect(by_test_id(self.page, "auth-sign-out")).to_be_visible()
             self._assert_all_declared_controls_meet_44px(f"account menu open at {label}")
             by_test_id(self.page, "auth-account-menu-toggle").click()
+
+    # (f) renderModes selects the correct mode at each tested width --------
+
+    def test_f_render_mode_matches_viewport_width_on_independent_page_loads(self) -> None:
+        """ADR-0032 decision1's fifth gate invariant.
+
+        contracts/candidate-search-browser-interface.yaml's renderModes
+        section (adr/0031 decision4) fixes only that exactly one of
+        listPrimaryLayout/mapPrimaryLayout holds at a time and which testIds
+        belong to each -- not the width threshold, which
+        renderModes.verificationAllocation.L5 explicitly assigns to this
+        ADR-0020 decision4 gate set instead (adr/0032 decision2: the width
+        value lives in this test, not the contract). Each width below is
+        checked via its own fresh navigation (self.dsl.open_candidate_screen
+        calls page.goto internally) rather than a live self.page.
+        set_viewport_size-then-assert -- ADR-0032 decision3 deliberately
+        does not require candidate.js to switch modes without a re-render,
+        so a resize-only check would not be testing what this gate actually
+        guarantees.
+        """
+        self.dsl.reset_authentication_state()
+        self.dsl.reset_candidate_state()
+        self.dsl.enable_organizer(ORGANIZER_ACCOUNT_REF, ORGANIZER_IDENTIFIER, ORGANIZER_PASSWORD)
+        self.dsl.sign_in(ORGANIZER_IDENTIFIER, ORGANIZER_PASSWORD)
+        self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING")
+
+        for width, height, label in NARROW_VIEWPORTS:
+            with self.subTest(mode="listPrimaryLayout", viewport=label):
+                self.page.set_viewport_size({"width": width, "height": height})
+                self.dsl.open_candidate_screen()
+                for test_id in RENDER_MODE_LIST_PRIMARY_TEST_IDS:
+                    expect(by_test_id(self.page, test_id)).to_have_count(1, timeout=10_000)
+                for test_id in RENDER_MODE_MAP_PRIMARY_TEST_IDS:
+                    expect(by_test_id(self.page, test_id)).to_have_count(0)
+
+        for width, height, label in MAP_PRIMARY_VIEWPORTS:
+            with self.subTest(mode="mapPrimaryLayout", viewport=label):
+                self.page.set_viewport_size({"width": width, "height": height})
+                self.dsl.open_candidate_screen()
+                for test_id in RENDER_MODE_MAP_PRIMARY_TEST_IDS:
+                    expect(by_test_id(self.page, test_id)).to_have_count(1, timeout=10_000)
+                for test_id in RENDER_MODE_LIST_PRIMARY_TEST_IDS:
+                    expect(by_test_id(self.page, test_id)).to_have_count(0)
