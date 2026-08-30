@@ -1616,9 +1616,22 @@ Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (
      表示可否を定めていない。第4弾の画面設計時に解消する。
    - `.feature` ヘッダコメントの TDR-GTH-11 説明ずれは architect が修正（本PRに同梱）。
 
-   **次**: ブラウザ契約PRのマージ（＝承認）→ architect の `test-support-api.yaml` 拡張 →
-   tester（step定義・L4）と developer（実装）の並行スライス。残る未決: 会データの保持期間・削除方針
-   （D4は操作を置かないことのみ決着）／トークン期限90日・レート制限の具体値の見直し時期。
+   ブラウザ契約は **PR #177 のマージで承認済み（2026-08-30）**。
+
+   **test-support契約のTDR-GTH拡張を起草した（2026-08-30、architect起草／orchestrator検証）**:
+   `test-support-api.yaml` v1.5.0（`resetGatheringSchedulingAcceptanceState`・
+   `seedExpiredParticipantLink`・`seedRateLimitedParticipantLink`・合成母集団モード
+   `GATHERING_OPEN_SHOP_WEEKDAY_MATCH`——曜日ごとの開店数が既知の6候補）＋`adr/0037`（提案中、
+   マージが承認）。設計の要点: (1) 会・リンク・回答のGiven状態は**公開API境界経由**でしか作らない
+   （新しいseamを最小化、`meta/verification.md`の原則）、(2) seamはトークンを生成・予測しない——
+   公開APIが返した実トークンを受け取って期限切れ/レート制限状態にするだけ（本番の生成経路を
+   無改変のまま検査）、(3) 期限90日・レート閾値の実値の正しさはL1へ、境界の振る舞い
+   （`LINK_EXPIRED`/`LINK_RATE_LIMITED`）だけをL4で検査——`seedThrottledSignInAttempt`の先例踏襲。
+
+   **次**: test-support拡張PRのマージ（＝承認）→ **tester（TDR-GTH step定義・L4）と developer
+   （実装）の並行スライス**。着手時は`meta/agents.md`のスライス標準フローどおり両者に独立の
+   ブリーフを渡す。残る未決: 会データの保持期間・削除方針（D4は操作を置かないことのみ決着）／
+   トークン期限90日・レート制限の具体値の見直し時期／FINALIZED局面の観測面（第4弾）。
 
 11. **ローカルで画面を確かめる手順**（このスライスで何度も踏んだので残す）。
     - `python manage.py runserver 127.0.0.1:8741 --settings=dining_radar.settings_localdemo --noreload --insecure`

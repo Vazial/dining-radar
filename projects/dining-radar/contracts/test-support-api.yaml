@@ -1,8 +1,8 @@
 # Dining Radar test-support API — acceptance-test Given seams
 #
 # This is test infrastructure, not a browser-facing business API.  It is the
-# machine-readable SSoT for the acceptance-only seams required by TDR-AUTH and
-# TDR-CS.
+# machine-readable SSoT for the acceptance-only seams required by TDR-AUTH,
+# TDR-CS, and TDR-GTH.
 # Per meta/adr/0008, developer and tester must read this file verbatim rather
 # than receiving a paraphrase in a task prompt.
 #
@@ -13,7 +13,7 @@
 # credentials, runtime secrets, or any real account.
 #
 # ステータス: 承認待ち — adr/0024 のドラフト改訂（未マージ・frontmatter は status: 提案中）が重なっている。**adr/0025 の改訂は 2026-08-24 に PR #156 のマージをもって承認済み**（ADR-0035 方式(i)）であり、契約・実装・テストが同一スライスで main に載っている。以下の「未承認」の記述は adr/0024 の分にのみ掛かる。承認方式
-#   はいずれもADR-0035の(ii)（記録のみ・承認は後日）。人間は adr/0024 の改訂をまだ承認していない。
+#   はいずれもADR-0035の(ii)（記録のみ・承認は後日）。人間は adr/0024 の改訂をまだ承認していない。**TDR-GTH向けの2026-08-30追補（下記）も未承認（ADR-0035方式(ii)、ADR-0037起草）。**
 #
 # 以下は2026-08-12に承認済み(PR #90、adr/0023)だったv1.0.2の内容である。この上に2026-08-14の
 # adr/0024ドラフト差分、続けて2026-08-20のadr/0025ドラフト差分（いずれも下記ブロック）が重なる。
@@ -51,7 +51,7 @@
 # - SHOWN_POOL_PRIORITY を新設する。shownProviderPageUrls・
 #   shownPoolExhaustedに基づく未表示優先の3つの集合所属性質
 #   （candidate-search-browser-interface.yamlのproposal.shownPoolPriority）
-#   を決定的に観測するためのGiven（adr/0024決定4、TDR-CS-14）。
+#   を決定的に観測可能にする（adr/0024決定4、TDR-CS-14）。
 #
 # 2026-08-14 追補 (adr/0024 決定4項目8、未承認・本ファイルへの変更なし):
 # shownCandidateMemoryの24時間以下の保持期限（Hot Pepper利用規約対応）は、
@@ -123,16 +123,58 @@
 #   性質を検証する既存・新規シナリオ）は、既定値ではない`searchOrigin`を
 #   このプロパティで明示的に選び、DOM属性がその値と一致することを検証
 #   しなければならない。detailはadr/0027の2026-08-24追記2を参照。
+#
+# 2026-08-30 追補 (architect、adr/0037。TDR-GTH-01〜20向けのacceptance seam拡張。未承認):
+# - **方針**: 会・候補日・参加者リンク・出欠回答のGiven状態は、原則として公開境界
+#   （gathering-scheduling-api.yamlのcreateGathering・addCandidateDate・issueParticipantLinks・
+#   setScheduleResponse・setParticipantDisplayName・confirmCandidateDate・revokeParticipantLink・
+#   recopyParticipantLink・listParticipantLinks）を直接呼んで組み立てる——このために新しい
+#   test-support seamは1つも追加しない（meta/verification.md L4詳細:「状態の準備・検証はSUTの
+#   公開境界経由で行う。DB直接操作はGiven専用のseamとして明示的に定義した箇所のみ許可」）。
+#   TDR-AUTHが公開サインアップの不在ゆえに`setAuthenticationAcceptanceAccount`等の専用seamを
+#   要したのと対照的に、TDR-GTHの資源（会・候補日・リンク・回答）はすべて公開APIから作成できる
+#   ため、専用seamは真に公開境界で作れないもの（下記の2例外と、母集団の共有）に限定した
+#   （adr/0037決定1）。
+# - **署名付きリンクのtokenは、issueParticipantLinks/recopyParticipantLinkの応答からそのまま
+#   読み取って使う**。test-support側でtokenを予測可能にする、または固定値を割り当てるという
+#   設計は採らない——本番のトークン生成経路（推測不能性を要求するadr/0035決定4）を、acceptance
+#   用にだけ弱めたり分岐させたりする理由が無いためである（adr/0037決定4）。
+# - 例外は2つだけ。(1) 有効期限90日の実際の経過を待てないため、`seedExpiredParticipantLink`で
+#   既発行のtokenを即座に期限切れ状態にする——`seedThrottledSignInAttempt`（TDR-AUTH-07）と同じ
+#   流儀で、実際の日数・閾値は公開しない。(2) レート制限も同じ理由で
+#   `seedRateLimitedParticipantLink`を新設する。**90日という具体的な日数・レート制限の閾値そのもの
+#   が正しく設定されているかどうかはL1（developerの単体テスト）の責務であり、本ファイルのseamは
+#   「期限切れ／レート制限に達した場合の応答がLINK_EXPIRED/LINK_RATE_LIMITEDになる」という
+#   ビヘイビアだけを決定的に検証する**（meta/verification.mdのL1/L4分担、adr/0037決定2）。
+# - `resetGatheringSchedulingAcceptanceState`を新設し、TDR-GTH全シナリオの前に呼んでシナリオを
+#   独立させる（TDR-AUTH・TDR-CSそれぞれの既存resetと同じ設計、ドメインごとに別々のリセットを持つ）。
+# - 「その日に開いている店 N件」（TDR-GTH-08・09）は、gathering-scheduling-api.yaml自身が
+#   「openShopCountの母集団はcandidate-search-api.yamlと同じ非公開検索基点の母集団」と明記して
+#   いるとおり、既存の`CandidateProposalAcceptanceState`（`setCandidateProposalAcceptanceState`）を
+#   再利用する——新しいエンドポイントを立てず、本番で共有されているのと同じ1つの母集団制御経路に
+#   相乗りする（adr/0037決定3）。新設mode `GATHERING_OPEN_SHOP_WEEKDAY_MATCH` を追加する——既存の
+#   全candidateが一律`regularHoliday="日曜・祝日"`である現行の合成母集団
+#   （`src/dining_radar/suggestions/acceptance_state.py`の`_synthetic_candidate`）とは別に、単一
+#   曜日・複数曜日・不定休・null（未確認）を作り分けた6件の母集団を新設し、候補日の曜日ごとに
+#   厳密な既知件数（月5/火5/水4/木6/金6/土6/日5）を持つ。既存モードの挙動・既存TDR-CSシナリオの
+#   観測結果は一切変えない（追加のみ）。曜日照合アルゴリズム自体の網羅的な単体検証（否定表現
+#   「水曜以外」等の限界事例を含む）はL1の責務であり、本seamは母集団→API応答の配線を代表的な
+#   数ケースで決定的に検証するにとどめる。
 openapi: 3.0.3
 info:
   title: Dining Radar acceptance test-support API
-  version: 1.4.0
+  version: 1.5.0
   description: >-
-    Acceptance-only setup and reset seams for TDR-AUTH-01 through TDR-AUTH-07
-    and TDR-CS-00 through TDR-CS-16.
+    Acceptance-only setup and reset seams for TDR-AUTH-01 through TDR-AUTH-07,
+    TDR-CS-00 through TDR-CS-16, and TDR-GTH-01 through TDR-GTH-20.
     Browser actions and outcomes under test must use the public same-origin
-    authentication and candidate-search boundaries; these operations are only
-    for deterministic Given state and scenario isolation.
+    authentication, candidate-search, and gathering-scheduling boundaries;
+    these operations are only for deterministic Given state and scenario
+    isolation. Most TDR-GTH Given state is built by calling
+    gathering-scheduling-api.yaml's own public operations directly (adr/0037
+    decision 1) -- this file adds seams only for the handful of states that
+    boundary alone cannot reach (link expiry, link rate-limiting) and for the
+    population TDR-GTH's open-shop-count feature shares with TDR-CS.
 paths:
   /test-support/candidate-proposals/state:
     put:
@@ -145,11 +187,15 @@ paths:
         coordinate, provider identifier, credential, real URL, or
         browser-visible candidate data. The selected state lasts only for the
         current isolated acceptance scenario and is reset by
-        resetCandidateProposalAcceptanceState.
+        resetCandidateProposalAcceptanceState. Also governs the population
+        gathering-scheduling-api.yaml's previewOpenShopsForCandidateDate and
+        ParticipantScheduleQuestion.openShopCount read (adr/0037 decision 3)
+        -- a TDR-GTH-08/09 scenario selects GATHERING_OPEN_SHOP_WEEKDAY_MATCH
+        here in addition to any gathering-scheduling-api.yaml calls it makes.
       x-acceptance-scenarios:
         [TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05, TDR-CS-06,
          TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12, TDR-CS-13,
-         TDR-CS-14, TDR-CS-15, TDR-CS-16]
+         TDR-CS-14, TDR-CS-15, TDR-CS-16, TDR-GTH-08, TDR-GTH-09]
       requestBody:
         required: true
         content:
@@ -167,11 +213,13 @@ paths:
         (including any pinned randomSeed) and any scenario-local request
         counter. It does not read, write, or reset a provider, configured
         search origin, credential, runtime secret, browser storage, real
-        account, or production/deployment setting.
+        account, gathering-scheduling data (see
+        resetGatheringSchedulingAcceptanceState for that separate domain), or
+        production/deployment setting.
       x-acceptance-scenarios:
         [TDR-CS-00, TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05,
          TDR-CS-06, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12,
-         TDR-CS-13, TDR-CS-14, TDR-CS-15, TDR-CS-16]
+         TDR-CS-13, TDR-CS-14, TDR-CS-15, TDR-CS-16, TDR-GTH-08, TDR-GTH-09]
       responses:
         '204':
           description: Candidate-proposal acceptance state is reset.
@@ -283,6 +331,92 @@ paths:
                   [SIGN_IN, SIGN_OUT, CHANGE_PASSWORD, CANDIDATE_PROPOSAL]
                 credentialedArbitraryOriginCorsAllowed: false
                 browserLocalStorageBearerTokenUsed: false
+  /test-support/gathering-scheduling-state:
+    delete:
+      operationId: resetGatheringSchedulingAcceptanceState
+      summary: Reset only gathering-scheduling state owned by the acceptance harness
+      description: >-
+        Removes every synthetic gathering, candidate date, participant link
+        (including any state seeded by seedExpiredParticipantLink or
+        seedRateLimitedParticipantLink), and schedule response created
+        through gathering-scheduling-api.yaml's public boundary during
+        acceptance testing. It does not read, write, or reset provider data,
+        candidate-search acceptance state (see
+        resetCandidateProposalAcceptanceState/setCandidateProposalAcceptanceState
+        for that separate domain, which TDR-GTH-08/09 also depend on),
+        private runtime settings, runtime secrets, or organizer accounts.
+        Call before each TDR-GTH scenario to keep scenarios independent
+        (mirrors resetAuthenticationAcceptanceState's role for TDR-AUTH).
+      x-acceptance-scenarios:
+        [TDR-GTH-01, TDR-GTH-02, TDR-GTH-03, TDR-GTH-04, TDR-GTH-05,
+         TDR-GTH-06, TDR-GTH-07, TDR-GTH-08, TDR-GTH-09, TDR-GTH-10,
+         TDR-GTH-11, TDR-GTH-12, TDR-GTH-13, TDR-GTH-14, TDR-GTH-15,
+         TDR-GTH-16, TDR-GTH-17, TDR-GTH-18, TDR-GTH-19, TDR-GTH-20]
+      responses:
+        '204':
+          description: Gathering-scheduling acceptance state is reset. No response body is returned.
+  /test-support/gathering-scheduling/participant-links/expire:
+    post:
+      operationId: seedExpiredParticipantLink
+      summary: Force one already-issued participant link into its expired state
+      description: >-
+        Given a token previously obtained from a public issueParticipantLinks
+        or recopyParticipantLink response, marks it expired immediately, as
+        if its validity period (adr/0035 decision 4) had already elapsed. It
+        does not return, and this request does not need to know, the
+        configured validity duration (currently 90 days, adr/0035 decision
+        4 -- a value this seam deliberately does not encode, mirroring
+        seedThrottledSignInAttempt's refusal to encode TDR-AUTH-07's actual
+        threshold). This seam lets L4 verify TDR-GTH-14 (the participant
+        view returns LINK_EXPIRED and the browser shows
+        gathering-participant-link-error) without waiting for real elapsed
+        time; whether the configured duration itself equals the intended
+        value is verified independently at L1 against the application's
+        actual configuration, not through this seam (meta/verification.md's
+        L1/L4 split, adr/0037 decision 2). Does not affect
+        Gathering.activeParticipantLinkCount, totalRevokedParticipantLinks,
+        or hasResponded -- expiry and revocation are distinct states
+        (gathering-scheduling-api.yaml's LINK_EXPIRED vs LINK_REVOKED).
+      x-acceptance-scenarios: [TDR-GTH-14]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ParticipantLinkTokenSeed'
+      responses:
+        '204':
+          description: The named token is now expired for every subsequent participant-facing call. No response body is returned.
+  /test-support/gathering-scheduling/participant-links/rate-limit:
+    post:
+      operationId: seedRateLimitedParticipantLink
+      summary: Force the next participant-facing call for one link to be rate-limited
+      description: >-
+        Given a token previously obtained from a public issueParticipantLinks
+        or recopyParticipantLink response, makes the next matching
+        participant-facing request (getParticipantView, setScheduleResponse,
+        or setParticipantDisplayName) against exactly that token return
+        LINK_RATE_LIMITED (429), regardless of the supplied request body. It
+        does not return the configured request-frequency threshold or time
+        window (adr/0036 decision 7's securityObservations.participantAnswer.
+        rateLimit already declares this contract fixes no numeric threshold).
+        This seam lets L4 verify TDR-GTH-15's behavior (a rate-limited
+        request is rejected and every previously recorded response/tally is
+        retained) deterministically, the same way RATE_LIMITED/
+        RATE_LIMITED_AFTER_INITIAL_SUCCESS let TDR-CS verify rate-limiting
+        without depending on an actual request-frequency threshold. Whether
+        the production threshold itself is well-chosen is outside this
+        seam's concern (adr/0037 decision 2).
+      x-acceptance-scenarios: [TDR-GTH-15]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ParticipantLinkTokenSeed'
+      responses:
+        '204':
+          description: The next matching participant-facing request for this token will be rate-limited. No response body is returned.
 components:
   schemas:
     CandidateProposalAcceptanceState:
@@ -299,7 +433,8 @@ components:
              SHOWN_POOL_PRIORITY, WALKING_TIME_LIMIT_EXCLUDES,
              IZAKAYA_BAR_ONLY, NO_RESULTS,
              PROVIDER_UNAVAILABLE, RATE_LIMITED,
-             RATE_LIMITED_AFTER_INITIAL_SUCCESS]
+             RATE_LIMITED_AFTER_INITIAL_SUCCESS,
+             GATHERING_OPEN_SHOP_WEEKDAY_MATCH]
           description: >-
             A closed synthetic state selection. Every mode's synthetic
             response satisfies candidate-search-api.yaml v1.2.0's schema in
@@ -509,6 +644,54 @@ components:
             data is implementation-owned, deterministic (given a fixed
             randomSeed), and must satisfy the candidate-search API schema
             without using real provider data.
+
+            GATHERING_OPEN_SHOP_WEEKDAY_MATCH is the deterministic TDR-GTH-08/
+            09 Given (adr/0035 decision 6, adr/0037 decision 3). Every other
+            mode above fixes `regularHoliday="日曜・祝日"` for every synthetic
+            candidate (a single shared factory in acceptance_state.py) --
+            adequate for TDR-CS, which never reads regularHoliday's text for
+            business logic, but insufficient to exercise
+            gathering-scheduling-api.yaml's weekday-matching soft filter
+            (CandidateDateOpenShopPreview.openShopCount /
+            ParticipantScheduleQuestion.openShopCount) across more than one
+            weekday and one confirmed-closure shape. This mode instead
+            supplies exactly 6 lunch-eligible synthetic candidates, all in
+            one non-default-excluded genre (so izakaya/bar fallback logic
+            never interferes with the counts below), each with a distinct
+            regularHoliday value chosen to exercise a different matching
+            shape: one confirmed closed only on 月 (Monday), one confirmed
+            closed only on 水 (Wednesday), one confirmed closed on both 火
+            and 水 (Tuesday and Wednesday, in one string -- proving the
+            matcher scans for any contained weekday character, not only a
+            single leading one), one confirmed closed on 日 (Sunday, using
+            the same "日曜・祝日" text every other mode already uses, so this
+            mode also proves compatibility with that existing shape), one
+            with regularHoliday="不定休" (irregular, no weekday character --
+            must remain uncounted as closed on every weekday, per ADR-0023
+            decision 2's soft-filter philosophy applied to this feature), and
+            one with regularHoliday omitted entirely (null -- must likewise
+            remain uncounted as closed on every weekday). Distinct latitude
+            values (this module's existing proximity-approximation
+            convention, longitude fixed at 0.0) give every candidate a
+            distinct, deterministic distance from the search origin, so
+            CandidateDateOpenShopPreview.previewShops' nearest-first order is
+            also deterministic. Against a candidate date whose weekday an
+            acceptance test chooses (by constructing
+            gathering-scheduling-api.yaml's CandidateDateInput.startAt for a
+            known day of the week), this mode's population yields an exact,
+            known openShopCount for every day: 5 on Monday (only the 月
+            candidate excluded), 5 on Tuesday (only the 火/水 candidate), 4
+            on Wednesday (both the 水-only and the 火/水 candidates), 6 on
+            Thursday, Friday, and Saturday (no candidate's regularHoliday
+            contains 木, 金, or 土), and 5 on Sunday (only the 日 candidate).
+            This mode does not itself re-verify the weekday-matching
+            algorithm's handling of every possible free-text shape
+            (including negated phrasing such as "水曜以外" that a
+            substring-only matcher could misread) -- that exhaustive,
+            mutation-tested coverage is L1's responsibility
+            (meta/verification.md); this seam verifies only that the
+            population-to-response wiring for a representative confirmed,
+            multi-weekday, and unconfirmed case is correct end to end.
         randomSeed:
           type: integer
           nullable: true
@@ -530,7 +713,10 @@ components:
             null for non-deterministic sampling matching production
             behavior; this property is never exposed on the public
             candidate-search-api.yaml and the production browser has no way
-            to send it.
+            to send it. GATHERING_OPEN_SHOP_WEEKDAY_MATCH's population is no
+            larger than the display cap and its openShopCount counting does
+            not involve display-selection sampling, so randomSeed has no
+            effect on the counts that mode documents.
         searchOrigin:
           type: object
           nullable: true
@@ -650,3 +836,23 @@ components:
         browserLocalStorageBearerTokenUsed:
           type: boolean
           enum: [false]
+    ParticipantLinkTokenSeed:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 1
+          description: >-
+            A signed participant-link token previously returned by a public
+            issueParticipantLinks or recopyParticipantLink call
+            (gathering-scheduling-api.yaml) during the current acceptance
+            scenario. This seam never generates, predicts, or accepts a
+            test-chosen token value of its own -- it only changes the state
+            of a token the public boundary already issued (adr/0037 decision
+            4). Supplying a token this acceptance run never issued is
+            rejected the same way the corresponding public participant-facing
+            operation would reject it (LINK_NOT_FOUND-equivalent failure);
+            this seam does not itself return gathering or participant
+            identity for an unknown token.
