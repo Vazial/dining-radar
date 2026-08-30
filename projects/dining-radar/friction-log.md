@@ -1208,7 +1208,7 @@ agents: [architect, designer, orchestrator]
 cause_category: 素材間の矛盾が、判断点ではなく片側採用で静かに解消される
 cause_key: contradiction-resolved-instead-of-raised
 pushed_to: []
-status: 未対応のまま
+status: 未対応
 principles: [P-01, P-06]
 ```
 
