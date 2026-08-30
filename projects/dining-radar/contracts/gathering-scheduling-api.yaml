@@ -1,0 +1,832 @@
+# Dining Radar gathering-scheduling API — TDR-GTH candidate proposals
+#
+# ステータス: 承認待ち — architectが起草したドラフトである。人間の承認前（meta/adr/0043 方式(ii)）。
+#   会スコープの契約第1弾「会の作成と日程調整」。この行の形式はmeta/adr/0043の機械検証が要求する
+#
+# 2026-08-30 起草 (architect、ADR-0035):
+# - 会（Gathering）・候補日（CandidateDate）・参加者リンク（ParticipantLink）・日程回答
+#   （ScheduleResponse）を、この製品が初めて持つ永続データとして新設する（ADR-0034決定6・§7が
+#   定める境界: 会に固有のデータだけを保持し、provider由来の店舗属性は永続化しない）。
+# - 会の状態遷移: 会を作成する操作は、名前と1件以上の候補日を同時に受け取り、作成直後から
+#   `SCHEDULING`（日程を聞き中）の局面で作られる。`DRAFT`（下書き）は本APIが公開する永続状態としては
+#   持たない——product-brief.md §2の状態機械の最初の局面は、会をつくるための入力（名前・候補日）を
+#   まだ揃えていない、フォーム記入中のクライアント側の一時的な状態を指すものと解釈した
+#   （architectの設計判断。ADR-0035文脈4節参照。契約全体がまだ承認待ちのため、この解釈自体も
+#   人間のレビュー対象である）。
+# - 「その日に開いている店」の判定（`CandidateDateOpenShopPreview.openShopCount`・
+#   `ParticipantScheduleQuestion.openShopCount`）は、`regularHoliday`の自由記述から曜日を緩く
+#   照合する方式を採用する（ADR-0035決定6、ADR-0023決定2のソフト絞り込み哲学を踏襲）。この方式が
+#   product-brief.md §3・§6 の従来の記述の範囲を部分的に広げることは、**2026-08-30の人間裁定
+#   （選択肢UI、案A「曜日照合をスコープへ」）で会スコープに限り正式に確定済みである**——起草時点では
+#   この点をADR-0035の未決事項1として持ち越していたが、同日中に決着した（ADR-0035決定6）。祝日・
+#   営業時間・特定日単位の営業断定は引き続き対象外であり、この照合は除外の目安であって営業を保証する
+#   ものではない。product-brief.md §3・§6もこの決着に合わせて改訂済みである。
+# - 署名付きリンク（ParticipantLink）のトークンは、会ごと・参加者スロットごとに一意で使い回しが
+#   できないが、有効期限内は同じトークンで繰り返しアクセス・変更ができる（ADR-0035決定4。
+#   「使い捨て」の意味の確定）。有効期限・レート制限の具体値はADR-0035決定4を参照——契約の
+#   スキーマ自体には具体的なレート制限の閾値を固定しない（`candidate-search-api.yaml`の
+#   `ProposalRateLimited`と同じ流儀）。
+# - browser-interface契約（`gathering-scheduling-browser-interface.yaml`）は今回起草しない
+#   （ADR-0035決定5）。本APIはブラウザの画面レイアウトに依存しない業務・データ契約としてのみ
+#   起草した。
+# - 承認投票・店の絞り込み連携・確定は次スライス以降の契約が扱う（ADR-0035決定2）。本ファイルは
+#   `SELECTING_SHOP`局面への遷移までを扱い、その先の店の絞り込み・投票・確定に関するエンドポイントは
+#   含まない。
+openapi: 3.0.3
+info:
+  title: Dining Radar Gathering Scheduling API
+  version: 0.1.0
+  description: >-
+    Lets an authenticated organizer create a gathering with candidate dates,
+    issue signed participant links, and confirm one candidate date once
+    schedule responses have arrived. Lets a participant holding a signed link
+    answer per-date availability (GOING/MAYBE/NOT_GOING) without an account,
+    optionally attach a display name at any time, and change any answer at
+    any time. This contract covers only the "gathering creation and
+    scheduling" slice (adr/0035 decision 2): shop narrowing, approval voting,
+    and finalization are out of scope and will be contracted in later slices.
+    The gathering never persists provider-derived shop attributes (name,
+    genre, coordinates, hours, images); "open shop" counts and previews are
+    recomputed from the private candidate population on every read
+    (adr/0034 decision 6). DRAFT: this contract version is not yet
+    human-approved; see
+    adr/0035-scope-the-gathering-scheduling-slice-and-record-2026-08-30-decisions.md.
+servers:
+  - url: https://app.example.invalid
+    description: >-
+      Placeholder HTTPS public origin, same as candidate-search-api.yaml. The
+      authentication and public-deployment slice selects and configures the
+      real origin.
+paths:
+  /gatherings:
+    post:
+      operationId: createGathering
+      summary: Create a gathering with its initial candidate dates
+      description: >-
+        Creates a gathering in the SCHEDULING phase. A gathering cannot be
+        created without at least one candidate date; this contract does not
+        expose a persisted DRAFT phase (see 起草時の判断 in this file's
+        header comment). Also generates no participant links -- issuing links
+        is a separate operation (issueParticipantLinks).
+      security:
+        - organizerSession: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGatheringRequest'
+      responses:
+        '201':
+          description: The created gathering.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Gathering'
+        '400':
+          $ref: '#/components/responses/RequestRejected'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+  /gatherings/{gatheringId}:
+    get:
+      operationId: getGathering
+      summary: Get the organizer dashboard view of one gathering
+      security:
+        - organizerSession: []
+      parameters:
+        - $ref: '#/components/parameters/GatheringId'
+      responses:
+        '200':
+          description: >-
+            The gathering, its candidate dates (with schedule tallies), and
+            participant-link issuance counters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Gathering'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '404':
+          $ref: '#/components/responses/GatheringNotFound'
+  /gatherings/{gatheringId}/candidate-dates:
+    post:
+      operationId: addCandidateDate
+      summary: Add one more candidate date while the gathering is scheduling
+      description: >-
+        Only accepted while the gathering's phase is SCHEDULING
+        (product-brief.md §2: the organizer may add candidate dates until
+        choosing one). Once the gathering has moved to SELECTING_SHOP or
+        FINALIZED, this operation is rejected.
+      security:
+        - organizerSession: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/GatheringId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CandidateDateInput'
+      responses:
+        '201':
+          description: The updated gathering, including the newly added candidate date.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Gathering'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '404':
+          $ref: '#/components/responses/GatheringNotFound'
+        '409':
+          $ref: '#/components/responses/GatheringNotInSchedulingPhase'
+  /gatherings/{gatheringId}/candidate-dates/{candidateDateId}/open-shop-preview:
+    get:
+      operationId: previewOpenShopsForCandidateDate
+      summary: Preview shops open on one candidate date, without changing gathering state
+      description: >-
+        Supports the "simultaneous decision" flow (adr/0035 decision 1 item
+        1, human addition 2026-08-30): the organizer may tentatively
+        cross-check a candidate date against shop availability before
+        choosing it. Calling this operation never advances the gathering's
+        phase and never records which date, if any, the organizer is
+        tentatively looking at -- the tentative selection is client-side UI
+        state only. The population considered is the same private search
+        origin used by candidate-search-api.yaml with default filters only
+        (includeIzakayaBar=false, no organizer-narrowing filters yet, since
+        shop narrowing has not started -- adr/0035 decision 2 slice
+        boundary). `openShopCount` uses the weekday-based regularHoliday
+        matching described in this file's header comment; its adoption for
+        the gathering scope was confirmed by human decision 2026-08-30
+        (adr/0035 decision 6, option A).
+      security:
+        - organizerSession: []
+      parameters:
+        - $ref: '#/components/parameters/GatheringId'
+        - $ref: '#/components/parameters/CandidateDateId'
+      responses:
+        '200':
+          description: The open-shop count and a nearest-first preview subset.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CandidateDateOpenShopPreview'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '404':
+          $ref: '#/components/responses/CandidateDateNotFound'
+  /gatherings/{gatheringId}/participant-links:
+    post:
+      operationId: issueParticipantLinks
+      summary: Issue a batch of new, distinct signed participant links
+      description: >-
+        Issues `count` new tokens, each valid for this gathering and exactly
+        one participant slot (adr/0035 decision 4). Calling this operation
+        again later adds to `Gathering.totalIssuedParticipantLinks`; it does
+        not replace or invalidate previously issued links. The organizer is
+        responsible for distributing the returned URLs outside this product
+        (Slack, email, etc. -- product-brief.md §2). Tokens and full URLs
+        returned by this operation must never appear in a log, error, trace,
+        or any storage this API retains beyond fulfilling this response
+        (product-brief.md §4's API-key handling boundary, extended to
+        participant tokens by adr/0035 decision 4).
+      security:
+        - organizerSession: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/GatheringId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueParticipantLinksRequest'
+      responses:
+        '201':
+          description: The newly issued links.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssueParticipantLinksResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '404':
+          $ref: '#/components/responses/GatheringNotFound'
+  /gatherings/{gatheringId}/confirm-date:
+    post:
+      operationId: confirmCandidateDate
+      summary: Choose one candidate date and advance the gathering to SELECTING_SHOP
+      description: >-
+        The "この日にする" operation (product-brief.md §2 operation 1 of 3).
+        Only accepted while the gathering's phase is SCHEDULING and
+        `candidateDateId` names one of its own candidate dates. Advances
+        `phase` to SELECTING_SHOP and sets `confirmedCandidateDateId`. Once
+        confirmed, no other candidate date may be confirmed for this
+        gathering (product-brief.md §2: this is one of only three
+        phase-advancing organizer operations). Schedule responses -- for the
+        confirmed date and for any other candidate date -- continue to be
+        accepted after this call and are still reflected in
+        `CandidateDate` tallies (product-brief.md §2: no deadline, progress
+        never blocks on unanswered participants).
+      security:
+        - organizerSession: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/GatheringId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [candidateDateId]
+              properties:
+                candidateDateId:
+                  type: string
+      responses:
+        '200':
+          description: The updated gathering, now in SELECTING_SHOP phase.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Gathering'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '404':
+          $ref: '#/components/responses/CandidateDateNotFound'
+        '409':
+          $ref: '#/components/responses/GatheringNotInSchedulingPhase'
+  /participant-links/{token}:
+    get:
+      operationId: getParticipantView
+      summary: Get the participant-facing view behind one signed link
+      description: >-
+        No organizer session is required; the path `token` itself is the
+        sole credential (adr/0035 decision 4). Every candidate date carries
+        an `openShopCount` regardless of whether this participant has
+        answered it yet (D6, 2026-08-30) -- this is a distinct, unconditional
+        field from `tally`, which is present only once this participant has
+        answered that specific candidate date (product-brief.md §2's
+        "answer first, then see others" rule; adr/0035 decision 1 item D6
+        does not gate `openShopCount` the same way). While `phase` is
+        SELECTING_SHOP or FINALIZED, this operation still returns the
+        gathering's candidate dates and this participant's own recorded
+        answers, but shop-narrowing, voting, and finalized-decision content
+        are out of this slice's contract (adr/0035 decision 2) and are not
+        represented here beyond `phase` and `confirmedCandidateDate`.
+      parameters:
+        - $ref: '#/components/parameters/ParticipantToken'
+      responses:
+        '200':
+          description: The participant view.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParticipantView'
+        '404':
+          $ref: '#/components/responses/LinkNotFound'
+        '410':
+          $ref: '#/components/responses/LinkExpired'
+        '429':
+          $ref: '#/components/responses/LinkRateLimited'
+  /participant-links/{token}/responses/{candidateDateId}:
+    put:
+      operationId: setScheduleResponse
+      summary: Set or change this participant's answer for one candidate date
+      description: >-
+        Accepted while the gathering's phase is SCHEDULING or
+        SELECTING_SHOP (product-brief.md §2: responses keep arriving and are
+        reflected after the organizer confirms a date; there is no
+        deadline). Rejected once the gathering is FINALIZED (D1,
+        2026-08-30: after finalization, a participant sees the decision only
+        and no operation is offered).
+      parameters:
+        - $ref: '#/components/parameters/ParticipantToken'
+        - $ref: '#/components/parameters/CandidateDateId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [status]
+              properties:
+                status:
+                  $ref: '#/components/schemas/ScheduleResponseStatus'
+      responses:
+        '200':
+          description: The updated participant view.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParticipantView'
+        '404':
+          $ref: '#/components/responses/LinkNotFound'
+        '409':
+          $ref: '#/components/responses/GatheringFinalized'
+        '410':
+          $ref: '#/components/responses/LinkExpired'
+        '429':
+          $ref: '#/components/responses/LinkRateLimited'
+  /participant-links/{token}/display-name:
+    put:
+      operationId: setParticipantDisplayName
+      summary: Attach or change this participant's self-reported display name
+      description: >-
+        A participant may remain nameless indefinitely and attach a name at
+        any later point (D5, 2026-08-30). Answers recorded before a name was
+        attached remain attributed to the same participant slot and are not
+        affected (TDR-GTH-05).
+      parameters:
+        - $ref: '#/components/parameters/ParticipantToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [displayName]
+              properties:
+                displayName:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+      responses:
+        '200':
+          description: The updated participant view.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParticipantView'
+        '404':
+          $ref: '#/components/responses/LinkNotFound'
+        '410':
+          $ref: '#/components/responses/LinkExpired'
+        '429':
+          $ref: '#/components/responses/LinkRateLimited'
+components:
+  securitySchemes:
+    organizerSession:
+      type: apiKey
+      in: cookie
+      name: sessionid
+      description: >-
+        Same-origin Django session cookie for an authenticated organizer, as
+        defined by contracts/authentication.feature and
+        candidate-search-api.yaml's identical scheme.
+  parameters:
+    CsrfToken:
+      name: X-CSRFToken
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Django CSRF token, same requirement as candidate-search-api.yaml.
+    GatheringId:
+      name: gatheringId
+      in: path
+      required: true
+      schema:
+        type: string
+    CandidateDateId:
+      name: candidateDateId
+      in: path
+      required: true
+      schema:
+        type: string
+    ParticipantToken:
+      name: token
+      in: path
+      required: true
+      schema:
+        type: string
+      description: >-
+        The signed participant-link token itself. OpenAPI 3.0's apiKey
+        security scheme does not support an `in: path` location, so this
+        credential is declared as a plain path parameter rather than a
+        `securitySchemes` entry; it functions as the sole credential for
+        every /participant-links/{token}* operation (adr/0035 decision 4).
+        Never log, trace, or persist this value beyond validating and
+        fulfilling the current request.
+  responses:
+    AuthenticationRequired:
+      description: The caller is not an authenticated organizer.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemResponse'
+          example:
+            code: AUTHENTICATION_REQUIRED
+            message: Sign in is required to manage this gathering.
+    RequestRejected:
+      description: The request did not pass validation or the browser-session security check.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemResponse'
+          example:
+            code: REQUEST_REJECTED
+            message: The request could not be accepted. Refresh the page and try again.
+    GatheringNotFound:
+      description: No gathering exists with the given id, or it does not belong to this organizer.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemResponse'
+          example:
+            code: GATHERING_NOT_FOUND
+            message: This gathering could not be found.
+    CandidateDateNotFound:
+      description: No candidate date exists with the given id for this gathering.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemResponse'
+          example:
+            code: CANDIDATE_DATE_NOT_FOUND
+            message: This candidate date could not be found.
+    GatheringNotInSchedulingPhase:
+      description: >-
+        The requested operation is only accepted while the gathering's phase
+        is SCHEDULING.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemResponse'
+          example:
+            code: GATHERING_NOT_IN_SCHEDULING_PHASE
+            message: This gathering has already moved past scheduling.
+    LinkNotFound:
+      description: The token does not correspond to any issued participant link.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemResponse'
+          example:
+            code: LINK_NOT_FOUND
+            message: This link is not valid.
+    LinkExpired:
+      description: The token corresponds to a participant link whose validity period has passed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemResponse'
+          example:
+            code: LINK_EXPIRED
+            message: This link has expired. Please ask the organizer for a new one.
+    LinkRateLimited:
+      description: This token exceeded the allowed request frequency.
+      headers:
+        Retry-After:
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: Seconds before the participant may retry.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemResponse'
+          example:
+            code: LINK_RATE_LIMITED
+            message: Too many requests were made with this link. Please try again shortly.
+    GatheringFinalized:
+      description: >-
+        The gathering has been finalized; no further schedule response is
+        accepted (D1, 2026-08-30).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemResponse'
+          example:
+            code: GATHERING_FINALIZED
+            message: This gathering is already finalized.
+  schemas:
+    GatheringPhase:
+      type: string
+      enum: [SCHEDULING, SELECTING_SHOP, FINALIZED]
+      description: >-
+        product-brief.md §2's state machine, excluding the persisted DRAFT
+        value (see this file's header comment). SCHEDULING corresponds to
+        "日程を聞き中", SELECTING_SHOP to "店を選び中", FINALIZED to "確定".
+        Only createGathering (entry) and confirmCandidateDate (SCHEDULING ->
+        SELECTING_SHOP) are defined by this contract; SELECTING_SHOP ->
+        FINALIZED is defined by a later slice (adr/0035 decision 2).
+    ScheduleResponseStatus:
+      type: string
+      enum: [GOING, MAYBE, NOT_GOING]
+      description: 行ける／たぶん／むり (product-brief.md §2).
+    CandidateDateInput:
+      type: object
+      additionalProperties: false
+      required: [startAt]
+      properties:
+        startAt:
+          type: string
+          format: date-time
+          description: The candidate date and start time the organizer is proposing.
+    CreateGatheringRequest:
+      type: object
+      additionalProperties: false
+      required: [title, candidateDates]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: The organizer-chosen name for this gathering (e.g. "第7回 社内ランチ会").
+        candidateDates:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/CandidateDateInput'
+          description: >-
+            At least one candidate date is required at creation time; this
+            contract does not expose a persisted zero-date state (see this
+            file's header comment).
+    CandidateDate:
+      type: object
+      required: [id, startAt, goingCount, maybeCount, notGoingCount, isConfirmed]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        startAt:
+          type: string
+          format: date-time
+        goingCount:
+          type: integer
+          minimum: 0
+          description: Number of participants who answered GOING for this candidate date.
+        maybeCount:
+          type: integer
+          minimum: 0
+        notGoingCount:
+          type: integer
+          minimum: 0
+          description: >-
+            Number of participants who answered NOT_GOING for this candidate
+            date. This is a confirmed answer, distinct from an unanswered
+            participant -- it is never used as a stand-in for "did not
+            respond" (see Gathering.totalIssuedParticipantLinks /
+            respondedParticipantCount for that distinct denominator, D2).
+        isConfirmed:
+          type: boolean
+          description: >-
+            True only for the one candidate date confirmCandidateDate has
+            chosen, if any. At most one candidate date in a given gathering
+            may be true.
+    Gathering:
+      type: object
+      required:
+        [id, title, phase, candidateDates, totalIssuedParticipantLinks,
+         respondedParticipantCount, anonymousRespondedParticipantCount,
+         confirmedCandidateDateId]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        phase:
+          $ref: '#/components/schemas/GatheringPhase'
+        candidateDates:
+          type: array
+          items:
+            $ref: '#/components/schemas/CandidateDate'
+          description: >-
+            Ordered by goingCount descending (product-brief.md §2: "行ける
+            人が多い順"); ties are an implementation-chosen stable order this
+            schema does not fix.
+        totalIssuedParticipantLinks:
+          type: integer
+          minimum: 0
+          description: >-
+            The count of every participant link ever issued for this
+            gathering via issueParticipantLinks, across every call. This is
+            the denominator for "n人が未回答" (D2, 2026-08-30) -- distinct
+            from respondedParticipantCount below, and distinct from any
+            per-candidate-date response tally.
+        respondedParticipantCount:
+          type: integer
+          minimum: 0
+          description: >-
+            The count of distinct participant slots that have submitted at
+            least one schedule response for this gathering (any candidate
+            date, any status). Unanswered participant count is
+            `totalIssuedParticipantLinks - respondedParticipantCount`
+            (D2). This is a different denominator from each CandidateDate's
+            own goingCount/maybeCount/notGoingCount, which are scoped to one
+            candidate date only and may not sum to this value if some
+            participants have answered only some candidate dates.
+        anonymousRespondedParticipantCount:
+          type: integer
+          minimum: 0
+          description: >-
+            The subset of respondedParticipantCount that has not attached a
+            display name (setParticipantDisplayName was never called for
+            that participant slot). Supports the organizer-facing disclosure
+            "8人が回答（うち2人は名前なし）"; this schema does not expose a
+            per-participant list (designer's own scoping decision,
+            2026-08-30 board).
+        confirmedCandidateDateId:
+          type: string
+          nullable: true
+          description: Non-null exactly when phase is SELECTING_SHOP or FINALIZED.
+    OpenShopPreviewItem:
+      type: object
+      required: [name, genre, capacityTier, nonSmokingStatus, dinnerBudgetTier]
+      additionalProperties: false
+      description: >-
+        A live, non-persisted projection of one shop for the organizer's
+        same-decision preview (adr/0034 decision 6: the gathering does not
+        store this data; it is refetched on every open-shop-preview call).
+        Uses the same coarse, tier-based vocabulary as
+        candidate-search-api.yaml's Candidate schema (ADR-0019) -- not the
+        raw seat counts shown in the designer's non-approved exploratory
+        canvas (adr/0035 decision 5's scope: that canvas is an input, not an
+        approved design).
+      properties:
+        name:
+          type: string
+        genre:
+          type: string
+        capacityTier:
+          type: string
+          nullable: true
+          enum: [SMALL, MEDIUM, LARGE]
+        nonSmokingStatus:
+          type: string
+          nullable: true
+          enum: [FULL, PARTIAL, NONE]
+        dinnerBudgetTier:
+          type: string
+          nullable: true
+          enum: [LOW, MID, HIGH]
+    CandidateDateOpenShopPreview:
+      type: object
+      required: [candidateDateId, openShopCount, previewShops]
+      additionalProperties: false
+      properties:
+        candidateDateId:
+          type: string
+        openShopCount:
+          type: integer
+          minimum: 0
+          description: >-
+            The count of shops in the default-filtered private population
+            (includeIzakayaBar=false, no organizer-narrowing filters) that
+            this contract's weekday-based regularHoliday matching (see this
+            file's header comment) does not confirm as closed on this
+            candidate date. Shops whose closure cannot be confirmed remain
+            counted as open (ADR-0023 decision 2's soft-filter philosophy).
+            Adopting this weekday-based matching for the gathering scope was
+            confirmed by human decision 2026-08-30 (adr/0035 decision 6,
+            option A) -- it does not judge national holidays, business
+            hours, or a specific date's actual opening.
+        previewShops:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/OpenShopPreviewItem'
+          description: >-
+            A nearest-first subset of the open shops for this candidate
+            date, for organizer preview only. The exact number shown is a
+            UI-implementation detail this schema does not fix (same pattern
+            as candidate-search-api.yaml's display cap); `openShopCount` is
+            the authoritative total.
+    IssueParticipantLinksRequest:
+      type: object
+      additionalProperties: false
+      required: [count]
+      properties:
+        count:
+          type: integer
+          minimum: 1
+          maximum: 200
+          description: >-
+            How many new, distinct participant links to issue in this call.
+            `maxItems: 200` is a defensive schema bound, not an expected
+            operating size (same convention as
+            candidate-search-api.yaml's shownProviderPageUrls).
+    IssuedParticipantLink:
+      type: object
+      required: [token, url]
+      additionalProperties: false
+      properties:
+        token:
+          type: string
+          description: >-
+            Opaque, unguessable, URL-safe token (adr/0035 decision 4). Must
+            never be logged, traced, or persisted by any component other
+            than the record needed to validate it on a later request.
+        url:
+          type: string
+          format: uri
+          description: The full same-origin URL the organizer shares with one participant.
+    IssueParticipantLinksResponse:
+      type: object
+      required: [issuedLinks, totalIssuedParticipantLinks]
+      additionalProperties: false
+      properties:
+        issuedLinks:
+          type: array
+          items:
+            $ref: '#/components/schemas/IssuedParticipantLink'
+        totalIssuedParticipantLinks:
+          type: integer
+          minimum: 0
+          description: Gathering.totalIssuedParticipantLinks after this call, for convenience.
+    ParticipantScheduleQuestion:
+      type: object
+      required: [candidateDateId, startAt, openShopCount, yourResponse]
+      additionalProperties: false
+      properties:
+        candidateDateId:
+          type: string
+        startAt:
+          type: string
+          format: date-time
+        openShopCount:
+          type: integer
+          minimum: 0
+          description: >-
+            "この日に開いている店 N件" (D6, 2026-08-30). Always present
+            regardless of whether this participant has answered this
+            candidate date -- unlike `tally` below, it is not gated by the
+            "answer first, then see others" rule. No shop name or other
+            shop attribute is included (D6 explicitly limits this to a
+            count).
+        yourResponse:
+          $ref: '#/components/schemas/ScheduleResponseStatus'
+          nullable: true
+          description: Null when this participant has not yet answered this candidate date.
+        tally:
+          type: object
+          nullable: true
+          required: [goingCount, maybeCount, notGoingCount]
+          additionalProperties: false
+          properties:
+            goingCount:
+              type: integer
+              minimum: 0
+            maybeCount:
+              type: integer
+              minimum: 0
+            notGoingCount:
+              type: integer
+              minimum: 0
+          description: >-
+            Null until `yourResponse` is non-null for this same candidate
+            date (product-brief.md §2: other participants' answers are
+            visible only after answering yourself, applied per candidate
+            date, TDR-GTH-12). Once present, mirrors the organizer-facing
+            CandidateDate counts for this same candidate date.
+    ParticipantView:
+      type: object
+      required:
+        [gatheringTitle, phase, displayName, scheduleQuestions]
+      additionalProperties: false
+      properties:
+        gatheringTitle:
+          type: string
+        phase:
+          $ref: '#/components/schemas/GatheringPhase'
+        displayName:
+          type: string
+          nullable: true
+          description: Null while this participant has not attached a name (D5).
+        scheduleQuestions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ParticipantScheduleQuestion'
+        confirmedCandidateDate:
+          type: string
+          format: date-time
+          nullable: true
+          description: >-
+            Non-null once phase is SELECTING_SHOP or FINALIZED. Shop
+            narrowing, voting, and the finalized-decision content (D1) are
+            out of this slice's contract (adr/0035 decision 2) and are not
+            represented here beyond this date.
+    ProblemResponse:
+      type: object
+      required: [code, message]
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          enum:
+            [AUTHENTICATION_REQUIRED, REQUEST_REJECTED, GATHERING_NOT_FOUND,
+             CANDIDATE_DATE_NOT_FOUND, GATHERING_NOT_IN_SCHEDULING_PHASE,
+             LINK_NOT_FOUND, LINK_EXPIRED, LINK_RATE_LIMITED,
+             GATHERING_FINALIZED]
+        message:
+          type: string
+          description: Safe user-facing text without a private location, credentials, or provider internals.
