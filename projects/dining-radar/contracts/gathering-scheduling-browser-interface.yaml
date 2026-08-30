@@ -1,0 +1,730 @@
+# Dining Radar gathering-scheduling browser acceptance interface
+#
+# Test infrastructure only. This is the machine-readable control-surface and
+# observation SSoT for TDR-GTH acceptance work. It neither creates a public
+# API nor changes gathering-scheduling-api.yaml's browser-facing API.
+#
+# ステータス: 承認待ち — architectが起草したドラフトである。人間の承認前（meta/adr/0043 方式(ii)）。
+#   会スコープの契約第1弾「会の作成と日程調整」。この行の形式はmeta/adr/0043の機械検証が要求する
+#
+# 2026-08-30 起草 (architect、ADR-0036、ADR-0035決定5の後段):
+# - ADR-0035決定5は、この契約の起草を「designerが正規パイプラインで第1弾の画面を描き直し、人間が
+#   実機で承認した後」に送っていた。同日、designerが `E:\AWS\dsg-out\party\` へ描き直したキャンバス
+#   （Flow.dc.html／Organizer.dc.html／Answer.dc.html）のうち F・A①②・B を、人間がチャット
+#   （選択肢UI）で第1弾の画面骨格として承認した（orchestratorの実測: A板1120×664/1120×764、
+#   B板375×812、いずれもはみ出し0・切り詰め0・44px未満のタップ対象0）。`ADR-0013`の順序
+#   （画面が先、契約は追随する）に従い、これらを承認済み設計として本契約の観測面を起こす。
+# - **F（Flow.dc.html）はこの契約の観測面を持たない**——静的な説明図であり、操作可能な要素を持たない。
+#   その内容（局面インジケータ、分母の区別、締切の不在）は A・B が実際に描く要素として現れており、
+#   本契約はそちらを観測する（設計判断1、下記参照）。
+# - **単一ファイルに2つの面を分けて収める**（設計判断2）: 幹事面（organizerDashboard、
+#   `gathering-scheduling-api.yaml`の`organizerSession`同一起源Cookie）と参加者面
+#   （participantAnswer、署名付きリンクのtoken自体が唯一の資格情報、Cookieなし）は認証モデルが
+#   根本的に異なるが、同じ1本の業務契約（`gathering-scheduling.feature`）・同じ1本のAPI契約
+#   （`gathering-scheduling-api.yaml`）が観測対象であるため、`candidate-search`/`authentication`
+#   のように業務契約ごとにファイルを分けるのではなく、本ファイル内で`browserControlSurface`の
+#   名前空間を分けるにとどめる。
+# - D3（幹事の店リストは票の多い順固定・切替なし）は、承認投票の画面（次スライス以降）そのものを
+#   本契約には持ち込まない——`ADR-0035`決定2が承認投票を第3弾へ送っているため。ただし、D3が体現する
+#   **原則**（この製品の幹事向け一覧に手動並べ替えを一切許さない）は、`unavailableControls.
+#   forbiddenPurposes`へ`manual-ordering`という抽象カテゴリとして今回取り込んだ——これは
+#   `candidate-search-browser-interface.yaml`が既に使っている同名カテゴリの再利用であり、今回
+#   実際に存在する候補日一覧（`gathering-candidate-date-list`）に適用されると同時に、将来の承認投票
+#   スライスが店の一覧を追加したときも、新しいpurposeを何も足さずに同じ禁止が及ぶ（設計判断3）。
+# - 幹事のリンク発行操作（`gathering-participant-link-copy`）は、承認済み画面が「回答リンクを
+#   コピー」という単一のボタンとして示す一方、`gathering-scheduling-api.yaml`の
+#   `issueParticipantLinks`は`count`（発行本数）を受け取るバッチ操作である。起草時点ではこのボタンが
+#   クリックのたびに`count: 1`で1件ずつ発行するという解釈を採用しつつ、画面とAPIの間に元からあった
+#   不整合の解消そのものは人間へ申し送っていたが、**同日2026-08-30、続く選択肢UIで人間が案A
+#   「1クリック=1本」を選び、この運用のまま確定した**（設計判断4、`ADR-0036`決定4、下記参照）。
+# - **実行モデルを明示する**（設計判断6、`ADR-0013`決定7・FR-004の教訓の先取り適用）:
+#   organizerDashboard・participantAnswerのいずれも、`ADR-0009`決定4がTDR-CSに適用したのと同じ
+#   JS-capableなブラウザ自動化DSLで検証する——TDR-AUTHのプレーンHTTP DSLではない。理由は、同時決め
+#   プレビュー・回答後のタリー開示・名前の後付けのいずれも、ページ全体の再読み込みを伴わない
+#   クライアント側の状態変化を観測対象とするためである（`renderModel`節を参照）。
+# - participantAnswer.header にも data-gathering-phase を持たせ、TDR-GTH-11
+#   （開催日確定後も局面が「店を選び中」のまま変わらないこと）を参加者画面単独からでも観測できる
+#   ようにした——organizerDashboardの`phaseIndicatorAttributes`と同じ語彙・同じ値集合を、
+#   `ParticipantView.phase`（gathering-scheduling-api.yaml、常に返される）から同様に投影する。
+#
+# 2026-08-30 追補 (architect、ADR-0036決定7。人間裁定「発行済みリンクの管理面を第1弾に含める」):
+# - 発端は人間の懸念「リンクがわからなくなったら管理されなくなっちゃうかもね」。
+#   `gathering-participant-link-list`（一覧）・`gathering-participant-link-recopy`（再コピー）・
+#   `gathering-participant-link-revoke`（失効）の観測面を新設する。
+# - **一覧にトークン/URLを載せない**（architectの設計判断）: `ParticipantLinkSummary`はtoken/urlを
+#   持たない（`gathering-scheduling-api.yaml`参照）。再コピーは1件ずつの専用操作
+#   （`recopyParticipantLink`）でだけ資格情報を露出させ、一覧を見るだけの操作では参加者アクセス
+#   資格情報が一切画面に出ない。再コピーで得たURLも、リンク発行時と同様
+#   `data-issued-link-url`相当の属性で機械観測する（クリップボードを信頼しない、既存の流儀を踏襲）。
+# - 失効操作は「未回答のリンク」だけに機械的にも許可される——`data-has-responded="true"`の項目の
+#   失効ボタンは非活性化する（disabledStateの既存の流儀。取り除くのではなく非活性にする）。
+# - `data-unanswered-count`の算出式を`activeParticipantLinkCount - respondedParticipantCount`へ
+#   改める（`totalIssuedParticipantLinks`単体ではなくなった。`gathering-scheduling-api.yaml`の
+#   同名フィールド定義変更に追随）。
+openapi_note: >-
+  This file is not an OpenAPI document; it is test infrastructure. The
+  `contractVersion`/`kind` header below follows the same convention as
+  candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
+contractVersion: '0.2'
+kind: acceptance-browser-interface
+scope: gathering-scheduling
+renderModel: >-
+  Both browserControlSurface.organizerDashboard and
+  browserControlSurface.participantAnswer are verified by a JS-capable
+  browser automation DSL, the same execution model
+  candidate-search-browser-interface.yaml uses for TDR-CS (ADR-0009 decision
+  4), not authentication-browser-interface.yaml's plain-HTTP DSL for
+  TDR-AUTH. Every requiredOutcome in this contract (tentative selection
+  revealing a preview, a schedule response revealing its tally, a display
+  name attaching, a link list refreshing after recopy/revoke) describes a
+  client-side DOM change that a plain-HTTP, server-response-only DSL cannot
+  observe -- none of this contract's interactions are specified as requiring
+  a full page navigation. A control this contract requires present must
+  exist in the DOM once the relevant JS-executing render completes; unlike
+  authentication-browser-interface.yaml's renderModel, this contract does
+  not additionally require presence in the raw server-rendered HTML
+  response, because no TDR-GTH scenario depends on a non-JS client (this
+  stated explicitly per the FR-004 lesson: a browser-interface contract must
+  declare its execution-model assumption at authoring time, not leave it for
+  tester to discover at L4).
+profiles:
+  localAcceptance:
+    transport: HTTP
+    publicDeployment: false
+    verifiesScenarios:
+      [TDR-GTH-02, TDR-GTH-03, TDR-GTH-04, TDR-GTH-05, TDR-GTH-06,
+       TDR-GTH-07, TDR-GTH-08, TDR-GTH-09, TDR-GTH-10, TDR-GTH-11,
+       TDR-GTH-12, TDR-GTH-14, TDR-GTH-15, TDR-GTH-16, TDR-GTH-17,
+       TDR-GTH-18, TDR-GTH-19, TDR-GTH-20]
+    notVerifiedHere:
+      - scenario: TDR-GTH-01
+        reason: >-
+          Gathering creation (name + initial candidate dates) has no
+          approved screen yet -- Organizer.dc.html shows only the
+          post-creation dashboard. Until a creation screen is designed and
+          approved, TDR-GTH-01 is exercised only through
+          gathering-scheduling-api.yaml directly (API/boundary-level
+          acceptance), not through this browser contract.
+      - scenario: TDR-GTH-13
+        reason: >-
+          "Guessing another participant's token" is a security property
+          best exercised by direct API-level fuzzing (constructing an
+          unissued token value and calling the public API), not by a
+          browser click-through. This contract's disclosureObservations
+          section still governs what the error surface may and may not
+          reveal when a browser does reach an invalid link.
+    invariant:
+      - The profile is isolated and must never be selected by a public deployment.
+      - Gathering, candidate-date, and participant-link state is supplied only through a future test-support-api.yaml extension for TDR-GTH (adr/0035 未決事項, not yet drafted); this contract does not itself define that extension.
+      - Browser actions use only the public organizerSession and signed-participant-link boundaries defined by gathering-scheduling-api.yaml.
+      - No real provider, configured search origin, credential, or provider response is used.
+    syntheticDisclosureCanaries:
+      privateSearchOrigin: synthetic-private-origin-never-disclose.invalid
+      providerInternals: synthetic-provider-internals-never-disclose
+      description: >-
+        Reuses the exact canary values candidate-search-browser-interface.yaml
+        and authentication-browser-interface.yaml already define, so a single
+        shared set of forbidden strings applies across every TDR-* browser
+        contract.
+
+browserEntry:
+  organizerDashboard:
+    baseUrl:
+      environmentVariable: TDR_ACCEPTANCE_BASE_URL
+      requiredScheme: http
+    startUrlTemplate: '${TDR_ACCEPTANCE_BASE_URL}/gatherings/{gatheringId}/'
+    note: >-
+      `{gatheringId}` comes from the response of a prior createGathering call
+      or an equivalent test-support seam (adr/0035 未決事項5); this contract
+      does not fix the literal route, only that it is reachable under the
+      same base URL and same-origin session used by
+      candidate-search-browser-interface.yaml and
+      authentication-browser-interface.yaml.
+    unauthenticatedOutcome: >-
+      Delegates to authentication-browser-interface.yaml's existing
+      unauthenticatedOutcome (present: auth-sign-in-form; absent:
+      authenticated-application-shell) -- this contract adds no new
+      unauthenticated-visitor behavior. Every requiredTestIds entry below is
+      additionally absent for an unauthenticated visitor.
+  participantAnswer:
+    baseUrl:
+      environmentVariable: TDR_ACCEPTANCE_BASE_URL
+      requiredScheme: http
+    startUrlTemplate: '${TDR_ACCEPTANCE_BASE_URL}/participant-links/{token}/'
+    note: >-
+      `{token}` is a signed participant-link token from a prior
+      issueParticipantLinks call or an equivalent test-support seam. This
+      route requires no organizerSession cookie and no sign-in -- the token
+      itself is the sole credential (gathering-scheduling-api.yaml's
+      ParticipantToken parameter). Opening this URL never requires or
+      accepts an authenticated organizer session; if a signed-in organizer's
+      browser opens it, this contract makes no special-case requirement --
+      the token still governs access on its own.
+    validLinkOutcome:
+      present: [gathering-participant-header, gathering-schedule-question]
+      absent: [gathering-participant-link-error]
+    invalidLinkOutcome:
+      present: [gathering-participant-link-error]
+      absent: [gathering-participant-header, gathering-schedule-question,
+                gathering-participant-name-open]
+
+unavailableControls:
+  allGatheringScreenFormControlsMustDeclarePurpose: true
+  purposeAttribute: data-gathering-control-purpose
+  allowedPurposes:
+    [gathering-add-candidate-date-open, gathering-participant-link-copy,
+     gathering-candidate-date-tentative-select, gathering-confirm-date-select,
+     gathering-schedule-response-select, gathering-participant-name-open,
+     gathering-participant-name-submit, gathering-participant-link-recopy,
+     gathering-participant-link-revoke]
+  forbiddenPurposes:
+    - manual-ordering
+    - secondary-condition
+  forbiddenPurposesNote: >-
+    `manual-ordering` is the same abstract category
+    candidate-search-browser-interface.yaml already forbids (ADR-0023
+    decision 4's ban on organizer-chosen sort order), reused here rather than
+    redefined. It currently constrains
+    browserControlSurface.organizerDashboard.candidateDateList (fixed
+    goingCount-descending order, no sort toggle) and
+    participantLinkList (fixed issuedAt-ascending order, no sort toggle --
+    ADR-0036 decision 7) and is written as a category -- not tied to any
+    specific existing test id -- so that when a later slice adds the
+    approval-voting shop list (D3, 2026-08-30: 幹事の店リストは票の多い順に
+    固定し、並べ替えの切替を置かない), that list is already covered without a
+    new allowedPurposes/forbiddenPurposes edit (ADR-0036 design judgment 3).
+    `secondary-condition` is reused from the same source contract for the
+    same reason: this product's existing "no auxiliary condition controls
+    beyond the declared filter/sort model" principle (ADR-0005 decision 4)
+    applies here too, even though this slice defines no filter controls of
+    its own.
+  forbiddenTestIds:
+    [candidate-origin-marker, candidate-map, private-search-origin]
+  forbiddenTestIdsNote: >-
+    Neither gathering screen may render any candidate-search map/origin
+    element -- the gathering never persists or re-displays provider location
+    data of its own (adr/0034 decision 6); any shop information a gathering
+    screen shows is a live, non-persisted projection
+    (gathering-scheduling-api.yaml's OpenShopPreviewItem), never a map.
+
+browserControlSurface:
+  organizerDashboard:
+    requiredTestIds:
+      phaseIndicator: gathering-phase-indicator
+      respondedSummary: gathering-responded-summary
+      unansweredSummary: gathering-unanswered-summary
+      candidateDateList: gathering-candidate-date-list
+      candidateDate: gathering-candidate-date
+      addCandidateDateOpen: gathering-add-candidate-date-open
+      participantLinkCopy: gathering-participant-link-copy
+      participantLinkList: gathering-participant-link-list
+      confirmDate: gathering-confirm-date-select
+    phaseIndicatorAttributes:
+      testId: gathering-phase-indicator
+      attribute: data-gathering-phase
+      values: [SCHEDULING, SELECTING_SHOP, FINALIZED]
+      requirement: >-
+        Exact string match with the current Gathering.phase
+        (gathering-scheduling-api.yaml). Present unconditionally whenever the
+        organizer dashboard renders. Corresponds to the phase progress
+        display Organizer.dc.html's dw-ph header and Flow.dc.html's 会の状態
+        row both show; this element is what carries that concept into the
+        approved screens actually observed by this contract (F itself has no
+        observable surface -- see this file's header comment).
+    denominatorAttributes:
+      description: >-
+        D2 (2026-08-30): two distinct denominators must be separately
+        machine-observable on the same dashboard, matching Gathering's
+        activeParticipantLinkCount and respondedParticipantCount
+        (gathering-scheduling-api.yaml), which are never the same value and
+        must never be conflated into one attribute. Amended 2026-08-30
+        (ADR-0036 decision 7): the unanswered denominator now nets out
+        revoked links, not just totalIssuedParticipantLinks.
+      respondedSummary:
+        testId: gathering-responded-summary
+        attributes:
+          respondedCount: data-responded-count
+          anonymousRespondedCount: data-anonymous-responded-count
+        requirement: >-
+          data-responded-count equals response.respondedParticipantCount
+          exactly; data-anonymous-responded-count equals
+          response.anonymousRespondedParticipantCount exactly (both decimal
+          integer strings). Supports the visible disclosure "8人が回答（うち
+          2人は名前なし）" (Organizer.dc.html) without itself fixing that
+          wording.
+      unansweredSummary:
+        testId: gathering-unanswered-summary
+        attributes:
+          totalIssuedLinks: data-total-issued-links
+          revokedLinks: data-revoked-links
+          activeIssuedLinks: data-active-issued-links
+          unansweredCount: data-unanswered-count
+        requirement: >-
+          data-total-issued-links equals
+          response.totalIssuedParticipantLinks exactly (lifetime count,
+          audit only -- ADR-0036 decision 7). data-revoked-links equals
+          response.totalRevokedParticipantLinks exactly. data-active-issued-links
+          equals response.activeParticipantLinkCount exactly
+          (totalIssuedParticipantLinks - totalRevokedParticipantLinks).
+          data-unanswered-count equals
+          activeParticipantLinkCount minus respondedParticipantCount exactly
+          -- this is the D2 denominator ("まだn人が未回答", amended
+          2026-08-30 so a revoked link no longer counts as outstanding,
+          TDR-GTH-18), and it must never be computed from or equal to any
+          per-candidate-date tally, and must never be computed from
+          data-total-issued-links directly (that would reintroduce the
+          pre-amendment bug of counting a revoked link as still
+          unanswered).
+    candidateDateList:
+      testId: gathering-candidate-date-list
+      orderingInvariant: >-
+        DOM order of gathering-candidate-date children equals
+        Gathering.candidateDates' order (goingCount descending,
+        implementation-chosen stable tie-break, gathering-scheduling-api.yaml)
+        at all times. No control in this list may claim the forbidden
+        manual-ordering purpose (see unavailableControls above).
+      candidateDate:
+        testId: gathering-candidate-date
+        attributes:
+          id: data-candidate-date-id
+          goingCount: data-going-count
+          maybeCount: data-maybe-count
+          notGoingCount: data-not-going-count
+          isConfirmed: data-confirmed
+          tentativelySelected: data-tentative-selected
+        requirement: >-
+          One element per CandidateDate, each attribute an exact-match
+          projection of the same-named CandidateDate field (data-confirmed
+          and data-tentative-selected are "true"/"false" strings). At most
+          one gathering-candidate-date carries data-confirmed="true" at a
+          time, and it is exactly Gathering.confirmedCandidateDateId's
+          target once phase is SELECTING_SHOP or FINALIZED. At most one
+          carries data-tentative-selected="true" at a time (see
+          tentativeSelectionAndPreview below); tentative selection is
+          client-side UI state only, never sent to or reflected by
+          gathering-scheduling-api.yaml (adr/0035 decision 1 item 1).
+      addCandidateDateOpen:
+        testId: gathering-add-candidate-date-open
+        purpose: gathering-add-candidate-date-open
+        requiredOutcome: >-
+          Activating it makes an input surface for a new candidate date
+          reachable (TDR-GTH-02). This contract does not fix that surface's
+          own test ids or field layout -- Organizer.dc.html shows only the
+          "候補日を足す" entry point, not its resulting form, so those
+          details are not yet approved design (see this file's header
+          comment). The eventual submission must result in exactly one new
+          gathering-candidate-date element whose data-candidate-date-id
+          matches a newly created CandidateDate.id, with the gathering's
+          phase unchanged.
+    tentativeSelectionAndPreview:
+      description: >-
+        The "simultaneous decision" flow (同時決め, human addition
+        2026-08-30, adr/0035 decision 1 item 1). Tentatively selecting a
+        candidate-date never calls confirmCandidateDate and never changes
+        Gathering.phase; it only reveals a preview and toggles
+        data-tentative-selected.
+      trigger:
+        testId: gathering-candidate-date
+        purpose: gathering-candidate-date-tentative-select
+        requiredOutcome: >-
+          Exactly one gathering-candidate-date's data-tentative-selected
+          becomes "true" (any previously "true" element becomes "false");
+          gathering-open-shop-preview becomes present, scoped to that same
+          candidate date; Gathering.phase is unchanged; no request to
+          confirmCandidateDate is made.
+      preview:
+        testId: gathering-open-shop-preview
+        attributes:
+          candidateDateId: data-candidate-date-id
+          openShopCount: data-open-shop-count
+        item:
+          testId: gathering-open-shop-preview-item
+          requiredFields:
+            name: {testId: gathering-open-shop-preview-item-name}
+          optionalFields:
+            genre: {testId: gathering-open-shop-preview-item-genre}
+            capacityTier: {testId: gathering-open-shop-preview-item-capacity-tier}
+            nonSmokingStatus: {testId: gathering-open-shop-preview-item-non-smoking}
+            dinnerBudgetTier: {testId: gathering-open-shop-preview-item-dinner-budget}
+          note: >-
+            Only `name` is required for TDR-GTH-08's "その日に開いている店の
+            プレビューが近い順に示される" assertion (presence + DOM order
+            equal to CandidateDateOpenShopPreview.previewShops' order); the
+            remaining fields mirror OpenShopPreviewItem's schema for
+            consistency but no TDR-GTH scenario currently asserts them, so
+            they are optional in this contract (an implementation may omit
+            them from the DOM without failing acceptance).
+        orderingInvariant: >-
+          DOM order of gathering-open-shop-preview-item children equals
+          CandidateDateOpenShopPreview.previewShops' order (nearest-first,
+          gathering-scheduling-api.yaml). data-open-shop-count equals
+          openShopCount exactly and is not derived by counting the preview
+          items in the DOM (previewShops is a capped subset; openShopCount
+          is the authoritative total).
+        forbiddenFields: >-
+          gathering-open-shop-preview-item never carries a candidate
+          location, coordinate, distance, candidateRef, or providerPageUrl
+          -- OpenShopPreviewItem's schema has none of these, and this
+          contract does not add any (mirrors
+          unavailableControls.forbiddenTestIds above).
+    confirmDate:
+      testId: gathering-confirm-date-select
+      purpose: gathering-confirm-date-select
+      description: >-
+        The "この日にする" operation (product-brief.md §2 operation 1 of 3,
+        gathering-scheduling-api.yaml's confirmCandidateDate).
+      disabledState: >-
+        Carries the native disabled state whenever no gathering-candidate-date
+        currently has data-tentative-selected="true" (mirrors
+        candidate-search-browser-interface.yaml's deckNavigation.disabledState
+        convention for a boundary condition rather than removing the control).
+      requiredOutcome: >-
+        Activating it while a candidate date is tentatively selected calls
+        confirmCandidateDate with that date's id. On success,
+        gathering-phase-indicator's data-gathering-phase becomes
+        SELECTING_SHOP, the confirmed gathering-candidate-date's
+        data-confirmed becomes "true", and every other
+        gathering-candidate-date's data-confirmed remains "false".
+        gathering-open-shop-preview and every gathering-candidate-date's
+        data-tentative-selected are unaffected by this call itself (adr/0035
+        decision 1 item 1: tentative selection is independent client state).
+    participantLinkCopy:
+      testId: gathering-participant-link-copy
+      purpose: gathering-participant-link-copy
+      designNote: >-
+        Organizer.dc.html shows one "回答リンクをコピー" control, not a
+        count input, while issueParticipantLinks accepts a batch `count`.
+        This contract adopts the "1クリック=1本" operating model: each
+        activation issues exactly one new link (count: 1), which the
+        organizer copies and hands to one participant individually (e.g. via
+        Slack or email, outside this product). Confirmed by human decision
+        2026-08-30 (ADR-0036 decision 4, option A) -- this is not an
+        unresolved gap between the screen and the API; the API's `count`
+        parameter remains able to accept a larger value as schema headroom
+        for a possible future bulk-issuance screen, but this slice's screen
+        and this contract only ever call it with count: 1.
+      requiredOutcome: >-
+        Activating it calls issueParticipantLinks with count: 1.
+        Gathering.totalIssuedParticipantLinks and activeParticipantLinkCount
+        each increase by exactly 1. Because acceptance automation cannot
+        reliably read the OS clipboard, the issued URL must also be exposed
+        via a data-issued-link-url attribute on the same element immediately
+        after activation, holding the exact IssuedParticipantLink.url value
+        returned by that call. A new gathering-participant-link-item also
+        appears in gathering-participant-link-list (see participantLinkList
+        below), since issuing and listing share the same underlying data.
+    participantLinkList:
+      description: >-
+        The link-management surface (ADR-0036 decision 7, human concern
+        2026-08-30: "リンクがわからなくなったら管理されなくなっちゃうかもね").
+        Supports TDR-GTH-16 through TDR-GTH-20.
+      testId: gathering-participant-link-list
+      orderingInvariant: >-
+        DOM order of gathering-participant-link-item children equals
+        listParticipantLinks' response order (issuedAt ascending, 発行順,
+        gathering-scheduling-api.yaml). Revoked links remain present in this
+        list (see item.attributes.revoked below) -- they are never removed
+        from the DOM by this contract, only marked. No control in this list
+        may claim the forbidden manual-ordering purpose (see
+        unavailableControls above).
+      item:
+        testId: gathering-participant-link-item
+        attributes:
+          id: data-participant-link-id
+          issuedAt: data-issued-at
+          hasResponded: data-has-responded
+          revoked: data-revoked
+          named: data-participant-named
+        requirement: >-
+          One element per ParticipantLinkSummary. data-participant-link-id
+          equals its `id` (the organizer-facing linkId, never the
+          participant token -- ADR-0036 decision 7's ParticipantLinkId
+          design). data-issued-at is an ISO-8601 string equal to `issuedAt`.
+          data-has-responded and data-revoked are "true"/"false" strings
+          equal to `hasResponded`/`revoked`. data-participant-named is
+          "false" exactly when `displayName` is null, "true" otherwise (same
+          vocabulary as nameControl.status below); this element does not
+          require the name's exact text to be machine-asserted (TDR-GTH-16
+          only requires "名無しを含む" distinguishability, not text
+          equality), though an implementation may additionally show the
+          name's visible text inside this item without contract obligation.
+          Never carries a token or URL attribute (see this file's header
+          comment and gathering-scheduling-api.yaml's ParticipantLinkSummary
+          -- token/URL re-exposure is scoped to recopy alone).
+        recopy:
+          testId: gathering-participant-link-recopy
+          purpose: gathering-participant-link-recopy
+          disabledState: >-
+            Carries the native disabled state whenever this item's
+            data-revoked is "true" (a revoked link has nothing left to
+            re-copy). Not gated by data-has-responded -- recopy is allowed
+            for answered and unanswered links alike (ADR-0036 decision 7).
+          requiredOutcome: >-
+            Activating it (while not disabled) calls recopyParticipantLink
+            for this item's linkId. Exposes the returned URL via a
+            data-issued-link-url attribute on this same recopy element
+            (same convention as participantLinkCopy above). Does not change
+            data-has-responded, data-revoked, data-issued-at, or
+            Gathering.totalIssuedParticipantLinks/activeParticipantLinkCount
+            (TDR-GTH-17: "そのリンクの回答状況は変わらない").
+        revoke:
+          testId: gathering-participant-link-revoke
+          purpose: gathering-participant-link-revoke
+          disabledState: >-
+            Carries the native disabled state whenever this item's
+            data-has-responded is "true" or data-revoked is already "true"
+            (human decision 2026-08-30: revocation is limited to unanswered
+            links -- TDR-GTH-20). This is the same "disable at the boundary,
+            don't remove the control" convention as confirmDate.disabledState
+            above.
+          requiredOutcome: >-
+            Activating it (while not disabled) calls revokeParticipantLink
+            for this item's linkId. On success, this item's data-revoked
+            becomes "true"; gathering-unanswered-summary's
+            data-revoked-links, data-active-issued-links, and
+            data-unanswered-count all refresh to reflect one fewer active
+            link (TDR-GTH-18) without requiring a full page reload
+            (renderModel). Rejected (PARTICIPANT_LINK_ALREADY_ANSWERED)
+            calls -- which this contract's own disabledState above should
+            make unreachable through this control, but which the API still
+            enforces server-side -- leave data-revoked, data-has-responded,
+            and every denominator attribute unchanged (TDR-GTH-20).
+  participantAnswer:
+    requiredTestIds:
+      header: gathering-participant-header
+      nameStatus: gathering-participant-name-status
+      scheduleQuestion: gathering-schedule-question
+    headerAttributes:
+      testId: gathering-participant-header
+      attribute: data-gathering-phase
+      values: [SCHEDULING, SELECTING_SHOP, FINALIZED]
+      requirement: >-
+        Exact string match with ParticipantView.phase
+        (gathering-scheduling-api.yaml), mirroring
+        organizerDashboard.phaseIndicatorAttributes' same vocabulary and
+        value set. Present unconditionally whenever a valid link is opened
+        (see browserEntry.participantAnswer.validLinkOutcome). Lets
+        TDR-GTH-11 ("開催日確定後も局面は「店を選び中」のまま変わらない") be
+        asserted from the participant page alone, without also opening the
+        organizer dashboard in the same acceptance run.
+    nameControl:
+      status:
+        testId: gathering-participant-name-status
+        attribute: data-participant-named
+        values: ['true', 'false']
+        requirement: >-
+          "false" exactly when ParticipantView.displayName is null; "true"
+          otherwise (D5, 2026-08-30). Present unconditionally on the
+          participant screen.
+      open:
+        testId: gathering-participant-name-open
+        purpose: gathering-participant-name-open
+        requiredOutcome: >-
+          Activating it reveals gathering-participant-name-input (text
+          field) and gathering-participant-name-submit.
+      submit:
+        testId: gathering-participant-name-submit
+        purpose: gathering-participant-name-submit
+        requiredOutcome: >-
+          Submitting a non-empty name calls setParticipantDisplayName.
+          data-participant-named becomes "true" and remains "true" for the
+          rest of the session, including for schedule responses recorded
+          before the name was attached (TDR-GTH-05) -- this contract does
+          not require or forbid a way to remove a name once attached
+          (product-brief.md §2/§5 describe only self-reporting and change,
+          never removal).
+    scheduleQuestion:
+      testId: gathering-schedule-question
+      cardinality: >-
+        This contract does not fix whether every CandidateDate renders
+        simultaneously or progressively (a wizard-style one-at-a-time flow,
+        as Answer.dc.html's "このあと聞かれること" section suggests, is
+        permitted). It requires only that whichever candidate dates are
+        currently reachable in the DOM each expose exactly one
+        gathering-schedule-question with the attributes below, and that the
+        gathering-participant-progress element (see below) always reflects
+        the true total regardless of how many are currently rendered.
+      attributes:
+        candidateDateId: data-candidate-date-id
+        openShopCount: data-open-shop-count
+        yourResponse: data-your-response
+      yourResponseValues: [GOING, MAYBE, NOT_GOING, UNANSWERED]
+      requirement: >-
+        data-open-shop-count equals ParticipantScheduleQuestion.openShopCount
+        exactly and is present regardless of data-your-response's value (D6,
+        2026-08-30: unconditional, unlike tally below). data-your-response is
+        "UNANSWERED" exactly when
+        ParticipantScheduleQuestion.yourResponse is null; otherwise it is the
+        exact ScheduleResponseStatus string. No shop name or other shop
+        attribute is present anywhere inside gathering-schedule-question (D6:
+        count only, no shop names) -- this is a stronger prohibition than
+        organizerDashboard's preview, which does show names.
+      responseOptions:
+        testId: gathering-schedule-response-option
+        purpose: gathering-schedule-response-select
+        attribute: data-response-value
+        values: [GOING, MAYBE, NOT_GOING]
+        cardinality: exactly-three-per-gathering-schedule-question
+        requiredOutcome: >-
+          Activating the option whose data-response-value is V calls
+          setScheduleResponse with status: V for this
+          gathering-schedule-question's candidate date. data-your-response
+          updates to V. Re-activating a different option updates
+          data-your-response again (TDR-GTH-06: always changeable).
+      tally:
+        testId: gathering-schedule-tally
+        attributes:
+          goingCount: data-going-count
+          maybeCount: data-maybe-count
+          notGoingCount: data-not-going-count
+        presenceRule: >-
+          Present within a given gathering-schedule-question exactly when
+          that question's data-your-response is not "UNANSWERED"; absent
+          otherwise (product-brief.md §2's "answer first, then see others"
+          rule, applied per candidate date, TDR-GTH-12). Its three
+          attributes mirror the organizer-facing
+          gathering-candidate-date's goingCount/maybeCount/notGoingCount for
+          the same candidate date exactly.
+    progress:
+      testId: gathering-participant-progress
+      attributes:
+        totalCandidateDates: data-total-candidate-dates
+        answeredCandidateDates: data-answered-candidate-dates
+      requirement: >-
+        data-total-candidate-dates equals the count of
+        ParticipantView.scheduleQuestions; data-answered-candidate-dates
+        equals the count among them whose yourResponse is non-null.
+        Corresponds to Answer.dc.html's "日程 2 / 3" counter and progress
+        bar; this contract fixes only the counts, not the visible wording or
+        bar rendering.
+    linkError:
+      testId: gathering-participant-link-error
+      attribute: data-link-error-code
+      values: [LINK_NOT_FOUND, LINK_EXPIRED, LINK_REVOKED, LINK_RATE_LIMITED]
+      requirement: >-
+        Present exactly when the participant-facing API call underlying this
+        page load returned the correspondingly named ProblemResponse.code
+        (gathering-scheduling-api.yaml). `LINK_REVOKED` (added 2026-08-30,
+        ADR-0036 decision 7) is present exactly when the organizer has
+        revoked this token via revokeParticipantLink -- TDR-GTH-19. Its
+        visible text must not disclose the gathering's title, any
+        participant's name or response, or any other gathering content
+        (mirrors authentication-browser-interface.yaml's disclosure
+        discipline for its own failure surfaces). Unlike authentication's
+        account-enumeration protection, this contract does not require
+        LINK_NOT_FOUND/LINK_EXPIRED/LINK_REVOKED to be indistinguishable from
+        each other -- possessing a link already implies the holder was
+        invited, so which of these three failure reasons applies is not
+        equivalent to leaking whether an unrelated account exists.
+
+browserActions:
+  addCandidateDate:
+    inputs: [gathering-add-candidate-date-open]
+    success:
+      present: [gathering-candidate-date]
+      unaffected: [gathering-phase-indicator]
+  copyParticipantLink:
+    inputs: [gathering-participant-link-copy]
+    success:
+      requiredOutcome: browserControlSurface.organizerDashboard.participantLinkCopy.requiredOutcome
+  recopyParticipantLink:
+    inputs: [gathering-participant-link-recopy]
+    success:
+      requiredOutcome: browserControlSurface.organizerDashboard.participantLinkList.item.recopy.requiredOutcome
+  revokeParticipantLink:
+    inputs: [gathering-participant-link-revoke]
+    success:
+      requiredOutcome: browserControlSurface.organizerDashboard.participantLinkList.item.revoke.requiredOutcome
+  tentativelySelectCandidateDate:
+    inputs: [gathering-candidate-date]
+    success:
+      requiredOutcome: browserControlSurface.organizerDashboard.tentativeSelectionAndPreview.trigger.requiredOutcome
+  confirmDate:
+    inputs: [gathering-confirm-date-select]
+    success:
+      requiredOutcome: browserControlSurface.organizerDashboard.confirmDate.requiredOutcome
+  answerScheduleQuestion:
+    inputs: [gathering-schedule-response-option]
+    success:
+      requiredOutcome: browserControlSurface.participantAnswer.scheduleQuestion.responseOptions.requiredOutcome
+  attachDisplayName:
+    inputs: [gathering-participant-name-open, gathering-participant-name-input,
+             gathering-participant-name-submit]
+    success:
+      requiredOutcome: browserControlSurface.participantAnswer.nameControl.submit.requiredOutcome
+  rateLimitedScheduleResponse:
+    inputs: [gathering-schedule-response-option]
+    rateLimited:
+      present: [gathering-participant-link-error]
+      attribute: {name: data-link-error-code, value: LINK_RATE_LIMITED}
+      priorAnswersRetained: >-
+        Every previously recorded data-your-response and
+        gathering-schedule-tally value present before the rate-limited
+        request is unchanged after it (mirrors
+        candidate-search-browser-interface.yaml's priorDisplayRetained
+        convention, adr/0023-era human decision applied to this scope: a
+        throttled request must never erase already-recorded state).
+
+disclosureObservations:
+  bodyMustNotContain:
+    - source: profiles.localAcceptance.syntheticDisclosureCanaries.privateSearchOrigin
+    - source: profiles.localAcceptance.syntheticDisclosureCanaries.providerInternals
+  bodyMustNotExposeTestIds:
+    [private-search-origin, candidate-origin-marker, candidate-map-marker]
+  participantTokenHandling:
+    requirement: >-
+      The participant-link token (the `token` path segment) must never be
+      written to localStorage, a cookie, or any storage surviving page
+      navigation other than the current URL itself. This keeps the token a
+      per-visit bearer credential rather than letting client-side code turn
+      it into a durable, device-bound participant identity -- consistent
+      with product-brief.md §5's "no participant accounts" decision and
+      distinct from organizerSession's own cookie, which this requirement
+      does not affect. Extends to gathering-participant-link-list (ADR-0036
+      decision 7): that list's items never carry a token/URL attribute at
+      all (see gathering-scheduling-api.yaml's ParticipantLinkSummary), and
+      only recopyParticipantLink's own transient
+      data-issued-link-url response attribute, not the list, carries one.
+  apiSchemaValidation:
+    file: contracts/gathering-scheduling-api.yaml
+    schemaRef: '#/components/schemas/ProblemResponse'
+    appliesTo: [gathering-participant-link-error, gathering-unanswered-summary error paths]
+
+securityObservations:
+  organizerDashboard:
+    stateChangingOperations:
+      [addCandidateDate, issueParticipantLinks, confirmCandidateDate,
+       recopyParticipantLink, revokeParticipantLink]
+    csrf: required
+    csrfMechanism: >-
+      Reuses gathering-scheduling-api.yaml's CsrfToken parameter and
+      organizerSession's same-origin Django session cookie, identical to
+      candidate-search-browser-interface.yaml's securityObservations.
+      recopyParticipantLink is included even though it does not mutate
+      persisted state, because it returns a participant-access credential
+      -- CSRF protection here also prevents a cross-site page from
+      exfiltrating that credential through a forged authenticated request
+      (ADR-0036 decision 7).
+  participantAnswer:
+    stateChangingOperations: [setScheduleResponse, setParticipantDisplayName]
+    csrf: not-required
+    csrfRationale: >-
+      CSRF protects against a browser's *ambient* credential (a cookie) being
+      ridden by a cross-site request the victim did not intend. The
+      participant surface carries no ambient credential -- the token itself,
+      supplied explicitly in the URL, is the credential, and forging a
+      state-changing request requires already knowing that token. An
+      attacker who knows the token already has the same access a legitimate
+      link-holder has; CSRF's threat model (attacker exploits a credential it
+      does not know) does not apply here. This is a security design judgment
+      made by architect (ADR-0036 design judgment 5) and is available for
+      human review; product-brief.md §5 does not itself decide this.
+    rateLimit:
+      requiredOutcome: rejected-429-with-linkError
+      thresholdFixedInContract: false
+      note: >-
+        Same convention as candidate-search-api.yaml's ProposalRateLimited
+        and authentication.feature's TDR-AUTH-07: this contract requires the
+        429/Retry-After/gathering-participant-link-error behavior to exist
+        but does not fix the numeric threshold (adr/0035 decision 4 records
+        an implementation-guidance value, not a contract Must).
