@@ -32,25 +32,48 @@
 # - 承認投票・店の絞り込み連携・確定は次スライス以降の契約が扱う（ADR-0035決定2）。本ファイルは
 #   `SELECTING_SHOP`局面への遷移までを扱い、その先の店の絞り込み・投票・確定に関するエンドポイントは
 #   含まない。
+#
+# 2026-08-30 追補 (architect、ADR-0036決定7。人間裁定「発行済みリンクの管理面を第1弾に含める」):
+# - 発端は人間の懸念「リンクがわからなくなったら管理されなくなっちゃうかもね」。幹事が発行済みの
+#   参加者リンクを一覧で確認し、再コピーし、未回答のものを失効できるようにする
+#   （listParticipantLinks・recopyParticipantLink・revokeParticipantLink）。
+# - **D2の分母の定義を改める**: 「まだn人が未回答」の分母は、これまで`totalIssuedParticipantLinks`
+#   （生涯発行本数）そのものだったが、失効したリンクを分母から除くため、新設の
+#   `Gathering.activeParticipantLinkCount`（=生涯発行本数−生涯失効本数）へ差し替える。
+#   `totalIssuedParticipantLinks`自体の意味（生涯発行本数、失効の有無に関わらず単調増加）は変えない
+#   ——監査目的でこの値も引き続き残す。新設の`totalRevokedParticipantLinks`と合わせて3値
+#   （発行・失効・実効）を透明に見せる。
+# - **失効は未回答のリンクに限る**（人間裁定）: 既に日程へ1件でも回答したリンクは失効できない
+#   （`PARTICIPANT_LINK_ALREADY_ANSWERED`）。名前だけを付けて日程には未回答のリンクは、本契約の
+#   「回答済み」の定義（`respondedParticipantCount`と同じ——日程回答が1件以上あること）に照らして
+#   失効できる側に含まれる。
+# - **トークンの一覧内再露出はしない**（architectの設計判断、ADR-0036決定7）: 一覧
+#   （`listParticipantLinks`）の各項目にはtoken/urlを含めない。再コピーは専用の1件だけを対象とする
+#   別操作（`recopyParticipantLink`）とし、参加者アクセス資格情報が一度に複数件レスポンスへ載る
+#   経路を作らない。管理用の識別子`linkId`は参加者アクセスに使えない別種のIDとする。
+# - 失効済みトークンで参加者がアクセスすると`LINK_REVOKED`（410、`LINK_EXPIRED`と同じステータス
+#   コードだが別コード）を返す——失効と有効期限切れは原因が異なるため区別する。
 openapi: 3.0.3
 info:
   title: Dining Radar Gathering Scheduling API
-  version: 0.1.0
+  version: 0.2.0
   description: >-
     Lets an authenticated organizer create a gathering with candidate dates,
-    issue signed participant links, and confirm one candidate date once
-    schedule responses have arrived. Lets a participant holding a signed link
-    answer per-date availability (GOING/MAYBE/NOT_GOING) without an account,
-    optionally attach a display name at any time, and change any answer at
-    any time. This contract covers only the "gathering creation and
-    scheduling" slice (adr/0035 decision 2): shop narrowing, approval voting,
-    and finalization are out of scope and will be contracted in later slices.
-    The gathering never persists provider-derived shop attributes (name,
-    genre, coordinates, hours, images); "open shop" counts and previews are
-    recomputed from the private candidate population on every read
-    (adr/0034 decision 6). DRAFT: this contract version is not yet
-    human-approved; see
-    adr/0035-scope-the-gathering-scheduling-slice-and-record-2026-08-30-decisions.md.
+    issue signed participant links, list/recopy/revoke previously issued
+    links, and confirm one candidate date once schedule responses have
+    arrived. Lets a participant holding a signed link answer per-date
+    availability (GOING/MAYBE/NOT_GOING) without an account, optionally
+    attach a display name at any time, and change any answer at any time.
+    This contract covers only the "gathering creation and scheduling" slice
+    (adr/0035 decision 2): shop narrowing, approval voting, and finalization
+    are out of scope and will be contracted in later slices. The gathering
+    never persists provider-derived shop attributes (name, genre,
+    coordinates, hours, images); "open shop" counts and previews are
+    recomputed from the private candidate population on every read (adr/0034
+    decision 6). DRAFT: this contract version is not yet human-approved; see
+    adr/0035-scope-the-gathering-scheduling-slice-and-record-2026-08-30-decisions.md
+    and adr/0036-adopt-gathering-scheduling-browser-interface-contract.md
+    (decision 7, participant-link management).
 servers:
   - url: https://app.example.invalid
     description: >-
@@ -192,7 +215,12 @@ paths:
         returned by this operation must never appear in a log, error, trace,
         or any storage this API retains beyond fulfilling this response
         (product-brief.md §4's API-key handling boundary, extended to
-        participant tokens by adr/0035 decision 4).
+        participant tokens by adr/0035 decision 4). The approved screen
+        always calls this with count: 1 -- one click issues and copies
+        exactly one link (human decision 2026-08-30, ADR-0036 decision 4,
+        option A); `count` accepting larger values remains schema headroom
+        for a possible future bulk-issuance screen, not exercised by this
+        slice.
       security:
         - organizerSession: []
       parameters:
@@ -215,6 +243,103 @@ paths:
           $ref: '#/components/responses/AuthenticationRequired'
         '404':
           $ref: '#/components/responses/GatheringNotFound'
+    get:
+      operationId: listParticipantLinks
+      summary: List every participant link issued for this gathering, in issuance order
+      description: >-
+        Supports the organizer-facing link-management surface (ADR-0036
+        decision 7, human concern 2026-08-30: "リンクがわからなくなったら管理
+        されなくなっちゃうかもね"). Ordered by `issuedAt` ascending (発行順).
+        Includes revoked links (marked `revoked: true`) rather than deleting
+        them from view, so revocation stays auditable. **Does not include the
+        participant token or URL for any item** -- see
+        `ParticipantLinkSummary` and this file's header comment for why;
+        obtain a usable URL only via `recopyParticipantLink`, one link at a
+        time, on explicit organizer request.
+      security:
+        - organizerSession: []
+      parameters:
+        - $ref: '#/components/parameters/GatheringId'
+      responses:
+        '200':
+          description: Every participant link issued for this gathering (active and revoked).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParticipantLinkListResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '404':
+          $ref: '#/components/responses/GatheringNotFound'
+  /gatherings/{gatheringId}/participant-links/{linkId}/recopy:
+    post:
+      operationId: recopyParticipantLink
+      summary: Re-obtain the full participant URL for one previously issued link
+      description: >-
+        Returns the same token/URL originally issued for `linkId`, for the
+        organizer to copy again (e.g. because the original message was lost
+        -- ADR-0036 decision 7). Does not issue a new token, does not change
+        `Gathering.totalIssuedParticipantLinks`, and does not affect
+        `hasResponded` or `revoked` for this link. Allowed regardless of
+        `hasResponded` (an already-answered participant's link may still be
+        worth re-sharing); rejected once `revoked` is true, since a revoked
+        link no longer grants participant access and re-copying it would be
+        misleading.
+      security:
+        - organizerSession: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/GatheringId'
+        - $ref: '#/components/parameters/ParticipantLinkId'
+      responses:
+        '200':
+          description: The link's participant-facing URL.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssuedParticipantLink'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '404':
+          $ref: '#/components/responses/ParticipantLinkNotFound'
+        '409':
+          $ref: '#/components/responses/ParticipantLinkRevoked'
+  /gatherings/{gatheringId}/participant-links/{linkId}/revoke:
+    post:
+      operationId: revokeParticipantLink
+      summary: Revoke one previously issued, still-unanswered participant link
+      description: >-
+        Marks `linkId` revoked. Only accepted while `hasResponded` is false
+        for this link (human decision 2026-08-30: revocation is for
+        cleaning up lost/mis-sent links, not for removing a participant who
+        has already answered -- that is a distinct use case explicitly out
+        of this slice). Once revoked, the token can no longer be used to
+        reach the participant view (`LINK_REVOKED`), and this link no longer
+        counts toward `Gathering.activeParticipantLinkCount` -- the
+        denominator for "n人が未回答" (D2, amended 2026-08-30) -- though it
+        remains visible in `listParticipantLinks` with `revoked: true` for
+        audit. Revocation cannot be undone by this contract (no
+        un-revoke/reissue-to-same-linkId operation exists; the organizer
+        issues a new link instead).
+      security:
+        - organizerSession: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/GatheringId'
+        - $ref: '#/components/parameters/ParticipantLinkId'
+      responses:
+        '200':
+          description: The revoked link's summary and the gathering's updated counters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevokeParticipantLinkResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '404':
+          $ref: '#/components/responses/ParticipantLinkNotFound'
+        '409':
+          $ref: '#/components/responses/ParticipantLinkAlreadyAnswered'
   /gatherings/{gatheringId}/confirm-date:
     post:
       operationId: confirmCandidateDate
@@ -277,7 +402,10 @@ paths:
         gathering's candidate dates and this participant's own recorded
         answers, but shop-narrowing, voting, and finalized-decision content
         are out of this slice's contract (adr/0035 decision 2) and are not
-        represented here beyond `phase` and `confirmedCandidateDate`.
+        represented here beyond `phase` and `confirmedCandidateDate`. Once
+        the organizer has revoked this link (ADR-0036 decision 7), this
+        operation returns `LINK_REVOKED` instead, regardless of whether the
+        token would otherwise still be within its validity period.
       parameters:
         - $ref: '#/components/parameters/ParticipantToken'
       responses:
@@ -290,7 +418,7 @@ paths:
         '404':
           $ref: '#/components/responses/LinkNotFound'
         '410':
-          $ref: '#/components/responses/LinkExpired'
+          $ref: '#/components/responses/LinkExpiredOrRevoked'
         '429':
           $ref: '#/components/responses/LinkRateLimited'
   /participant-links/{token}/responses/{candidateDateId}:
@@ -303,7 +431,11 @@ paths:
         reflected after the organizer confirms a date; there is no
         deadline). Rejected once the gathering is FINALIZED (D1,
         2026-08-30: after finalization, a participant sees the decision only
-        and no operation is offered).
+        and no operation is offered). Also rejected once this link has been
+        revoked (LINK_REVOKED, ADR-0036 decision 7) -- but note that
+        revocation itself is only ever accepted by revokeParticipantLink
+        while this link had zero recorded responses, so a revoked link never
+        transitions out from under a participant who was mid-response.
       parameters:
         - $ref: '#/components/parameters/ParticipantToken'
         - $ref: '#/components/parameters/CandidateDateId'
@@ -330,7 +462,7 @@ paths:
         '409':
           $ref: '#/components/responses/GatheringFinalized'
         '410':
-          $ref: '#/components/responses/LinkExpired'
+          $ref: '#/components/responses/LinkExpiredOrRevoked'
         '429':
           $ref: '#/components/responses/LinkRateLimited'
   /participant-links/{token}/display-name:
@@ -367,7 +499,7 @@ paths:
         '404':
           $ref: '#/components/responses/LinkNotFound'
         '410':
-          $ref: '#/components/responses/LinkExpired'
+          $ref: '#/components/responses/LinkExpiredOrRevoked'
         '429':
           $ref: '#/components/responses/LinkRateLimited'
 components:
@@ -400,6 +532,19 @@ components:
       required: true
       schema:
         type: string
+    ParticipantLinkId:
+      name: linkId
+      in: path
+      required: true
+      schema:
+        type: string
+      description: >-
+        An opaque organizer-facing identifier for one issued participant
+        link (ParticipantLinkSummary.id). This is a distinct value from the
+        participant-facing token in ParticipantToken below -- knowing
+        `linkId` never grants access to the participant view, and it is safe
+        to appear in organizer-authenticated URLs, logs, and traces the way
+        the token itself must not (ADR-0036 decision 7).
     ParticipantToken:
       name: token
       in: path
@@ -413,7 +558,9 @@ components:
         `securitySchemes` entry; it functions as the sole credential for
         every /participant-links/{token}* operation (adr/0035 decision 4).
         Never log, trace, or persist this value beyond validating and
-        fulfilling the current request.
+        fulfilling the current request. Distinct from `linkId`
+        (ParticipantLinkId above), which the organizer-facing management
+        endpoints use instead precisely so this value need not appear there.
   responses:
     AuthenticationRequired:
       description: The caller is not an authenticated organizer.
@@ -462,6 +609,36 @@ components:
           example:
             code: GATHERING_NOT_IN_SCHEDULING_PHASE
             message: This gathering has already moved past scheduling.
+    ParticipantLinkNotFound:
+      description: No participant link exists with the given linkId for this gathering.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemResponse'
+          example:
+            code: PARTICIPANT_LINK_NOT_FOUND
+            message: This participant link could not be found.
+    ParticipantLinkAlreadyAnswered:
+      description: >-
+        The link has at least one recorded schedule response and cannot be
+        revoked (revocation is limited to unanswered links, ADR-0036
+        decision 7).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemResponse'
+          example:
+            code: PARTICIPANT_LINK_ALREADY_ANSWERED
+            message: This link has already been answered and cannot be revoked.
+    ParticipantLinkRevoked:
+      description: The link has already been revoked; re-copying it is not offered.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemResponse'
+          example:
+            code: PARTICIPANT_LINK_REVOKED
+            message: This link has already been revoked.
     LinkNotFound:
       description: The token does not correspond to any issued participant link.
       content:
@@ -471,15 +648,25 @@ components:
           example:
             code: LINK_NOT_FOUND
             message: This link is not valid.
-    LinkExpired:
-      description: The token corresponds to a participant link whose validity period has passed.
+    LinkExpiredOrRevoked:
+      description: >-
+        The token corresponds to a participant link whose validity period
+        has passed (LINK_EXPIRED) or that the organizer has revoked
+        (LINK_REVOKED, ADR-0036 decision 7). Both share this response's
+        410 status; the `code` field distinguishes the reason.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ProblemResponse'
-          example:
-            code: LINK_EXPIRED
-            message: This link has expired. Please ask the organizer for a new one.
+          examples:
+            expired:
+              value:
+                code: LINK_EXPIRED
+                message: This link has expired. Please ask the organizer for a new one.
+            revoked:
+              value:
+                code: LINK_REVOKED
+                message: This link is no longer valid. Please ask the organizer for a new one.
     LinkRateLimited:
       description: This token exceeded the allowed request frequency.
       headers:
@@ -574,7 +761,7 @@ components:
             Number of participants who answered NOT_GOING for this candidate
             date. This is a confirmed answer, distinct from an unanswered
             participant -- it is never used as a stand-in for "did not
-            respond" (see Gathering.totalIssuedParticipantLinks /
+            respond" (see Gathering.activeParticipantLinkCount /
             respondedParticipantCount for that distinct denominator, D2).
         isConfirmed:
           type: boolean
@@ -586,6 +773,7 @@ components:
       type: object
       required:
         [id, title, phase, candidateDates, totalIssuedParticipantLinks,
+         totalRevokedParticipantLinks, activeParticipantLinkCount,
          respondedParticipantCount, anonymousRespondedParticipantCount,
          confirmedCandidateDateId]
       additionalProperties: false
@@ -608,11 +796,33 @@ components:
           type: integer
           minimum: 0
           description: >-
-            The count of every participant link ever issued for this
-            gathering via issueParticipantLinks, across every call. This is
-            the denominator for "n人が未回答" (D2, 2026-08-30) -- distinct
-            from respondedParticipantCount below, and distinct from any
-            per-candidate-date response tally.
+            The lifetime count of every participant link ever issued for
+            this gathering via issueParticipantLinks, across every call.
+            Monotonically non-decreasing -- revoking a link does not reduce
+            this value. Retained for audit/transparency only; it is **no
+            longer the D2 denominator** by itself (amended 2026-08-30,
+            ADR-0036 decision 7) -- see `activeParticipantLinkCount` below
+            for the value "n人が未回答" now divides against.
+        totalRevokedParticipantLinks:
+          type: integer
+          minimum: 0
+          description: >-
+            The lifetime count of links revoked via revokeParticipantLink
+            for this gathering. Monotonically non-decreasing (revocation
+            cannot be undone by this contract). Always
+            <= totalIssuedParticipantLinks.
+        activeParticipantLinkCount:
+          type: integer
+          minimum: 0
+          description: >-
+            `totalIssuedParticipantLinks - totalRevokedParticipantLinks`.
+            This, not `totalIssuedParticipantLinks`, is the denominator for
+            "n人が未回答" (D2, amended 2026-08-30: a revoked link no longer
+            counts as an outstanding unanswered invitation -- ADR-0036
+            decision 7, resolving the human concern that a lost/mis-issued
+            link would otherwise leave "まだ1人未回答" permanently stuck).
+            Unanswered participant count is
+            `activeParticipantLinkCount - respondedParticipantCount`.
         respondedParticipantCount:
           type: integer
           minimum: 0
@@ -620,11 +830,16 @@ components:
             The count of distinct participant slots that have submitted at
             least one schedule response for this gathering (any candidate
             date, any status). Unanswered participant count is
-            `totalIssuedParticipantLinks - respondedParticipantCount`
-            (D2). This is a different denominator from each CandidateDate's
-            own goingCount/maybeCount/notGoingCount, which are scoped to one
+            `activeParticipantLinkCount - respondedParticipantCount`
+            (D2, amended 2026-08-30 -- see activeParticipantLinkCount). This
+            is a different denominator from each CandidateDate's own
+            goingCount/maybeCount/notGoingCount, which are scoped to one
             candidate date only and may not sum to this value if some
-            participants have answered only some candidate dates.
+            participants have answered only some candidate dates. A revoked
+            link is, by construction, never counted here -- revocation is
+            only ever accepted for a link with zero recorded responses
+            (revokeParticipantLink's PARTICIPANT_LINK_ALREADY_ANSWERED
+            guard), so this field needs no adjustment for revocation.
         anonymousRespondedParticipantCount:
           type: integer
           minimum: 0
@@ -633,8 +848,10 @@ components:
             display name (setParticipantDisplayName was never called for
             that participant slot). Supports the organizer-facing disclosure
             "8人が回答（うち2人は名前なし）"; this schema does not expose a
-            per-participant list (designer's own scoping decision,
-            2026-08-30 board).
+            per-participant list here (designer's own scoping decision,
+            2026-08-30 board) -- see listParticipantLinks for the separate,
+            per-link management view that does name each link (ADR-0036
+            decision 7).
         confirmedCandidateDateId:
           type: string
           nullable: true
@@ -712,8 +929,11 @@ components:
           maximum: 200
           description: >-
             How many new, distinct participant links to issue in this call.
-            `maxItems: 200` is a defensive schema bound, not an expected
-            operating size (same convention as
+            The approved screen always sends count: 1 (human decision
+            2026-08-30, ADR-0036 decision 4, option A); this schema still
+            accepts a larger value as headroom for a possible future
+            bulk-issuance screen. `maxItems: 200` is a defensive schema
+            bound, not an expected operating size (same convention as
             candidate-search-api.yaml's shownProviderPageUrls).
     IssuedParticipantLink:
       type: object
@@ -732,7 +952,7 @@ components:
           description: The full same-origin URL the organizer shares with one participant.
     IssueParticipantLinksResponse:
       type: object
-      required: [issuedLinks, totalIssuedParticipantLinks]
+      required: [issuedLinks, totalIssuedParticipantLinks, activeParticipantLinkCount]
       additionalProperties: false
       properties:
         issuedLinks:
@@ -743,6 +963,83 @@ components:
           type: integer
           minimum: 0
           description: Gathering.totalIssuedParticipantLinks after this call, for convenience.
+        activeParticipantLinkCount:
+          type: integer
+          minimum: 0
+          description: >-
+            Gathering.activeParticipantLinkCount after this call, for
+            convenience (the current D2 denominator, amended 2026-08-30).
+    ParticipantLinkSummary:
+      type: object
+      required: [id, issuedAt, hasResponded, revoked, displayName]
+      additionalProperties: false
+      description: >-
+        One row of the organizer-facing link-management list
+        (listParticipantLinks, ADR-0036 decision 7). Deliberately carries no
+        token or URL -- see ParticipantLinkId and this file's header comment
+        for why re-exposure is scoped to recopyParticipantLink's single-item
+        response instead of appearing here for every link at once.
+      properties:
+        id:
+          type: string
+          description: >-
+            Opaque organizer-facing identifier (see the ParticipantLinkId
+            parameter). Not usable as a participant-access credential.
+        issuedAt:
+          type: string
+          format: date-time
+          description: >-
+            When issueParticipantLinks created this link. listParticipantLinks
+            orders its array by this field ascending (発行順).
+        hasResponded:
+          type: boolean
+          description: >-
+            True exactly when this participant slot has submitted at least
+            one schedule response (the same condition
+            Gathering.respondedParticipantCount counts). Attaching a display
+            name alone, without any schedule response, does not make this
+            true. revokeParticipantLink is only accepted while this is
+            false.
+        revoked:
+          type: boolean
+          description: >-
+            True once revokeParticipantLink has succeeded for this link.
+            Revoked links remain in this list (not deleted) for audit, but
+            no longer count toward Gathering.activeParticipantLinkCount.
+            `revoked: true` implies `hasResponded: false` -- revocation is
+            never accepted otherwise.
+        displayName:
+          type: string
+          nullable: true
+          description: >-
+            This participant's self-reported name, or null if still
+            nameless (same field ParticipantView.displayName exposes to the
+            participant themselves). Supports showing "名無し" per row in
+            the organizer's list (D5-adjacent disclosure, distinct from the
+            aggregate-only anonymousRespondedParticipantCount on Gathering).
+    ParticipantLinkListResponse:
+      type: object
+      required: [participantLinks]
+      additionalProperties: false
+      properties:
+        participantLinks:
+          type: array
+          items:
+            $ref: '#/components/schemas/ParticipantLinkSummary'
+    RevokeParticipantLinkResponse:
+      type: object
+      required: [participantLink, gathering]
+      additionalProperties: false
+      properties:
+        participantLink:
+          $ref: '#/components/schemas/ParticipantLinkSummary'
+          description: The just-revoked link (revoked now true).
+        gathering:
+          $ref: '#/components/schemas/Gathering'
+          description: >-
+            The gathering with updated totalRevokedParticipantLinks and
+            activeParticipantLinkCount, so the dashboard's denominators
+            refresh without a second request.
     ParticipantScheduleQuestion:
       type: object
       required: [candidateDateId, startAt, openShopCount, yourResponse]
@@ -825,8 +1122,9 @@ components:
           enum:
             [AUTHENTICATION_REQUIRED, REQUEST_REJECTED, GATHERING_NOT_FOUND,
              CANDIDATE_DATE_NOT_FOUND, GATHERING_NOT_IN_SCHEDULING_PHASE,
-             LINK_NOT_FOUND, LINK_EXPIRED, LINK_RATE_LIMITED,
-             GATHERING_FINALIZED]
+             PARTICIPANT_LINK_NOT_FOUND, PARTICIPANT_LINK_ALREADY_ANSWERED,
+             PARTICIPANT_LINK_REVOKED, LINK_NOT_FOUND, LINK_EXPIRED,
+             LINK_REVOKED, LINK_RATE_LIMITED, GATHERING_FINALIZED]
         message:
           type: string
           description: Safe user-facing text without a private location, credentials, or provider internals.
