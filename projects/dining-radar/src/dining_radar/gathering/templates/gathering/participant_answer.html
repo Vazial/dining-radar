@@ -1,0 +1,51 @@
+{% load static %}
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>会の日程回答</title>
+    <style>
+      :root {
+        color: #1c2420;
+        background: #f4f5f1;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.6;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; }
+      .app-shell { width: min(100% - 2rem, 28rem); margin: 0 auto; padding: 1.5rem 0 3rem; }
+      .app-card {
+        background: #fff;
+        border: 1px solid #dce3da;
+        border-radius: 0.75rem;
+        padding: clamp(1rem, 4vw, 1.5rem);
+        box-shadow: 0 0.25rem 1.25rem rgb(23 49 36 / 6%);
+      }
+      button { min-height: 2.75rem; padding: 0.55rem 1rem; border: 1px solid #aeb9b1; border-radius: 0.4rem; background: #fff; font: inherit; cursor: pointer; }
+      button[data-response-value] { display: block; width: 100%; margin-bottom: 0.5rem; text-align: left; }
+      button[data-response-value][aria-pressed="true"] { background: #155c42; color: #fff; border-color: #155c42; }
+      input[type="text"] { min-height: 2.75rem; padding: 0.55rem 0.65rem; border: 1px solid #aeb9b1; border-radius: 0.4rem; font: inherit; }
+    </style>
+  </head>
+  <body>
+    <div class="app-shell">
+      <div class="app-card">
+        {% comment %}
+          Per contracts/gathering-scheduling-browser-interface.yaml's
+          renderModel, every required test id is built by participant.js
+          once the JS-executing render completes -- this template only
+          supplies the empty mount point plus the signed token the client
+          needs to call the public gathering-scheduling-api.yaml
+          participant-links endpoints.
+        {% endcomment %}
+        <div id="gathering-participant-app" data-participant-token="{{ token }}"></div>
+      </div>
+    </div>
+
+    {% comment %}
+      Cache-busting query string on participant.js (FR-025).
+    {% endcomment %}
+    <script src="{% static 'dining_radar/gathering/participant.js' %}?v=20260831-gathering-scheduling-slice-1"></script>
+  </body>
+</html>

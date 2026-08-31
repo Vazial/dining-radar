@@ -13,6 +13,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "dining_radar.authentication",
     "dining_radar.web",
+    "dining_radar.gathering",
 ]
 
 MIDDLEWARE = [
