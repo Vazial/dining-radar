@@ -17,6 +17,19 @@
  * confirmDate's own requiredOutcome explicitly leaves both unaffected, so
  * this script never clears either one as a side effect of a successful
  * confirm-date call.
+ *
+ * data-issued-link-url (participantLinkCopy.requiredOutcome /
+ * participantLinkList.item.recopy.requiredOutcome) is likewise tracked in
+ * `state` (headerIssuedLinkUrl / recopiedLinkUrls) rather than mutated
+ * directly on the clicked DOM node: `render()` fully rebuilds the DOM
+ * (`root.innerHTML = ""`) on every state change, including the one
+ * triggered by the same issue/recopy action's own follow-up refresh, which
+ * previously destroyed the node the attribute had just been set on before
+ * a poll could observe it (real-browser measurement, 2026-08-31: Playwright
+ * repeatedly re-resolved the test id to a freshly built <button> that never
+ * carried the attribute). Baking the value into the element's initial
+ * attributes at build time, from state, means every rebuild reproduces it
+ * instead of losing it.
  */
 (function () {
   "use strict";
@@ -34,6 +47,8 @@
     tentativeSelectedId: null,
     openShopPreview: null,
     addCandidateDateOpen: false,
+    headerIssuedLinkUrl: null,
+    recopiedLinkUrls: {},
   };
 
   function csrfToken() {
@@ -131,13 +146,30 @@
     });
   }
 
-  function copyParticipantLink(buttonEl) {
+  function copyParticipantLink() {
+    // Real-browser measurement (2026-08-31): a *second* activation of this
+    // same control was passing contracts/gathering-scheduling-browser-
+    // interface.yaml's own "data-issued-link-url becomes non-empty"
+    // acceptance check *immediately*, before this activation's own request
+    // had even reached the server -- the attribute already held the
+    // *previous* activation's non-empty URL, and the acceptance DSL's
+    // wildcard match (any non-empty value) cannot tell "still the old
+    // value" apart from "the new value arrived". Clearing the tracked value
+    // synchronously here, before the async request even starts, makes every
+    // activation transition through an observable
+    // absent-or-empty -> non-empty edge, not just the first ever
+    // activation for this gathering.
+    state.headerIssuedLinkUrl = null;
+    render();
     requestJson("POST", gatheringUrl() + "/participant-links", { count: 1 }).then(function (result) {
       if (result.status !== 201) {
         return;
       }
       var issued = result.body.issuedLinks[0];
-      buttonEl.setAttribute("data-issued-link-url", issued.url);
+      // Tracked in state (see the module docstring) so the attribute
+      // survives the render() rebuild loadParticipantLinksOnly() below
+      // triggers, instead of being set on a DOM node that rebuild replaces.
+      state.headerIssuedLinkUrl = issued.url;
       if (window.navigator && window.navigator.clipboard) {
         window.navigator.clipboard.writeText(issued.url).catch(function () {});
       }
@@ -147,11 +179,18 @@
     });
   }
 
-  function recopyParticipantLink(linkId, buttonEl) {
+  function recopyParticipantLink(linkId) {
+    // Same before/after clear-then-set pattern as copyParticipantLink above,
+    // and for the same real-measured reason: a second recopy of the same
+    // link must not let the first recopy's leftover non-empty value satisfy
+    // the acceptance check before this activation's own request completes.
+    state.recopiedLinkUrls[linkId] = null;
+    render();
     requestJson("POST", gatheringUrl() + "/participant-links/" + linkId + "/recopy").then(
       function (result) {
         if (result.status === 200) {
-          buttonEl.setAttribute("data-issued-link-url", result.body.url);
+          state.recopiedLinkUrls[linkId] = result.body.url;
+          render();
         }
       }
     );
@@ -351,12 +390,11 @@
         type: "button",
         "data-testid": "gathering-participant-link-copy",
         "data-gathering-control-purpose": "gathering-participant-link-copy",
+        "data-issued-link-url": state.headerIssuedLinkUrl || undefined,
       },
       ["回答リンクをコピー"]
     );
-    button.addEventListener("click", function () {
-      copyParticipantLink(button);
-    });
+    button.addEventListener("click", copyParticipantLink);
     return button;
   }
 
@@ -368,11 +406,12 @@
         "data-testid": "gathering-participant-link-recopy",
         "data-gathering-control-purpose": "gathering-participant-link-recopy",
         disabled: link.revoked,
+        "data-issued-link-url": state.recopiedLinkUrls[link.id] || undefined,
       },
       ["再コピー"]
     );
     recopyButton.addEventListener("click", function () {
-      recopyParticipantLink(link.id, recopyButton);
+      recopyParticipantLink(link.id);
     });
 
     var revokeButton = el(
