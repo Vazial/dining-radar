@@ -13,6 +13,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from dining_radar.authentication.throttle import LoginThrottle
+from dining_radar.gathering import services as gathering_services
 from dining_radar.recommendation.pipeline import Origin
 from dining_radar.suggestions import acceptance_state
 
@@ -219,4 +220,54 @@ def candidate_proposal_state(request):
     acceptance_state.set_mode(
         acceptance_state.AcceptanceCandidateProposalMode(mode), random_seed, search_origin
     )
+    return HttpResponse(status=204)
+
+
+@csrf_exempt
+@require_http_methods(["DELETE"])
+def gathering_scheduling_state(request):
+    """``resetGatheringSchedulingAcceptanceState`` (test-support-api.yaml 1.5.0)."""
+    _acceptance_only()
+    gathering_services.reset_gathering_scheduling_state()
+    return HttpResponse(status=204)
+
+
+def _gathering_participant_link_token(request) -> str | None:
+    try:
+        body = _body(request)
+        token = body["token"]
+    except (KeyError, ValueError):
+        return None
+    if set(body) != {"token"} or not isinstance(token, str) or not token:
+        return None
+    return token
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def gathering_seed_expired_participant_link(request):
+    """``seedExpiredParticipantLink`` (test-support-api.yaml 1.5.0)."""
+    _acceptance_only()
+    token = _gathering_participant_link_token(request)
+    if token is None:
+        return HttpResponse(status=400)
+    try:
+        gathering_services.seed_expired_participant_link(token)
+    except gathering_services.LinkNotFoundError:
+        return HttpResponse(status=404)
+    return HttpResponse(status=204)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def gathering_seed_rate_limited_participant_link(request):
+    """``seedRateLimitedParticipantLink`` (test-support-api.yaml 1.5.0)."""
+    _acceptance_only()
+    token = _gathering_participant_link_token(request)
+    if token is None:
+        return HttpResponse(status=400)
+    try:
+        gathering_services.seed_rate_limited_participant_link(token)
+    except gathering_services.LinkNotFoundError:
+        return HttpResponse(status=404)
     return HttpResponse(status=204)

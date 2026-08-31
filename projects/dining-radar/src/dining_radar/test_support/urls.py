@@ -16,4 +16,19 @@ urlpatterns = [
         views.candidate_proposal_state,
         name="candidate-proposal-state",
     ),
+    path(
+        "gathering-scheduling-state",
+        views.gathering_scheduling_state,
+        name="gathering-scheduling-state",
+    ),
+    path(
+        "gathering-scheduling/participant-links/expire",
+        views.gathering_seed_expired_participant_link,
+        name="gathering-participant-link-expire",
+    ),
+    path(
+        "gathering-scheduling/participant-links/rate-limit",
+        views.gathering_seed_rate_limited_participant_link,
+        name="gathering-participant-link-rate-limit",
+    ),
 ]
