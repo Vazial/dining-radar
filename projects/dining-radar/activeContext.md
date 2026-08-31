@@ -1628,10 +1628,42 @@ Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (
    無改変のまま検査）、(3) 期限90日・レート閾値の実値の正しさはL1へ、境界の振る舞い
    （`LINK_EXPIRED`/`LINK_RATE_LIMITED`）だけをL4で検査——`seedThrottledSignInAttempt`の先例踏襲。
 
-   **次**: test-support拡張PRのマージ（＝承認）→ **tester（TDR-GTH step定義・L4）と developer
-   （実装）の並行スライス**。着手時は`meta/agents.md`のスライス標準フローどおり両者に独立の
-   ブリーフを渡す。残る未決: 会データの保持期間・削除方針（D4は操作を置かないことのみ決着）／
-   トークン期限90日・レート制限の具体値の見直し時期／FINALIZED局面の観測面（第4弾）。
+   test-support拡張は **PR #178 のマージで承認済み（2026-08-31）**。
+
+   **実装スライスを完了した（2026-08-31、developer＋tester並行／orchestrator合流検証／reviewer監査）**:
+   - **developer**（worktree、`impl/gathering-scheduling`）: 新設アプリ `src/dining_radar/gathering/`
+     （models=本製品初の永続データ・services・tokens 128bit・serializers・views・2画面）、
+     `pipeline.py` に `capacity_tier`公開化・`is_confirmed_closed_on_weekday`・`open_shop_population`、
+     test-support seam 3種、`GATHERING_OPEN_SHOP_WEEKDAY_MATCH` 母集団。L1（単体505件+103 subtests・
+     97%・mutation変更箇所生存0）/L2/L3/L5 緑。
+   - **tester**（worktree、`test/gathering-scheduling-steps`）: 実装を読まずに契約だけから
+     TDR-GTH-01〜20 の DSL・step・テストを作成。TDR-GTH-18 は欠陥注入で検出力を実証。
+   - **合流で実バグ1件（役割分離の実例、2例目）**: 発行ボタンの `data-issued-link-url` が
+     (a) 一覧再描画でDOMごと消える、(b) 2回目以降の発行では古い非空値が新しい応答を待たずに
+     検査を通してしまう競合、の複合で L4 6件が赤。developerが実測で(b)を特定し
+     「リクエスト発行前に属性を同期的に消し、クリックごとに無→有の観測可能なエッジを作る」
+     方式で修正（`8514e4a`）。初回全体実行の失敗8件と単独6件の差も同一競合のタイミング差と判明。
+   - **人間裁定（2026-08-31）**: 参加者の日程回答は**承認骨格どおり一問一答ウィザードに直させる**
+     （developerの「全候補日同時表示」の実装裁量は不採用、`44bfef9`）。骨格からの意図的逸脱1点:
+     **回答済みカードにも3択を残す**——§2「回答はいつでも変更できる」と GTH-06/10/15（再回答
+     シナリオ）が骨格どおりだと物理的に操作不能になるため。未到達の候補日はDOMに作らない
+     （契約のcardinality非固定の範囲）。
+   - **reviewer独立監査**（`reviews/audit-gathering-scheduling-steps.md`）: **Blocker 0**・Major 3・
+     Minor 3。うち Major#2（GTH-15のtally検査欠落）・Major#3（unavailableControls／
+     disclosureObservationsの横断検査欠落——非認証の参加者面に対する境界検査）・Minor 2件を
+     tester が反映（`5fd4a5a`、欠陥注入6/6検出、新検査での実装違反は0件）。
+   - **orchestrator自身の検証**: L4全44件 OK・L5+構造27件+27 subtests・ruff 全緑（統合状態で実行）。
+
+   **architectへの申し送り（監査由来、契約改訂の判断待ち）**:
+   - Major#1: `addCandidateDateOpen` の入力サーフェスが契約未定義のため「クリックで入力面が
+     到達可能になる」という正の Must を機械検査できない（GTH-02は無副作用検査＋API追加の2段構成）。
+     候補日追加フォームの designer 設計→契約化とセットで解消する（`adr/0036`未決事項に既出）。
+   - GTH-08 の「近い順」は自己整合性検査のみ（`OpenShopPreviewItem` が距離を持たないため独立検証
+     不能）——過去の F1 系と同型の構造的限界。
+
+   **次**: 実装スライスPRのマージ（＝承認）→ 公開運用への自動デプロイ（render.yaml、CI通過後）。
+   その後は第2弾「店の絞り込み連携」の契約スライスへ。残る未決: 会データの保持期間・削除方針／
+   トークン期限90日・レート制限の見直し時期／FINALIZED局面の観測面（第4弾）。
 
 11. **ローカルで画面を確かめる手順**（このスライスで何度も踏んだので残す）。
     - `python manage.py runserver 127.0.0.1:8741 --settings=dining_radar.settings_localdemo --noreload --insecure`
