@@ -122,6 +122,8 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.participant_attaches_a_display_name("ゆかり")
         self.steps.participant_is_recorded_as_named()
         self.steps.schedule_question_shows_response(candidate_date_id, "GOING")
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+        self.steps.participant_token_is_not_persisted(link)
         self.steps.organizer_opens_the_dashboard()
         self.steps.participant_link_list_matches([{"hasResponded": True, "named": True}])
 
@@ -178,6 +180,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.open_shop_preview_shows_count(OPEN_SHOP_COUNT_BY_WEEKDAY[0])
         self.steps.gathering_phase_is("SCHEDULING")
         self.steps.no_candidate_date_is_confirmed()
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
 
     def test_tdr_gth_09_participant_sees_only_the_open_shop_count(self) -> None:
         self._sign_in()
@@ -191,6 +194,8 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
             candidate_date_id, OPEN_SHOP_COUNT_BY_WEEKDAY[2]
         )
         self.steps.schedule_question_shows_no_shop_details(candidate_date_id)
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+        self.steps.participant_token_is_not_persisted(link)
 
     def test_tdr_gth_10_organizer_confirms_a_candidate_date(self) -> None:
         self._sign_in()
@@ -292,6 +297,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
                 {"hasResponded": False, "named": False},
             ]
         )
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
 
     def test_tdr_gth_17_organizer_recopies_a_link(self) -> None:
         self._sign_in()

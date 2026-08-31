@@ -103,8 +103,8 @@ class GatheringSchedulingSteps:
     def someone_guesses_a_token_and_requests_the_participant_view(self) -> object:
         return self.dsl.attempt_get_participant_view_with_guessed_token()
 
-    def prior_answers_snapshot(self, candidate_date_ids: list[str]) -> dict[str, str]:
-        return self.dsl.capture_current_your_responses(candidate_date_ids)
+    def prior_answers_snapshot(self, candidate_date_ids: list[str]) -> dict[str, dict[str, object]]:
+        return self.dsl.capture_current_answer_state(candidate_date_ids)
 
     def unanswered_summary_snapshot(self) -> dict[str, int]:
         return self.dsl.capture_unanswered_summary()
@@ -212,8 +212,14 @@ class GatheringSchedulingSteps:
     def participant_view_is_valid(self) -> None:
         self.dsl.assert_valid_participant_view_is_shown()
 
-    def prior_responses_are_retained(self, before: dict[str, str]) -> None:
-        self.dsl.assert_your_responses_unchanged(before)
+    def prior_responses_are_retained(self, before: dict[str, dict[str, object]]) -> None:
+        self.dsl.assert_answer_state_unchanged(before)
+
+    def screen_has_no_forbidden_controls_or_disclosures(self) -> None:
+        self.dsl.assert_gathering_screen_has_no_forbidden_surfaces()
+
+    def participant_token_is_not_persisted(self, link: dict[str, str]) -> None:
+        self.dsl.assert_participant_token_not_persisted(link)
 
     def revoke_control_is_disabled_at(self, index: int) -> None:
         self.dsl.assert_revoke_control_disabled_at(index)

@@ -100,11 +100,54 @@ SCHEDULE_TALLY = "gathering-schedule-tally"
 PARTICIPANT_NAME_OPEN = "gathering-participant-name-open"
 PARTICIPANT_NAME_INPUT = "gathering-participant-name-input"
 PARTICIPANT_NAME_SUBMIT = "gathering-participant-name-submit"
-PARTICIPANT_PROGRESS = "gathering-participant-progress"
-TOTAL_CANDIDATE_DATES_ATTR = "data-total-candidate-dates"
-ANSWERED_CANDIDATE_DATES_ATTR = "data-answered-candidate-dates"
 PARTICIPANT_LINK_ERROR = "gathering-participant-link-error"
 LINK_ERROR_CODE_ATTR = "data-link-error-code"
+
+# unavailableControls (both namespaces; gathering-scheduling-browser-interface.yaml).
+# Mirrors candidate_search_browser.py's ALLOWED_CONTROL_PURPOSES /
+# assert_map_has_no_forbidden_surfaces convention for the sibling contract.
+GATHERING_CONTROL_PURPOSE_ATTR = "data-gathering-control-purpose"
+GATHERING_ALLOWED_PURPOSES = {
+    "gathering-add-candidate-date-open",
+    "gathering-participant-link-copy",
+    "gathering-candidate-date-tentative-select",
+    "gathering-confirm-date-select",
+    "gathering-schedule-response-select",
+    "gathering-participant-name-open",
+    "gathering-participant-name-submit",
+    "gathering-participant-link-recopy",
+    "gathering-participant-link-revoke",
+}
+GATHERING_FORBIDDEN_PURPOSES = {"manual-ordering", "secondary-condition"}
+GATHERING_FORBIDDEN_TEST_IDS = ["candidate-origin-marker", "candidate-map", "private-search-origin"]
+GATHERING_FORM_CONTROL_SELECTOR = ", ".join(
+    [
+        "select",
+        "input:not([type='hidden'])",
+        "textarea",
+        "button",
+        "[role='checkbox']",
+        "[role='radio']",
+        "[role='range']",
+        "[role='combobox']",
+        "[role='listbox']",
+        "[role='slider']",
+        "[role='spinbutton']",
+    ]
+)
+
+# disclosureObservations (both namespaces). Reuses the exact canary strings
+# candidate-search-browser-interface.yaml/authentication-browser-interface.yaml
+# already define -- this contract's own profiles.localAcceptance.
+# syntheticDisclosureCanaries note: "a single shared set of forbidden strings
+# applies across every TDR-* browser contract".
+GATHERING_PRIVATE_ORIGIN_CANARY = "synthetic-private-origin-never-disclose.invalid"
+GATHERING_PROVIDER_INTERNALS_CANARY = "synthetic-provider-internals-never-disclose"
+GATHERING_DISCLOSURE_FORBIDDEN_TEST_IDS = [
+    "private-search-origin",
+    "candidate-origin-marker",
+    "candidate-map-marker",
+]
 
 # test-support-api.yaml 1.5.0's GATHERING_OPEN_SHOP_WEEKDAY_MATCH mode (adr/0037 decision 3):
 # exact known openShopCount per weekday (Python's date.weekday(): Monday=0 ... Sunday=6).
@@ -662,22 +705,39 @@ class GatheringSchedulingBrowserDsl:
             PARTICIPANT_NAMED_ATTR, "true"
         )
 
-    def capture_current_your_responses(self, candidate_date_ids: list[str]) -> dict[str, str]:
+    def _read_schedule_tally_or_none(self, candidate_date_id: str) -> dict[str, str] | None:
+        tally = self._schedule_question_locator(candidate_date_id).locator(
+            f'[data-testid="{SCHEDULE_TALLY}"]'
+        )
+        if tally.count() == 0:
+            return None
         return {
-            candidate_date_id: self._schedule_question_locator(candidate_date_id).get_attribute(
-                YOUR_RESPONSE_ATTR
-            )
+            "going": tally.get_attribute("data-going-count"),
+            "maybe": tally.get_attribute("data-maybe-count"),
+            "notGoing": tally.get_attribute("data-not-going-count"),
+        }
+
+    def capture_current_answer_state(
+        self, candidate_date_ids: list[str]
+    ) -> dict[str, dict[str, object]]:
+        """rateLimitedScheduleResponse.priorAnswersRetained (TDR-GTH-15) requires
+        every previously recorded data-your-response *and* gathering-schedule-tally
+        value to survive a rejected request -- both are captured here, not just
+        data-your-response.
+        """
+        return {
+            candidate_date_id: {
+                "yourResponse": self._schedule_question_locator(candidate_date_id).get_attribute(
+                    YOUR_RESPONSE_ATTR
+                ),
+                "tally": self._read_schedule_tally_or_none(candidate_date_id),
+            }
             for candidate_date_id in candidate_date_ids
         }
 
-    def assert_your_responses_unchanged(self, before: dict[str, str]) -> None:
-        for candidate_date_id, value in before.items():
-            self.assertions.assertEqual(
-                self._schedule_question_locator(candidate_date_id).get_attribute(
-                    YOUR_RESPONSE_ATTR
-                ),
-                value,
-            )
+    def assert_answer_state_unchanged(self, before: dict[str, dict[str, object]]) -> None:
+        after = self.capture_current_answer_state(list(before.keys()))
+        self.assertions.assertEqual(after, before)
 
     def attempt_answer_schedule_question_expecting_rate_limit(
         self, candidate_date_id: str, status: str
@@ -756,22 +816,69 @@ class GatheringSchedulingBrowserDsl:
         self.assertions.assertEqual(tally.get_attribute("data-maybe-count"), str(maybe))
         self.assertions.assertEqual(tally.get_attribute("data-not-going-count"), str(not_going))
 
-    def assert_participant_progress(self, *, total: int, answered: int) -> None:
-        progress = assert_present(self.assertions, self.page, PARTICIPANT_PROGRESS)
-        self.assertions.assertEqual(progress.get_attribute(TOTAL_CANDIDATE_DATES_ATTR), str(total))
-        self.assertions.assertEqual(
-            progress.get_attribute(ANSWERED_CANDIDATE_DATES_ATTR), str(answered)
-        )
-
     def assert_participant_header_phase(self, expected: str) -> None:
         header = assert_present(self.assertions, self.page, PARTICIPANT_HEADER)
         self.assertions.assertEqual(header.get_attribute(GATHERING_PHASE_ATTR), expected)
 
     def assert_participant_link_error(self, code: str) -> None:
+        """invalidLinkOutcome.absent (browser-interface.yaml): all three of
+        gathering-participant-header, gathering-schedule-question, and
+        gathering-participant-name-open must be absent -- not only the first two.
+        """
         error = assert_present(self.assertions, self.page, PARTICIPANT_LINK_ERROR)
         self.assertions.assertEqual(error.get_attribute(LINK_ERROR_CODE_ATTR), code)
-        assert_all_absent(self.assertions, self.page, [PARTICIPANT_HEADER, SCHEDULE_QUESTION])
+        assert_all_absent(
+            self.assertions,
+            self.page,
+            [PARTICIPANT_HEADER, SCHEDULE_QUESTION, PARTICIPANT_NAME_OPEN],
+        )
 
     def assert_valid_participant_view_is_shown(self) -> None:
         assert_all_present(self.assertions, self.page, [PARTICIPANT_HEADER, SCHEDULE_QUESTION])
         assert_absent(self.assertions, self.page, PARTICIPANT_LINK_ERROR)
+
+    # Cross-cutting: unavailableControls / disclosureObservations -----------
+    # (both organizerDashboard and participantAnswer; whichever screen is
+    # currently loaded on self.page).
+
+    def assert_gathering_screen_has_no_forbidden_surfaces(self) -> None:
+        """unavailableControls.forbiddenTestIds/allowedPurposes/forbiddenPurposes
+        and disclosureObservations.bodyMustNotContain/bodyMustNotExposeTestIds,
+        checked against whichever gathering screen is currently loaded. Mirrors
+        candidate_search_browser.py's ALLOWED_CONTROL_PURPOSES purpose-coverage
+        check and assert_map_has_no_forbidden_surfaces disclosure check for the
+        sibling contract -- neither had a gathering-scheduling counterpart
+        before this fix. Especially relevant where a gathering screen reuses
+        candidate-search's own private population (open-shop preview/count,
+        TDR-GTH-08/09): this is what proves that population never leaks its
+        map/origin surfaces into a gathering screen (adr/0034 decision 6).
+        """
+        assert_all_absent(self.assertions, self.page, GATHERING_FORBIDDEN_TEST_IDS)
+        assert_all_absent(self.assertions, self.page, GATHERING_DISCLOSURE_FORBIDDEN_TEST_IDS)
+        body = self.page.content()
+        self.assertions.assertNotIn(GATHERING_PRIVATE_ORIGIN_CANARY, body)
+        self.assertions.assertNotIn(GATHERING_PROVIDER_INTERNALS_CANARY, body)
+
+        forbidden_purpose_selector = ",".join(
+            f'[{GATHERING_CONTROL_PURPOSE_ATTR}="{purpose}"]'
+            for purpose in GATHERING_FORBIDDEN_PURPOSES
+        )
+        self.assertions.assertEqual(self.page.locator(forbidden_purpose_selector).count(), 0)
+
+        controls = self.page.locator(GATHERING_FORM_CONTROL_SELECTOR)
+        for index in range(controls.count()):
+            purpose = controls.nth(index).get_attribute(GATHERING_CONTROL_PURPOSE_ATTR)
+            self.assertions.assertIn(purpose, GATHERING_ALLOWED_PURPOSES)
+
+    def assert_participant_token_not_persisted(self, link: dict[str, str]) -> None:
+        """disclosureObservations.participantTokenHandling: the token must never
+        be written to localStorage, a cookie, or any storage surviving page
+        navigation other than the current URL itself.
+        """
+        token = link["token"]
+        local_storage_dump = self.page.evaluate(
+            "() => JSON.stringify(Object.entries(window.localStorage))"
+        )
+        self.assertions.assertNotIn(token, local_storage_dump)
+        for cookie in self.page.context.cookies():
+            self.assertions.assertNotIn(token, cookie.get("value", ""))
