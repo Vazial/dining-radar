@@ -971,3 +971,75 @@ class ProposeWithOverrideTests(SimpleTestCase):
         )
 
         self.assertTrue(result.candidates)
+
+
+class GatheringPopulationSourceTests(TestCase):
+    """adr/0037 decision 3: test-support-api.yaml governs TDR-GTH's population too."""
+
+    def tearDown(self):
+        acceptance_state.reset_mode()
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_returns_none_when_no_mode_is_selected(self):
+        self.assertIsNone(acceptance_state.gathering_population_source())
+
+    def test_returns_none_outside_the_acceptance_profile_even_if_a_mode_were_cached(self):
+        # active_mode() itself already returns None outside the acceptance
+        # profile (its own guard); this exercises that gathering_population_
+        # source inherits that guard rather than reading the cache directly.
+        with override_settings(ACCEPTANCE_TEST_SUPPORT=False):
+            self.assertIsNone(acceptance_state.gathering_population_source())
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_gathering_open_shop_weekday_match_mode_supplies_six_distinct_candidates(self):
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.GATHERING_OPEN_SHOP_WEEKDAY_MATCH
+        )
+
+        source = acceptance_state.gathering_population_source()
+
+        self.assertIsNotNone(source)
+        candidates, origin = source
+        self.assertEqual(len(candidates), 6)
+        self.assertEqual(len({c.provider_page_url for c in candidates}), 6)
+        self.assertEqual(origin, acceptance_state._ORIGIN)
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_gathering_open_shop_weekday_match_population_yields_the_documented_counts(self):
+        # test-support-api.yaml's GATHERING_OPEN_SHOP_WEEKDAY_MATCH
+        # docstring: 5/5/4/6/6/6/5 open shops for Mon through Sun.
+        from dining_radar.recommendation.pipeline import open_shop_population
+
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.GATHERING_OPEN_SHOP_WEEKDAY_MATCH
+        )
+        candidates, origin = acceptance_state.gathering_population_source()
+
+        expected_counts = [5, 5, 4, 6, 6, 6, 5]
+        for weekday, expected_count in enumerate(expected_counts):
+            with self.subTest(weekday=weekday):
+                self.assertEqual(
+                    len(open_shop_population(candidates, origin, weekday)), expected_count
+                )
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_other_modes_fall_back_to_the_normal_weighted_sampling_population(self):
+        acceptance_state.set_mode(acceptance_state.AcceptanceCandidateProposalMode.NO_RESULTS)
+
+        source = acceptance_state.gathering_population_source()
+
+        self.assertIsNotNone(source)
+        candidates, _origin = source
+        self.assertEqual(len(candidates), 41)  # 40 weighted-sampling + 1 excluded-genre member
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=True)
+    def test_pinned_search_origin_is_honored_for_the_gathering_population_too(self):
+        pinned = Origin(latitude=10.0, longitude=20.0)
+        acceptance_state.set_mode(
+            acceptance_state.AcceptanceCandidateProposalMode.GATHERING_OPEN_SHOP_WEEKDAY_MATCH,
+            search_origin=pinned,
+        )
+
+        _candidates, origin = acceptance_state.gathering_population_source()
+
+        self.assertEqual(origin, pinned)

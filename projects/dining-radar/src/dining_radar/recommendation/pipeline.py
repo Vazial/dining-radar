@@ -210,6 +210,107 @@ WALKING_DETOUR_FACTOR = 1.3
 # the human, called out separately in review.
 WALKING_TIME_MAX_PRESET_MINUTES: tuple[int, ...] = (5, 10, 15, 20, 30)
 
+# adr/0019 decision 4: coarse seating-scale reference derived from totalSeats.
+# Provisional thresholds from one field-survey sample (11-200 seats observed,
+# median 50); do not imply reservation ease or availability. Originally
+# defined only in ``dining_radar.web.serializers`` (ADR-0019: "it never
+# participates in filtering or ordering, so recommendation has no reason to
+# compute it"); moved here (developer discretion, not a contract change) once
+# a second caller needed the identical threshold mapping --
+# ``dining_radar.gathering``'s ``OpenShopPreviewItem.capacityTier``
+# (contracts/gathering-scheduling-api.yaml) reuses the exact same coarse
+# vocabulary as candidate-search-api.yaml's ``Candidate.capacityTier``, and
+# this module is already the single source of truth for the sibling
+# ``dinner_budget_tier`` threshold mapping for the same reason.
+_CAPACITY_TIER_SMALL_MAX_SEATS = 20
+_CAPACITY_TIER_MEDIUM_MAX_SEATS = 60
+
+
+def capacity_tier(total_seats: int | None) -> str | None:
+    """The coarse SMALL/MEDIUM/LARGE seating-scale tier for a raw seat count.
+
+    ``None`` when ``total_seats`` is ``None`` -- never a guess, mirroring
+    ``dinner_budget_tier``'s "確認できないことを断定しない" handling of an
+    unconfirmed figure.
+    """
+    if total_seats is None:
+        return None
+    if total_seats <= _CAPACITY_TIER_SMALL_MAX_SEATS:
+        return "SMALL"
+    if total_seats <= _CAPACITY_TIER_MEDIUM_MAX_SEATS:
+        return "MEDIUM"
+    return "LARGE"
+
+
+# adr/0035 decision 6 / adr/0037 decision 3 (test-support-api.yaml
+# GATHERING_OPEN_SHOP_WEEKDAY_MATCH): the closed set of single-kanji weekday
+# characters this soft matcher scans a candidate's free-text
+# ``regular_holiday`` for, indexed the same way ``datetime.date.weekday()``
+# already orders Python's own week (0 = Monday ... 6 = Sunday), so a caller
+# can index this tuple directly with a ``datetime``'s own ``weekday()``
+# result without a separate mapping table.
+_WEEKDAY_KANJI: tuple[str, ...] = ("月", "火", "水", "木", "金", "土", "日")
+
+
+def is_confirmed_closed_on_weekday(regular_holiday: str | None, weekday: int) -> bool:
+    """Whether ``regular_holiday`` confirms closure on ``weekday`` (adr/0035 decision 6).
+
+    A soft, substring-only match: ``regular_holiday`` confirms closure on
+    ``weekday`` only when it contains that weekday's kanji character
+    (mirroring ``_WEEKDAY_KANJI``'s ``datetime.date.weekday()`` ordering).
+    ``None`` (unconfirmed) and any text with no weekday character at all
+    (e.g. "不定休", irregular) never count as closed on any weekday -- this
+    is ADR-0023 decision 2's "確認できないことを断定しない" soft-filter
+    philosophy applied to this feature (product-brief.md §3), so an
+    unconfirmed or irregular schedule is never treated as a confirmed
+    absence.
+
+    This is a plain substring scan, not a negation-aware parser: a
+    hypothetical "水曜以外" ("except Wednesday") description would
+    incorrectly match 水 as if it were a confirmed Wednesday closure. This
+    limitation is accepted and documented by
+    ``test-support-api.yaml``'s ``GATHERING_OPEN_SHOP_WEEKDAY_MATCH``
+    docstring (adr/0037 decision 3): exhaustive free-text-shape coverage is
+    this function's own unit-test responsibility (meta/verification.md's L1),
+    not something the acceptance seam re-verifies.
+    """
+    if regular_holiday is None:
+        return False
+    return _WEEKDAY_KANJI[weekday] in regular_holiday
+
+
+def open_shop_population(
+    candidates: Sequence[NormalizedCandidate], origin: Origin, weekday: int
+) -> list[NormalizedCandidate]:
+    """The nearest-first, default-filtered population open on ``weekday``.
+
+    Supports ``gathering-scheduling-api.yaml``'s
+    ``CandidateDateOpenShopPreview``/``ParticipantScheduleQuestion.openShopCount``
+    (adr/0035 decision 6, adr/0037 decision 3): starts from the same
+    deduplicated, default-excluded-genre population
+    ``candidate-search-api.yaml`` uses with default filters only
+    (``includeIzakayaBar=false``, no organizer-narrowing filter -- shop
+    narrowing has not started yet for a gathering still in SCHEDULING,
+    adr/0035 decision 2's slice boundary), then excludes every candidate
+    ``is_confirmed_closed_on_weekday`` confirms closed on ``weekday``. The
+    izakaya/bar fallback (``apply_izakaya_bar_fallback``) is deliberately not
+    applied here -- that fallback exists to keep candidate-search's own
+    "never show zero results because of the default exclusion alone" promise
+    for a *displayed proposal*, which has no equivalent requirement in this
+    contract's open-shop preview/count (an empty preview and a `0`
+    ``openShopCount`` are both valid, honest answers here). Returned in
+    nearest-first order, matching
+    ``CandidateDateOpenShopPreview.previewShops``'s own ordering requirement.
+    """
+    deduped = _dedupe(candidates)
+    default_population = filter_candidates(deduped, CandidateFilters(), origin)
+    open_population = [
+        candidate
+        for candidate in default_population
+        if not is_confirmed_closed_on_weekday(candidate.regular_holiday, weekday)
+    ]
+    return sorted(open_population, key=lambda candidate: _distance(origin, candidate))
+
 
 def dinner_budget_tier(budget_average: float | None) -> str | None:
     """The coarse LOW/MID/HIGH dinner-budget tier for a raw yen figure.

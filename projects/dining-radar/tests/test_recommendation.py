@@ -16,8 +16,11 @@ from dining_radar.recommendation.pipeline import (
     apply_izakaya_bar_fallback,
     available_genres,
     build_proposal,
+    capacity_tier,
     dinner_budget_tier,
     filter_candidates,
+    is_confirmed_closed_on_weekday,
+    open_shop_population,
     order_confirmed_then_unconfirmed,
     partition_by_shown,
     population_attributes,
@@ -1305,3 +1308,135 @@ class BuildProposalTests(SimpleTestCase):
         # decision 3's "None" case).
         self.assertTrue(any(band is not None for band in bands))
         self.assertIn(None, bands)
+
+
+class CapacityTierTests(SimpleTestCase):
+    """adr/0019 decision 4, moved here from web.serializers (see capacity_tier's own docstring)."""
+
+    def test_null_total_seats_is_a_null_tier(self):
+        self.assertIsNone(capacity_tier(None))
+
+    def test_twenty_seats_or_fewer_is_small(self):
+        self.assertEqual(capacity_tier(20), "SMALL")
+
+    def test_twenty_one_to_sixty_seats_is_medium(self):
+        self.assertEqual(capacity_tier(21), "MEDIUM")
+        self.assertEqual(capacity_tier(60), "MEDIUM")
+
+    def test_sixty_one_seats_or_more_is_large(self):
+        self.assertEqual(capacity_tier(61), "LARGE")
+
+
+class IsConfirmedClosedOnWeekdayTests(SimpleTestCase):
+    """adr/0035 decision 6 / adr/0037 decision 3: TDR-GTH's weekday soft matcher."""
+
+    MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY = range(7)
+
+    def test_unconfirmed_holiday_is_never_closed_on_any_weekday(self):
+        for weekday in range(7):
+            with self.subTest(weekday=weekday):
+                # assertIs (not assertFalse) so a `return False` -> `return
+                # None` mutant is actually caught: `assertFalse(None)` would
+                # otherwise still pass.
+                self.assertIs(is_confirmed_closed_on_weekday(None, weekday), False)
+
+    def test_irregular_holiday_text_is_never_closed_on_any_weekday(self):
+        for weekday in range(7):
+            with self.subTest(weekday=weekday):
+                self.assertIs(is_confirmed_closed_on_weekday("不定休", weekday), False)
+
+    def test_single_weekday_text_confirms_closure_only_on_that_weekday(self):
+        for weekday in range(7):
+            with self.subTest(weekday=weekday):
+                self.assertEqual(
+                    is_confirmed_closed_on_weekday("月曜", weekday), weekday == self.MONDAY
+                )
+
+    def test_two_weekday_text_confirms_closure_on_both_contained_weekdays(self):
+        for weekday in range(7):
+            with self.subTest(weekday=weekday):
+                self.assertEqual(
+                    is_confirmed_closed_on_weekday("火・水曜", weekday),
+                    weekday in (self.TUESDAY, self.WEDNESDAY),
+                )
+
+    def test_existing_default_synthetic_holiday_text_confirms_closure_only_on_sunday(self):
+        for weekday in range(7):
+            with self.subTest(weekday=weekday):
+                self.assertEqual(
+                    is_confirmed_closed_on_weekday("日曜・祝日", weekday), weekday == self.SUNDAY
+                )
+
+    def test_known_limitation_negated_phrasing_is_misread_as_a_confirmed_closure(self):
+        # Documented, accepted limitation (this function's own docstring,
+        # test-support-api.yaml's GATHERING_OPEN_SHOP_WEEKDAY_MATCH): a
+        # substring-only scan cannot tell "水曜以外" ("except Wednesday")
+        # apart from a genuine Wednesday closure. Pinned here as a
+        # regression test for the *documented* behavior, not a bug report.
+        self.assertTrue(is_confirmed_closed_on_weekday("水曜以外", self.WEDNESDAY))
+
+
+class OpenShopPopulationTests(SimpleTestCase):
+    """adr/0035 decision 6 / adr/0037 decision 3: gathering-scheduling's open-shop preview."""
+
+    MONDAY, TUESDAY, WEDNESDAY = 0, 1, 2
+
+    def test_empty_population_is_empty(self):
+        self.assertEqual(open_shop_population([], ORIGIN, self.MONDAY), [])
+
+    def test_default_excluded_genre_is_excluded_like_candidate_search(self):
+        izakaya = candidate(
+            genre="居酒屋", provider_page_url="https://example.invalid/open-shop-izakaya"
+        )
+        washoku = candidate(
+            genre="和食", provider_page_url="https://example.invalid/open-shop-washoku"
+        )
+
+        result = open_shop_population([izakaya, washoku], ORIGIN, self.MONDAY)
+
+        self.assertEqual([c.provider_page_url for c in result], [washoku.provider_page_url])
+
+    def test_a_shop_confirmed_closed_on_the_given_weekday_is_excluded(self):
+        closed_monday = candidate(
+            provider_page_url="https://example.invalid/open-shop-closed-monday",
+            regular_holiday="月曜",
+        )
+        always_open = candidate(
+            provider_page_url="https://example.invalid/open-shop-always-open",
+            regular_holiday="不定休",
+        )
+
+        monday_result = open_shop_population([closed_monday, always_open], ORIGIN, self.MONDAY)
+        tuesday_result = open_shop_population([closed_monday, always_open], ORIGIN, self.TUESDAY)
+
+        self.assertEqual(
+            [c.provider_page_url for c in monday_result], [always_open.provider_page_url]
+        )
+        self.assertEqual(
+            {c.provider_page_url for c in tuesday_result},
+            {closed_monday.provider_page_url, always_open.provider_page_url},
+        )
+
+    def test_result_is_ordered_nearest_first(self):
+        far = candidate(
+            name="遠い店",
+            provider_page_url="https://example.invalid/open-shop-far",
+            latitude=0.01,
+        )
+        near = candidate(
+            name="近い店",
+            provider_page_url="https://example.invalid/open-shop-near",
+            latitude=0.001,
+        )
+
+        result = open_shop_population([far, near], ORIGIN, self.WEDNESDAY)
+
+        self.assertEqual([c.name for c in result], ["近い店", "遠い店"])
+
+    def test_deduplicates_by_provider_page_url(self):
+        one = candidate(provider_page_url="https://example.invalid/open-shop-dup")
+        duplicate = candidate(provider_page_url="https://example.invalid/open-shop-dup")
+
+        result = open_shop_population([one, duplicate], ORIGIN, self.MONDAY)
+
+        self.assertEqual(len(result), 1)

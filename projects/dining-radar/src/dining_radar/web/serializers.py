@@ -8,16 +8,20 @@ Per adr/0023, the response is no longer a single ``proposal`` concept plus
 ordered, and randomly sampled by ``dining_radar.recommendation.pipeline``),
 ``izakayaBarFallbackApplied``, and ``availableGenres``.
 
-Per ADR-0019 decision 4, this module derives ``capacityTier`` from
-``totalSeats`` -- the one card-only coarse reference value that still lives
-here rather than in ``recommendation`` (it never participates in filtering or
-ordering, so `dining_radar.recommendation.pipeline` has no reason to compute
-it). ``dinnerBudgetTier`` (adr/0019 decision 8, adr/0023 decision 10) is
+Per ADR-0019 decision 4, this module originally derived ``capacityTier`` from
+``totalSeats`` itself (it never participates in filtering or ordering, so
+`dining_radar.recommendation.pipeline` had no reason to compute it). That
+threshold mapping now lives in
+``dining_radar.recommendation.pipeline.capacity_tier`` instead (developer
+discretion, not a contract change) because ``dining_radar.gathering`` also
+needs the identical coarse vocabulary for its own
+``OpenShopPreviewItem.capacityTier``; see that function's own docstring.
+``dinnerBudgetTier`` (adr/0019 decision 8, adr/0023 decision 10) is likewise
 computed by ``dining_radar.recommendation.pipeline.dinner_budget_tier``
 instead of being duplicated here, because ``recommendation`` also needs that
 same coarse tier for ``budgetTiers`` filtering and ordering (adr/0023 decision
-3): keeping the threshold mapping in one place is what keeps the two from
-silently disagreeing.
+3): keeping every threshold mapping in one place is what keeps every caller
+from silently disagreeing.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ from dining_radar.recommendation.pipeline import (
     NormalizedCandidate,
     Origin,
     PopulationAttribute,
+    capacity_tier,
     dinner_budget_tier,
     walking_time_minutes,
 )
@@ -36,22 +41,6 @@ PROVIDER_CREDIT = {
     "url": "http://webservice.recruit.co.jp/",
 }
 
-# adr/0019 decision 4: coarse seating-scale reference derived from totalSeats.
-# Provisional thresholds from one field-survey sample (11-200 seats observed,
-# median 50); do not imply reservation ease or availability.
-_CAPACITY_TIER_SMALL_MAX_SEATS = 20
-_CAPACITY_TIER_MEDIUM_MAX_SEATS = 60
-
-
-def _capacity_tier(total_seats: int | None) -> str | None:
-    if total_seats is None:
-        return None
-    if total_seats <= _CAPACITY_TIER_SMALL_MAX_SEATS:
-        return "SMALL"
-    if total_seats <= _CAPACITY_TIER_MEDIUM_MAX_SEATS:
-        return "MEDIUM"
-    return "LARGE"
-
 
 def serialize_candidate(candidate: NormalizedCandidate, index: int, origin: Origin) -> dict:
     return {
@@ -61,7 +50,7 @@ def serialize_candidate(candidate: NormalizedCandidate, index: int, origin: Orig
         "description": candidate.description,
         "regularHoliday": candidate.regular_holiday,
         "totalSeats": candidate.total_seats,
-        "capacityTier": _capacity_tier(candidate.total_seats),
+        "capacityTier": capacity_tier(candidate.total_seats),
         "nonSmokingStatus": candidate.non_smoking_status,
         "cardPaymentAvailable": candidate.card_payment_available,
         "dinnerBudgetTier": dinner_budget_tier(candidate.budget_average),

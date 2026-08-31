@@ -75,6 +75,7 @@ __all__ = [
     "active_mode",
     "active_random_source",
     "active_search_origin",
+    "gathering_population_source",
     "propose_with_override",
     "reset_mode",
     "set_mode",
@@ -123,6 +124,7 @@ class AcceptanceCandidateProposalMode(StrEnum):
     PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"
     RATE_LIMITED = "RATE_LIMITED"
     RATE_LIMITED_AFTER_INITIAL_SUCCESS = "RATE_LIMITED_AFTER_INITIAL_SUCCESS"
+    GATHERING_OPEN_SHOP_WEEKDAY_MATCH = "GATHERING_OPEN_SHOP_WEEKDAY_MATCH"
 
 
 class AcceptanceProviderUnavailable(RuntimeError):
@@ -746,6 +748,109 @@ _RATE_LIMITED_AFTER_INITIAL_SUCCESS_CANDIDATES: tuple[NormalizedCandidate, ...] 
         latitude=0.0020,
     ),
 )
+
+
+# test-support-api.yaml v1.5.0 (adr/0035 decision 6, adr/0037 decision 3):
+# GATHERING_OPEN_SHOP_WEEKDAY_MATCH is the deterministic TDR-GTH-08/09 Given.
+# Every other mode above fixes regular_holiday="日曜・祝日" for every
+# synthetic candidate (via _synthetic_candidate's own default) -- adequate
+# for TDR-CS, which never reads regularHoliday's text for business logic, but
+# insufficient to exercise gathering-scheduling-api.yaml's weekday-matching
+# soft filter (pipeline.open_shop_population) across more than one weekday
+# and one confirmed-closure shape. This mode instead supplies exactly 6
+# lunch-eligible synthetic candidates, all in one non-default-excluded genre
+# (so izakaya/bar fallback logic never interferes -- though
+# pipeline.open_shop_population does not even apply that fallback, see its
+# own docstring), each with a distinct regularHoliday value chosen to
+# exercise a different matching shape. See the test-support-api.yaml mode
+# description (reproduced in this contract's own docstring) for the full
+# per-weekday openShopCount table this population is built to produce
+# (5/5/4/6/6/6/5 for Mon-Sun).
+_GATHERING_WEEKDAY_MATCH_GENRE = "和食"
+assert _GATHERING_WEEKDAY_MATCH_GENRE not in DEFAULT_EXCLUDED_GENRES
+
+_GATHERING_OPEN_SHOP_WEEKDAY_MATCH_CANDIDATES: tuple[NormalizedCandidate, ...] = (
+    _synthetic_candidate(
+        name="Synthetic gathering weekday closed Monday",
+        genre=_GATHERING_WEEKDAY_MATCH_GENRE,
+        provider_page_url="https://example.invalid/acceptance-gathering-weekday-monday",
+        latitude=0.0010,
+    ),
+    _synthetic_candidate(
+        name="Synthetic gathering weekday closed Wednesday",
+        genre=_GATHERING_WEEKDAY_MATCH_GENRE,
+        provider_page_url="https://example.invalid/acceptance-gathering-weekday-wednesday",
+        latitude=0.0020,
+    ),
+    _synthetic_candidate(
+        name="Synthetic gathering weekday closed Tuesday and Wednesday",
+        genre=_GATHERING_WEEKDAY_MATCH_GENRE,
+        provider_page_url="https://example.invalid/acceptance-gathering-weekday-tue-wed",
+        latitude=0.0030,
+    ),
+    _synthetic_candidate(
+        name="Synthetic gathering weekday closed Sunday",
+        genre=_GATHERING_WEEKDAY_MATCH_GENRE,
+        provider_page_url="https://example.invalid/acceptance-gathering-weekday-sunday",
+        latitude=0.0040,
+    ),
+    _synthetic_candidate(
+        name="Synthetic gathering weekday irregular holiday",
+        genre=_GATHERING_WEEKDAY_MATCH_GENRE,
+        provider_page_url="https://example.invalid/acceptance-gathering-weekday-irregular",
+        latitude=0.0050,
+    ),
+    _synthetic_candidate(
+        name="Synthetic gathering weekday unconfirmed holiday",
+        genre=_GATHERING_WEEKDAY_MATCH_GENRE,
+        provider_page_url="https://example.invalid/acceptance-gathering-weekday-unconfirmed",
+        latitude=0.0060,
+    ),
+)
+# _synthetic_candidate always sets regular_holiday="日曜・祝日" (this
+# module's shared default) -- overridden here with `replace` per-candidate so
+# each of the 6 members above carries the exact matching shape its own name
+# documents, without introducing a second candidate-construction helper.
+_GATHERING_OPEN_SHOP_WEEKDAY_MATCH_CANDIDATES = (
+    replace(_GATHERING_OPEN_SHOP_WEEKDAY_MATCH_CANDIDATES[0], regular_holiday="月曜"),
+    replace(_GATHERING_OPEN_SHOP_WEEKDAY_MATCH_CANDIDATES[1], regular_holiday="水曜"),
+    replace(_GATHERING_OPEN_SHOP_WEEKDAY_MATCH_CANDIDATES[2], regular_holiday="火・水曜"),
+    replace(_GATHERING_OPEN_SHOP_WEEKDAY_MATCH_CANDIDATES[3], regular_holiday="日曜・祝日"),
+    replace(_GATHERING_OPEN_SHOP_WEEKDAY_MATCH_CANDIDATES[4], regular_holiday="不定休"),
+    replace(_GATHERING_OPEN_SHOP_WEEKDAY_MATCH_CANDIDATES[5], regular_holiday=None),
+)
+
+
+def _gathering_open_shop_weekday_match_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
+    return _origin_shifted(_GATHERING_OPEN_SHOP_WEEKDAY_MATCH_CANDIDATES)
+
+
+def gathering_population_source() -> tuple[tuple[NormalizedCandidate, ...], Origin] | None:
+    """The population ``dining_radar.gathering`` reads while an override is active.
+
+    Supports ``previewOpenShopsForCandidateDate``/
+    ``ParticipantScheduleQuestion.openShopCount``
+    (``gathering-scheduling-api.yaml``), which share this seam's population
+    control with candidate-search (adr/0037 decision 3): selecting
+    ``GATHERING_OPEN_SHOP_WEEKDAY_MATCH`` here also governs what those
+    gathering-scheduling reads observe. Returns ``None`` when no acceptance
+    override is active (outside the acceptance profile, or before any
+    ``set_mode`` call in it) so the caller falls back to the real production
+    population (``dining_radar.suggestions.hotpepper_source
+    .fetch_real_candidates``), exactly like ``dining_radar.web.views``'s own
+    ``active_mode()``-gated fallback for ``/candidate-proposals``. Every mode
+    other than ``GATHERING_OPEN_SHOP_WEEKDAY_MATCH`` has no dedicated
+    gathering-scheduling Given of its own -- no TDR-GTH scenario selects one
+    of them -- so this falls back to
+    ``NORMAL_WITH_WEIGHTED_SAMPLING``'s own population for those, a harmless
+    default never exercised by a documented scenario.
+    """
+    mode = active_mode()
+    if mode is None:
+        return None
+    if mode is AcceptanceCandidateProposalMode.GATHERING_OPEN_SHOP_WEEKDAY_MATCH:
+        return _gathering_open_shop_weekday_match_source()
+    return _normal_with_weighted_sampling_source()
 
 
 def _normal_with_weighted_sampling_source() -> tuple[tuple[NormalizedCandidate, ...], Origin]:
