@@ -1,0 +1,777 @@
+"""Browser/API DSL for the TDR-GTH gathering-scheduling acceptance scenarios.
+
+Per adr/0037 decision 1, gathering/candidate-date/participant-link/schedule-
+response Given state is built by calling gathering-scheduling-api.yaml's own
+public operations directly -- not through a dedicated test-support seam --
+because every one of those resources is reachable through the public
+boundary. test-support-api.yaml adds seams only for link expiry and link
+rate-limiting (states real elapsed time/request volume cannot reach
+deterministically) and for the synthetic open-shop population TDR-GTH shares
+with TDR-CS.
+
+Per gathering-scheduling-browser-interface.yaml's renderModel, both
+organizerDashboard and participantAnswer are JS-capable surfaces verified the
+same way candidate-search-browser-interface.yaml verifies TDR-CS (Playwright),
+not TDR-AUTH's plain-HTTP DSL. Direct calls to gathering-scheduling-api.yaml's
+own JSON operations (organizer Given-state construction, TDR-GTH-01's
+creation, TDR-GTH-13's fuzzing, and the two 409-boundary checks in
+TDR-GTH-10/20) go through ``self.page.context.request`` so they share the
+Playwright browser context's cookies (the organizer session) without being a
+"browser click-through" -- exactly the profile's own notVerifiedHere note for
+TDR-GTH-01/TDR-GTH-13 sanctions ("API/boundary-level acceptance").
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import secrets
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+from django.test import SimpleTestCase
+from playwright.sync_api import Locator, Page, Response, expect
+
+from tests.acceptance.dsl.authentication_browser import AuthenticationBrowserDsl
+from tests.acceptance.dsl.browser_mechanics import HttpBrowser, assert_no_content
+from tests.acceptance.dsl.js_browser_mechanics import (
+    CapturedApiResponse,
+    assert_absent,
+    assert_all_absent,
+    assert_all_present,
+    assert_present,
+    build_captured_response,
+    by_test_id,
+    csrf_token,
+    require,
+    wait_for_at_least_one,
+)
+from tests.acceptance.dsl.openapi_schema import assert_matches_openapi_schema
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+GATHERING_API_CONTRACT = PROJECT_ROOT / "contracts" / "gathering-scheduling-api.yaml"
+
+# organizerDashboard test ids / attributes (gathering-scheduling-browser-interface.yaml)
+GATHERING_PHASE_INDICATOR = "gathering-phase-indicator"
+GATHERING_PHASE_ATTR = "data-gathering-phase"
+RESPONDED_SUMMARY = "gathering-responded-summary"
+RESPONDED_COUNT_ATTR = "data-responded-count"
+ANONYMOUS_RESPONDED_COUNT_ATTR = "data-anonymous-responded-count"
+UNANSWERED_SUMMARY = "gathering-unanswered-summary"
+TOTAL_ISSUED_LINKS_ATTR = "data-total-issued-links"
+REVOKED_LINKS_ATTR = "data-revoked-links"
+ACTIVE_ISSUED_LINKS_ATTR = "data-active-issued-links"
+UNANSWERED_COUNT_ATTR = "data-unanswered-count"
+CANDIDATE_DATE_LIST = "gathering-candidate-date-list"
+CANDIDATE_DATE = "gathering-candidate-date"
+CANDIDATE_DATE_ID_ATTR = "data-candidate-date-id"
+GOING_COUNT_ATTR = "data-going-count"
+MAYBE_COUNT_ATTR = "data-maybe-count"
+NOT_GOING_COUNT_ATTR = "data-not-going-count"
+CONFIRMED_ATTR = "data-confirmed"
+TENTATIVE_SELECTED_ATTR = "data-tentative-selected"
+ADD_CANDIDATE_DATE_OPEN = "gathering-add-candidate-date-open"
+PARTICIPANT_LINK_COPY = "gathering-participant-link-copy"
+ISSUED_LINK_URL_ATTR = "data-issued-link-url"
+PARTICIPANT_LINK_LIST = "gathering-participant-link-list"
+PARTICIPANT_LINK_ITEM = "gathering-participant-link-item"
+PARTICIPANT_LINK_ID_ATTR = "data-participant-link-id"
+ISSUED_AT_ATTR = "data-issued-at"
+HAS_RESPONDED_ATTR = "data-has-responded"
+REVOKED_ATTR = "data-revoked"
+PARTICIPANT_NAMED_ATTR = "data-participant-named"
+PARTICIPANT_LINK_RECOPY = "gathering-participant-link-recopy"
+PARTICIPANT_LINK_REVOKE = "gathering-participant-link-revoke"
+CONFIRM_DATE_SELECT = "gathering-confirm-date-select"
+OPEN_SHOP_PREVIEW = "gathering-open-shop-preview"
+OPEN_SHOP_COUNT_ATTR = "data-open-shop-count"
+OPEN_SHOP_PREVIEW_ITEM = "gathering-open-shop-preview-item"
+OPEN_SHOP_PREVIEW_ITEM_NAME = "gathering-open-shop-preview-item-name"
+
+# participantAnswer test ids / attributes
+PARTICIPANT_HEADER = "gathering-participant-header"
+PARTICIPANT_NAME_STATUS = "gathering-participant-name-status"
+SCHEDULE_QUESTION = "gathering-schedule-question"
+YOUR_RESPONSE_ATTR = "data-your-response"
+RESPONSE_OPTION = "gathering-schedule-response-option"
+RESPONSE_VALUE_ATTR = "data-response-value"
+SCHEDULE_TALLY = "gathering-schedule-tally"
+PARTICIPANT_NAME_OPEN = "gathering-participant-name-open"
+PARTICIPANT_NAME_INPUT = "gathering-participant-name-input"
+PARTICIPANT_NAME_SUBMIT = "gathering-participant-name-submit"
+PARTICIPANT_PROGRESS = "gathering-participant-progress"
+TOTAL_CANDIDATE_DATES_ATTR = "data-total-candidate-dates"
+ANSWERED_CANDIDATE_DATES_ATTR = "data-answered-candidate-dates"
+PARTICIPANT_LINK_ERROR = "gathering-participant-link-error"
+LINK_ERROR_CODE_ATTR = "data-link-error-code"
+
+# test-support-api.yaml 1.5.0's GATHERING_OPEN_SHOP_WEEKDAY_MATCH mode (adr/0037 decision 3):
+# exact known openShopCount per weekday (Python's date.weekday(): Monday=0 ... Sunday=6).
+OPEN_SHOP_COUNT_BY_WEEKDAY = {0: 5, 1: 5, 2: 4, 3: 6, 4: 6, 5: 6, 6: 5}
+
+
+def next_weekday_iso(weekday: int, hour: int = 12) -> str:
+    """The next future occurrence (never "today") of ``weekday`` as an RFC3339 string,
+    for CandidateDateInput.startAt.
+    """
+    now = datetime.now(UTC)
+    days_ahead = (weekday - now.weekday()) % 7 or 7
+    target = (now + timedelta(days=days_ahead)).replace(
+        hour=hour, minute=0, second=0, microsecond=0
+    )
+    return target.isoformat()
+
+
+def days_from_now_iso(days: int, hour: int = 12) -> str:
+    target = (datetime.now(UTC) + timedelta(days=days)).replace(
+        hour=hour, minute=0, second=0, microsecond=0
+    )
+    return target.isoformat()
+
+
+class GatheringSchedulingBrowserDsl:
+    def __init__(self, assertions: SimpleTestCase, page: Page, base_url: str) -> None:
+        self.assertions = assertions
+        self.page = page
+        self.base_url = base_url.rstrip("/")
+        self._auth_seam = AuthenticationBrowserDsl(assertions, base_url)
+        self.support = HttpBrowser(base_url)
+        self._csrf_token: str | None = None
+        self.gathering: dict | None = None
+        self.gathering_id: str | None = None
+        self._created_candidate_date_isos: list[str] = []
+        self._candidate_date_id_by_start_at: dict[str, str] = {}
+        self._prepared_title: str | None = None
+        self._prepared_candidate_date_isos: list[str] | None = None
+        self._issued_order: list[dict[str, str]] = []
+        self._current_open_shop_preview: CapturedApiResponse | None = None
+
+    # Given seams (test-support-api.yaml) -----------------------------------
+
+    def reset_authentication_state(self) -> None:
+        self._auth_seam.reset_authentication_state()
+
+    def enable_organizer(self, account_ref: str, identifier: str, password: str) -> None:
+        self._auth_seam.set_active_organizer(account_ref, identifier, password)
+
+    def reset_gathering_scheduling_state(self) -> None:
+        response = self.support.request("DELETE", "/test-support/gathering-scheduling-state")
+        assert_no_content(self.assertions, response, "gathering-scheduling state reset")
+
+    def reset_candidate_state(self) -> None:
+        response = self.support.request("DELETE", "/test-support/candidate-proposals/state")
+        assert_no_content(self.assertions, response, "candidate-proposal state reset")
+
+    def set_gathering_open_shop_population(self) -> None:
+        """adr/0037 decision 3: TDR-GTH-08/09 share candidate-search's own population
+        seam rather than a dedicated gathering endpoint.
+        """
+        response = self.support.request(
+            "PUT",
+            "/test-support/candidate-proposals/state",
+            data=json.dumps({"mode": "GATHERING_OPEN_SHOP_WEEKDAY_MATCH"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        assert_no_content(self.assertions, response, "GATHERING_OPEN_SHOP_WEEKDAY_MATCH state set")
+
+    def seed_expired_participant_link(self, link: dict[str, str]) -> None:
+        response = self.support.request(
+            "POST",
+            "/test-support/gathering-scheduling/participant-links/expire",
+            data=json.dumps({"token": link["token"]}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        assert_no_content(self.assertions, response, "seedExpiredParticipantLink")
+
+    def seed_rate_limited_participant_link(self, link: dict[str, str]) -> None:
+        response = self.support.request(
+            "POST",
+            "/test-support/gathering-scheduling/participant-links/rate-limit",
+            data=json.dumps({"token": link["token"]}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        assert_no_content(self.assertions, response, "seedRateLimitedParticipantLink")
+
+    # Sign-in (shared root entry point, same as candidate_search_browser.py) -
+
+    def sign_in(self, identifier: str, password: str) -> None:
+        self.page.goto(f"{self.base_url}/")
+        by_test_id(self.page, "auth-login-identifier").fill(identifier)
+        by_test_id(self.page, "auth-password").fill(password)
+        by_test_id(self.page, "auth-sign-in-submit").click()
+        assert_present(self.assertions, self.page, "authenticated-application-shell")
+        self.page.wait_for_load_state("networkidle")
+        self._csrf_token = csrf_token(self.page)
+
+    # Direct public-API calls (organizer Given-state, TDR-GTH-01/10/13/20) ---
+
+    def _api(
+        self, method: str, path: str, json_body: dict | None = None, *, csrf: bool = False
+    ) -> CapturedApiResponse:
+        headers: dict[str, str] = {}
+        data: bytes | None = None
+        if json_body is not None:
+            headers["Content-Type"] = "application/json"
+            data = json.dumps(json_body).encode("utf-8")
+        if csrf:
+            headers["X-CSRFToken"] = require(
+                self._csrf_token, "organizer must sign in before a CSRF-protected request"
+            )
+        response = self.page.context.request.fetch(
+            f"{self.base_url}{path}", method=method, headers=headers, data=data
+        )
+        return build_captured_response(response)
+
+    def _assert_api_ok(
+        self, response: CapturedApiResponse, expected_status: int, context: str
+    ) -> None:
+        self.assertions.assertEqual(response.status, expected_status, f"{context}: {response.body}")
+
+    def _set_gathering(self, payload: dict) -> None:
+        self.gathering = payload
+        self.gathering_id = payload["id"]
+        for candidate_date in payload["candidateDates"]:
+            self._candidate_date_id_by_start_at[candidate_date["startAt"]] = candidate_date["id"]
+
+    def candidate_date_id_at(self, index: int) -> str:
+        iso = self._created_candidate_date_isos[index]
+        return self._candidate_date_id_by_start_at[iso]
+
+    # createGathering ---------------------------------------------------
+
+    def prepare_new_gathering(self, title: str, candidate_date_isos: list[str]) -> None:
+        """Given: 幹事が会の名前と2つ以上の候補日を用意している (TDR-GTH-01).
+
+        Purely local state -- createGathering itself is the scenario's own
+        When, not this Given.
+        """
+        self._prepared_title = title
+        self._prepared_candidate_date_isos = list(candidate_date_isos)
+
+    def create_prepared_gathering(self) -> None:
+        """When: 幹事が会をつくる (TDR-GTH-01). browser-interface.yaml's own
+        notVerifiedHere marks this scenario API/boundary-level acceptance --
+        no creation screen is approved yet (Organizer.dc.html shows only the
+        post-creation dashboard) -- so this calls createGathering directly.
+        """
+        title = require(self._prepared_title, "no gathering was prepared")
+        dates = require(self._prepared_candidate_date_isos, "no candidate dates were prepared")
+        self._create_gathering(title, dates)  # type: ignore[arg-type]
+
+    def given_scheduling_gathering(self, title: str, candidate_date_isos: list[str]) -> None:
+        """Given-state builder for every other TDR-GTH scenario needing an
+        already-existing SCHEDULING-phase gathering (adr/0037 decision 1:
+        public-API Given construction, since no approved creation screen
+        exists to drive through the browser).
+        """
+        self._create_gathering(title, candidate_date_isos)
+
+    def _create_gathering(self, title: str, candidate_date_isos: list[str]) -> None:
+        response = self._api(
+            "POST",
+            "/gatherings",
+            {"title": title, "candidateDates": [{"startAt": iso} for iso in candidate_date_isos]},
+            csrf=True,
+        )
+        self._assert_api_ok(response, 201, "createGathering")
+        self._created_candidate_date_isos.extend(candidate_date_isos)
+        self._set_gathering(response.payload)
+
+    def add_candidate_date_via_api(self, candidate_date_iso: str) -> None:
+        response = self._api(
+            "POST",
+            f"/gatherings/{self.gathering_id}/candidate-dates",
+            {"startAt": candidate_date_iso},
+            csrf=True,
+        )
+        self._assert_api_ok(response, 201, "addCandidateDate")
+        self._created_candidate_date_isos.append(candidate_date_iso)
+        self._set_gathering(response.payload)
+
+    # Then: TDR-GTH-01 -----------------------------------------------------
+
+    def assert_gathering_created_in_scheduling_phase(self) -> None:
+        gathering = require(self.gathering, "no gathering was created")
+        self.assertions.assertEqual(gathering["phase"], "SCHEDULING")  # type: ignore[index]
+
+    def assert_prepared_candidate_dates_all_registered(self) -> None:
+        gathering = require(self.gathering, "no gathering was created")
+        registered = {date["startAt"] for date in gathering["candidateDates"]}  # type: ignore[index]
+        expected = set(
+            require(self._prepared_candidate_date_isos, "no candidate dates were prepared")
+        )
+        self.assertions.assertEqual(registered, expected)
+
+    def assert_no_candidate_date_is_confirmed_on_gathering(self) -> None:
+        gathering = require(self.gathering, "no gathering was created")
+        self.assertions.assertIsNone(gathering["confirmedCandidateDateId"])  # type: ignore[index]
+
+    # Organizer dashboard navigation and reads ------------------------------
+
+    def open_organizer_dashboard(self) -> None:
+        self.page.goto(f"{self.base_url}/gatherings/{self.gathering_id}/")
+        wait_for_at_least_one(self.page, GATHERING_PHASE_INDICATOR)
+
+    def _candidate_date_locator(self, candidate_date_id: str) -> Locator:
+        return self.page.locator(
+            f'[data-testid="{CANDIDATE_DATE}"][{CANDIDATE_DATE_ID_ATTR}="{candidate_date_id}"]'
+        )
+
+    def _read_gathering_phase_from_dom(self) -> str:
+        node = assert_present(self.assertions, self.page, GATHERING_PHASE_INDICATOR)
+        return node.get_attribute(GATHERING_PHASE_ATTR)
+
+    def _read_candidate_dates(self) -> list[dict[str, object]]:
+        nodes = wait_for_at_least_one(self.page, CANDIDATE_DATE)
+        result = []
+        for index in range(nodes.count()):
+            node = nodes.nth(index)
+            result.append(
+                {
+                    "id": node.get_attribute(CANDIDATE_DATE_ID_ATTR),
+                    "going": int(node.get_attribute(GOING_COUNT_ATTR)),
+                    "maybe": int(node.get_attribute(MAYBE_COUNT_ATTR)),
+                    "notGoing": int(node.get_attribute(NOT_GOING_COUNT_ATTR)),
+                    "confirmed": node.get_attribute(CONFIRMED_ATTR) == "true",
+                }
+            )
+        return result
+
+    def _read_responded_summary(self) -> dict[str, int]:
+        node = assert_present(self.assertions, self.page, RESPONDED_SUMMARY)
+        return {
+            "respondedCount": int(node.get_attribute(RESPONDED_COUNT_ATTR)),
+            "anonymousRespondedCount": int(node.get_attribute(ANONYMOUS_RESPONDED_COUNT_ATTR)),
+        }
+
+    def _read_unanswered_summary(self) -> dict[str, int]:
+        node = assert_present(self.assertions, self.page, UNANSWERED_SUMMARY)
+        return {
+            "totalIssuedLinks": int(node.get_attribute(TOTAL_ISSUED_LINKS_ATTR)),
+            "revokedLinks": int(node.get_attribute(REVOKED_LINKS_ATTR)),
+            "activeIssuedLinks": int(node.get_attribute(ACTIVE_ISSUED_LINKS_ATTR)),
+            "unansweredCount": int(node.get_attribute(UNANSWERED_COUNT_ATTR)),
+        }
+
+    def _read_participant_link_items(self) -> list[dict[str, object]]:
+        nodes = wait_for_at_least_one(self.page, PARTICIPANT_LINK_ITEM)
+        result = []
+        for index in range(nodes.count()):
+            node = nodes.nth(index)
+            result.append(
+                {
+                    "id": node.get_attribute(PARTICIPANT_LINK_ID_ATTR),
+                    "issuedAt": node.get_attribute(ISSUED_AT_ATTR),
+                    "hasResponded": node.get_attribute(HAS_RESPONDED_ATTR) == "true",
+                    "revoked": node.get_attribute(REVOKED_ATTR) == "true",
+                    "named": node.get_attribute(PARTICIPANT_NAMED_ATTR) == "true",
+                }
+            )
+        return result
+
+    # Then: organizer dashboard summaries and candidate-date list ----------
+
+    def assert_gathering_phase(self, expected_phase: str) -> None:
+        self.assertions.assertEqual(self._read_gathering_phase_from_dom(), expected_phase)
+
+    def assert_no_candidate_date_confirmed(self) -> None:
+        dates = self._read_candidate_dates()
+        self.assertions.assertTrue(all(not date["confirmed"] for date in dates))
+
+    def assert_candidate_date_list_is_ordered_by_going_count_descending(self) -> None:
+        going_counts = [date["going"] for date in self._read_candidate_dates()]
+        self.assertions.assertEqual(going_counts, sorted(going_counts, reverse=True))
+
+    def assert_candidate_date_tally(
+        self, candidate_date_id: str, *, going: int, maybe: int, not_going: int
+    ) -> None:
+        dates = {date["id"]: date for date in self._read_candidate_dates()}
+        date = require(
+            dates.get(candidate_date_id), f"candidate date {candidate_date_id} not shown"
+        )
+        self.assertions.assertEqual(date["going"], going)  # type: ignore[index]
+        self.assertions.assertEqual(date["maybe"], maybe)  # type: ignore[index]
+        self.assertions.assertEqual(date["notGoing"], not_going)  # type: ignore[index]
+
+    def assert_responded_summary(self, *, responded: int, anonymous: int) -> None:
+        summary = self._read_responded_summary()
+        self.assertions.assertEqual(summary["respondedCount"], responded)
+        self.assertions.assertEqual(summary["anonymousRespondedCount"], anonymous)
+
+    def assert_unanswered_summary(
+        self, *, total_issued: int, revoked: int, active_issued: int, unanswered: int
+    ) -> None:
+        summary = self._read_unanswered_summary()
+        self.assertions.assertEqual(summary["totalIssuedLinks"], total_issued)
+        self.assertions.assertEqual(summary["revokedLinks"], revoked)
+        self.assertions.assertEqual(summary["activeIssuedLinks"], active_issued)
+        self.assertions.assertEqual(summary["unansweredCount"], unanswered)
+
+    def capture_unanswered_summary(self) -> dict[str, int]:
+        return self._read_unanswered_summary()
+
+    def assert_unanswered_summary_equals(self, expected: dict[str, int]) -> None:
+        self.assertions.assertEqual(self._read_unanswered_summary(), expected)
+
+    def assert_unanswered_summary_reflects_one_revocation(self, before: dict[str, int]) -> None:
+        """D2 amendment (ADR-0036 decision 7, TDR-GTH-18): revoking one unanswered
+        link must decrement the denominator by exactly 1, computed as
+        activeParticipantLinkCount - respondedParticipantCount -- never from
+        data-total-issued-links directly (that would reintroduce the
+        pre-amendment bug of still counting a revoked link as outstanding).
+        """
+        after = self._read_unanswered_summary()
+        self.assertions.assertEqual(after["totalIssuedLinks"], before["totalIssuedLinks"])
+        self.assertions.assertEqual(after["revokedLinks"], before["revokedLinks"] + 1)
+        self.assertions.assertEqual(after["activeIssuedLinks"], before["activeIssuedLinks"] - 1)
+        self.assertions.assertEqual(after["unansweredCount"], before["unansweredCount"] - 1)
+        responded = self._read_responded_summary()["respondedCount"]
+        self.assertions.assertEqual(
+            after["unansweredCount"], after["activeIssuedLinks"] - responded
+        )
+
+    # Add-candidate-date (organizer) ----------------------------------------
+
+    def assert_add_candidate_date_entry_point_is_reachable_without_side_effects(self) -> None:
+        """browser-interface.yaml's addCandidateDateOpen.requiredOutcome only fixes
+        that *some* input surface becomes reachable after activation; it
+        explicitly leaves that surface's own test ids/fields undefined
+        (Organizer.dc.html shows only the entry point, not its resulting
+        form -- "not yet approved design"). This only proves the entry point
+        exists and activating it does not itself mutate gathering state; it
+        cannot drive the resulting, contractually-unspecified form. See this
+        slice's tester report for the gap this leaves in TDR-GTH-02.
+        """
+        before_phase = self._read_gathering_phase_from_dom()
+        before_dates = self._read_candidate_dates()
+        control = assert_present(self.assertions, self.page, ADD_CANDIDATE_DATE_OPEN)
+        control.click()
+        self.assertions.assertEqual(self._read_gathering_phase_from_dom(), before_phase)
+        self.assertions.assertEqual(self._read_candidate_dates(), before_dates)
+
+    def assert_new_candidate_date_added_without_phase_change(
+        self, new_candidate_date_id: str
+    ) -> None:
+        self.open_organizer_dashboard()
+        ids = [date["id"] for date in self._read_candidate_dates()]
+        self.assertions.assertIn(new_candidate_date_id, ids)
+        self.assertions.assertEqual(self._read_gathering_phase_from_dom(), "SCHEDULING")
+
+    # Issue / list / recopy / revoke participant links (organizer UI) ------
+
+    def _token_from_url(self, url: str) -> str:
+        match = re.search(r"/participant-links/([^/]+)/?$", url)
+        return require(match, f"issued link url has unexpected shape: {url}").group(1)  # type: ignore[union-attr]
+
+    def issue_participant_link_from_dashboard(self) -> dict[str, str]:
+        """1クリック=1本 (D8, ADR-0036決定4). participantLinkCopy.requiredOutcome."""
+        before = self._read_unanswered_summary()
+        button = assert_present(self.assertions, self.page, PARTICIPANT_LINK_COPY)
+        button.click()
+        expect(button).to_have_attribute(ISSUED_LINK_URL_ATTR, re.compile(r".+"))
+        url = button.get_attribute(ISSUED_LINK_URL_ATTR)
+        after = self._read_unanswered_summary()
+        self.assertions.assertEqual(after["totalIssuedLinks"], before["totalIssuedLinks"] + 1)
+        self.assertions.assertEqual(after["activeIssuedLinks"], before["activeIssuedLinks"] + 1)
+        issued = {"token": self._token_from_url(url), "url": url}
+        self._issued_order.append(issued)
+        return issued
+
+    def issue_n_participant_links_from_dashboard(self, count: int) -> list[dict[str, str]]:
+        return [self.issue_participant_link_from_dashboard() for _ in range(count)]
+
+    def issue_participant_link_via_api(self) -> dict[str, str]:
+        """Given-state builder for scenarios not about the issuing UI itself."""
+        response = self._api(
+            "POST", f"/gatherings/{self.gathering_id}/participant-links", {"count": 1}, csrf=True
+        )
+        self._assert_api_ok(response, 201, "issueParticipantLinks")
+        issued_links = response.payload["issuedLinks"]
+        self.assertions.assertEqual(len(issued_links), 1)
+        link = issued_links[0]
+        issued = {"token": self._token_from_url(link["url"]), "url": link["url"]}
+        self._issued_order.append(issued)
+        return issued
+
+    def assert_issued_links_are_distinct(self, links: list[dict[str, str]]) -> None:
+        tokens = [link["token"] for link in links]
+        urls = [link["url"] for link in links]
+        self.assertions.assertEqual(len(tokens), len(set(tokens)))
+        self.assertions.assertEqual(len(urls), len(set(urls)))
+        for token, url in zip(tokens, urls, strict=True):
+            self.assertions.assertTrue(token)
+            self.assertions.assertIn(token, url)
+
+    def assert_participant_link_list_matches(self, expected: list[dict[str, object]]) -> None:
+        """expected: issuance-order list of {"hasResponded": bool, "named": bool}
+        (optionally "revoked"). TDR-GTH-16 only requires 名無しを含む
+        distinguishability, not exact display-name text (item.requirement note).
+        """
+        items = self._read_participant_link_items()
+        self.assertions.assertEqual(len(items), len(expected))
+        issued_ats = [item["issuedAt"] for item in items]
+        self.assertions.assertEqual(issued_ats, sorted(issued_ats))
+        for actual, wanted in zip(items, expected, strict=True):
+            self.assertions.assertEqual(actual["hasResponded"], wanted["hasResponded"])
+            self.assertions.assertEqual(actual["named"], wanted["named"])
+            if "revoked" in wanted:
+                self.assertions.assertEqual(actual["revoked"], wanted["revoked"])
+
+    def recopy_participant_link_at(self, index: int) -> str:
+        item = wait_for_at_least_one(self.page, PARTICIPANT_LINK_ITEM).nth(index)
+        recopy = by_test_id(item, PARTICIPANT_LINK_RECOPY)
+        expect(recopy).to_be_enabled()
+        recopy.click()
+        expect(recopy).to_have_attribute(ISSUED_LINK_URL_ATTR, re.compile(r".+"))
+        return recopy.get_attribute(ISSUED_LINK_URL_ATTR)
+
+    def revoke_participant_link_at(self, index: int) -> None:
+        item = wait_for_at_least_one(self.page, PARTICIPANT_LINK_ITEM).nth(index)
+        revoke = by_test_id(item, PARTICIPANT_LINK_REVOKE)
+        expect(revoke).to_be_enabled()
+        revoke.click()
+        expect(item).to_have_attribute(REVOKED_ATTR, "true")
+
+    def assert_revoke_control_disabled_at(self, index: int) -> None:
+        item = wait_for_at_least_one(self.page, PARTICIPANT_LINK_ITEM).nth(index)
+        expect(by_test_id(item, PARTICIPANT_LINK_REVOKE)).to_be_disabled()
+
+    def attempt_revoke_participant_link_via_api(self, index: int) -> CapturedApiResponse:
+        """TDR-GTH-20's own contract note: the server must reject this even though
+        this contract's disabledState should make it unreachable through the
+        control -- so this bypasses the disabled UI control deliberately.
+        """
+        link_id = self._read_participant_link_items()[index]["id"]
+        return self._api(
+            "POST",
+            f"/gatherings/{self.gathering_id}/participant-links/{link_id}/revoke",
+            None,
+            csrf=True,
+        )
+
+    def assert_revoke_rejected_because_already_answered(
+        self, response: CapturedApiResponse
+    ) -> None:
+        self.assertions.assertEqual(response.status, 409)
+        self.assertions.assertEqual(response.payload["code"], "PARTICIPANT_LINK_ALREADY_ANSWERED")
+
+    def assert_recopied_url_matches_original(self, recopied_url: str, original_url: str) -> None:
+        self.assertions.assertEqual(recopied_url, original_url)
+
+    # Tentative selection / preview / confirm (organizer UI) ----------------
+
+    def _capture_gathering_response(
+        self, url_fragment: str, trigger: Callable[[], None]
+    ) -> CapturedApiResponse:
+        def predicate(response: Response) -> bool:
+            return url_fragment in response.url
+
+        with self.page.expect_response(predicate) as info:
+            trigger()
+        return build_captured_response(info.value)
+
+    def tentatively_select_candidate_date(self, candidate_date_id: str) -> None:
+        node = self._candidate_date_locator(candidate_date_id)
+        self._current_open_shop_preview = self._capture_gathering_response(
+            "open-shop-preview", lambda: node.click()
+        )
+        expect(node).to_have_attribute(TENTATIVE_SELECTED_ATTR, "true")
+
+    def assert_open_shop_preview_shows_expected_count_and_order(
+        self, expected_open_shop_count: int
+    ) -> None:
+        response = require(self._current_open_shop_preview, "no open-shop preview was captured")
+        self.assertions.assertEqual(response.status, 200)  # type: ignore[union-attr]
+        payload = response.payload  # type: ignore[union-attr]
+        self.assertions.assertEqual(payload["openShopCount"], expected_open_shop_count)
+        preview = assert_present(self.assertions, self.page, OPEN_SHOP_PREVIEW)
+        self.assertions.assertEqual(
+            preview.get_attribute(OPEN_SHOP_COUNT_ATTR), str(payload["openShopCount"])
+        )
+        expected_names = [shop["name"] for shop in payload["previewShops"]]
+        if expected_names:
+            items = wait_for_at_least_one(self.page, OPEN_SHOP_PREVIEW_ITEM)
+        else:
+            items = by_test_id(self.page, OPEN_SHOP_PREVIEW_ITEM)
+        dom_names = [
+            by_test_id(items.nth(index), OPEN_SHOP_PREVIEW_ITEM_NAME).inner_text().strip()
+            for index in range(items.count())
+        ]
+        self.assertions.assertEqual(dom_names, expected_names)
+
+    def confirm_tentatively_selected_date(self) -> None:
+        by_test_id(self.page, CONFIRM_DATE_SELECT).click()
+        expect(by_test_id(self.page, GATHERING_PHASE_INDICATOR)).to_have_attribute(
+            GATHERING_PHASE_ATTR, "SELECTING_SHOP"
+        )
+
+    def attempt_confirm_candidate_date_via_api(self, candidate_date_id: str) -> CapturedApiResponse:
+        return self._api(
+            "POST",
+            f"/gatherings/{self.gathering_id}/confirm-date",
+            {"candidateDateId": candidate_date_id},
+            csrf=True,
+        )
+
+    def assert_confirm_rejected_because_not_in_scheduling_phase(
+        self, response: CapturedApiResponse
+    ) -> None:
+        self.assertions.assertEqual(response.status, 409)
+        self.assertions.assertEqual(response.payload["code"], "GATHERING_NOT_IN_SCHEDULING_PHASE")
+
+    # Participant browser actions --------------------------------------------
+
+    def open_participant_link(self, link: dict[str, str]) -> None:
+        self.page.goto(f"{self.base_url}/participant-links/{link['token']}/")
+
+    def _schedule_question_locator(self, candidate_date_id: str) -> Locator:
+        return self.page.locator(
+            f'[data-testid="{SCHEDULE_QUESTION}"][{CANDIDATE_DATE_ID_ATTR}="{candidate_date_id}"]'
+        )
+
+    def answer_schedule_question(self, candidate_date_id: str, status: str) -> None:
+        question = self._schedule_question_locator(candidate_date_id)
+        expect(question).to_be_attached()
+        option = question.locator(
+            f'[data-testid="{RESPONSE_OPTION}"][{RESPONSE_VALUE_ATTR}="{status}"]'
+        )
+        option.click()
+        expect(question).to_have_attribute(YOUR_RESPONSE_ATTR, status)
+
+    def answer_first_schedule_question(self, status: str) -> str:
+        question = wait_for_at_least_one(self.page, SCHEDULE_QUESTION).first
+        candidate_date_id = question.get_attribute(CANDIDATE_DATE_ID_ATTR)
+        self.answer_schedule_question(candidate_date_id, status)
+        return candidate_date_id
+
+    def given_participant_link_with_one_answer(
+        self, status: str = "GOING"
+    ) -> tuple[dict[str, str], str]:
+        link = self.issue_participant_link_via_api()
+        self.open_participant_link(link)
+        candidate_date_id = self.answer_first_schedule_question(status)
+        return link, candidate_date_id
+
+    def attach_display_name(self, name: str) -> None:
+        by_test_id(self.page, PARTICIPANT_NAME_OPEN).click()
+        field = wait_for_at_least_one(self.page, PARTICIPANT_NAME_INPUT)
+        field.fill(name)
+        by_test_id(self.page, PARTICIPANT_NAME_SUBMIT).click()
+        expect(by_test_id(self.page, PARTICIPANT_NAME_STATUS)).to_have_attribute(
+            PARTICIPANT_NAMED_ATTR, "true"
+        )
+
+    def capture_current_your_responses(self, candidate_date_ids: list[str]) -> dict[str, str]:
+        return {
+            candidate_date_id: self._schedule_question_locator(candidate_date_id).get_attribute(
+                YOUR_RESPONSE_ATTR
+            )
+            for candidate_date_id in candidate_date_ids
+        }
+
+    def assert_your_responses_unchanged(self, before: dict[str, str]) -> None:
+        for candidate_date_id, value in before.items():
+            self.assertions.assertEqual(
+                self._schedule_question_locator(candidate_date_id).get_attribute(
+                    YOUR_RESPONSE_ATTR
+                ),
+                value,
+            )
+
+    def attempt_answer_schedule_question_expecting_rate_limit(
+        self, candidate_date_id: str, status: str
+    ) -> None:
+        question = self._schedule_question_locator(candidate_date_id)
+        option = question.locator(
+            f'[data-testid="{RESPONSE_OPTION}"][{RESPONSE_VALUE_ATTR}="{status}"]'
+        )
+        option.click()
+        error = wait_for_at_least_one(self.page, PARTICIPANT_LINK_ERROR)
+        self.assertions.assertEqual(error.get_attribute(LINK_ERROR_CODE_ATTR), "LINK_RATE_LIMITED")
+
+    # TDR-GTH-13: API-level fuzzing (notVerifiedHere -- no browser click-through) -
+
+    def attempt_get_participant_view_with_guessed_token(self) -> CapturedApiResponse:
+        guessed_token = "guessed-" + secrets.token_urlsafe(24)
+        return self._api("GET", f"/participant-links/{guessed_token}")
+
+    def assert_access_denied_without_disclosure(self, response: CapturedApiResponse) -> None:
+        self.assertions.assertEqual(response.status, 404)
+        self.assertions.assertEqual(response.payload["code"], "LINK_NOT_FOUND")
+        assert_matches_openapi_schema(
+            response.payload, GATHERING_API_CONTRACT, "#/components/schemas/ProblemResponse"
+        )
+        real_title = require(self.gathering, "no real gathering exists to check against")["title"]  # type: ignore[index]
+        self.assertions.assertNotIn(real_title, response.body)
+
+    # Then: participant-facing observations ---------------------------------
+
+    def assert_participant_is_nameless(self) -> None:
+        expect(by_test_id(self.page, PARTICIPANT_NAME_STATUS)).to_have_attribute(
+            PARTICIPANT_NAMED_ATTR, "false"
+        )
+
+    def assert_participant_is_named(self) -> None:
+        expect(by_test_id(self.page, PARTICIPANT_NAME_STATUS)).to_have_attribute(
+            PARTICIPANT_NAMED_ATTR, "true"
+        )
+
+    def assert_schedule_question_your_response(self, candidate_date_id: str, expected: str) -> None:
+        expect(self._schedule_question_locator(candidate_date_id)).to_have_attribute(
+            YOUR_RESPONSE_ATTR, expected
+        )
+
+    def assert_schedule_question_open_shop_count(
+        self, candidate_date_id: str, expected: int
+    ) -> None:
+        expect(self._schedule_question_locator(candidate_date_id)).to_have_attribute(
+            OPEN_SHOP_COUNT_ATTR, str(expected)
+        )
+
+    def assert_schedule_question_no_shop_details(self, candidate_date_id: str) -> None:
+        """D6 (2026-08-30): "店名やその他の店舗情報は示されない" -- a stronger
+        prohibition than organizerDashboard's own preview, which does show names.
+        """
+        question = self._schedule_question_locator(candidate_date_id)
+        self.assertions.assertEqual(
+            question.locator(f'[data-testid="{OPEN_SHOP_PREVIEW_ITEM}"]').count(), 0
+        )
+        assert_absent(self.assertions, self.page, OPEN_SHOP_PREVIEW_ITEM)
+        assert_absent(self.assertions, self.page, OPEN_SHOP_PREVIEW_ITEM_NAME)
+
+    def assert_schedule_question_tally_absent(self, candidate_date_id: str) -> None:
+        question = self._schedule_question_locator(candidate_date_id)
+        self.assertions.assertEqual(
+            question.locator(f'[data-testid="{SCHEDULE_TALLY}"]').count(), 0
+        )
+
+    def assert_schedule_question_tally(
+        self, candidate_date_id: str, *, going: int, maybe: int, not_going: int
+    ) -> None:
+        question = self._schedule_question_locator(candidate_date_id)
+        tally = question.locator(f'[data-testid="{SCHEDULE_TALLY}"]')
+        expect(tally).to_have_count(1)
+        self.assertions.assertEqual(tally.get_attribute("data-going-count"), str(going))
+        self.assertions.assertEqual(tally.get_attribute("data-maybe-count"), str(maybe))
+        self.assertions.assertEqual(tally.get_attribute("data-not-going-count"), str(not_going))
+
+    def assert_participant_progress(self, *, total: int, answered: int) -> None:
+        progress = assert_present(self.assertions, self.page, PARTICIPANT_PROGRESS)
+        self.assertions.assertEqual(progress.get_attribute(TOTAL_CANDIDATE_DATES_ATTR), str(total))
+        self.assertions.assertEqual(
+            progress.get_attribute(ANSWERED_CANDIDATE_DATES_ATTR), str(answered)
+        )
+
+    def assert_participant_header_phase(self, expected: str) -> None:
+        header = assert_present(self.assertions, self.page, PARTICIPANT_HEADER)
+        self.assertions.assertEqual(header.get_attribute(GATHERING_PHASE_ATTR), expected)
+
+    def assert_participant_link_error(self, code: str) -> None:
+        error = assert_present(self.assertions, self.page, PARTICIPANT_LINK_ERROR)
+        self.assertions.assertEqual(error.get_attribute(LINK_ERROR_CODE_ATTR), code)
+        assert_all_absent(self.assertions, self.page, [PARTICIPANT_HEADER, SCHEDULE_QUESTION])
+
+    def assert_valid_participant_view_is_shown(self) -> None:
+        assert_all_present(self.assertions, self.page, [PARTICIPANT_HEADER, SCHEDULE_QUESTION])
+        assert_absent(self.assertions, self.page, PARTICIPANT_LINK_ERROR)
