@@ -7,45 +7,198 @@
     <title>会の日程回答</title>
     <style>
       :root {
-        color: #1c2420;
-        background: #f4f5f1;
+        color: #17201b;
+        background: #f2f4f0;
         font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        line-height: 1.6;
+        line-height: 1.5;
       }
       * { box-sizing: border-box; }
       body { margin: 0; }
-      .app-shell { width: min(100% - 2rem, 28rem); margin: 0 auto; padding: 1.5rem 0 3rem; }
-      .app-card {
-        background: #fff;
-        border: 1px solid #dce3da;
-        border-radius: 0.75rem;
-        padding: clamp(1rem, 4vw, 1.5rem);
+      .app-shell { width: min(100% - 2rem, 26rem); margin: 0 auto; padding: 1.25rem 0 3rem; }
+      .gth-app {
+        background: #f2f4f0;
+        border: 1px solid #c6cfc6;
+        border-radius: 0.875rem;
+        overflow: hidden;
         box-shadow: 0 0.25rem 1.25rem rgb(23 49 36 / 6%);
       }
-      button { min-height: 2.75rem; padding: 0.55rem 1rem; border: 1px solid #aeb9b1; border-radius: 0.4rem; background: #fff; font: inherit; cursor: pointer; }
-      button[data-response-value] { display: block; width: 100%; margin-bottom: 0.5rem; text-align: left; }
-      button[data-response-value][aria-pressed="true"] { background: #155c42; color: #fff; border-color: #155c42; }
-      input[type="text"] { min-height: 2.75rem; padding: 0.55rem 0.65rem; border: 1px solid #aeb9b1; border-radius: 0.4rem; font: inherit; }
+
+      /* Header: title + 日程 n/N counter, progress bar, name control */
+      .gth-hd-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.625rem;
+        padding: 0.75rem 1rem;
+        background: #fff;
+      }
+      .gth-title { font-size: 0.9375rem; font-weight: 700; }
+      .gth-count { font-size: 0.75rem; font-weight: 700; color: #14614a; }
+      .gth-progress { height: 4px; background: #eff2ed; display: flex; }
+      .gth-progress i { display: block; height: 4px; background: #14614a; }
+      .gth-who {
+        min-height: 2.625rem;
+        box-sizing: border-box;
+        padding: 0 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.625rem;
+        background: #fff;
+        border-bottom: 1px solid #dfe4de;
+      }
+      .gth-who-name { font-size: 0.78rem; color: #77827a; }
+      .gth-who-action {
+        min-height: 2.75rem;
+        font-size: 0.72rem;
+        font-weight: 500;
+        color: #14614a;
+        background: transparent;
+        border: 0;
+        padding: 0;
+        cursor: pointer;
+      }
+      .gth-name-form { display: flex; gap: 0.5rem; padding: 0.5rem 1rem; background: #fff; }
+      .gth-name-input {
+        flex: 1;
+        min-height: 2.75rem;
+        padding: 0.55rem 0.65rem;
+        border: 1px solid #aeb9b1;
+        border-radius: 0.4rem;
+        font: inherit;
+      }
+
+      .gth-body {
+        display: flex;
+        flex-direction: column;
+        gap: 0.625rem;
+        padding: 0.75rem 1rem 1rem;
+      }
+
+      /* Cards (both done and open share the base) */
+      .gth-card {
+        background: #fff;
+        border: 1px solid #dfe4de;
+        border-radius: 0.75rem;
+        padding: 0.8rem 0.95rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5625rem;
+      }
+      .gth-card--done { background: #fafbf9; border-color: #e7ebe6; padding: 0.625rem 0.8rem; gap: 0.375rem; }
+      .gth-card--open { border-style: dashed; border-color: #a7b0a8; background: #fafbf9; }
+
+      .gth-done-top { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
+      .gth-done-date { font-size: 0.8125rem; font-weight: 700; color: #4b564e; }
+      .gth-done-badge {
+        align-self: flex-start;
+        font-size: 0.6875rem;
+        font-weight: 700;
+        color: #14614a;
+        background: #e3eee7;
+        border-radius: 999px;
+        padding: 0.125rem 0.625rem;
+      }
+      .gth-done-hint { font-size: 0.625rem; color: #a7b0a8; }
+      .gth-done-options { display: flex; gap: 0.375rem; flex-wrap: wrap; }
+
+      .gth-tally { display: flex; gap: 0.75rem; font-size: 0.72rem; color: #4b564e; }
+      .gth-tally b { font-weight: 700; color: #17201b; }
+
+      .gth-open-label { font-size: 0.75rem; font-weight: 500; color: #77827a; }
+      .gth-open-date { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.01em; }
+      .gth-open-shop-count { font-size: 0.72rem; color: #4b564e; }
+      .gth-open-shop-count b { font-weight: 700; color: #17201b; }
+      .gth-mask {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        border: 1px solid #dfe4de;
+        border-radius: 0.5rem;
+        padding: 0.5rem 0.625rem;
+        background: #eaf0ea;
+        font-size: 0.6875rem;
+        color: #77827a;
+      }
+      .gth-open-options { display: flex; flex-direction: column; gap: 0.5rem; }
+
+      /* Response option buttons -- shared, compact variant for done cards */
+      .gth-opt {
+        min-height: 3.25rem;
+        box-sizing: border-box;
+        border: 1px solid #c6cfc6;
+        border-radius: 0.625rem;
+        background: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.9375rem;
+        font-weight: 500;
+        cursor: pointer;
+        color: inherit;
+      }
+      .gth-opt--compact { min-height: 2.75rem; flex: 1 1 0; font-size: 0.72rem; }
+      .gth-opt--on { background: #14614a; border-color: #14614a; color: #fff; font-weight: 700; }
+
+      .gth-next {
+        background: #eaf0ea;
+        border-radius: 0.625rem;
+        padding: 0.625rem 0.8rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.3125rem;
+      }
+      .gth-next-heading { font-size: 0.65rem; font-weight: 500; color: #77827a; letter-spacing: 0.03em; }
+      .gth-next-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; font-size: 0.75rem; }
+      .gth-next-muted { color: #77827a; }
+
+      .gth-foot { display: flex; gap: 0.625rem; }
+      .gth-foot-btn {
+        flex: 1;
+        min-height: 2.75rem;
+        box-sizing: border-box;
+        border: 1px solid #c6cfc6;
+        border-radius: 0.625rem;
+        background: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.8125rem;
+        font-weight: 500;
+        color: #77827a;
+      }
+      .gth-fine { font-size: 0.65rem; line-height: 1.6; color: #77827a; text-align: center; }
+
+      [data-testid="gathering-participant-link-error"] {
+        margin: 0.75rem 1rem;
+        padding: 0.75rem 1rem;
+        border-radius: 0.4rem;
+        background: #fff0ed;
+        color: #982c22;
+        font-size: 0.8125rem;
+      }
     </style>
   </head>
   <body>
     <div class="app-shell">
-      <div class="app-card">
-        {% comment %}
-          Per contracts/gathering-scheduling-browser-interface.yaml's
-          renderModel, every required test id is built by participant.js
-          once the JS-executing render completes -- this template only
-          supplies the empty mount point plus the signed token the client
-          needs to call the public gathering-scheduling-api.yaml
-          participant-links endpoints.
-        {% endcomment %}
-        <div id="gathering-participant-app" data-participant-token="{{ token }}"></div>
-      </div>
+      {% comment %}
+        Per contracts/gathering-scheduling-browser-interface.yaml's
+        renderModel, every required test id is built by participant.js
+        once the JS-executing render completes -- this template only
+        supplies the empty mount point plus the signed token the client
+        needs to call the public gathering-scheduling-api.yaml
+        participant-links endpoints. The visual structure participant.js
+        builds follows the approved screen skeleton
+        (E:\AWS\dsg-out\party\Answer.dc.html, "B｜参加者の回答", human
+        decision 2026-08-31): a one-question-at-a-time wizard, not a
+        simultaneous list of every candidate date.
+      {% endcomment %}
+      <div id="gathering-participant-app" data-participant-token="{{ token }}"></div>
     </div>
 
     {% comment %}
       Cache-busting query string on participant.js (FR-025).
     {% endcomment %}
-    <script src="{% static 'dining_radar/gathering/participant.js' %}?v=20260831-gathering-scheduling-slice-1"></script>
+    <script src="{% static 'dining_radar/gathering/participant.js' %}?v=20260831d-answer-wizard"></script>
   </body>
 </html>
