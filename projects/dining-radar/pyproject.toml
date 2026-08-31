@@ -33,6 +33,11 @@ where = ["src"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# Django-generated migration files (this project's first ORM app,
+# dining_radar.gathering) are not hand-authored and are excluded from lint
+# the same way [tool.coverage.run]'s omit list already excludes them from
+# coverage -- both exclusions exist for the same reason (generated code).
+exclude = ["*/migrations/*"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
@@ -71,6 +76,10 @@ paths = [
     "src/dining_radar/suggestions/rate_limit.py",
     "src/dining_radar/suggestions/acceptance_state.py",
     "src/dining_radar/suggestions/hotpepper_source.py",
+    "src/dining_radar/gathering/services.py",
+    "src/dining_radar/gathering/serializers.py",
+    "src/dining_radar/gathering/tokens.py",
+    "src/dining_radar/gathering/views.py",
 ]
 exclude = ["**/__pycache__/*"]
 report = ["json"]

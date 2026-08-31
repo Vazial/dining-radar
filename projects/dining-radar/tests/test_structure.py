@@ -71,6 +71,32 @@ class ApplicationStructureTests(SimpleTestCase):
                 self.assertFalse(any(name.startswith(forbidden_prefixes) for name in imports))
                 self.assertNotIn("django.db", imports)
 
+    def test_gathering_layer_does_not_reach_the_adapter_layer_directly(self):
+        """Mirrors the web layer's own adapter-boundary rule above.
+
+        Unlike ``web``, ``gathering`` legitimately owns an ORM (its own
+        persisted models -- the first this product has, ADR-0034 decision
+        6), so this does not also forbid ``django.db`` the way the ``web``
+        check above does. It still must never import
+        ``dining_radar.integrations`` directly: provider communication is
+        reached only through ``dining_radar.suggestions``
+        (``hotpepper_source``/``acceptance_state``), the same boundary
+        ``dining_radar.web`` observes for candidate-search.
+        """
+        forbidden_prefixes = ("dining_radar.integrations",)
+
+        for source_file in (SOURCE_ROOT / "gathering").glob("*.py"):
+            tree = ast.parse(source_file.read_text(encoding="utf-8"))
+            imports = []
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    imports.extend(alias.name for alias in node.names)
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    imports.append(node.module)
+
+            with self.subTest(source_file=source_file.name):
+                self.assertFalse(any(name.startswith(forbidden_prefixes) for name in imports))
+
     def test_recommendation_module_has_no_framework_or_provider_dependency(self):
         """ADR-0001 decision 3: recommendation is a pure Python pipeline."""
         forbidden_prefixes = ("django", "dining_radar.integrations", "dining_radar.records")

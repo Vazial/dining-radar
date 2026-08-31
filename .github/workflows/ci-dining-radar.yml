@@ -43,6 +43,7 @@ jobs:
             tests/test_authentication.py \
             tests/test_bootstrap.py \
             tests/test_candidate_search.py \
+            tests/test_gathering.py \
             tests/test_hotpepper_adapter.py \
             tests/test_quality_gate.py \
             tests/test_recommendation.py \
@@ -61,6 +62,7 @@ jobs:
             tests/test_authentication.py \
             tests/test_bootstrap.py \
             tests/test_candidate_search.py \
+            tests/test_gathering.py \
             tests/test_hotpepper_adapter.py \
             tests/test_recommendation.py \
             tests/test_serializers.py \
