@@ -113,8 +113,9 @@ adr/0015・adr/0023・adr/0025決定3）が、範囲入力や切り口選択に�
 |---|---|---|
 | `authentication` | 管理者作成の個別account、session、login/logout/password change、account有効性の保護境界 | 公開signup、メールreset、SSO、実account・session・secretをGitまたはbrowser出力へ置かない |
 | `web` | 利用時の絞り込み条件入力、候補表示、credit表示、候補の表示専用派生値（総席数の目安`capacityTier`・予算感の目安`dinnerBudgetTier`等）の算出（adr/0019）、識別子を持たない母集団属性`populationAttributes`の応答への同梱（adr/0022） | providerキー・実URL・provider固有形式を扱わない。店舗座標・徒歩経路・現在地・設定探索範囲の値を出さない |
+| `gathering` | 会・候補日・参加者リンク・出欠回答のORM永続化と業務ロジック（局面遷移・denominator算出・リンクの有効期限/失効/レート制限、`gathering-scheduling-api.yaml`、adr/0035〜0037）。この製品が初めて持つ永続データ（ADR-0034決定6）で、`web`と異なりDjango ORMへ直接依存してよい | provider由来の店舗属性（店名・ジャンル・座標・営業情報等）を一切永続化しない（店の情報は`suggestions`/`recommendation`から毎回引き直す）。`integrations`へは`web`と同様`suggestions`経由でのみ到達する |
 | `suggestions` | provider と recommendation pipeline を調停する | provider事実を保存・改変しない |
-| `recommendation` | 正規化済み候補への絞り込み（ジャンル・居酒屋バーを含める・禁煙・カード払い・予算感はソフトフィルタ、徒歩の上限はハードフィルタ）の適用、固定の近い順並べ替え（確認済み一致→情報なし、各段は距離昇順）、近傍プールからの無作為抽出、検索基点からの徒歩時間の算出（adr/0023、adr/0025） | Django、HTTP、ORM、provider形式へ依存しない |
+| `recommendation` | 正規化済み候補への絞り込み（ジャンル・居酒屋バーを含める・禁煙・カード払い・予算感はソフトフィルタ、徒歩の上限はハードフィルタ）の適用、固定の近い順並べ替え（確認済み一致→情報なし、各段は距離昇順）、近傍プールからの無作為抽出、検索基点からの徒歩時間の算出（adr/0023、adr/0025）。`capacity_tier`（総席数の目安、adr/0019）と、会スコープ向けの曜日ベース定休日照合`is_confirmed_closed_on_weekday`/`open_shop_population`（adr/0035決定6・adr/0037決定3）も、`web`と`gathering`の双方が同じ閾値・判定を共有するためここに置く | Django、HTTP、ORM、provider形式へ依存しない |
 | `integrations/hotpepper` | server側通信、クエリキー送信、URL redaction、取得段階の切り捨て防止（`results_available`が`results_returned`を上回る場合のページング。adr/0023決定3）、正規化（`genre`・`non_smoking`・`card`・`budget.average`等の生フィールドをこのアプリの内部表現へ変換する。adr/0019） | 実レスポンスをfixture・cache・DBへ残さない |
 
 ## データと秘密の境界
