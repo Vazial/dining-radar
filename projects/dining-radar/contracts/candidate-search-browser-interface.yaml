@@ -6,8 +6,9 @@
 #
 # Status: 承認済み — adr/0024 の改訂は 2026-08-29 にチャットで承認された（同ADRの approved_by 参照）。
 # **adr/0025 の改訂は 2026-08-24 に PR #156 のマージをもって承認済み**（ADR-0035 方式(i)）。adr/0031 の
-# 追補（v1.5.0）は 2026-08-28 にチャットで承認済み。adr/0033 の追補（v1.6.0、本ブロック）は 2026-08-29
-# にチャットで承認済み。本ファイルに未承認の改訂は残っていない。
+# 追補（v1.5.0）は 2026-08-28 にチャットで承認済み。adr/0033 の追補（v1.6.0）は 2026-08-29
+# にチャットで承認済み。**adr/0038 の追補（v1.7.0、本ファイル末尾のgatheringEntry節）は起草時点で
+# 未承認（meta/adr/0043 方式(ii)）——それ以外に未承認の改訂は残っていない。**
 #
 # Below is the content approved 2026-08-12 (PR #90, adr/0023) as v1.0.5, over
 # which the 2026-08-14 adr/0024 draft, and then the 2026-08-20 adr/0025 draft
@@ -250,8 +251,36 @@
 #   本改訂に含めない (adr/0033 決定7)。
 # - contractVersionを1.5.0から1.6.0へ上げる。`candidate-search.feature`は無変更——adr/0031と同じ
 #   理由（デッキの送り方はTDR-CS-02のUI実装詳細であり、新しい業務能力を語っていない）による。
+#
+# 2026-09-01 追補 (architect、dining-radar/adr/0038。未承認。人間裁定「ランチ候補画面から会への
+# 導線」への最小限の対応):
+# 実機フィードバック「幹事画面ってあるの？新機能が見て取れない」を受け、designerがHandoff.dc.htmlで
+# 3案を示し、人間が案B（ヘッダーに「会」ボタン＋進行中件数バッジ）を選んだ。この画面（TDR-CSの候補
+# 提案画面）が会スコープ（TDR-GTH）の情報を初めて持つ——2つの機能が結合する（designerの指摘どおり）。
+# - authenticatedInitialOutcome.presentへ`candidate-gathering-entry`を追加する。
+# - 新規トップレベル節`gatheringEntry`を新設する（下記）。
+# - `candidate-gathering-entry`はHandoff.dc.htmlの設計判断を踏襲し、`<button>`・`role="button"`を
+#   使わない素の`<a href>`（またはtabindex付きの素の`<div>`）として実装できる——
+#   `allCandidateScreenFormControlsMustDeclarePurpose`の走査対象
+#   （`forbiddenFormControlCategories`が拾う`<button>`/`<input>`/`<select>`/`<textarea>`/一部の
+#   ARIA role）に該当しないため、`allowedPurposes`へ新しいpurposeを追加する必要がない
+#   （`candidate-origin-marker`・`candidate-map-open`と同じ「表示専用/ナビゲーションのみのdiv・a」
+#   様式の再利用、activeContext.md 2026-08-25の記録が確認済みの走査挙動に基づく）。この要素は
+#   候補提案の状態（提案・選択・絞り込み・基点・探索範囲）を一切変えない、ページ間の移動だけを
+#   行う要素である。
+# - バッジの件数（`data-in-progress-gathering-count`）は`gathering-scheduling-api.yaml`の
+#   `getInProgressGatheringCount`から得る——本ファイルの`apiObservations.publicContract`
+#   （`candidate-search-api.yaml`）とは別の契約への参照であり、このファイルが初めて他プロジェクト
+#   内の別契約を参照する。件数は候補提案の応答そのものには含めない（`candidate-search-api.yaml`は
+#   無変更）。
+# - 候補画面deckの見た目3件（PCカード高さ場所確保・件数ページャー・スマホ高さ削減、2026-09-01人間
+#   裁定4〜6）はdesignerが契約条件を確認済みで契約影響なし——唯一の制約（PCカード案Bの空き場所に
+#   `candidate-card-payment-caution`のtest idを付けないこと）は、cardDataAttributes.
+#   cardPaymentCautionの既存presenceRule（cardPaymentAvailableがfalseの場合にだけ存在する）が
+#   既に強制しており、本ファイルの変更を要しない。
+# - contractVersionを1.6.0から1.7.0へ上げる。
 
-contractVersion: '1.6.0'
+contractVersion: '1.7.0'
 kind: acceptance-browser-interface
 scope: candidate-search
 profiles:
@@ -288,7 +317,8 @@ browserEntry:
   authenticatedInitialOutcome:
     present: [candidate-proposal-content, candidate-proposal-cards, candidate-map,
               candidate-provider-credit, candidate-filter-open,
-              candidate-search-again, candidate-origin-marker]
+              candidate-search-again, candidate-origin-marker,
+              candidate-gathering-entry]
     absent: [candidate-budget-tier-note, candidate-filter-genre-overflow,
              candidate-filter-pending-note,
              candidate-filter-apply, candidate-filter-revert,
@@ -464,7 +494,12 @@ browserControlSurface:
           itself an unavailable-field display. Where present, its visible
           text must state only that credit-card payment is not accepted; it
           must not claim the shop is cash-only or state any other payment
-          method.
+          method. **This existing rule is the sole constraint the
+          2026-09-01 desk-visual changes (adr/0038, human decisions 4-6)
+          must respect: the spare space a PC card-layout variant creates
+          must not be labeled with this test id unless cardPaymentAvailable
+          is actually false for that candidate** -- no new contract text is
+          needed to enforce this, since this presenceRule already does.
       cardPaymentValueState:
         attribute: data-card-payment-value-state
         values: [provided, unavailable]
@@ -1542,6 +1577,19 @@ browserActions:
         RATE_LIMITED_AFTER_INITIAL_SUCCESS); it is not separately restated
         for a provider-unavailable (503) cause, which has no matching
         deterministic Given.
+  openGatheringEntry:
+    input: candidate-gathering-entry
+    requiredOutcome:
+      navigation: navigates-to-the-organizer-gathering-list-screen
+      unaffected: [cardsAndMarkersSet, dataCandidateRefValues,
+                   dataSelectionStateValues, appliedFilters, pendingFilters,
+                   conditionSummary, mapViewport]
+      publicOperation: none
+    note: >-
+      This action never calls /candidate-proposals or any of its request
+      fields; it is a pure navigation to
+      gathering-scheduling-browser-interface.yaml's
+      browserEntry.organizerGatheringList (adr/0038).
 
 disclosureObservations:
   responseSurfaces:
@@ -1564,3 +1612,54 @@ apiObservations:
     response: {status: 503, code: PROVIDER_UNAVAILABLE, guidance: non-empty-safe-message}
   rateLimited:
     response: {status: 429, code: PROPOSAL_RATE_LIMITED, guidance: non-empty-safe-message}
+
+gatheringEntry:
+  description: >-
+    The candidate-search screen's entry point into the gathering feature
+    (Handoff.dc.html option B, human decision 2026-09-01, adr/0038). This is
+    the first point where this screen's contract references a resource
+    (in-progress gathering count) that is not part of
+    candidate-search-api.yaml -- see crossContractReference below.
+  requiredTestIds:
+    entry: candidate-gathering-entry
+  entry:
+    testId: candidate-gathering-entry
+    formControl: false
+    requirement: >-
+      Present unconditionally on the authenticated candidate-search screen
+      (see browserEntry.authenticatedInitialOutcome.present above).
+      Implemented as a plain link/navigation element (an `<a href>`, or a
+      tabindex-carrying `<div>` mirroring candidate-map-open's existing
+      style) rather than a `<button>` or an element with an interactive ARIA
+      role -- this keeps it outside
+      unavailableControls.allCandidateScreenFormControlsMustDeclarePurpose's
+      scan (forbiddenFormControlCategories does not include a plain anchor
+      or a purposeless div; activeContext.md's 2026-08-25 record confirms
+      the tester DSL's FORM_CONTROL_SELECTOR does not capture a plain `<a>`
+      either), so no new allowedPurposes entry is required (mirrors
+      candidate-origin-marker and candidate-map-open's existing
+      "display/navigation-only, no purpose declared" precedent). Activating
+      it changes no proposal request, no displayed candidate/marker/filter
+      state, and no configured origin/range or map viewport -- see
+      browserActions.openGatheringEntry.
+    badge:
+      testId: candidate-gathering-entry-badge
+      attribute: data-in-progress-gathering-count
+      presenceRule: >-
+        Present exactly when the count is greater than zero; absent when it
+        is zero (designer's judgment, Handoff.dc.html: "0のときはバッジを
+        出さない"). When present, the attribute is a decimal integer string
+        equal to the count.
+  crossContractReference:
+    file: contracts/gathering-scheduling-api.yaml
+    operationId: getInProgressGatheringCount
+    schemaRef: '#/components/schemas/InProgressGatheringCountResponse'
+    note: >-
+      This is the first place candidate-search-browser-interface.yaml reads
+      a value from a different business contract (gathering-scheduling-
+      api.yaml) rather than only candidate-search-api.yaml
+      (apiObservations.publicContract above, unchanged). The candidate-
+      search screen calling this operation is the coupling point
+      Handoff.dc.html and gathering-scheduling-browser-interface.yaml's
+      2026-09-01 header comment both flag; candidate-search-api.yaml itself
+      is not modified by this addition.
