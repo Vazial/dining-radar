@@ -61,26 +61,53 @@
 # - `data-unanswered-count`の算出式を`activeParticipantLinkCount - respondedParticipantCount`へ
 #   改める（`totalIssuedParticipantLinks`単体ではなくなった。`gathering-scheduling-api.yaml`の
 #   同名フィールド定義変更に追随）。
+#
+# 2026-09-01 追補 (architect、ADR-0038。人間裁定6件、実機フィードバック「幹事画面への入口が無い」への対応):
+# - 実装スライス第1弾の公開後、人間が実機で「ランチ候補画面から会へ辿れない・会をつくる画面が無い・
+#   会一覧が無い」ことを発見した。designerが`E:\AWS\dsg-out\party\Entry.dc.html`・
+#   `AddDate.dc.html`・`Handoff.dc.html`を描き、人間が2026-09-01のチャットで6件を裁定した。
+# - **会の一覧**（`organizerGatheringList`名前空間、`gathering-list`）と**会をつくる画面**
+#   （`organizerGatheringCreate`名前空間）の観測面を新設する。TDR-GTH-01は、専用の作成画面が
+#   無かったために`notVerifiedHere`としていたが、この追補で解消し`verifiesScenarios`へ移した。
+# - **候補日追加フォームはインライン**（人間裁定、`AddDate.dc.html`案A）に決着した。
+#   `gathering-add-candidate-date-open`が開く先（`ADR-0036`未決事項2として持ち越されていた）を
+#   `gathering-add-candidate-date-form`として定義し、reviewer監査Major#1
+#   （`addCandidateDateOpen`の入力サーフェス未定義で正の検査が書けない）を解消する。
+# - **候補日の重複防止**（architectの設計判断、人間裁定の対象外）: 同一`startAt`の候補日を
+#   二重に追加しようとする操作は拒否される（`gathering-scheduling-api.yaml`の
+#   `DUPLICATE_CANDIDATE_DATE`）。フォームは開いたまま、入力値も保持される。
+# - **ランチ候補画面から会への導線**（人間裁定: ヘッダーに「会」ボタン＋進行中件数バッジ、
+#   `Handoff.dc.html`案B）は、`candidate-search-browser-interface.yaml`側に最小限の追加が要る
+#   ——本ファイルではなく同ファイルの2026-09-01追補を参照。バッジの件数は
+#   `gathering-scheduling-api.yaml`の`getInProgressGatheringCount`から得る（2つの機能が初めて
+#   結合する、designerの指摘どおり）。
+# - 候補画面deckの見た目3件（PCカード高さ場所確保・件数ページャー・スマホ高さ削減）は、designerが
+#   契約条件を確認済みで契約影響なし——唯一の制約（PCカード案Bの空き場所に
+#   `candidate-card-payment-caution`のtest idを付けないこと）は既存の`presenceRule`が既に
+#   強制しており、本ファイル・`candidate-search-browser-interface.yaml`とも変更を要しない。
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.2'
+contractVersion: '0.3'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
-  Both browserControlSurface.organizerDashboard and
-  browserControlSurface.participantAnswer are verified by a JS-capable
-  browser automation DSL, the same execution model
+  browserControlSurface.organizerDashboard, organizerGatheringList,
+  organizerGatheringCreate, and participantAnswer are all verified by a
+  JS-capable browser automation DSL, the same execution model
   candidate-search-browser-interface.yaml uses for TDR-CS (ADR-0009 decision
   4), not authentication-browser-interface.yaml's plain-HTTP DSL for
   TDR-AUTH. Every requiredOutcome in this contract (tentative selection
   revealing a preview, a schedule response revealing its tally, a display
-  name attaching, a link list refreshing after recopy/revoke) describes a
+  name attaching, a link list refreshing after recopy/revoke, an inline
+  add-date form staying open after a successful submit) describes a
   client-side DOM change that a plain-HTTP, server-response-only DSL cannot
   observe -- none of this contract's interactions are specified as requiring
-  a full page navigation. A control this contract requires present must
-  exist in the DOM once the relevant JS-executing render completes; unlike
+  a full page navigation except where explicitly noted (e.g. opening a
+  gathering from the list, or leaving the creation screen after submit). A
+  control this contract requires present must exist in the DOM once the
+  relevant JS-executing render completes; unlike
   authentication-browser-interface.yaml's renderModel, this contract does
   not additionally require presence in the raw server-rendered HTML
   response, because no TDR-GTH scenario depends on a non-JS client (this
@@ -92,19 +119,12 @@ profiles:
     transport: HTTP
     publicDeployment: false
     verifiesScenarios:
-      [TDR-GTH-02, TDR-GTH-03, TDR-GTH-04, TDR-GTH-05, TDR-GTH-06,
+      [TDR-GTH-01, TDR-GTH-02, TDR-GTH-03, TDR-GTH-04, TDR-GTH-05, TDR-GTH-06,
        TDR-GTH-07, TDR-GTH-08, TDR-GTH-09, TDR-GTH-10, TDR-GTH-11,
        TDR-GTH-12, TDR-GTH-14, TDR-GTH-15, TDR-GTH-16, TDR-GTH-17,
-       TDR-GTH-18, TDR-GTH-19, TDR-GTH-20]
+       TDR-GTH-18, TDR-GTH-19, TDR-GTH-20, TDR-GTH-21, TDR-GTH-22,
+       TDR-GTH-23, TDR-GTH-24, TDR-GTH-25]
     notVerifiedHere:
-      - scenario: TDR-GTH-01
-        reason: >-
-          Gathering creation (name + initial candidate dates) has no
-          approved screen yet -- Organizer.dc.html shows only the
-          post-creation dashboard. Until a creation screen is designed and
-          approved, TDR-GTH-01 is exercised only through
-          gathering-scheduling-api.yaml directly (API/boundary-level
-          acceptance), not through this browser contract.
       - scenario: TDR-GTH-13
         reason: >-
           "Guessing another participant's token" is a security property
@@ -128,6 +148,31 @@ profiles:
         contract.
 
 browserEntry:
+  organizerGatheringList:
+    baseUrl:
+      environmentVariable: TDR_ACCEPTANCE_BASE_URL
+      requiredScheme: http
+    startUrlTemplate: '${TDR_ACCEPTANCE_BASE_URL}/gatherings/'
+    note: >-
+      The organizer's entry point (Entry.dc.html E-1/E-1b, adr/0038) --
+      reachable immediately after sign-in. This contract does not fix
+      whether this is also the same URL sign-in redirects to; it fixes only
+      that it is reachable under the same base URL and same-origin session
+      as every other organizer surface.
+    unauthenticatedOutcome: >-
+      Delegates to authentication-browser-interface.yaml's existing
+      unauthenticatedOutcome, same as browserEntry.organizerDashboard below.
+  organizerGatheringCreate:
+    baseUrl:
+      environmentVariable: TDR_ACCEPTANCE_BASE_URL
+      requiredScheme: http
+    note: >-
+      Reachable by activating gathering-create-open from
+      organizerGatheringList (Entry.dc.html E-2, adr/0038). This contract
+      does not fix its literal route.
+    unauthenticatedOutcome: >-
+      Delegates to authentication-browser-interface.yaml's existing
+      unauthenticatedOutcome, same as browserEntry.organizerDashboard below.
   organizerDashboard:
     baseUrl:
       environmentVariable: TDR_ACCEPTANCE_BASE_URL
@@ -139,7 +184,8 @@ browserEntry:
       does not fix the literal route, only that it is reachable under the
       same base URL and same-origin session used by
       candidate-search-browser-interface.yaml and
-      authentication-browser-interface.yaml.
+      authentication-browser-interface.yaml. Also reachable by activating
+      gathering-list-item-open from organizerGatheringList (adr/0038).
     unauthenticatedOutcome: >-
       Delegates to authentication-browser-interface.yaml's existing
       unauthenticatedOutcome (present: auth-sign-in-form; absent:
@@ -172,11 +218,15 @@ unavailableControls:
   allGatheringScreenFormControlsMustDeclarePurpose: true
   purposeAttribute: data-gathering-control-purpose
   allowedPurposes:
-    [gathering-add-candidate-date-open, gathering-participant-link-copy,
+    [gathering-add-candidate-date-open, gathering-add-candidate-date-submit,
+     gathering-add-candidate-date-cancel, gathering-participant-link-copy,
      gathering-candidate-date-tentative-select, gathering-confirm-date-select,
      gathering-schedule-response-select, gathering-participant-name-open,
      gathering-participant-name-submit, gathering-participant-link-recopy,
-     gathering-participant-link-revoke]
+     gathering-participant-link-revoke, gathering-create-open,
+     gathering-list-item-open, gathering-create-add-candidate-date-row,
+     gathering-create-remove-candidate-date-row, gathering-create-submit,
+     gathering-create-cancel]
   forbiddenPurposes:
     - manual-ordering
     - secondary-condition
@@ -186,9 +236,10 @@ unavailableControls:
     decision 4's ban on organizer-chosen sort order), reused here rather than
     redefined. It currently constrains
     browserControlSurface.organizerDashboard.candidateDateList (fixed
-    goingCount-descending order, no sort toggle) and
-    participantLinkList (fixed issuedAt-ascending order, no sort toggle --
-    ADR-0036 decision 7) and is written as a category -- not tied to any
+    goingCount-descending order, no sort toggle), participantLinkList (fixed
+    issuedAt-ascending order, no sort toggle -- ADR-0036 decision 7), and
+    organizerGatheringList.list (fixed createdAt-descending order, no sort
+    toggle -- adr/0038) and is written as a category -- not tied to any
     specific existing test id -- so that when a later slice adds the
     approval-voting shop list (D3, 2026-08-30: 幹事の店リストは票の多い順に
     固定し、並べ替えの切替を置かない), that list is already covered without a
@@ -201,13 +252,166 @@ unavailableControls:
   forbiddenTestIds:
     [candidate-origin-marker, candidate-map, private-search-origin]
   forbiddenTestIdsNote: >-
-    Neither gathering screen may render any candidate-search map/origin
-    element -- the gathering never persists or re-displays provider location
-    data of its own (adr/0034 decision 6); any shop information a gathering
-    screen shows is a live, non-persisted projection
+    No gathering screen may render any candidate-search map/origin element
+    -- the gathering never persists or re-displays provider location data of
+    its own (adr/0034 decision 6); any shop information a gathering screen
+    shows is a live, non-persisted projection
     (gathering-scheduling-api.yaml's OpenShopPreviewItem), never a map.
 
 browserControlSurface:
+  organizerGatheringList:
+    description: >-
+      The organizer's entry point (Entry.dc.html E-1/E-1b, adr/0038). Fills
+      the gap the human found in production ("幹事画面への入口が無い").
+      Supports TDR-GTH-21/22.
+    requiredTestIds:
+      list: gathering-list
+      createOpen: gathering-create-open
+    list:
+      testId: gathering-list
+      orderingInvariant: >-
+        DOM order of gathering-list-item children equals
+        GatheringListResponse.gatherings' order (createdAt descending,
+        新しい順, gathering-scheduling-api.yaml) at all times. No control in
+        this list may claim the forbidden manual-ordering purpose (see
+        unavailableControls above).
+      item:
+        testId: gathering-list-item
+        cardinality: zero-or-more-elements-sharing-this-test-id
+        attributes:
+          id: data-gathering-id
+          phase: data-gathering-phase
+          confirmedCandidateDate: data-confirmed-candidate-date
+          respondedCount: data-responded-count
+          activeIssuedLinks: data-active-issued-links
+        requirement: >-
+          One element per Gathering in the response. data-gathering-phase
+          uses the same three-value vocabulary as
+          organizerDashboard.phaseIndicatorAttributes (SCHEDULING,
+          SELECTING_SHOP, FINALIZED). data-confirmed-candidate-date is an
+          ISO-8601 date-time string equal to the CandidateDate.startAt whose
+          id matches Gathering.confirmedCandidateDateId, or absent when
+          confirmedCandidateDateId is null (Entry.dc.html's "候補日 4つ"
+          case) -- this contract does not fix whether a candidate-date-count
+          is separately exposed when there is no confirmed date; the DOM
+          text content is not asserted, only this attribute. data-responded-
+          count and data-active-issued-links mirror
+          Gathering.respondedParticipantCount /
+          Gathering.activeParticipantLinkCount exactly, using the same
+          attribute names organizerDashboard's denominatorAttributes already
+          establish (D2's two-denominator distinction applies here too).
+        open:
+          testId: gathering-list-item-open
+          purpose: gathering-list-item-open
+          requiredOutcome: >-
+            Activating it navigates to browserEntry.organizerDashboard for
+            this item's data-gathering-id (TDR-GTH-21).
+    empty:
+      testId: gathering-list-empty
+      presenceRule: >-
+        Present exactly when GatheringListResponse.gatherings is empty;
+        absent otherwise. When present, no gathering-list-item exists in the
+        DOM (TDR-GTH-22). This is the "input素が無い" gap the human found in
+        production -- Entry.dc.html E-1b is this contract's answer.
+      containsCreateOpen: >-
+        A second gathering-create-open instance may appear inside
+        gathering-list-empty in addition to the one in the persistent header
+        (Entry.dc.html E-1b duplicates the entry point). See createOpen
+        below for why this test id's cardinality allows more than one
+        simultaneous element.
+    createOpen:
+      testId: gathering-create-open
+      purpose: gathering-create-open
+      cardinality: >-
+        one-or-more-elements-sharing-this-test-id -- at least one instance
+        (the persistent header entry point) is always present on this
+        screen; a second instance may coexist inside gathering-list-empty
+        when the list is empty (Entry.dc.html shows both at once in that
+        state). Every instance shares the same purpose and requiredOutcome.
+      requiredOutcome: >-
+        Activating any instance navigates to browserEntry.
+        organizerGatheringCreate (TDR-GTH-22).
+  organizerGatheringCreate:
+    description: >-
+      The gathering-creation screen (Entry.dc.html E-2, adr/0038). Fills the
+      second gap the human found in production ("会をつくる画面が無い").
+      Supports TDR-GTH-01 (now browser-verifiable) and TDR-GTH-23.
+    requiredTestIds:
+      nameInput: gathering-create-name-input
+      candidateDateRow: gathering-create-candidate-date-row
+      addRow: gathering-create-add-candidate-date-row
+      submit: gathering-create-submit
+      cancel: gathering-create-cancel
+    nameInput:
+      testId: gathering-create-name-input
+      requirement: >-
+        A text input whose value becomes CreateGatheringRequest.title on
+        submit. Present unconditionally on this screen.
+    candidateDateRow:
+      testId: gathering-create-candidate-date-row
+      cardinality: >-
+        one-or-more-elements-sharing-this-test-id -- exactly one row is
+        present when the screen first opens (Entry.dc.html E-2's "1つめ"
+        row); addRow appends further rows.
+      dateInput:
+        testId: gathering-create-candidate-date-input
+      note: >-
+        This contract requires each row to expose enough input to produce
+        one valid ISO-8601 date-time value for
+        CandidateDateInput.startAt -- format: date-time already requires a
+        time component (see gathering-scheduling-api.yaml's
+        CandidateDateInput, adr/0038), so time input is required, not
+        optional, resolving designer's open question in Entry.dc.html/
+        AddDate.dc.html. Whether the row collects date and time via one
+        merged input or two separate inputs (in which case the second uses
+        a `-time-input` suffix, designer's own naming proposal) is a UI
+        implementation choice this contract does not fix.
+      addRow:
+        testId: gathering-create-add-candidate-date-row
+        purpose: gathering-create-add-candidate-date-row
+        requiredOutcome: >-
+          Activating it appends one new gathering-create-candidate-date-row
+          (Entry.dc.html's "候補日を足す" within E-2).
+      removeRow:
+        testId: gathering-create-remove-candidate-date-row
+        purpose: gathering-create-remove-candidate-date-row
+        cardinality: zero-or-more-elements-sharing-this-test-id
+        presenceRule: >-
+          Absent on a row exactly when it is the only remaining row (a
+          gathering cannot be created with zero candidate dates, ADR-0035
+          decision 1 / D10) -- Entry.dc.html shows this exact rule (the
+          "1つめ" row has no remove control, later rows do). Present on
+          every other row.
+        requiredOutcome: >-
+          Activating it removes that specific
+          gathering-create-candidate-date-row from the DOM.
+    submit:
+      testId: gathering-create-submit
+      purpose: gathering-create-submit
+      disabledState: >-
+        Carries the native disabled state whenever gathering-create-name-
+        input is empty, or every gathering-create-candidate-date-row lacks a
+        complete valid date-time value (ADR-0035 decision 1's "候補日1つ以上"
+        requirement, mirrored client-side; the API itself is the
+        authoritative enforcement -- this disabledState is a UX affordance,
+        not a substitute for server-side validation). Same disable-at-the-
+        boundary convention as confirmDate.disabledState.
+      requiredOutcome: >-
+        Activating it (while not disabled) calls createGathering with
+        title and candidateDates built from the current rows (TDR-GTH-01).
+        On success, the new gathering subsequently appears in
+        organizerGatheringList.list (createdAt descending places it first).
+        This contract does not fix the immediate post-submit destination
+        screen. On a DUPLICATE_CANDIDATE_DATE rejection (adr/0038, two rows
+        sharing the same date-time value), the screen remains on
+        organizerGatheringCreate with every row's entered value intact --
+        no gathering is created and no row is cleared.
+    cancel:
+      testId: gathering-create-cancel
+      purpose: gathering-create-cancel
+      requiredOutcome: >-
+        Activating it navigates back to organizerGatheringList without
+        calling createGathering.
   organizerDashboard:
     requiredTestIds:
       phaseIndicator: gathering-phase-indicator
@@ -230,7 +434,10 @@ browserControlSurface:
         display Organizer.dc.html's dw-ph header and Flow.dc.html's 会の状態
         row both show; this element is what carries that concept into the
         approved screens actually observed by this contract (F itself has no
-        observable surface -- see this file's header comment).
+        observable surface -- see this file's header comment). Amended
+        2026-09-01 (D10, adr/0038): the value set was already exactly these
+        three values (no DRAFT) from drafting time; D10 confirms this was
+        correct rather than changing it.
     denominatorAttributes:
       description: >-
         D2 (2026-08-30): two distinct denominators must be separately
@@ -306,16 +513,56 @@ browserControlSurface:
       addCandidateDateOpen:
         testId: gathering-add-candidate-date-open
         purpose: gathering-add-candidate-date-open
+        disabledState: >-
+          This contract does not require a disabled state for this control
+          (unlike gathering-create-submit) -- adding a further candidate
+          date has no lower-bound precondition the way creating a gathering
+          does (ADR-0035 decision 1 already requires >=1 at creation time).
         requiredOutcome: >-
-          Activating it makes an input surface for a new candidate date
-          reachable (TDR-GTH-02). This contract does not fix that surface's
-          own test ids or field layout -- Organizer.dc.html shows only the
-          "候補日を足す" entry point, not its resulting form, so those
-          details are not yet approved design (see this file's header
-          comment). The eventual submission must result in exactly one new
-          gathering-candidate-date element whose data-candidate-date-id
-          matches a newly created CandidateDate.id, with the gathering's
-          phase unchanged.
+          Activating it reveals gathering-add-candidate-date-form inline
+          within gathering-candidate-date-list (案A "その場で開く", human
+          decision 2026-09-01, adr/0038) -- resolving what was, at drafting
+          time, an undefined destination (Organizer.dc.html showed only this
+          button's entry point). See addCandidateDateForm below for the
+          form itself (TDR-GTH-02, reviewer audit Major#1's positive
+          surface).
+      addCandidateDateForm:
+        testId: gathering-add-candidate-date-form
+        presenceRule: >-
+          Absent until gathering-add-candidate-date-open is activated.
+          Present after activation, and **remains present after a
+          successful submit** -- ready for another entry without
+          re-opening (human decision 2026-09-01, AddDate.dc.html 案A: "足した
+          あとフォームは閉じない"). Absent again only after
+          gathering-add-candidate-date-cancel is activated.
+        dateInput:
+          testId: gathering-add-candidate-date-input
+        note: >-
+          Same time-is-required note as
+          organizerGatheringCreate.candidateDateRow above: `startAt`'s
+          `format: date-time` already requires a time value; this contract
+          does not fix whether the form collects it via one merged input or
+          a separate `-time-input`-suffixed element.
+        submit:
+          testId: gathering-add-candidate-date-submit
+          purpose: gathering-add-candidate-date-submit
+          requiredOutcome: >-
+            Activating it calls addCandidateDate with the entered
+            date-time. On success, exactly one new gathering-candidate-date
+            appears in gathering-candidate-date-list (ordering per
+            candidateDateList.orderingInvariant), the gathering's phase is
+            unchanged, and gathering-add-candidate-date-form remains present
+            for the next entry. On a DUPLICATE_CANDIDATE_DATE rejection
+            (adr/0038), the form remains present with the entered value
+            intact and no new gathering-candidate-date appears
+            (TDR-GTH-24).
+        cancel:
+          testId: gathering-add-candidate-date-cancel
+          purpose: gathering-add-candidate-date-cancel
+          requiredOutcome: >-
+            Activating it makes gathering-add-candidate-date-form absent
+            and gathering-add-candidate-date-open reachable again, without
+            calling addCandidateDate.
     tentativeSelectionAndPreview:
       description: >-
         The "simultaneous decision" flow (同時決め, human addition
@@ -618,11 +865,34 @@ browserControlSurface:
         equivalent to leaking whether an unrelated account exists.
 
 browserActions:
-  addCandidateDate:
-    inputs: [gathering-add-candidate-date-open]
+  openGatheringFromList:
+    inputs: [gathering-list-item-open]
+    success:
+      requiredOutcome: browserControlSurface.organizerGatheringList.list.item.open.requiredOutcome
+  openGatheringCreate:
+    inputs: [gathering-create-open]
+    success:
+      requiredOutcome: browserControlSurface.organizerGatheringList.createOpen.requiredOutcome
+  createGathering:
+    inputs: [gathering-create-name-input, gathering-create-candidate-date-row,
+             gathering-create-candidate-date-input, gathering-create-submit]
+    success:
+      requiredOutcome: browserControlSurface.organizerGatheringCreate.submit.requiredOutcome
+  cancelGatheringCreate:
+    inputs: [gathering-create-cancel]
+    success:
+      requiredOutcome: browserControlSurface.organizerGatheringCreate.cancel.requiredOutcome
+  addCandidateDateInline:
+    inputs: [gathering-add-candidate-date-open, gathering-add-candidate-date-input,
+             gathering-add-candidate-date-submit]
     success:
       present: [gathering-candidate-date]
       unaffected: [gathering-phase-indicator]
+      requiredOutcome: browserControlSurface.organizerDashboard.candidateDateList.addCandidateDateForm.submit.requiredOutcome
+  cancelAddCandidateDateInline:
+    inputs: [gathering-add-candidate-date-cancel]
+    success:
+      requiredOutcome: browserControlSurface.organizerDashboard.candidateDateList.addCandidateDateForm.cancel.requiredOutcome
   copyParticipantLink:
     inputs: [gathering-participant-link-copy]
     success:
@@ -691,6 +961,20 @@ disclosureObservations:
     appliesTo: [gathering-participant-link-error, gathering-unanswered-summary error paths]
 
 securityObservations:
+  organizerGatheringList:
+    stateChangingOperations: []
+    csrf: not-applicable
+    note: >-
+      listGatherings is a read-only GET; this screen's only state-changing
+      surface is navigation (openGatheringFromList/openGatheringCreate),
+      neither of which calls a state-changing operation itself.
+  organizerGatheringCreate:
+    stateChangingOperations: [createGathering]
+    csrf: required
+    csrfMechanism: >-
+      Reuses gathering-scheduling-api.yaml's CsrfToken parameter and
+      organizerSession's same-origin Django session cookie, identical to
+      organizerDashboard below.
   organizerDashboard:
     stateChangingOperations:
       [addCandidateDate, issueParticipantLinks, confirmCandidateDate,
