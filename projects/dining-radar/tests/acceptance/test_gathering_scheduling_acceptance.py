@@ -1,11 +1,15 @@
-"""JS-capable browser/API L4 runner for TDR-GTH-01 through TDR-GTH-20.
+"""JS-capable browser/API L4 runner for TDR-GTH-01 through TDR-GTH-25.
 
 gathering-scheduling-browser-interface.yaml's own profiles.localAcceptance
-marks TDR-GTH-01 (no approved creation screen yet) and TDR-GTH-13 (token
-guessing is API-level fuzzing, not a browser click-through) as
-notVerifiedHere for the browser control surface; both are still exercised
-here at the API/boundary level through the same authenticated Playwright
-session (see gathering_scheduling_browser.py's module docstring).
+now marks only TDR-GTH-13 (token guessing is API-level fuzzing, not a
+browser click-through) as notVerifiedHere for the browser control surface;
+it is exercised here at the API/boundary level through the same
+authenticated Playwright session (see gathering_scheduling_browser.py's
+module docstring). TDR-GTH-01's own test still drives createGathering
+directly rather than through organizerGatheringCreate (now browser-
+verifiable per v0.3, adr/0038) -- that is out of this slice's explicit
+scope (only TDR-GTH-02 and TDR-GTH-21 through TDR-GTH-25 are new/changed
+here); see this slice's tester report.
 """
 
 from __future__ import annotations
@@ -82,14 +86,19 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.gathering_has_no_confirmed_date()
 
     def test_tdr_gth_02_organizer_adds_a_candidate_date_after_creation(self) -> None:
+        """Rewritten (adr/0038, reviewer audit Major#1 resolved): drives the
+        inline add-candidate-date form end-to-end -- opening it, submitting a
+        new date, and observing it appear -- rather than the prior no-side-
+        effect click plus a separate direct API POST.
+        """
         self._sign_in()
         self.steps.organizer_has_a_scheduling_gathering("会2", [days_from_now_iso(3)])
         self.steps.organizer_opens_the_dashboard()
-        self.steps.organizer_activates_the_add_candidate_date_entry_point()
-        self.steps.organizer_adds_a_candidate_date(days_from_now_iso(20))
-        self.steps.new_candidate_date_is_added_without_phase_change(
-            self.dsl.candidate_date_id_at(1)
-        )
+        before_dates = self.steps.candidate_dates_snapshot()
+        self.steps.organizer_opens_the_add_candidate_date_form()
+        new_date_iso = days_from_now_iso(20)
+        response = self.steps.organizer_submits_the_add_candidate_date_form(new_date_iso)
+        self.steps.new_candidate_date_is_added_via_inline_form(response, before_dates, "SCHEDULING")
 
     def test_tdr_gth_03_organizer_issues_participant_links(self) -> None:
         self._sign_in()
@@ -350,3 +359,75 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         )
         self.steps.participant_opens_the_link(link)
         self.steps.participant_view_is_valid()
+
+    # TDR-GTH-21 through TDR-GTH-25 (adr/0038, entry screens) ---------------
+
+    def test_tdr_gth_21_organizer_opens_a_gathering_from_the_list(self) -> None:
+        self._sign_in()
+        gathering_a, gathering_b = self.steps.organizer_has_multiple_scheduling_gatherings(
+            [("会21a", [days_from_now_iso(3)]), ("会21b", [days_from_now_iso(10)])]
+        )
+        confirmed_date_iso = gathering_b["candidateDates"][0]["startAt"]
+        confirmed_date_id = gathering_b["candidateDates"][0]["id"]
+        gathering_b = self.steps.gathering_candidate_date_is_confirmed_via_api(
+            gathering_b["id"], confirmed_date_id
+        )
+        self.steps.organizer_opens_the_gathering_list()
+        # createdAt descending (新しい順): the more-recently-created gathering_b
+        # first. This does not assert either gathering's title/name -- see
+        # assert_gathering_list_matches's own docstring for the contract gap.
+        self.steps.gathering_list_matches(
+            [
+                {
+                    "id": gathering_b["id"],
+                    "phase": "SELECTING_SHOP",
+                    "confirmedCandidateDate": confirmed_date_iso,
+                },
+                {"id": gathering_a["id"], "phase": "SCHEDULING", "confirmedCandidateDate": None},
+            ]
+        )
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+        self.steps.organizer_opens_gathering_from_list(gathering_a["id"])
+        self.steps.dashboard_is_shown_for(gathering_a["id"], "SCHEDULING")
+
+    def test_tdr_gth_22_organizer_creates_a_gathering_from_the_empty_state(self) -> None:
+        self._sign_in()
+        self.steps.organizer_opens_the_gathering_list()
+        self.steps.gathering_list_is_empty()
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+        self.steps.organizer_activates_create_open_from_the_empty_state()
+        self.steps.gathering_create_screen_is_shown()
+
+    def test_tdr_gth_23_cannot_create_a_gathering_without_a_candidate_date(self) -> None:
+        self._sign_in()
+        self.steps.organizer_opens_the_gathering_create_screen()
+        self.steps.organizer_fills_the_gathering_name("会23")
+        self.steps.gathering_create_submit_is_disabled()
+        attempt_create_without_dates = (
+            self.steps.organizer_attempts_to_create_gathering_via_api_with_no_candidate_dates
+        )
+        response = attempt_create_without_dates("会23")
+        self.steps.create_is_rejected_for_missing_candidate_dates(response)
+        self.steps.no_gathering_exists_with_title("会23")
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+
+    def test_tdr_gth_24_duplicate_candidate_date_is_rejected_by_the_inline_form(self) -> None:
+        self._sign_in()
+        existing_iso = days_from_now_iso(3)
+        self.steps.organizer_has_a_scheduling_gathering("会24", [existing_iso])
+        self.steps.organizer_opens_the_dashboard()
+        before_dates = self.steps.candidate_dates_snapshot()
+        self.steps.organizer_opens_the_add_candidate_date_form()
+        response = self.steps.organizer_submits_the_add_candidate_date_form(existing_iso)
+        self.steps.duplicate_candidate_date_is_rejected(response, existing_iso, before_dates)
+
+    def test_tdr_gth_25_candidate_screen_links_to_the_gathering_list_with_a_count(self) -> None:
+        self._sign_in()
+        self.steps.lunch_candidate_screen_is_available()
+        self.steps.organizer_has_multiple_scheduling_gatherings(
+            [("会25a", [days_from_now_iso(3)]), ("会25b", [days_from_now_iso(10)])]
+        )
+        self.steps.organizer_opens_the_lunch_candidate_screen()
+        self.steps.in_progress_gathering_count_badge_shows(2)
+        self.steps.organizer_opens_the_gathering_entry()
+        self.steps.gathering_list_screen_is_shown()
