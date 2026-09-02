@@ -142,6 +142,32 @@
     root.innerHTML = "";
     root.appendChild(el("div", { "class": "gathering-list-header" }, [renderCreateOpen()]));
 
+    // browserControlSurface.organizerGatheringList.requiredTestIds lists
+    // `list: gathering-list` alongside `createOpen` -- the same grouping
+    // organizerDashboard.requiredTestIds uses for gathering-candidate-date-
+    // list, which this screen's own sibling implementation (gathering.js)
+    // already renders unconditionally regardless of item count. "required"
+    // means this container itself is always present on this screen; only
+    // its own gathering-list-item children have the "zero-or-more" cardinality
+    // (list.item.cardinality). An earlier revision returned before building
+    // this element at all when the response was empty -- confirmed wrong by
+    // orchestrator's合流 measurement (get_by_test_id("gathering-list") not
+    // attached on TDR-GTH-22/23, both of which reach this screen while
+    // empty): `gathering-list-empty`'s own presenceRule only says it is
+    // present when the response is empty and that no gathering-list-item
+    // exists then -- it says nothing about gathering-list's own absence, so
+    // the two coexist (an empty <ul> plus the guidance) exactly the way
+    // list.orderingInvariant/empty.containsCreateOpen already imply two
+    // independent, co-existing observations rather than a mutually
+    // exclusive pair.
+    root.appendChild(
+      el(
+        "ul",
+        { "data-testid": "gathering-list", "class": "gathering-list" },
+        gatherings.map(renderItem)
+      )
+    );
+
     if (gatherings.length === 0) {
       // Entry.dc.html E-1b: the "no gathering yet" guidance carries its own
       // second gathering-create-open instance, in addition to the header's
@@ -155,16 +181,7 @@
           renderCreateOpen(),
         ])
       );
-      return;
     }
-
-    root.appendChild(
-      el(
-        "ul",
-        { "data-testid": "gathering-list", "class": "gathering-list" },
-        gatherings.map(renderItem)
-      )
-    );
   }
 
   requestJson("GET", "/gatherings").then(function (result) {

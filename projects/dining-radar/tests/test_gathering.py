@@ -13,9 +13,10 @@ import json
 import re
 import uuid
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from django.contrib.auth import get_user_model
-from django.test import Client, TestCase, override_settings
+from django.test import Client, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -29,6 +30,38 @@ from dining_radar.gathering.models import (
     ScheduleResponseStatus,
 )
 from dining_radar.suggestions import acceptance_state
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+GATHERING_JS = (
+    PROJECT_ROOT
+    / "src"
+    / "dining_radar"
+    / "gathering"
+    / "static"
+    / "dining_radar"
+    / "gathering"
+    / "gathering.js"
+)
+GATHERING_CREATE_JS = (
+    PROJECT_ROOT
+    / "src"
+    / "dining_radar"
+    / "gathering"
+    / "static"
+    / "dining_radar"
+    / "gathering"
+    / "gathering_create.js"
+)
+GATHERING_LIST_JS = (
+    PROJECT_ROOT
+    / "src"
+    / "dining_radar"
+    / "gathering"
+    / "static"
+    / "dining_radar"
+    / "gathering"
+    / "gathering_list.js"
+)
 
 
 def csrf_token_from(response) -> str:
@@ -2111,3 +2144,58 @@ class ParticipantEndpointGuardTests(GatheringOrganizerTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn(self.token.encode(), response.content)
+
+
+# --- static source regressions (orchestrator合流 findings, 2026-09-02) ------
+
+
+class DateTimeLocalConversionSourceTests(SimpleTestCase):
+    """Guards the fix for a real host-timezone-dependent bug an acceptance
+    合流 run surfaced (TDR-GTH-24): ``new Date(value).toISOString()`` parses
+    a timezone-less ``<input type="datetime-local">`` value using the *host
+    machine's own local timezone* (JS spec's Date Time String Format), which
+    on a JST host silently shifted a submitted ``startAt`` by 9 hours. A
+    Django-test-client reproduction (bypassing the browser entirely) never
+    exercised this JS conversion and could not see the bug -- these checks
+    stay at the source level instead, mirroring
+    ``tests/test_static_assets.py``'s own established convention for
+    candidate.js.
+    """
+
+    def test_gathering_js_no_longer_uses_host_timezone_dependent_conversion(self):
+        source = GATHERING_JS.read_text(encoding="utf-8")
+
+        self.assertNotIn("new Date(localDateTimeValue).toISOString()", source)
+        self.assertIn("function dateTimeLocalValueToIso(value)", source)
+        self.assertIn('return value + ":00Z";', source)
+        self.assertIn("dateTimeLocalValueToIso(localDateTimeValue)", source)
+
+    def test_gathering_create_js_no_longer_uses_host_timezone_dependent_conversion(self):
+        source = GATHERING_CREATE_JS.read_text(encoding="utf-8")
+
+        self.assertNotIn("new Date(rawDateTimeLocalValue).toISOString()", source)
+        self.assertIn("function toStartAtIso(rawDateTimeLocalValue)", source)
+        self.assertIn('return rawDateTimeLocalValue + ":00Z";', source)
+
+
+class GatheringListAlwaysPresentSourceTests(SimpleTestCase):
+    """Guards the fix for TDR-GTH-22/23's own 合流 failure: `gathering-list`
+    (browserControlSurface.organizerGatheringList.requiredTestIds.list) must
+    be present on this screen even when the organizer has zero gatherings --
+    only `gathering-list-item` (its own children) has a zero-or-more
+    cardinality, and `gathering-list-empty` is an additional sibling, not a
+    replacement.
+    """
+
+    def test_gathering_list_element_is_built_before_the_empty_state_branch(self):
+        source = GATHERING_LIST_JS.read_text(encoding="utf-8")
+
+        list_build_index = source.index('"data-testid": "gathering-list",')
+        empty_branch_index = source.index("if (gatherings.length === 0) {")
+        self.assertLess(
+            list_build_index,
+            empty_branch_index,
+            "gathering-list must be built unconditionally, before the "
+            "gatherings.length === 0 branch that adds gathering-list-empty "
+            "as an additional sibling",
+        )

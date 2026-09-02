@@ -62,6 +62,46 @@
     return field ? field.value : "";
   }
 
+  // <input type="datetime-local">'s own value shape is always
+  // "YYYY-MM-DDTHH:mm" (no seconds, no timezone -- this input type is
+  // defined to carry no timezone information at all;
+  // CandidateDateInput.startAt's format: date-time requires one). Building
+  // the ISO string directly from these digits, tagged with a fixed UTC
+  // offset, rather than routing the value through
+  // `new Date(value).toISOString()`, removes a real dependency this screen
+  // used to have on the *visiting browser's own host-OS timezone* to
+  // interpret an otherwise timezone-less string (a timezone-less date-time
+  // literal is parsed as "the host system's local time zone", per the
+  // JS spec's Date Time String Format). Real-measurement finding
+  // (2026-09-02, orchestrator合流 run): with the host machine's own local
+  // zone at +09:00, `new Date("...T12:00").toISOString()` silently shifted
+  // the submitted instant by 9 hours (12:00 became 03:00Z); a duplicate-
+  // candidate-date resubmission of literally the same picked wall-clock
+  // value then failed DUPLICATE_CANDIDATE_DATE's own instant-equality
+  // check (gathering.services.add_candidate_date), not because that check
+  // was wrong, but because the client was sending a different instant than
+  // the one already stored. This function's own fixed-UTC tagging makes
+  // the conversion deterministic regardless of the host machine's own
+  // timezone.
+  //
+  // **Recorded trade-off, not resolved unilaterally (developer discretion
+  // -- gathering-scheduling-browser-interface.yaml's own candidateDateRow/
+  // addCandidateDateForm notes explicitly leave a merged date-time input's
+  // timezone handling unfixed)**: the native datetime-local widget gives
+  // the organizer no on-page indication of which timezone their typed/
+  // picked wall-clock value will be interpreted as. Tagging it UTC here
+  // means an organizer whose own intent is a JST wall-clock time (this
+  // product's only real user base, product-brief.md) would need to add 9
+  // hours themselves to get the instant they mean. A fixed Asia/Tokyo
+  // interpretation (matching this project's own settings_base.TIME_ZONE)
+  // would also be host-timezone-independent while matching real
+  // organizers' likely intent, but choosing between the two is a product
+  // decision no contract makes today -- flagged for architect/human review
+  // (FR-028) rather than decided here.
+  function dateTimeLocalValueToIso(value) {
+    return value + ":00Z";
+  }
+
   function el(tag, attrs, children) {
     var node = document.createElement(tag);
     Object.keys(attrs || {}).forEach(function (name) {
@@ -240,7 +280,7 @@
     if (!localDateTimeValue) {
       return;
     }
-    var startAt = new Date(localDateTimeValue).toISOString();
+    var startAt = dateTimeLocalValueToIso(localDateTimeValue);
     requestJson("POST", gatheringUrl() + "/candidate-dates", { startAt: startAt }).then(
       function (result) {
         if (result.status === 201) {

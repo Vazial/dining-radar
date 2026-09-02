@@ -100,8 +100,15 @@
     render();
   }
 
+  // Same fixed-UTC tagging as gathering.js's own dateTimeLocalValueToIso,
+  // and for the same reason -- see that function's comment for the full
+  // account (real-measurement finding, 2026-09-02, orchestrator合流 run:
+  // `new Date(value).toISOString()` silently shifted the submitted instant
+  // by the host machine's own local-timezone offset instead of producing a
+  // deterministic value) and the recorded organizer-intent trade-off this
+  // developer is not positioned to resolve unilaterally (FR-028).
   function toStartAtIso(rawDateTimeLocalValue) {
-    return new Date(rawDateTimeLocalValue).toISOString();
+    return rawDateTimeLocalValue + ":00Z";
   }
 
   function submit() {

@@ -1766,14 +1766,93 @@ Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (
      （`organizerGatheringCreate.submit.requiredOutcome`が明示的に「この契約は直後の遷移先画面を
      固定しない」としている）。
    - 会をつくる画面・候補日追加フォームとも、日付・時刻を1つの`datetime-local`入力にまとめた
-     （契約は2入力に分ける余地も認めているが、既存`gathering.js`の先例——`submitAddCandidateDate`の
-     `new Date(...).toISOString()`変換——を踏襲し1入力とした）。
+     （契約は2入力に分ける余地も認めている）。**このラウンドで`new Date(...).toISOString()`
+     から固定UTCタグ付けへ変更した——13.参照**。
    - PCカードの空き場所確保は`isMapPrimaryLayout`（PC deck）にのみ適用した——D-fix板の見出しが
      「1. PC」と明記しているため、スマホの1枚表示デッキ（隣同士の高さ比較が生じない）には適用して
      いない。
    - スマホのfacts圧縮は既存の2列グリッドの寸法を縮めるにとどめ、DeckFix.dc.htmlのモックが示す
      4列単一行へは変えていない（狭幅で日本語ラベル4列は折り返す恐れがあり、モック自体も「模式図であり
      実寸ではない」と明記しているため、安全側に倒した）。orchestratorの実測で追い込みが要る。
+
+13. **合流検証（tester `test/gathering-entry-steps` マージ後）の3件の失敗を診断・修正した
+   （2026-09-02、developer）**。作業前に`git fetch && git merge origin/test/gathering-entry-steps`
+   （tester step/DSLを1文字も変更していない）。orchestrator実測の49件中3件失敗（TDR-GTH-22・23・24）
+   をすべて診断し、2件を修正、1件を根拠を添えて未解消のまま報告する（FR-028）。
+
+   **TDR-GTH-22・23（修正済み）——`gathering-list`がDOMに存在しない**: 原因は`gathering_list.js`の
+   `render()`が、会が0件のとき`gathering-list-empty`だけを描画して早期returnし、
+   `data-testid="gathering-list"`の`<ul>`自体を一度も構築していなかったこと。**契約
+   （`gathering-scheduling-browser-interface.yaml`）の`organizerGatheringList.requiredTestIds`は
+   `list: gathering-list`を`createOpen`と並べて列挙しており**、これは`organizerDashboard.
+   requiredTestIds`が`gathering-candidate-date-list`（既存`gathering.js`が件数に関わらず常時構築
+   している）を扱うのと同じ「必須＝常時存在」のグルーピングである。`gathering-list-empty`の
+   `presenceRule`は「0件のとき存在」としか書いておらず、`gathering-list`自体の不在は要求していない
+   ——**契約は空でも`gathering-list`の存在を要求している側と判断し、実装を直した**（`<ul>`を常に
+   構築し、0件のときは`gathering-list-empty`をその後ろの追加要素として並べる）。修正後、TDR-GTH-21・
+   22とも全緑。
+
+   **TDR-GTH-24（修正済み）——重複候補日が409にならない（真因: timezoneではなくクライアントJSの
+   ホストタイムゾーン依存）**: 前回コーディネーターへ「再現しない」と報告したのは、Django test client
+   でAPI境界を直接叩く検証（WSGI直・ブラウザを介さない）だったため。今回、acceptanceと同じ経路
+   （実HTTPサーバ+実Chromiumブラウザ、`StaticLiveServerTestCase`+Playwright）で再現を試み、
+   **サーバー側ではなくクライアント側JSに真因を特定した**。tester側`_fill_candidate_date_time_input`
+   ヘルパーは、UTCタグ付き`datetime.now(UTC)`から作った既存候補日の時刻数字（例:「12:00」）を
+   そのまま`<input type="datetime-local">`へ流し込む。これに対し実装側（`gathering.js`の
+   `submitAddCandidateDate`・`gathering_create.js`の`toStartAtIso`）は`new Date(value).toISOString()`
+   を使っており、**タイムゾーン情報を持たない`datetime-local`の値をJavaScript仕様どおり「ホストマシン
+   自身のローカルタイムゾーン」として解釈する**。orchestrator実行環境のホストが+09:00（JST）である
+   ため、「12:00」はJST正午と解釈され、UTCへ変換すると「03:00Z」になる——**これが報告された
+   「12:00+00:00→03:00+00:00」の9時間ずれの正体**であり、Djangoのtimezone設定・ORM・保存経路には
+   一切バグが無かった（前回の「再現しない」報告はこの意味で正しかった——Django test clientはこの
+   JS変換を一切経由しないため、バグの発生箇所を通っていなかった）。既存候補日はAPI直叩きで作られる
+   ため常にUTCタグ付き、対して新規候補日はブラウザ経由でホストのローカルタイムゾーン依存というズレが
+   生じ、重複判定の等値比較（`services.add_candidate_date`のインスタント比較。前回追加した
+   `test_same_instant_different_offset_representation_is_still_a_duplicate`等でオフセット表現非依存
+   であることは既に確認済み）が実際には異なる瞬間を比較してしまっていた。**修正**: `new Date(...)
+   .toISOString()`をやめ、`datetime-local`の生の数字をリテラルUTCとしてタグ付けする専用関数
+   （`dateTimeLocalValueToIso`/`toStartAtIso`、`value + ":00Z"`）に置き換えた——ホストマシンの
+   タイムゾーンに一切依存しない決定的な変換になる。修正後、TDR-GTH-24全緑。**申し送り（FR-028、
+   architectへ）**: この修正は「入力された数字をUTCとして扱う」という選択であり、実際の組織（日本
+   限定・招待制のランチ調整）で幹事が入力する時刻は本来JSTの意図である可能性が高い。ブラウザの
+   ホストタイムゾーンに依存する現状の代替（`new Date`のambient変換）は本番でJSTホストなら偶然正しく
+   動くが、tester環境依存で崩れる脆さを持っていた。今回はtesterの既存試験規約（UTC前提の固定fixture、
+   全TDR-GTH共通で使われる`days_from_now_iso`/`_fill_candidate_date_time_input`）に合わせてUTCタグ
+   付けを選んだが、**実在の組織が入力する時刻をJSTとして扱う方が業務的により正しいかもしれない**
+   という論点は契約もADRも決めていない実装裁量の範囲であり、人間/architectの判断を仰ぐ。
+
+   **TDR-GTH-23（未解消・報告のみ、FR-028）——`gathering-create-name-input`/`gathering-create-
+   candidate-date-input`が`allGatheringScreenFormControlsMustDeclarePurpose`のクローズドリストに
+   適合しない**: 上記2件を直した結果、TDR-GTH-23は「gathering-listが無い」の症状を通過し、**別の、
+   これまでマスクされていた失敗**に到達した——`assert_gathering_screen_has_no_forbidden_surfaces`
+   （`GATHERING_FORM_CONTROL_SELECTOR`＝`select, input:not([type='hidden']), textarea, button,
+   [role=...]`にマッチする全要素が`data-gathering-control-purpose`をクローズドリスト
+   `GATHERING_ALLOWED_PURPOSES`から持つことを要求）が、会の名前欄（`gathering-create-name-input`）・
+   候補日欄（`gathering-create-candidate-date-input`、単一行時）に対し`purpose=None`で失敗する。
+   契約`gathering-scheduling-browser-interface.yaml`の`nameInput`/`candidateDateRow.dateInput`定義
+   にはいずれも`purpose`キーが無く（ボタン系要素だけがpurposeを持つ）、`allowedPurposes`の17件は
+   すべて動詞的な操作名（open/submit/cancel/select/copy/recopy/revoke/add-row/remove-row）で、
+   「素のテキスト・日時入力欄そのもの」に対応する語彙が1つも存在しない——**候補画面側の
+   `candidate-gathering-entry`が`formControl: false`宣言で走査対象外になっているような、この契約
+   バージョンには存在しない逃げ道がここには無い**。純粋なテキスト/日時入力を、ネイティブの
+   `<input>`要素を使わずに実装する手段は無い（`contenteditable`div等で回避するのは、走査を欺くための
+   実装改悪であり採らない）。**contracts/**・tests/acceptance/**はいずれも変更禁止のため、developerの
+   権限内で解消できない、正真正銘の契約の穴と判断した**。architectへの推奨: (a)
+   `nameInput`/`candidateDateRow.dateInput`/`addCandidateDateForm.dateInput`に
+   `candidate-gathering-entry.entry.formControl: false`と同様の除外宣言を追加する、または(b)
+   `allGatheringScreenFormControlsMustDeclarePurpose`の対象を「アクティベートすると何かが起きる
+   操作的要素」に限定する一文を加え、値保持のみの入力欄を明示的に除外する、のいずれか。
+
+   **検証（すべてdeveloperが実行）**: L1（ruff check/format緑、単体542件+103 subtests緑、カバレッジ
+   97%、Python側の新規変更なし——今回の修正はJS 3ファイル＋テスト1ファイルのみ、前ラウンドの
+   services.py/views.py/serializers.pyへのmutation結果100%は無変更のため再実行不要）。新設の
+   JSソース回帰テスト2件（`DateTimeLocalConversionSourceTests`・
+   `GatheringListAlwaysPresentSourceTests`、`tests/test_static_assets.py`の既存流儀を踏襲）で
+   両修正を固定した。L2（構造13件+17 subtests）/L3（`manage.py check`×2とも「0 silenced」）緑。
+   L4（`manage.py test tests.acceptance`）は**49件中48件緑**——TDR-GTH-23のみ上記の契約の穴により
+   失敗。L5（`tests/ui_invariants`）は14件+10 subtests全緑（candidate.js無変更のため再確認のみ）。
+   `gathering.js`・`gathering_create.js`・`gathering_list.js`のキャッシュ回避文字列を更新した
+   （FR-025）。
 
 11. **ローカルで画面を確かめる手順**（このスライスで何度も踏んだので残す）。
     - `python manage.py runserver 127.0.0.1:8741 --settings=dining_radar.settings_localdemo --noreload --insecure`
