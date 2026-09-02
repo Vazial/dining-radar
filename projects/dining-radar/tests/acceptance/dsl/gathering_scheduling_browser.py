@@ -154,6 +154,19 @@ GATHERING_ALLOWED_PURPOSES = {
     "gathering-create-submit",
     "gathering-create-cancel",
 }
+# unavailableControls.valueEntryControlTestIds (ADR-0039, v0.4): native
+# input/textarea value-entry controls exempt from purpose declaration --
+# but only because each is traced in browserControlSurface to exactly one
+# operational control's requiredOutcome that consumes it. An unregistered
+# native input remains subject to the general purpose requirement below
+# (this is the point of ADR-0039's design: traceable exemption, not a
+# blanket one -- see operationalControlScope in the contract).
+GATHERING_VALUE_ENTRY_CONTROL_TEST_IDS = {
+    "gathering-create-name-input",
+    "gathering-create-candidate-date-input",
+    "gathering-add-candidate-date-input",
+    "gathering-participant-name-input",
+}
 GATHERING_FORBIDDEN_PURPOSES = {"manual-ordering", "secondary-condition"}
 GATHERING_FORBIDDEN_TEST_IDS = ["candidate-origin-marker", "candidate-map", "private-search-origin"]
 GATHERING_FORM_CONTROL_SELECTOR = ", ".join(
@@ -1153,6 +1166,19 @@ class GatheringSchedulingBrowserDsl:
         candidate-search's own private population (open-shop preview/count,
         TDR-GTH-08/09): this is what proves that population never leaks its
         map/origin surfaces into a gathering screen (adr/0034 decision 6).
+
+        Purpose-declaration scanning follows unavailableControls.
+        operationalControlScope (ADR-0039, v0.4): a matched control is exempt
+        only when its test id is registered in
+        GATHERING_VALUE_ENTRY_CONTROL_TEST_IDS *and* its tag is a native
+        input/textarea (the exemption is scoped to value-entry controls, not
+        select/checkbox/radio/combobox/listbox/range/slider/spinbutton/button
+        or an interactive ARIA role -- those keep the general requirement).
+        Any other matched control -- including an unregistered native input
+        this contract does not know about -- still must declare a purpose
+        from GATHERING_ALLOWED_PURPOSES, so a silently-added, untracked input
+        is still caught (this is the point of ADR-0039's traceability
+        condition, not a blanket input exemption).
         """
         assert_all_absent(self.assertions, self.page, GATHERING_FORBIDDEN_TEST_IDS)
         assert_all_absent(self.assertions, self.page, GATHERING_DISCLOSURE_FORBIDDEN_TEST_IDS)
@@ -1168,7 +1194,16 @@ class GatheringSchedulingBrowserDsl:
 
         controls = self.page.locator(GATHERING_FORM_CONTROL_SELECTOR)
         for index in range(controls.count()):
-            purpose = controls.nth(index).get_attribute(GATHERING_CONTROL_PURPOSE_ATTR)
+            control = controls.nth(index)
+            test_id = control.get_attribute("data-testid")
+            tag_name = control.evaluate("element => element.tagName.toLowerCase()")
+            is_registered_value_entry_control = (
+                test_id in GATHERING_VALUE_ENTRY_CONTROL_TEST_IDS
+                and tag_name in {"input", "textarea"}
+            )
+            if is_registered_value_entry_control:
+                continue
+            purpose = control.get_attribute(GATHERING_CONTROL_PURPOSE_ATTR)
             self.assertions.assertIn(purpose, GATHERING_ALLOWED_PURPOSES)
 
     def assert_participant_token_not_persisted(self, link: dict[str, str]) -> None:
