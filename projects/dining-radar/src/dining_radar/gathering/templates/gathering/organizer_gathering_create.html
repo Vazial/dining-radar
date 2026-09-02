@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}会をつくる{% endblock %}
+
+{% block content %}
+    <header data-testid="authenticated-application-shell">
+      <div class="app-header">
+        <h1>会をつくる</h1>
+      </div>
+    </header>
+    <main>
+      <div hidden>{% csrf_token %}</div>
+      {% comment %}
+        Per contracts/gathering-scheduling-browser-interface.yaml's
+        organizerGatheringCreate (adr/0038), every required test id is
+        built by gathering_create.js once the JS-executing render
+        completes. securityObservations.organizerGatheringCreate requires
+        CSRF for createGathering (stateChangingOperations), so this
+        template supplies the same hidden csrf_token mount point
+        organizer_dashboard.html already uses.
+      {% endcomment %}
+      <div id="gathering-create-app"></div>
+    </main>
+
+    {% comment %}
+      Cache-busting query string (FR-025) -- bump this on every
+      gathering_create.js change.
+    {% endcomment %}
+    <script src="{% static 'dining_radar/gathering/gathering_create.js' %}?v=20260902-gathering-entry"></script>
+{% endblock %}

@@ -16,6 +16,7 @@ app_name = "gathering"
 urlpatterns = [
     # Organizer JSON API (organizerSession + CSRF).
     path("gatherings", views.gatherings, name="gatherings"),
+    path("gatherings/in-progress-count", views.in_progress_count, name="in-progress-count"),
     path("gatherings/<uuid:gathering_id>", views.gathering_detail, name="gathering-detail"),
     path(
         "gatherings/<uuid:gathering_id>/candidate-dates",
@@ -56,6 +57,16 @@ urlpatterns = [
         name="participant-display-name",
     ),
     # Browser page shells (gathering-scheduling-browser-interface.yaml).
+    path(
+        "gatherings/",
+        views.organizer_gathering_list,
+        name="organizer-gathering-list",
+    ),
+    path(
+        "gatherings/new/",
+        views.organizer_gathering_create,
+        name="organizer-gathering-create",
+    ),
     path(
         "gatherings/<uuid:gathering_id>/",
         views.organizer_dashboard,

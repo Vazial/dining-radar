@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
@@ -133,6 +133,20 @@ class CreateGatheringServiceTests(TestCase):
 
         self.assertEqual(gathering.total_issued_participant_links, 0)
 
+    def test_rejects_two_entries_sharing_the_exact_same_start_at(self):
+        start_at = timezone.now()
+
+        with self.assertRaises(services.DuplicateCandidateDateError):
+            services.create_gathering(self.user, "会", [start_at, start_at])
+
+    def test_rejecting_duplicate_start_ats_creates_no_gathering(self):
+        start_at = timezone.now()
+
+        with self.assertRaises(services.DuplicateCandidateDateError):
+            services.create_gathering(self.user, "会", [start_at, start_at])
+
+        self.assertEqual(Gathering.objects.count(), 0)
+
 
 class AddCandidateDateServiceTests(TestCase):
     def setUp(self):
@@ -163,6 +177,21 @@ class AddCandidateDateServiceTests(TestCase):
 
         with self.assertRaises(services.GatheringNotFoundError):
             services.add_candidate_date(other_user, self.gathering.id, timezone.now())
+
+    def test_rejects_a_start_at_already_on_this_gathering(self):
+        existing = self.gathering.candidate_dates.first()
+
+        with self.assertRaises(services.DuplicateCandidateDateError):
+            services.add_candidate_date(self.user, self.gathering.id, existing.start_at)
+
+    def test_duplicate_rejection_does_not_add_a_candidate_date(self):
+        existing = self.gathering.candidate_dates.first()
+        before_count = self.gathering.candidate_dates.count()
+
+        with self.assertRaises(services.DuplicateCandidateDateError):
+            services.add_candidate_date(self.user, self.gathering.id, existing.start_at)
+
+        self.assertEqual(self.gathering.candidate_dates.count(), before_count)
 
 
 class ConfirmCandidateDateServiceTests(TestCase):
@@ -414,6 +443,77 @@ class ParticipantLinkLifecycleServiceTests(TestCase):
         self.assertLessEqual(links[0].issued_at, links[1].issued_at)
 
 
+# --- services: gathering list / in-progress count (adr/0038) ----------------
+
+
+class ListGatheringsServiceTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="svc-organizer-list")
+        self.other_user = get_user_model().objects.create_user(username="svc-organizer-list-other")
+
+    def test_empty_when_the_organizer_has_no_gathering(self):
+        self.assertEqual(services.list_gatherings(self.user), [])
+
+    def test_ordered_by_created_at_descending(self):
+        # Two calls in the same test can land within the same microsecond
+        # on a fast in-memory test database, making created_at a tie this
+        # assertion cannot distinguish -- force distinct values explicitly
+        # (bypassing auto_now_add, which only governs the initial INSERT)
+        # rather than relying on real wall-clock spacing between calls.
+        now = timezone.now()
+        first = services.create_gathering(self.user, "1つめ", [now])
+        second = services.create_gathering(self.user, "2つめ", [now])
+        Gathering.objects.filter(pk=first.pk).update(created_at=now - timedelta(seconds=1))
+        Gathering.objects.filter(pk=second.pk).update(created_at=now)
+
+        result = services.list_gatherings(self.user)
+
+        self.assertEqual([gathering.id for gathering in result], [second.id, first.id])
+
+    def test_includes_a_finalized_gathering(self):
+        gathering = services.create_gathering(self.user, "会", [timezone.now()])
+        gathering.phase = GatheringPhase.FINALIZED
+        gathering.save(update_fields=["phase"])
+
+        result = services.list_gatherings(self.user)
+
+        self.assertEqual([g.id for g in result], [gathering.id])
+
+    def test_never_includes_another_organizers_gathering(self):
+        services.create_gathering(self.other_user, "他人の会", [timezone.now()])
+
+        self.assertEqual(services.list_gatherings(self.user), [])
+
+
+class CountInProgressGatheringsServiceTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="svc-organizer-count")
+        self.other_user = get_user_model().objects.create_user(username="svc-organizer-count-other")
+
+    def test_zero_when_the_organizer_has_no_gathering(self):
+        self.assertEqual(services.count_in_progress_gatherings(self.user), 0)
+
+    def test_counts_scheduling_and_selecting_shop(self):
+        services.create_gathering(self.user, "日程を聞き中", [timezone.now()])
+        selecting = services.create_gathering(self.user, "店を選び中", [timezone.now()])
+        selecting.phase = GatheringPhase.SELECTING_SHOP
+        selecting.save(update_fields=["phase"])
+
+        self.assertEqual(services.count_in_progress_gatherings(self.user), 2)
+
+    def test_excludes_finalized(self):
+        gathering = services.create_gathering(self.user, "確定", [timezone.now()])
+        gathering.phase = GatheringPhase.FINALIZED
+        gathering.save(update_fields=["phase"])
+
+        self.assertEqual(services.count_in_progress_gatherings(self.user), 0)
+
+    def test_never_counts_another_organizers_gathering(self):
+        services.create_gathering(self.other_user, "他人の会", [timezone.now()])
+
+        self.assertEqual(services.count_in_progress_gatherings(self.user), 0)
+
+
 # --- services: participant-facing access -------------------------------------
 
 
@@ -633,6 +733,7 @@ class CreateGatheringApiTests(GatheringOrganizerTestCase):
                 "id",
                 "title",
                 "phase",
+                "createdAt",
                 "candidateDates",
                 "totalIssuedParticipantLinks",
                 "totalRevokedParticipantLinks",
@@ -670,6 +771,93 @@ class CreateGatheringApiTests(GatheringOrganizerTestCase):
         )
 
         self.assertEqual(response.status_code, 400)
+
+    def test_a_utc_offset_start_at_round_trips_through_the_same_instant(self):
+        # Coordinator-reported concern (2026-09-02, tester defect-injection
+        # measurement): a UTC-offset startAt might come back shifted by
+        # TIME_ZONE's own +09:00 offset (settings_base.py's Asia/Tokyo) if
+        # something along parse -> store -> serialize path silently treated
+        # the value as naive-then-localized instead of an already-aware
+        # instant. This pins the exact reported input/output pair.
+        response = self.post_json(
+            reverse("gathering:gatherings"),
+            {
+                "title": "会",
+                "candidateDates": [{"startAt": "2026-09-22T12:00:00+00:00"}],
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        returned = response.json()["candidateDates"][0]["startAt"]
+        returned_instant = datetime.fromisoformat(returned)
+        expected_instant = datetime.fromisoformat("2026-09-22T12:00:00+00:00")
+        self.assertEqual(returned_instant, expected_instant)
+        # Not just the same instant under a different offset label (Django's
+        # own equality already normalizes that) -- pinned to the exact
+        # literal offset too, since a "same instant, relabelled" round trip
+        # would still surprise a caller expecting its own input echoed back
+        # unchanged.
+        self.assertEqual(returned, "2026-09-22T12:00:00+00:00")
+
+    def test_created_at_is_an_iso_datetime_close_to_now(self):
+        before = timezone.now()
+
+        payload = self.create_gathering_via_api()
+
+        after = timezone.now()
+        created_at = datetime.fromisoformat(payload["createdAt"])
+        self.assertLessEqual(before, created_at)
+        self.assertLessEqual(created_at, after)
+
+    def test_duplicate_candidate_dates_within_the_same_request_are_rejected(self):
+        response = self.post_json(
+            reverse("gathering:gatherings"),
+            {
+                "title": "会",
+                "candidateDates": [
+                    {"startAt": "2026-09-02T12:00:00+09:00"},
+                    {"startAt": "2026-09-02T12:00:00+09:00"},
+                ],
+            },
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["code"], "DUPLICATE_CANDIDATE_DATE")
+
+    def test_duplicate_candidate_dates_reject_before_creating_a_partial_gathering(self):
+        before_count = Gathering.objects.count()
+
+        self.post_json(
+            reverse("gathering:gatherings"),
+            {
+                "title": "会",
+                "candidateDates": [
+                    {"startAt": "2026-09-02T12:00:00+09:00"},
+                    {"startAt": "2026-09-02T12:00:00+09:00"},
+                ],
+            },
+        )
+
+        self.assertEqual(Gathering.objects.count(), before_count)
+
+    def test_same_instant_different_offset_representation_is_still_a_duplicate(self):
+        # 2026-09-02T12:00:00+09:00 and 2026-09-02T03:00:00Z name the exact
+        # same instant -- aware-datetime equality (and therefore this
+        # duplicate check) normalizes across the offset, matching startAt's
+        # own "exact same date-time" wording (adr/0038).
+        response = self.post_json(
+            reverse("gathering:gatherings"),
+            {
+                "title": "会",
+                "candidateDates": [
+                    {"startAt": "2026-09-02T12:00:00+09:00"},
+                    {"startAt": "2026-09-02T03:00:00Z"},
+                ],
+            },
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["code"], "DUPLICATE_CANDIDATE_DATE")
 
 
 class GetGatheringApiTests(GatheringOrganizerTestCase):
@@ -713,6 +901,105 @@ class GetGatheringApiTests(GatheringOrganizerTestCase):
         self.assertEqual(response.json()["title"], "別の会")
 
 
+class ListGatheringsApiTests(GatheringOrganizerTestCase):
+    def test_unauthenticated_request_is_a_safe_401(self):
+        response = Client().get(reverse("gathering:gatherings"))
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["code"], "AUTHENTICATION_REQUIRED")
+
+    def test_empty_array_when_the_organizer_has_no_gathering(self):
+        response = self.client.get(reverse("gathering:gatherings"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"gatherings": []})
+
+    def test_ordered_by_created_at_descending(self):
+        # See ListGatheringsServiceTests.test_ordered_by_created_at_descending
+        # for why created_at is forced apart explicitly rather than relying
+        # on real wall-clock spacing between the two API calls.
+        now = timezone.now()
+        first = self.create_gathering_via_api(title="1つめ")
+        second = self.create_gathering_via_api(title="2つめ")
+        Gathering.objects.filter(pk=first["id"]).update(created_at=now - timedelta(seconds=1))
+        Gathering.objects.filter(pk=second["id"]).update(created_at=now)
+
+        response = self.client.get(reverse("gathering:gatherings"))
+
+        titles = [gathering["title"] for gathering in response.json()["gatherings"]]
+        self.assertEqual(titles, [second["title"], first["title"]])
+
+    def test_each_item_has_exactly_the_gathering_contract_shape(self):
+        self.create_gathering_via_api()
+
+        response = self.client.get(reverse("gathering:gatherings"))
+
+        item = response.json()["gatherings"][0]
+        self.assertEqual(
+            set(item),
+            {
+                "id",
+                "title",
+                "phase",
+                "createdAt",
+                "candidateDates",
+                "totalIssuedParticipantLinks",
+                "totalRevokedParticipantLinks",
+                "activeParticipantLinkCount",
+                "respondedParticipantCount",
+                "anonymousRespondedParticipantCount",
+                "confirmedCandidateDateId",
+            },
+        )
+
+    def test_never_returns_another_organizers_gathering(self):
+        other_client = Client()
+        other_client.force_login(self.other_user)
+        self.create_gathering_via_api()
+
+        response = other_client.get(reverse("gathering:gatherings"))
+
+        self.assertEqual(response.json(), {"gatherings": []})
+
+
+class InProgressGatheringCountApiTests(GatheringOrganizerTestCase):
+    def test_unauthenticated_request_is_a_safe_401(self):
+        response = Client().get(reverse("gathering:in-progress-count"))
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["code"], "AUTHENTICATION_REQUIRED")
+
+    def test_zero_when_the_organizer_has_no_gathering(self):
+        response = self.client.get(reverse("gathering:in-progress-count"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"inProgressGatheringCount": 0})
+
+    def test_counts_scheduling_and_selecting_shop_but_not_finalized(self):
+        self.create_gathering_via_api()  # SCHEDULING
+        selecting = self.create_gathering_via_api()
+        selecting_gathering = Gathering.objects.get(id=selecting["id"])
+        selecting_gathering.phase = GatheringPhase.SELECTING_SHOP
+        selecting_gathering.save(update_fields=["phase"])
+        finalized = self.create_gathering_via_api()
+        finalized_gathering = Gathering.objects.get(id=finalized["id"])
+        finalized_gathering.phase = GatheringPhase.FINALIZED
+        finalized_gathering.save(update_fields=["phase"])
+
+        response = self.client.get(reverse("gathering:in-progress-count"))
+
+        self.assertEqual(response.json()["inProgressGatheringCount"], 2)
+
+    def test_never_counts_another_organizers_gathering(self):
+        other_client = Client()
+        other_client.force_login(self.other_user)
+        self.create_gathering_via_api()
+
+        response = other_client.get(reverse("gathering:in-progress-count"))
+
+        self.assertEqual(response.json(), {"inProgressGatheringCount": 0})
+
+
 class AddCandidateDateApiTests(GatheringOrganizerTestCase):
     def test_adds_a_candidate_date(self):
         payload = self.create_gathering_via_api(
@@ -726,6 +1013,29 @@ class AddCandidateDateApiTests(GatheringOrganizerTestCase):
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(len(response.json()["candidateDates"]), 2)
+
+    def test_a_utc_offset_start_at_round_trips_through_the_same_instant(self):
+        # Same coordinator-reported concern as
+        # CreateGatheringApiTests.test_a_utc_offset_start_at_round_trips_
+        # through_the_same_instant, pinned against addCandidateDate too
+        # (a distinct code path -- services.add_candidate_date, not
+        # services.create_gathering).
+        payload = self.create_gathering_via_api(
+            candidate_dates=[{"startAt": "2026-01-01T00:00:00Z"}]
+        )
+
+        response = self.post_json(
+            reverse("gathering:candidate-dates", kwargs={"gathering_id": payload["id"]}),
+            {"startAt": "2026-09-22T12:00:00+00:00"},
+        )
+
+        self.assertEqual(response.status_code, 201)
+        added = next(
+            cd
+            for cd in response.json()["candidateDates"]
+            if cd["startAt"] != "2026-01-01T00:00:00+00:00"
+        )
+        self.assertEqual(added["startAt"], "2026-09-22T12:00:00+00:00")
 
     def test_rejected_after_confirming_a_date(self):
         payload = self.create_gathering_via_api(
@@ -755,6 +1065,47 @@ class AddCandidateDateApiTests(GatheringOrganizerTestCase):
         )
 
         self.assertEqual(response.status_code, 400)
+
+    def test_duplicate_candidate_date_is_rejected(self):
+        payload = self.create_gathering_via_api(
+            candidate_dates=[{"startAt": "2026-09-05T00:00:00Z"}]
+        )
+
+        response = self.post_json(
+            reverse("gathering:candidate-dates", kwargs={"gathering_id": payload["id"]}),
+            {"startAt": "2026-09-05T00:00:00Z"},
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["code"], "DUPLICATE_CANDIDATE_DATE")
+
+    def test_duplicate_candidate_date_does_not_change_the_existing_candidate_dates(self):
+        payload = self.create_gathering_via_api(
+            candidate_dates=[{"startAt": "2026-09-05T00:00:00Z"}]
+        )
+
+        self.post_json(
+            reverse("gathering:candidate-dates", kwargs={"gathering_id": payload["id"]}),
+            {"startAt": "2026-09-05T00:00:00Z"},
+        )
+
+        response = self.client.get(
+            reverse("gathering:gathering-detail", kwargs={"gathering_id": payload["id"]})
+        )
+        self.assertEqual(len(response.json()["candidateDates"]), 1)
+
+    def test_duplicate_candidate_date_with_a_different_offset_is_still_rejected(self):
+        payload = self.create_gathering_via_api(
+            candidate_dates=[{"startAt": "2026-09-05T09:00:00+09:00"}]
+        )
+
+        response = self.post_json(
+            reverse("gathering:candidate-dates", kwargs={"gathering_id": payload["id"]}),
+            {"startAt": "2026-09-05T00:00:00Z"},
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["code"], "DUPLICATE_CANDIDATE_DATE")
 
 
 class ConfirmDateApiTests(GatheringOrganizerTestCase):
@@ -1728,6 +2079,28 @@ class ParticipantEndpointGuardTests(GatheringOrganizerTestCase):
         response = Client().get(
             reverse("gathering:organizer-dashboard", kwargs={"gathering_id": self.gathering_id})
         )
+
+        self.assertEqual(response.status_code, 302)
+
+    def test_organizer_gathering_list_page_renders_the_authenticated_shell(self):
+        response = self.client.get(reverse("gathering:organizer-gathering-list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'data-testid="authenticated-application-shell"', response.content)
+
+    def test_organizer_gathering_list_page_requires_sign_in(self):
+        response = Client().get(reverse("gathering:organizer-gathering-list"))
+
+        self.assertEqual(response.status_code, 302)
+
+    def test_organizer_gathering_create_page_renders_the_authenticated_shell(self):
+        response = self.client.get(reverse("gathering:organizer-gathering-create"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'data-testid="authenticated-application-shell"', response.content)
+
+    def test_organizer_gathering_create_page_requires_sign_in(self):
+        response = Client().get(reverse("gathering:organizer-gathering-create"))
 
         self.assertEqual(response.status_code, 302)
 

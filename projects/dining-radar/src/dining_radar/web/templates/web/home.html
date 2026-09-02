@@ -60,6 +60,25 @@
     }
     .candidate-account-note:focus-visible { outline: 2px solid #155c42; outline-offset: 2px; }
 
+    /* candidate-gathering-entry (Handoff.dc.html 案B): a bordered button-
+       styled link (not a <button>, see the HTML comment above it) plus an
+       in-progress-count badge. min-height 2.75rem keeps the same 44px tap
+       target this screen's other controls already use. */
+    .candidate-gathering-entry {
+      display: inline-flex; align-items: center; gap: 0.35rem;
+      min-height: 2.75rem; padding: 0 0.8rem; border: 1px solid #c6cfc6;
+      border-radius: 0.6rem; background: #fff; color: #17201b;
+      font-weight: 650; font-size: 0.875rem; text-decoration: none; white-space: nowrap;
+    }
+    .candidate-gathering-entry:hover { background: #f4f6f2; }
+    .candidate-gathering-entry:focus-visible { outline: 2px solid #14684a; outline-offset: 2px; }
+    .candidate-gathering-entry-badge {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 1.125rem; height: 1.125rem; border-radius: 999px;
+      background: #14614a; color: #fff; font-size: 0.625rem; font-weight: 700;
+      padding: 0 0.3rem;
+    }
+
     /* Point 2: password-change/sign-out behind a native <details> menu
        (ADR-0013 decision 6/7, auth-account-menu-toggle purpose; see the
        HTML comment above it for the renderModel reasoning). */
@@ -465,6 +484,16 @@
       background: #fdf3e2; border: 1px solid #f0dcae; color: #6b4f13;
       font-size: 0.825rem; line-height: 1.4;
     }
+    /* D-fix 案B (2026-09-01, PC deck card-height equalization, candidate.js):
+       visibility: hidden (not display: none) keeps this element's own box
+       -- same padding/border/font/line-height/text as the real caution --
+       taking up exactly the same height without painting anything. This is
+       what reserves the caution's own space on a card that does not have
+       one, so every deck card's bottom edge and internal row positions
+       line up regardless of which cards actually show the caution. Never
+       carries the candidate-card-payment-caution test id (see candidate.js's
+       own comment; the contract's presenceRule forbids it here). */
+    .candidate-payment-caution-reserved { visibility: hidden; }
 
     [data-testid="candidate-card-provider-page-link"] {
       display: inline-flex; align-items: center; justify-content: center;
@@ -500,10 +529,35 @@
        away at the provider page link. */
     @media (max-width: 63.999rem) {
       [data-testid="candidate-proposal-cards"] { gap: 0.5rem; }
-      [data-testid="candidate-card"] { padding: 0.8125rem 0.875rem; gap: 0.5625rem; }
+      /* D-fix 案B (2026-09-01, deck見た目3件): human report "スマホもツール
+         チップがかなり広い" -- the mobile map-primary deck's own premise
+         (adr/0033: the map is the primary surface, the card floats over
+         its bottom inset) only holds if the card leaves the map visible.
+         Card outer padding/gap shrink further here (was 0.8125rem/0.875rem
+         and 0.5625rem); the description clamp just below already cuts one
+         contributor. This is a starting value only -- "削り幅は実測で詰め
+         る" (DeckFix.dc.html's own settled decision) means orchestrator
+         measures the resulting on-screen map area and may tune this
+         further. The regular-holiday footer stays an independent block
+         (candidate-card-detail-footer, unedited by this rule) rather than
+         folding into the facts grid -- doing so would break the frozen
+         `tests/ui_invariants` gate requiring its value to keep >=70% of
+         the card's width without truncation (activeContext.md, 2026-08-25;
+         DeckFix.dc.html repeats this same warning). */
+      [data-testid="candidate-card"] { padding: 0.625rem 0.75rem; gap: 0.4375rem; }
       [data-testid="candidate-card-description"] {
         display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden;
       }
+      /* Same compact facts sizing the >=64rem deck already applies to its
+         own card variant (decision9 below) -- reused here rather than
+         invented separately, shrinking the grid's own padding/gap/font
+         without changing its column count (still 2 columns; DeckFix.dc.
+         html's mobile mock is a schematic, not a literal 4-column layout
+         instruction -- at ~350-390px, four Japanese-label columns would
+         wrap awkwardly where two does not). */
+      [data-testid="candidate-card"] dl.candidate-facts { gap: 0.35rem 0.5rem; padding: 0.4rem 0.5rem; }
+      [data-testid="candidate-card"] dl.candidate-facts dt { font-size: 0.6875rem; }
+      [data-testid="candidate-card"] dl.candidate-facts dd { font-size: 0.75rem; }
     }
 
     /* candidate-map-attribution / candidate-provider-credit are inline
@@ -712,6 +766,14 @@
         justify-content: center; border: 0; font-size: 1.15rem;
       }
       .candidate-account-menu-label { display: none; }
+      /* Handoff.dc.html's own note ("スマホのヘッダで窮屈にならないか") --
+         compacted the same way .candidate-account-menu summary already is
+         at this width: icon + badge only, the "会" label text hidden. */
+      .candidate-gathering-entry {
+        box-sizing: border-box; width: 2.75rem; min-height: 2.75rem; padding: 0;
+        justify-content: center; border: 0; background: transparent;
+      }
+      .candidate-gathering-entry-label { display: none; }
       #candidate-app { gap: 0.75rem; }
       #candidate-filter-bar {
         margin: 0; border-width: 1px 0; border-radius: 0; position: relative; z-index: 5;
@@ -1005,6 +1067,11 @@
          candidate.js's renderDeck/recomputeDeckWindow for the paging model
          this CSS only paints (a transform-driven sliding window, not
          native scrollLeft -- see that function's own comment for why). */
+      /* D-fix 案A (2026-09-01, deck見た目3件): a column of two rows -- the
+         card viewport, then a centered pager row (previous/position/next)
+         below it -- replacing the previous single row that flanked the
+         viewport with the two nav buttons and floated the position counter
+         as a separate absolutely positioned badge. */
       .candidate-deck {
         position: absolute;
         left: 1.5rem;
@@ -1017,8 +1084,14 @@
            practice. */
         z-index: 640;
         display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      .candidate-deck-pager {
+        display: flex;
         align-items: center;
-        gap: 0.625rem;
+        justify-content: center;
+        gap: 0.75rem;
       }
       .candidate-deck-nav {
         flex: 0 0 2.75rem;
@@ -1038,8 +1111,12 @@
       .candidate-deck-nav:hover:not(:disabled) { background: #f4f6f2; }
       .candidate-deck-nav:focus-visible { outline: 2px solid #14684a; outline-offset: 2px; }
       .candidate-deck-nav:disabled { opacity: 0.4; cursor: default; box-shadow: none; }
+      /* D-fix 案A: no longer needs flex: 1 1 auto to fill space between two
+         flanking nav buttons (they moved into their own pager row below,
+         see .candidate-deck-pager above) -- the column-direction
+         .candidate-deck's default align-items: stretch already gives this,
+         its only row-1 child, the full available width. */
       .candidate-deck-viewport {
-        flex: 1 1 auto;
         min-width: 0;
         overflow: hidden;
         position: relative;
@@ -1130,13 +1207,11 @@
       }
       .candidate-deck-viewport [data-testid="candidate-card"] dl.candidate-facts dt { font-size: 0.6875rem; }
       .candidate-deck-viewport [data-testid="candidate-card"] dl.candidate-facts dd { font-size: 0.75rem; }
-      /* decision8's own "1–3 / 5" counter -- a sibling of .candidate-deck-
-         viewport, not a child of it, so this negative top offset is not
-         clipped by that element's own overflow: hidden. */
+      /* D-fix 案A: "‹ 1–5 / 5 ›" -- now a plain inline member of
+         .candidate-deck-pager, between deckPreviousEl and deckNextEl
+         (candidate.js's renderDeck), not an absolutely positioned badge
+         floating over the map. */
       .candidate-deck-position {
-        position: absolute;
-        top: -0.9rem;
-        right: 0.5rem;
         background: #23302a;
         color: #fff;
         font-size: 0.7rem;
@@ -1236,6 +1311,29 @@
           is already a recognized, fully keyboard-operable native
           disclosure pattern on its own.
         {% endcomment %}
+        {% comment %}
+          candidate-gathering-entry (Handoff.dc.html 案B, human decision
+          2026-09-01, adr/0038): the candidate-search screen's own entry
+          point into the gathering feature. A plain <a href> -- neither a
+          <button> nor an element carrying an interactive ARIA role -- so
+          it never falls inside unavailableControls.
+          allCandidateScreenFormControlsMustDeclarePurpose's scan (mirrors
+          candidate-origin-marker/candidate-map-open's existing
+          "display/navigation-only" style; contracts/candidate-search-
+          browser-interface.yaml's gatheringEntry.entry.requirement).
+          Activating it changes no proposal/selection/filter/origin/range
+          state (browserActions.openGatheringEntry) -- it is a pure
+          navigation to gathering-scheduling-browser-interface.yaml's
+          organizerGatheringList. The badge
+          (candidate-gathering-entry-badge) is added by candidate.js once
+          the in-progress count is fetched (gatheringEntry.crossContract
+          Reference) -- absent until then and whenever the count is 0.
+        {% endcomment %}
+        <a
+          href="{% url 'gathering:organizer-gathering-list' %}"
+          data-testid="candidate-gathering-entry"
+          class="candidate-gathering-entry"
+        ><span aria-hidden="true">🍽</span><span class="candidate-gathering-entry-label">会</span></a>
         <details class="candidate-account-menu">
           <summary
             data-testid="auth-account-menu-toggle"
@@ -1291,5 +1389,5 @@
       code (184px facts grid, no name-in-id-row) even though the server's
       own file already had this round's fixes.
     {% endcomment %}
-    <script src="{% static 'dining_radar/web/candidate.js' %}?v=20260829c-mobile-genre-row-walk-chip"></script>
+    <script src="{% static 'dining_radar/web/candidate.js' %}?v=20260902-gathering-entry-and-deck-fixes"></script>
 {% endblock %}

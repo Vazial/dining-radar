@@ -1684,10 +1684,96 @@ Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (
      `TDR-GTH-21`〜`25`／candidate-search-browser-interface v1.7.0（`candidate-gathering-entry`、
      purposeless要素の既存先例踏襲で最小追補）。deck見た目3件は契約影響なし確認済み。
 
-   **次**: 入口追補PRのマージ（＝承認）→ developer/tester並行の実装ラウンド（入口画面群＋deck
-   見た目3件。インラインフォームの伸び・スマホヘッダ幅・カード削り幅はorchestratorが実測）→
-   その後、第2弾「店の絞り込み連携」の契約スライスへ。残る未決: 会データの保持期間・削除方針／
+   **次**: 入口追補PR（`contracts/dining-radar-gathering-entry`）はPR #182のマージで承認済み
+   （2026-09-01）。developer側の実装は完了（12.参照）——testerのTDR-GTH-21〜25 step実装が並行して
+   要る。その後、第2弾「店の絞り込み連携」の契約スライスへ。残る未決: 会データの保持期間・削除方針／
    トークン期限90日・レート制限の見直し時期／FINALIZED局面の観測面（第4弾）。
+
+12. **入口追補（会の一覧・作成・インライン候補日フォーム・ヘッダー導線）とdeck見た目3件を実装した
+   （2026-09-02、developer、ブランチ`impl/gathering-entry`）**。契約（`gathering-scheduling-api.yaml`
+   v0.3.0・`gathering-scheduling-browser-interface.yaml` v0.3・`candidate-search-browser-interface.yaml`
+   v1.7.0、いずれもPR #182で承認済み）どおりに実装した——契約・`tests/acceptance/**`は変更していない。
+
+   **バックエンド**（`src/dining_radar/gathering/`）: `listGatherings`（`GET /gatherings`、
+   createdAt降順）・`getInProgressGatheringCount`（`GET /gatherings/in-progress-count`、SCHEDULING・
+   SELECTING_SHOPのみ計上）を新設。`Gathering.createdAt`をシリアライザに追加。`createGathering`・
+   `addCandidateDate`双方に`DuplicateCandidateDateError`→`DUPLICATE_CANDIDATE_DATE`（409）を追加
+   （同一`startAt`の重複——リクエスト内重複・既存候補日との重複の両方、集合の要素数比較とDBクエリの
+   2箇所）。画面: `organizer_gathering_list.html`/`gathering_list.js`（会一覧、`gathering-list`・
+   `gathering-list-item`・`gathering-list-empty`・`gathering-create-open`の2インスタンス構成）、
+   `organizer_gathering_create.html`/`gathering_create.js`（会をつくる、候補日行の追加/削除・
+   disabledState・409時に入力値保持）を新設。既存`gathering.js`の`renderAddCandidateDateOpen`を
+   contract-compliant なインラインフォーム（`gathering-add-candidate-date-form`/`-input`/`-submit`/
+   `-cancel`、`gathering-candidate-date-list`の最後の子として配置——「その場で開く」というAddDate.dc.html
+   案Aの要求）へ作り直した。成功後もフォームは開いたまま（人間裁定どおり）、409時は入力値を保持したまま
+   フォームを開いたまま維持する。
+
+   **候補画面ヘッダーの導線**（`home.html`/`candidate.js`）: `candidate-gathering-entry`
+   （素の`<a href>`、`allCandidateScreenFormControlsMustDeclarePurpose`の走査対象外——
+   `candidate-origin-marker`/`candidate-map-open`と同じ様式）をサーバレンダリングの静的HTMLとして
+   ヘッダーへ追加し、`candidate-gathering-entry-badge`（`data-in-progress-gathering-count`、0件で
+   非表示）はcandidate.jsが`/gatherings/in-progress-count`をfetchして構築する。
+
+   **deck見た目3件**（`candidate.js`/`home.html`、契約影響なし——designer確認済み・decision8で再確認）:
+   (1) PCカード高さ: `isMapPrimaryLayout`のときだけ、`cardPaymentAvailable`が`false`でないカードにも
+   同じ文言・同じCSSボックスの`<p>`を`visibility:hidden`（`display:none`ではなく、高さを保持するため）
+   で追加し、**`candidate-card-payment-caution`のtest idは付けない**（契約`presenceRule`の維持を
+   D-fix案Bの警告どおり確認済み）。(2) 件数ページャー: `.candidate-deck`を横1行から縦2段
+   （カード列→`.candidate-deck-pager`に`‹ 位置 ›`をまとめる行）へ組み替えた——`candidate-deck-position`
+   のtest id・`data-deck-visible-*`属性・値は無変更（DOM位置のみ変更、契約はここを固定していない）。
+   (3) スマホカード高さ: `<64rem`のfacts grid（padding/gap/font-size）とカード自体のpadding/gapを
+   >=64remのdeck版と同じ値まで縮めた——定休日フッタ（`candidate-card-detail-footer`）は独立ブロックの
+   まま変更していない（凍結ゲート`test_long_regular_holiday_wraps_inside_a_narrow_card_without_
+   truncation`に抵触しないため、D-fix板自身の警告どおり）。削り幅は出発点の値であり、
+   orchestratorの実測での追加調整を前提とする（依頼どおり）。
+
+   **合流で見つけた実バグ1件（developer単独では気づけなかった）**: 候補画面ロード直後に
+   `candidate-gathering-entry-badge`のfetchを`/candidate-proposals`と**並行**で発火したところ、
+   既存の`tests/ui_invariants`が使う`page.wait_for_load_state("networkidle")`の待ち条件が変わり、
+   `test_c_candidate_map_marker_selection_is_keyboard_operable`・
+   `test_e_activatable_controls_meet_44px_minimum_target`・`test_f_render_mode_matches_viewport_
+   width_on_independent_page_loads`の一部subtestが`/candidate-proposals`応答待ちで30秒タイムアウト
+   するようになった（実測で確認、mainへの巻き戻しで再現しないことも確認）。修正はバッジのfetchを
+   `requestProposal(null)`の`.then()/.catch()`の**後**（`.finally()`）へ直列化しただけ——イベント
+   処理・DOM構築のロジックには触れていない。修正後、L5（14件+10 subtests）・L4（44件）とも全緑。
+
+   **調査依頼への回答（coordinator、2026-09-02、`addCandidateDate`のtimezone疑い）**: `startAt`に
+   `2026-09-22T12:00:00+00:00`を送ると9時間ずれて返るという疑いを調査した。`createGathering`・
+   `addCandidateDate`の両エンドポイントを、Django test client経由で本番と同じ設定値
+   （`TIME_ZONE="Asia/Tokyo"`・`USE_TZ=True`、settings_acceptanceが継承する同じsqlite `:memory:`）で
+   直接叩き、`startAt`の値をそのまま往復させて確認した——**両方とも入力と完全に同じ文字列
+   （`"2026-09-22T12:00:00+00:00"`）が返り、ずれは再現しなかった**。パース（`datetime.fromisoformat`）
+   →保存（Django ORM、aware datetimeはUTCへ正規化して保存・UTCで返す）→直列化（`.isoformat()`）の
+   経路をすべて自分の目で確認済み。**バグは解消せず報告する（FR-028）**——`tests/acceptance/**`は
+   読むことも禁止されているため、tester側の実際の再現手順（実ブラウザ経由か、別のsettings/DB経由かなど）
+   を確認できず、環境差（例: Windows上のPythonが`tzdata`パッケージを欠く場合の`zoneinfo`挙動、実際の
+   HTTPサーバ経由 vs Django test clientの違い）が原因である可能性を排除できていない。**恒久的な回帰
+   ガードとして両エンドポイントに固定の単体テストを追加した**
+   （`test_a_utc_offset_start_at_round_trips_through_the_same_instant`、`CreateGatheringApiTests`・
+   `AddCandidateDateApiTests`各1件）——今回の依頼どおり、報告されたのと同一の入力値で固定した。
+
+   **検証（すべてdeveloperが実行）**: L1（ruff check/format緑、単体539件+103 subtests緑、カバレッジ
+   97%——新規コード（`services.py`・`views.py`・`serializers.py`）はいずれも新規行がMissing一覧に
+   含まれない）。mutation testingは変更した3ファイルに`--gremlin-targets`で個別スコープして実行し、
+   いずれも生存ミュータント0件（services.py 43件・views.py 135件・serializers.py 10件、全て
+   Zapped 100%）。L2（構造13件+17 subtests）/L3（境界7ファイル181件+24 subtests、`manage.py check`
+   ×2とも「0 silenced」）緑。L4（`manage.py test tests.acceptance`、依頼により実行・担当外）は
+   **44件全緑**（既存シナリオのみ——TDR-GTH-21〜25のstepはまだこのブランチに無い、想定どおり）。
+   L5（`pytest tests/ui_invariants`）は**14件+10 subtests全緑**（上記の実バグ1件を発見・修正した後）。
+
+   **契約との食い違い・実装裁量（FR-028、解消せず報告）**:
+   - 会をつくる画面の提出後の遷移先（`/gatherings/{id}/`）は契約が固定していない実装裁量
+     （`organizerGatheringCreate.submit.requiredOutcome`が明示的に「この契約は直後の遷移先画面を
+     固定しない」としている）。
+   - 会をつくる画面・候補日追加フォームとも、日付・時刻を1つの`datetime-local`入力にまとめた
+     （契約は2入力に分ける余地も認めているが、既存`gathering.js`の先例——`submitAddCandidateDate`の
+     `new Date(...).toISOString()`変換——を踏襲し1入力とした）。
+   - PCカードの空き場所確保は`isMapPrimaryLayout`（PC deck）にのみ適用した——D-fix板の見出しが
+     「1. PC」と明記しているため、スマホの1枚表示デッキ（隣同士の高さ比較が生じない）には適用して
+     いない。
+   - スマホのfacts圧縮は既存の2列グリッドの寸法を縮めるにとどめ、DeckFix.dc.htmlのモックが示す
+     4列単一行へは変えていない（狭幅で日本語ラベル4列は折り返す恐れがあり、モック自体も「模式図であり
+     実寸ではない」と明記しているため、安全側に倒した）。orchestratorの実測で追い込みが要る。
 
 11. **ローカルで画面を確かめる手順**（このスライスで何度も踏んだので残す）。
     - `python manage.py runserver 127.0.0.1:8741 --settings=dining_radar.settings_localdemo --noreload --insecure`

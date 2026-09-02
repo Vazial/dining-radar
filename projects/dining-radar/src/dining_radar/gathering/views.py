@@ -122,6 +122,11 @@ _LINK_RATE_LIMITED = (
     "Too many requests were made with this link. Please try again shortly.",
 )
 _GATHERING_FINALIZED = (409, "GATHERING_FINALIZED", "This gathering is already finalized.")
+_DUPLICATE_CANDIDATE_DATE = (
+    409,
+    "DUPLICATE_CANDIDATE_DATE",
+    "This candidate date has already been added.",
+)
 
 
 def _organizer_error_response(error: Exception) -> JsonResponse:
@@ -228,11 +233,19 @@ def _parse_status(raw: object) -> str:
 
 
 @csrf_exempt
-@require_http_methods(["POST"])
+@require_http_methods(["GET", "POST"])
 def gatherings(request):
-    """``POST /gatherings``: ``createGathering``."""
+    """``GET /gatherings``: ``listGatherings``. ``POST /gatherings``: ``createGathering``."""
     if not request.user.is_authenticated:
         return _problem(*_AUTHENTICATION_REQUIRED)
+
+    if request.method == "GET":
+        gathering_list = services.list_gatherings(request.user)
+        return JsonResponse(
+            {"gatherings": [serialize_gathering(gathering) for gathering in gathering_list]},
+            status=200,
+        )
+
     if _csrf_failed(request):
         return _problem(*_REQUEST_REJECTED)
     try:
@@ -244,8 +257,20 @@ def gatherings(request):
     except MalformedRequestError:
         return _problem(*_REQUEST_REJECTED)
 
-    gathering = services.create_gathering(request.user, title, candidate_date_start_ats)
+    try:
+        gathering = services.create_gathering(request.user, title, candidate_date_start_ats)
+    except services.DuplicateCandidateDateError:
+        return _problem(*_DUPLICATE_CANDIDATE_DATE)
     return JsonResponse(serialize_gathering(gathering), status=201)
+
+
+@require_GET
+def in_progress_count(request):
+    """``GET /gatherings/in-progress-count``: ``getInProgressGatheringCount`` (adr/0038)."""
+    if not request.user.is_authenticated:
+        return _problem(*_AUTHENTICATION_REQUIRED)
+    count = services.count_in_progress_gatherings(request.user)
+    return JsonResponse({"inProgressGatheringCount": count}, status=200)
 
 
 @require_GET
@@ -282,6 +307,8 @@ def candidate_dates(request, gathering_id):
         )
     except (services.GatheringNotFoundError, services.GatheringNotInSchedulingPhaseError) as error:
         return _organizer_error_response(error)
+    except services.DuplicateCandidateDateError:
+        return _problem(*_DUPLICATE_CANDIDATE_DATE)
     return JsonResponse(serialize_gathering(gathering), status=201)
 
 
@@ -482,6 +509,25 @@ def participant_display_name(request, token):
 
 
 # --- browser page shells (contracts/gathering-scheduling-browser-interface.yaml) --
+
+
+@login_required
+def organizer_gathering_list(request):
+    """The organizer's entry-point screen shell (``organizerGatheringList``, adr/0038).
+
+    Fills the gap the human found in production ("幹事画面への入口が無い",
+    Entry.dc.html E-1/E-1b) -- reachable immediately after sign-in.
+    """
+    return render(request, "gathering/organizer_gathering_list.html")
+
+
+@login_required
+def organizer_gathering_create(request):
+    """The gathering-creation screen shell (``organizerGatheringCreate``, adr/0038).
+
+    Entry.dc.html E-2: name + one or more candidate dates.
+    """
+    return render(request, "gathering/organizer_gathering_create.html")
 
 
 @login_required
