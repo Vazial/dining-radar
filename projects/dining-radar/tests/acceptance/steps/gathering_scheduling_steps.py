@@ -24,7 +24,7 @@ class GatheringSchedulingSteps:
         self.dsl.prepare_new_gathering(title, candidate_date_isos)
 
     def organizer_creates_the_gathering(self) -> None:
-        self.dsl.create_prepared_gathering()
+        self.dsl.create_prepared_gathering_via_browser()
 
     def organizer_has_a_scheduling_gathering(
         self, title: str, candidate_date_isos: list[str]

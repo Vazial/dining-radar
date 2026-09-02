@@ -1,15 +1,13 @@
 """JS-capable browser/API L4 runner for TDR-GTH-01 through TDR-GTH-25.
 
 gathering-scheduling-browser-interface.yaml's own profiles.localAcceptance
-now marks only TDR-GTH-13 (token guessing is API-level fuzzing, not a
-browser click-through) as notVerifiedHere for the browser control surface;
-it is exercised here at the API/boundary level through the same
-authenticated Playwright session (see gathering_scheduling_browser.py's
-module docstring). TDR-GTH-01's own test still drives createGathering
-directly rather than through organizerGatheringCreate (now browser-
-verifiable per v0.3, adr/0038) -- that is out of this slice's explicit
-scope (only TDR-GTH-02 and TDR-GTH-21 through TDR-GTH-25 are new/changed
-here); see this slice's tester report.
+marks only TDR-GTH-13 (token guessing is API-level fuzzing, not a browser
+click-through) as notVerifiedHere for the browser control surface; it is
+exercised here at the API/boundary level through the same authenticated
+Playwright session (see gathering_scheduling_browser.py's module docstring).
+TDR-GTH-01 drives organizerGatheringCreate end-to-end through the browser
+(reviewer audit Major#2, resolving the prior direct-API gap this docstring
+used to describe).
 """
 
 from __future__ import annotations
@@ -76,6 +74,13 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
     # TDR-GTH-01 -- API/boundary-level acceptance (no creation screen yet) --
 
     def test_tdr_gth_01_organizer_creates_a_gathering_with_candidate_dates(self) -> None:
+        """Rewritten (browser-interface.yaml v0.4: "Supports TDR-GTH-01 (now
+        browser-verifiable)"; reviewer audit Major#2): drives the create
+        screen end-to-end -- list -> create screen -> name -> first row ->
+        addRow -> second row -> submit -> dashboard -- instead of calling
+        createGathering directly. This exercises organizerGatheringCreate.
+        submit's success path and addRow for the first time in this suite.
+        """
         self._sign_in()
         self.steps.organizer_prepares_a_gathering(
             "第7回 社内ランチ会", [days_from_now_iso(3), days_from_now_iso(10)]
@@ -84,6 +89,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.gathering_is_created_in_scheduling_phase()
         self.steps.prepared_candidate_dates_are_all_registered()
         self.steps.gathering_has_no_confirmed_date()
+        self.steps.dashboard_is_shown_for(self.dsl.gathering_id, "SCHEDULING")
 
     def test_tdr_gth_02_organizer_adds_a_candidate_date_after_creation(self) -> None:
         """Rewritten (adr/0038, reviewer audit Major#1 resolved): drives the
@@ -96,6 +102,11 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.organizer_opens_the_dashboard()
         before_dates = self.steps.candidate_dates_snapshot()
         self.steps.organizer_opens_the_add_candidate_date_form()
+        # Reviewer audit Major#3: the cross-cutting forbidden-surfaces check
+        # (ADR-0039's registered-value-entry-control exemption) had never run
+        # while gathering-add-candidate-date-form/-input -- the very controls
+        # that motivated ADR-0039 -- actually existed in the DOM.
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
         new_date_iso = days_from_now_iso(20)
         response = self.steps.organizer_submits_the_add_candidate_date_form(new_date_iso)
         self.steps.new_candidate_date_is_added_via_inline_form(response, before_dates, "SCHEDULING")
@@ -372,6 +383,11 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         gathering_b = self.steps.gathering_candidate_date_is_confirmed_via_api(
             gathering_b["id"], confirmed_date_id
         )
+        # Issues one link for gathering_b so data-active-issued-links has a
+        # non-zero value to check (reviewer audit Major#1): an all-zero
+        # expected value would still catch a missing attribute, but not one
+        # that is present yet wrong.
+        self.steps.a_participant_link_is_issued()
         self.steps.organizer_opens_the_gathering_list()
         # createdAt descending (新しい順): the more-recently-created gathering_b
         # first. This does not assert either gathering's title/name -- see
@@ -382,8 +398,16 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
                     "id": gathering_b["id"],
                     "phase": "SELECTING_SHOP",
                     "confirmedCandidateDate": confirmed_date_iso,
+                    "respondedCount": 0,
+                    "activeIssuedLinks": 1,
                 },
-                {"id": gathering_a["id"], "phase": "SCHEDULING", "confirmedCandidateDate": None},
+                {
+                    "id": gathering_a["id"],
+                    "phase": "SCHEDULING",
+                    "confirmedCandidateDate": None,
+                    "respondedCount": 0,
+                    "activeIssuedLinks": 0,
+                },
             ]
         )
         self.steps.screen_has_no_forbidden_controls_or_disclosures()

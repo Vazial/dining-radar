@@ -13,12 +13,14 @@ Per gathering-scheduling-browser-interface.yaml's renderModel, both
 organizerDashboard and participantAnswer are JS-capable surfaces verified the
 same way candidate-search-browser-interface.yaml verifies TDR-CS (Playwright),
 not TDR-AUTH's plain-HTTP DSL. Direct calls to gathering-scheduling-api.yaml's
-own JSON operations (organizer Given-state construction, TDR-GTH-01's
-creation, TDR-GTH-13's fuzzing, and the two 409-boundary checks in
-TDR-GTH-10/20) go through ``self.page.context.request`` so they share the
-Playwright browser context's cookies (the organizer session) without being a
-"browser click-through" -- exactly the profile's own notVerifiedHere note for
-TDR-GTH-01/TDR-GTH-13 sanctions ("API/boundary-level acceptance").
+own JSON operations (organizer Given-state construction, TDR-GTH-13's
+fuzzing, and the two 409-boundary checks in TDR-GTH-10/20) go through
+``self.page.context.request`` so they share the Playwright browser context's
+cookies (the organizer session) without being a "browser click-through" --
+exactly the profile's own notVerifiedHere note for TDR-GTH-13 sanctions
+("API/boundary-level acceptance"). TDR-GTH-01 itself now drives
+organizerGatheringCreate through the browser (reviewer audit Major#2), not
+this API-direct path.
 """
 
 from __future__ import annotations
@@ -99,6 +101,9 @@ GATHERING_LIST_ITEM_OPEN = "gathering-list-item-open"
 GATHERING_LIST_EMPTY = "gathering-list-empty"
 GATHERING_CREATE_OPEN = "gathering-create-open"
 GATHERING_CREATE_NAME_INPUT = "gathering-create-name-input"
+GATHERING_CREATE_CANDIDATE_DATE_ROW = "gathering-create-candidate-date-row"
+GATHERING_CREATE_CANDIDATE_DATE_INPUT = "gathering-create-candidate-date-input"
+GATHERING_CREATE_ADD_CANDIDATE_DATE_ROW = "gathering-create-add-candidate-date-row"
 GATHERING_CREATE_SUBMIT = "gathering-create-submit"
 GATHERING_ADD_CANDIDATE_DATE_FORM = "gathering-add-candidate-date-form"
 GATHERING_ADD_CANDIDATE_DATE_INPUT = "gathering-add-candidate-date-input"
@@ -167,6 +172,13 @@ GATHERING_VALUE_ENTRY_CONTROL_TEST_IDS = {
     "gathering-add-candidate-date-input",
     "gathering-participant-name-input",
 }
+# operationalControlScope (ADR-0039) scopes the exemption to a native input
+# "of type text/date/time/datetime-local/number" (or a textarea) -- reviewer
+# audit Minor#4: the exemption check previously matched by tag name alone,
+# so a registered test id reused on e.g. an <input type="checkbox"> would
+# have wrongly been exempted. A bare <input> with no type attribute defaults
+# to "text" per the HTML spec, hence its inclusion here.
+GATHERING_VALUE_ENTRY_INPUT_TYPES = {"text", "date", "time", "datetime-local", "number"}
 GATHERING_FORBIDDEN_PURPOSES = {"manual-ordering", "secondary-condition"}
 GATHERING_FORBIDDEN_TEST_IDS = ["candidate-origin-marker", "candidate-map", "private-search-origin"]
 GATHERING_FORM_CONTROL_SELECTOR = ", ".join(
@@ -341,16 +353,6 @@ class GatheringSchedulingBrowserDsl:
         """
         self._prepared_title = title
         self._prepared_candidate_date_isos = list(candidate_date_isos)
-
-    def create_prepared_gathering(self) -> None:
-        """When: 幹事が会をつくる (TDR-GTH-01). browser-interface.yaml's own
-        notVerifiedHere marks this scenario API/boundary-level acceptance --
-        no creation screen is approved yet (Organizer.dc.html shows only the
-        post-creation dashboard) -- so this calls createGathering directly.
-        """
-        title = require(self._prepared_title, "no gathering was prepared")
-        dates = require(self._prepared_candidate_date_isos, "no candidate dates were prepared")
-        self._create_gathering(title, dates)  # type: ignore[arg-type]
 
     def given_scheduling_gathering(self, title: str, candidate_date_isos: list[str]) -> None:
         """Given-state builder for every other TDR-GTH scenario needing an
@@ -555,17 +557,23 @@ class GatheringSchedulingBrowserDsl:
     # click + direct API POST) construction; TDR-GTH-24 reuses the same
     # submit path for its duplicate-rejection branch.
 
-    def _fill_candidate_date_time_input(self, base_test_id: str, iso: str) -> None:
+    def _fill_candidate_date_time_input(
+        self, base_test_id: str, iso: str, scope: Locator | Page | None = None
+    ) -> None:
         """Fills a candidate-date input whose exact shape this contract leaves
         open (one merged date-time input, or a date input plus a sibling
         `-time-input`-suffixed time input -- organizerGatheringCreate.
         candidateDateRow.note / addCandidateDateForm.note, adr/0038). Detects
         the two-input shape by the unambiguous suffixed test id; otherwise
-        treats the base input as accepting the full merged value.
+        treats the base input as accepting the full merged value. ``scope``
+        narrows the lookup to one element (e.g. one candidateDateRow among
+        several sharing the same test id); defaults to the whole page for
+        the dashboard's single, unique inline-form input.
         """
+        root = scope if scope is not None else self.page
         dt = datetime.fromisoformat(iso)
-        time_input = self.page.locator(f'[data-testid="{base_test_id}-time-input"]')
-        base_input = by_test_id(self.page, base_test_id)
+        time_input = root.locator(f'[data-testid="{base_test_id}-time-input"]')
+        base_input = by_test_id(root, base_test_id)
         if time_input.count() > 0:
             base_input.fill(dt.strftime("%Y-%m-%d"))
             time_input.fill(dt.strftime("%H:%M"))
@@ -673,19 +681,25 @@ class GatheringSchedulingBrowserDsl:
                     "confirmedCandidateDate": node.get_attribute(
                         GATHERING_CONFIRMED_CANDIDATE_DATE_ATTR
                     ),
+                    "respondedCount": int(node.get_attribute(RESPONDED_COUNT_ATTR)),
+                    "activeIssuedLinks": int(node.get_attribute(ACTIVE_ISSUED_LINKS_ATTR)),
                 }
             )
         return result
 
     def assert_gathering_list_matches(self, expected: list[dict[str, object]]) -> None:
-        """expected: DOM-order list of {"id", "phase", "confirmedCandidateDate"}
-        (createdAt descending, 新しい順,
-        organizerGatheringList.list.orderingInvariant). This does not assert
-        each gathering's title/name: the contract's gathering-list-item
-        attributes (data-gathering-id/-phase/-confirmed-candidate-date/
-        -responded-count/-active-issued-links) define no machine-observable
-        name field, so the .feature's "名前...が示される" clause cannot be
-        verified here (see this slice's tester report).
+        """expected: DOM-order list of {"id", "phase", "confirmedCandidateDate",
+        "respondedCount", "activeIssuedLinks"} (createdAt descending, 新しい順,
+        organizerGatheringList.list.orderingInvariant). Checks all 5 of the
+        contract's gathering-list-item attributes (reviewer audit Major#1:
+        respondedCount/activeIssuedLinks were previously read nowhere in this
+        slice, even though organizerDashboard's own denominatorAttributes
+        already prove the same-named values elsewhere -- that does not
+        substitute for checking this list's own, independently-projected
+        attributes). This does not assert each gathering's title/name: the
+        contract's gathering-list-item attributes define no machine-
+        observable name field, so the .feature's "名前...が示される" clause
+        cannot be verified here (see this slice's tester report).
         """
         wait_for_at_least_one(self.page, GATHERING_LIST_ITEM)
         items = self._read_gathering_list_items()
@@ -696,6 +710,8 @@ class GatheringSchedulingBrowserDsl:
             self.assertions.assertEqual(
                 actual["confirmedCandidateDate"], wanted["confirmedCandidateDate"]
             )
+            self.assertions.assertEqual(actual["respondedCount"], wanted["respondedCount"])
+            self.assertions.assertEqual(actual["activeIssuedLinks"], wanted["activeIssuedLinks"])
 
     def open_gathering_from_list(self, gathering_id: str) -> None:
         item = self.page.locator(
@@ -744,6 +760,69 @@ class GatheringSchedulingBrowserDsl:
 
     def fill_gathering_create_name(self, title: str) -> None:
         by_test_id(self.page, GATHERING_CREATE_NAME_INPUT).fill(title)
+
+    def _candidate_date_row_locator(self, index: int) -> Locator:
+        return self.page.locator(f'[data-testid="{GATHERING_CREATE_CANDIDATE_DATE_ROW}"]').nth(
+            index
+        )
+
+    def fill_gathering_create_candidate_date_row(self, index: int, iso: str) -> None:
+        row = self._candidate_date_row_locator(index)
+        self._fill_candidate_date_time_input(GATHERING_CREATE_CANDIDATE_DATE_INPUT, iso, scope=row)
+
+    def add_gathering_create_candidate_date_row(self) -> None:
+        """candidateDateRow.addRow.requiredOutcome (reviewer audit Major#2):
+        appends one new gathering-create-candidate-date-row. Not previously
+        exercised by any TDR-GTH-XX scenario.
+        """
+        rows = self.page.locator(f'[data-testid="{GATHERING_CREATE_CANDIDATE_DATE_ROW}"]')
+        before_count = rows.count()
+        by_test_id(self.page, GATHERING_CREATE_ADD_CANDIDATE_DATE_ROW).click()
+        expect(rows).to_have_count(before_count + 1)
+
+    def _extract_gathering_id_from_dashboard_url(self) -> str:
+        match = re.search(r"/gatherings/([^/]+)/?$", self.page.url)
+        return require(match, f"unexpected post-create URL shape: {self.page.url}").group(  # type: ignore[union-attr]
+            1
+        )
+
+    def create_prepared_gathering_via_browser(self) -> None:
+        """TDR-GTH-01, now driven end-to-end through organizerGatheringCreate
+        (browser-interface.yaml v0.4: "Supports TDR-GTH-01 (now browser-
+        verifiable)") instead of createGathering direct-API -- reviewer audit
+        Major#2. Fills the name, fills the first (always-present) candidate-
+        date row, appends and fills one row per additional prepared date
+        (exercising addRow for the first time), then submits.
+
+        Clicking submit here also navigates (this implementation's own
+        choice, within the contract's own "does not fix the immediate
+        post-submit destination screen" allowance) -- a real Playwright
+        response body becomes unreadable once its page has navigated away
+        (confirmed empirically: capturing the createGathering response the
+        same way submit_add_candidate_date_form does raised "response body
+        is not available for a response that was navigated away from").
+        This reads the created gathering back through the public
+        getGathering operation once the dashboard has rendered, instead.
+        """
+        title = require(self._prepared_title, "no gathering was prepared")
+        dates = require(self._prepared_candidate_date_isos, "no candidate dates were prepared")
+        self.open_gathering_create_from_header()
+        self.fill_gathering_create_name(title)
+        self.fill_gathering_create_candidate_date_row(0, dates[0])
+        for index, iso in enumerate(dates[1:], start=1):
+            self.add_gathering_create_candidate_date_row()
+            self.fill_gathering_create_candidate_date_row(index, iso)
+        by_test_id(self.page, GATHERING_CREATE_SUBMIT).click()
+        wait_for_at_least_one(self.page, GATHERING_PHASE_INDICATOR)
+        gathering_id = self._extract_gathering_id_from_dashboard_url()
+        response = self._api("GET", f"/gatherings/{gathering_id}")
+        self._assert_api_ok(response, 200, "getGathering (post-create readback)")
+        assert_matches_openapi_schema(
+            response.payload, GATHERING_API_CONTRACT, "#/components/schemas/Gathering"
+        )
+        self._created_candidate_date_isos.extend(dates)
+        self._set_gathering(response.payload)
+        self._created_gatherings.append(response.payload)
 
     def assert_gathering_create_submit_is_disabled(self) -> None:
         expect(by_test_id(self.page, GATHERING_CREATE_SUBMIT)).to_be_disabled()
@@ -1170,15 +1249,21 @@ class GatheringSchedulingBrowserDsl:
         Purpose-declaration scanning follows unavailableControls.
         operationalControlScope (ADR-0039, v0.4): a matched control is exempt
         only when its test id is registered in
-        GATHERING_VALUE_ENTRY_CONTROL_TEST_IDS *and* its tag is a native
-        input/textarea (the exemption is scoped to value-entry controls, not
-        select/checkbox/radio/combobox/listbox/range/slider/spinbutton/button
-        or an interactive ARIA role -- those keep the general requirement).
-        Any other matched control -- including an unregistered native input
-        this contract does not know about -- still must declare a purpose
-        from GATHERING_ALLOWED_PURPOSES, so a silently-added, untracked input
-        is still caught (this is the point of ADR-0039's traceability
-        condition, not a blanket input exemption).
+        GATHERING_VALUE_ENTRY_CONTROL_TEST_IDS *and* its tag/type shape
+        matches the contract's own scoping -- a native input whose `type` is
+        one of GATHERING_VALUE_ENTRY_INPUT_TYPES (text/date/time/datetime-
+        local/number, defaulting to "text" when the attribute is absent), or
+        a textarea (reviewer audit Minor#4: the type check was originally
+        missing, so a registered test id reused on e.g. an
+        <input type="checkbox"> would have wrongly been exempted). The
+        exemption never applies to select/checkbox/radio/combobox/listbox/
+        range/slider/spinbutton/button or an interactive ARIA role -- those
+        keep the general requirement. Any other matched control -- including
+        an unregistered native input this contract does not know about --
+        still must declare a purpose from GATHERING_ALLOWED_PURPOSES, so a
+        silently-added, untracked input is still caught (this is the point
+        of ADR-0039's traceability condition, not a blanket input
+        exemption).
         """
         assert_all_absent(self.assertions, self.page, GATHERING_FORBIDDEN_TEST_IDS)
         assert_all_absent(self.assertions, self.page, GATHERING_DISCLOSURE_FORBIDDEN_TEST_IDS)
@@ -1197,9 +1282,15 @@ class GatheringSchedulingBrowserDsl:
             control = controls.nth(index)
             test_id = control.get_attribute("data-testid")
             tag_name = control.evaluate("element => element.tagName.toLowerCase()")
+            if tag_name == "input":
+                # A native <input> with no explicit type attribute defaults
+                # to "text" per the HTML spec.
+                input_type = (control.get_attribute("type") or "text").lower()
+                is_exempt_shape = input_type in GATHERING_VALUE_ENTRY_INPUT_TYPES
+            else:
+                is_exempt_shape = tag_name == "textarea"
             is_registered_value_entry_control = (
-                test_id in GATHERING_VALUE_ENTRY_CONTROL_TEST_IDS
-                and tag_name in {"input", "textarea"}
+                test_id in GATHERING_VALUE_ENTRY_CONTROL_TEST_IDS and is_exempt_shape
             )
             if is_registered_value_entry_control:
                 continue
