@@ -1,4 +1,4 @@
-"""Thin Gherkin-to-DSL mappings for TDR-GTH-01 through TDR-GTH-20."""
+"""Thin Gherkin-to-DSL mappings for TDR-GTH-01 through TDR-GTH-25."""
 
 from __future__ import annotations
 
@@ -37,11 +37,53 @@ class GatheringSchedulingSteps:
     def organizer_opens_the_dashboard(self) -> None:
         self.dsl.open_organizer_dashboard()
 
-    def organizer_activates_the_add_candidate_date_entry_point(self) -> None:
-        self.dsl.assert_add_candidate_date_entry_point_is_reachable_without_side_effects()
+    def organizer_opens_the_add_candidate_date_form(self) -> None:
+        self.dsl.open_add_candidate_date_form()
 
-    def organizer_adds_a_candidate_date(self, candidate_date_iso: str) -> None:
-        self.dsl.add_candidate_date_via_api(candidate_date_iso)
+    def organizer_submits_the_add_candidate_date_form(self, candidate_date_iso: str) -> object:
+        return self.dsl.submit_add_candidate_date_form(candidate_date_iso)
+
+    def candidate_dates_snapshot(self) -> list[dict[str, object]]:
+        return self.dsl.candidate_dates_snapshot()
+
+    def organizer_has_multiple_scheduling_gatherings(
+        self, specs: list[tuple[str, list[str]]]
+    ) -> list[dict]:
+        return self.dsl.given_multiple_scheduling_gatherings(specs)
+
+    def gathering_candidate_date_is_confirmed_via_api(
+        self, gathering_id: str, candidate_date_id: str
+    ) -> dict:
+        return self.dsl.confirm_candidate_date_via_api(gathering_id, candidate_date_id)
+
+    def organizer_opens_the_gathering_list(self) -> None:
+        self.dsl.open_organizer_gathering_list()
+
+    def organizer_opens_gathering_from_list(self, gathering_id: str) -> None:
+        self.dsl.open_gathering_from_list(gathering_id)
+
+    def organizer_opens_the_gathering_create_screen(self) -> None:
+        self.dsl.open_gathering_create_from_header()
+
+    def organizer_activates_create_open_from_the_empty_state(self) -> None:
+        self.dsl.activate_create_open_from_empty_state()
+
+    def organizer_fills_the_gathering_name(self, title: str) -> None:
+        self.dsl.fill_gathering_create_name(title)
+
+    def organizer_attempts_to_create_gathering_via_api_with_no_candidate_dates(
+        self, title: str
+    ) -> object:
+        return self.dsl.attempt_create_gathering_via_api_with_no_candidate_dates(title)
+
+    def lunch_candidate_screen_is_available(self) -> None:
+        self.dsl.set_lunch_candidate_screen_available()
+
+    def organizer_opens_the_lunch_candidate_screen(self) -> None:
+        self.dsl.open_lunch_candidate_screen()
+
+    def organizer_opens_the_gathering_entry(self) -> None:
+        self.dsl.open_gathering_entry_from_candidate_screen()
 
     def organizer_issues_a_participant_link(self) -> dict[str, str]:
         return self.dsl.issue_participant_link_from_dashboard()
@@ -120,8 +162,56 @@ class GatheringSchedulingSteps:
     def gathering_has_no_confirmed_date(self) -> None:
         self.dsl.assert_no_candidate_date_is_confirmed_on_gathering()
 
-    def new_candidate_date_is_added_without_phase_change(self, candidate_date_id: str) -> None:
-        self.dsl.assert_new_candidate_date_added_without_phase_change(candidate_date_id)
+    def new_candidate_date_is_added_via_inline_form(
+        self,
+        response: object,
+        before_dates: list[dict[str, object]],
+        expected_phase: str,
+    ) -> None:
+        self.dsl.assert_candidate_date_added_via_inline_form(
+            response,
+            before_dates,
+            expected_phase,  # type: ignore[arg-type]
+        )
+
+    def duplicate_candidate_date_is_rejected(
+        self,
+        response: object,
+        candidate_date_iso: str,
+        before_dates: list[dict[str, object]],
+    ) -> None:
+        self.dsl.assert_duplicate_candidate_date_rejected_by_inline_form(
+            response,
+            candidate_date_iso,
+            before_dates,  # type: ignore[arg-type]
+        )
+
+    def gathering_list_matches(self, expected: list[dict[str, object]]) -> None:
+        self.dsl.assert_gathering_list_matches(expected)
+
+    def dashboard_is_shown_for(self, gathering_id: str, expected_phase: str) -> None:
+        self.dsl.assert_dashboard_is_shown_for(gathering_id, expected_phase)
+
+    def gathering_list_is_empty(self) -> None:
+        self.dsl.assert_gathering_list_is_empty()
+
+    def gathering_create_screen_is_shown(self) -> None:
+        self.dsl.assert_gathering_create_screen_is_shown()
+
+    def gathering_create_submit_is_disabled(self) -> None:
+        self.dsl.assert_gathering_create_submit_is_disabled()
+
+    def create_is_rejected_for_missing_candidate_dates(self, response: object) -> None:
+        self.dsl.assert_create_rejected_because_no_candidate_dates(response)  # type: ignore[arg-type]
+
+    def no_gathering_exists_with_title(self, title: str) -> None:
+        self.dsl.assert_no_gathering_exists_with_title(title)
+
+    def in_progress_gathering_count_badge_shows(self, expected_count: int) -> None:
+        self.dsl.assert_in_progress_gathering_count_badge(expected_count)
+
+    def gathering_list_screen_is_shown(self) -> None:
+        self.dsl.assert_gathering_list_screen_is_shown()
 
     def issued_links_are_distinct(self, links: list[dict[str, str]]) -> None:
         self.dsl.assert_issued_links_are_distinct(links)
