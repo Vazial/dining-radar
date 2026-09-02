@@ -67,6 +67,17 @@ class GatheringNotInSchedulingPhaseError(Exception):
     """``GATHERING_NOT_IN_SCHEDULING_PHASE``: the operation requires SCHEDULING."""
 
 
+class DuplicateCandidateDateError(Exception):
+    """``DUPLICATE_CANDIDATE_DATE`` (adr/0038): this exact ``startAt`` already exists here.
+
+    Raised by ``create_gathering`` when two or more entries in the same
+    request share an exact ``startAt``, and by ``add_candidate_date`` when
+    the new ``startAt`` exactly matches a candidate date already persisted
+    on this gathering. This is architect's own design judgment (adr/0038
+    header comment), not one of the 2026-09-01 human decisions.
+    """
+
+
 class ParticipantLinkNotFoundError(Exception):
     """``PARTICIPANT_LINK_NOT_FOUND``: no organizer-facing linkId exists here."""
 
@@ -123,7 +134,17 @@ def _get_participant_link(gathering: Gathering, link_id: object) -> ParticipantL
 def create_gathering(
     organizer: AbstractBaseUser, title: str, candidate_date_start_ats: Sequence[datetime]
 ) -> Gathering:
-    """``createGathering``: a gathering always starts in SCHEDULING with >=1 date."""
+    """``createGathering``: a gathering always starts in SCHEDULING with >=1 date.
+
+    Raises ``DuplicateCandidateDateError`` (adr/0038) if
+    ``candidate_date_start_ats`` itself contains two entries sharing the
+    exact same instant -- checked before any row is written, so a rejected
+    request never creates a partial gathering. Aware-datetime equality
+    already normalizes across timezone offsets representing the same
+    instant, matching ``startAt``'s own "exact same date-time" wording.
+    """
+    if len(set(candidate_date_start_ats)) != len(candidate_date_start_ats):
+        raise DuplicateCandidateDateError
     with transaction.atomic():
         gathering = Gathering.objects.create(organizer=organizer, title=title)
         CandidateDate.objects.bulk_create(
@@ -138,13 +159,40 @@ def get_gathering(organizer: AbstractBaseUser, gathering_id: object) -> Gatherin
     return _get_owned_gathering(organizer, gathering_id)
 
 
+def list_gatherings(organizer: AbstractBaseUser) -> list[Gathering]:
+    """``listGatherings`` (adr/0038): every gathering this organizer organizes, createdAt降順.
+
+    Includes every phase, including FINALIZED -- there is no delete
+    operation (ADR-0035 decision 1's D4).
+    """
+    return list(Gathering.objects.filter(organizer=organizer).order_by("-created_at"))
+
+
+def count_in_progress_gatherings(organizer: AbstractBaseUser) -> int:
+    """``getInProgressGatheringCount`` (adr/0038): SCHEDULING/SELECTING_SHOP only.
+
+    FINALIZED is excluded -- its business is done (designer's judgment,
+    carried into the contract).
+    """
+    return Gathering.objects.filter(
+        organizer=organizer,
+        phase__in=(GatheringPhase.SCHEDULING, GatheringPhase.SELECTING_SHOP),
+    ).count()
+
+
 def add_candidate_date(
     organizer: AbstractBaseUser, gathering_id: object, start_at: datetime
 ) -> tuple[Gathering, CandidateDate]:
-    """``addCandidateDate``: only accepted while phase is SCHEDULING."""
+    """``addCandidateDate``: only accepted while phase is SCHEDULING.
+
+    Raises ``DuplicateCandidateDateError`` (adr/0038) if ``start_at``
+    exactly matches a candidate date already persisted on this gathering.
+    """
     gathering = _get_owned_gathering(organizer, gathering_id)
     if gathering.phase != GatheringPhase.SCHEDULING:
         raise GatheringNotInSchedulingPhaseError
+    if gathering.candidate_dates.filter(start_at=start_at).exists():
+        raise DuplicateCandidateDateError
     candidate_date = CandidateDate.objects.create(gathering=gathering, start_at=start_at)
     return gathering, candidate_date
 

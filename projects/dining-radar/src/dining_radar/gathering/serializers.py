@@ -41,6 +41,7 @@ def serialize_gathering(gathering: Gathering) -> dict:
         "id": str(gathering.id),
         "title": gathering.title,
         "phase": gathering.phase,
+        "createdAt": gathering.created_at.isoformat(),
         "candidateDates": [serialize_candidate_date(tally, gathering) for tally in tallies],
         "totalIssuedParticipantLinks": gathering.total_issued_participant_links,
         "totalRevokedParticipantLinks": gathering.total_revoked_participant_links,

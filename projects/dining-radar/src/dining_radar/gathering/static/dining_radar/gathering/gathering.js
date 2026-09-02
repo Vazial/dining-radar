@@ -47,6 +47,12 @@
     tentativeSelectedId: null,
     openShopPreview: null,
     addCandidateDateOpen: false,
+    // adr/0038, addCandidateDateForm.presenceRule: retains the entered
+    // value across a DUPLICATE_CANDIDATE_DATE rejection (the form stays
+    // open, value intact, ready to correct); cleared on a successful
+    // submit (a fresh entry for the next candidate date).
+    addCandidateDateValue: "",
+    addCandidateDateDuplicateError: false,
     headerIssuedLinkUrl: null,
     recopiedLinkUrls: {},
   };
@@ -54,6 +60,46 @@
   function csrfToken() {
     var field = document.querySelector('input[name="csrfmiddlewaretoken"]');
     return field ? field.value : "";
+  }
+
+  // <input type="datetime-local">'s own value shape is always
+  // "YYYY-MM-DDTHH:mm" (no seconds, no timezone -- this input type is
+  // defined to carry no timezone information at all;
+  // CandidateDateInput.startAt's format: date-time requires one). Building
+  // the ISO string directly from these digits, tagged with a fixed UTC
+  // offset, rather than routing the value through
+  // `new Date(value).toISOString()`, removes a real dependency this screen
+  // used to have on the *visiting browser's own host-OS timezone* to
+  // interpret an otherwise timezone-less string (a timezone-less date-time
+  // literal is parsed as "the host system's local time zone", per the
+  // JS spec's Date Time String Format). Real-measurement finding
+  // (2026-09-02, orchestrator合流 run): with the host machine's own local
+  // zone at +09:00, `new Date("...T12:00").toISOString()` silently shifted
+  // the submitted instant by 9 hours (12:00 became 03:00Z); a duplicate-
+  // candidate-date resubmission of literally the same picked wall-clock
+  // value then failed DUPLICATE_CANDIDATE_DATE's own instant-equality
+  // check (gathering.services.add_candidate_date), not because that check
+  // was wrong, but because the client was sending a different instant than
+  // the one already stored. This function's own fixed-UTC tagging makes
+  // the conversion deterministic regardless of the host machine's own
+  // timezone.
+  //
+  // **Recorded trade-off, not resolved unilaterally (developer discretion
+  // -- gathering-scheduling-browser-interface.yaml's own candidateDateRow/
+  // addCandidateDateForm notes explicitly leave a merged date-time input's
+  // timezone handling unfixed)**: the native datetime-local widget gives
+  // the organizer no on-page indication of which timezone their typed/
+  // picked wall-clock value will be interpreted as. Tagging it UTC here
+  // means an organizer whose own intent is a JST wall-clock time (this
+  // product's only real user base, product-brief.md) would need to add 9
+  // hours themselves to get the instant they mean. A fixed Asia/Tokyo
+  // interpretation (matching this project's own settings_base.TIME_ZONE)
+  // would also be host-timezone-independent while matching real
+  // organizers' likely intent, but choosing between the two is a product
+  // decision no contract makes today -- flagged for architect/human review
+  // (FR-028) rather than decided here.
+  function dateTimeLocalValueToIso(value) {
+    return value + ":00Z";
   }
 
   function el(tag, attrs, children) {
@@ -219,16 +265,42 @@
     render();
   }
 
+  function cancelAddCandidateDate() {
+    // browserControlSurface.organizerDashboard.candidateDateList.
+    // addCandidateDateForm.cancel.requiredOutcome: makes the form absent
+    // and the open control reachable again, without calling
+    // addCandidateDate.
+    state.addCandidateDateOpen = false;
+    state.addCandidateDateValue = "";
+    state.addCandidateDateDuplicateError = false;
+    render();
+  }
+
   function submitAddCandidateDate(localDateTimeValue) {
     if (!localDateTimeValue) {
       return;
     }
-    var startAt = new Date(localDateTimeValue).toISOString();
+    var startAt = dateTimeLocalValueToIso(localDateTimeValue);
     requestJson("POST", gatheringUrl() + "/candidate-dates", { startAt: startAt }).then(
       function (result) {
         if (result.status === 201) {
           state.gathering = result.body;
-          state.addCandidateDateOpen = false;
+          // adr/0038, human decision 2026-09-01 (AddDate.dc.html 案A:
+          // "足したあとフォームは閉じない"): addCandidateDateOpen stays
+          // true -- only the entered value clears, ready for the next
+          // entry.
+          state.addCandidateDateValue = "";
+          state.addCandidateDateDuplicateError = false;
+          render();
+        } else if (
+          result.status === 409 &&
+          result.body &&
+          result.body.code === "DUPLICATE_CANDIDATE_DATE"
+        ) {
+          // adr/0038: the form remains present with the entered value
+          // intact, and no new gathering-candidate-date appears.
+          state.addCandidateDateValue = localDateTimeValue;
+          state.addCandidateDateDuplicateError = true;
           render();
         }
       }
@@ -322,6 +394,49 @@
     return node;
   }
 
+  function renderAddCandidateDateForm() {
+    // adr/0038 (AddDate.dc.html 案A, human decision 2026-09-01): the form
+    // opens inline within gathering-candidate-date-list and stays open
+    // across a successful submit; only cancel makes it absent again.
+    var input = el(
+      "input",
+      {
+        type: "datetime-local",
+        "data-testid": "gathering-add-candidate-date-input",
+        value: state.addCandidateDateValue || undefined,
+      },
+      []
+    );
+    var submit = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "gathering-add-candidate-date-submit",
+        "data-gathering-control-purpose": "gathering-add-candidate-date-submit",
+      },
+      ["足す"]
+    );
+    submit.addEventListener("click", function () {
+      submitAddCandidateDate(input.value);
+    });
+    var cancel = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "gathering-add-candidate-date-cancel",
+        "data-gathering-control-purpose": "gathering-add-candidate-date-cancel",
+      },
+      ["やめる"]
+    );
+    cancel.addEventListener("click", cancelAddCandidateDate);
+
+    var children = [input, submit, cancel];
+    if (state.addCandidateDateDuplicateError) {
+      children.push(el("p", {}, ["この日時は既に追加されています。"]));
+    }
+    return el("div", { "data-testid": "gathering-add-candidate-date-form" }, children);
+  }
+
   function renderAddCandidateDateOpen() {
     var openButton = el(
       "button",
@@ -336,12 +451,7 @@
 
     var children = [openButton];
     if (state.addCandidateDateOpen) {
-      var input = el("input", { type: "datetime-local" }, []);
-      var submit = el("button", { type: "button" }, ["追加"]);
-      submit.addEventListener("click", function () {
-        submitAddCandidateDate(input.value);
-      });
-      children.push(el("div", {}, [input, submit]));
+      children.push(renderAddCandidateDateForm());
     }
     return el("div", {}, children);
   }
@@ -459,10 +569,17 @@
     if (!state.gathering) {
       return;
     }
+    // adr/0038, addCandidateDateOpen.requiredOutcome: the revealed form
+    // must sit inline *within* gathering-candidate-date-list (AddDate.dc.
+    // html 案A "その場で開く"), not beside it -- so the open control/form
+    // is appended as this list's own last child, after every
+    // gathering-candidate-date row (orderingInvariant only constrains the
+    // relative order of gathering-candidate-date-tagged children, which
+    // this trailing, differently-tagged child does not disturb).
     var candidateDateList = el(
       "div",
       { "data-testid": "gathering-candidate-date-list" },
-      state.gathering.candidateDates.map(renderCandidateDate)
+      state.gathering.candidateDates.map(renderCandidateDate).concat([renderAddCandidateDateOpen()])
     );
 
     root.appendChild(
@@ -471,7 +588,6 @@
         renderResponseSummary(),
         renderUnansweredSummary(),
         candidateDateList,
-        renderAddCandidateDateOpen(),
         renderOpenShopPreview(),
         renderConfirmDate(),
         renderParticipantLinkCopy(),

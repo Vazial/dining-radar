@@ -695,6 +695,26 @@
     // adr/0019 decision 5 (unchanged): present only when cardPaymentAvailable
     // is exactly false, stating only the confirmed fact -- never a "cash
     // only" claim.
+    //
+    // Human real-device report (2026-09-01, D-fix 案B, deck見た目3件): on
+    // the PC deck (isMapPrimaryLayout), cards with the caution and cards
+    // without it sit side by side in one row and their bottom edges no
+    // longer lined up ("ツールチップのバランスが悪いですね") -- this
+    // element's own conditional presenceRule (contract's own text: "a
+    // caution about a confirmed unavailability is not itself an
+    // unavailable-field display") is exactly what created the height
+    // difference. 案B reserves the same box for every deck card whether or
+    // not the caution actually renders, **without ever giving the reserved,
+    // empty box the candidate-card-payment-caution test id** -- doing so
+    // would violate this same presenceRule (DeckFix.dc.html's own explicit
+    // warning). The reserved box shares the caution's exact text and CSS
+    // box model but is rendered `visibility: hidden` (not `display: none`,
+    // which would collapse its height back to zero) -- this guarantees an
+    // identical reserved height without depending on a second, separately
+    // measured/maintained constant. Scoped to isMapPrimaryLayout only
+    // (mobile's touch deck shows one card at a time, so uneven height
+    // across cards is not a side-by-side comparison problem there -- the
+    // D-fix board's own title names this "1. PC" only).
     if (candidate.cardPaymentAvailable === false) {
       card.appendChild(
         el(
@@ -703,6 +723,17 @@
             "data-testid": "candidate-card-payment-caution",
             "data-card-payment-available": "false",
             "class": "candidate-payment-caution",
+          },
+          ["クレジットカード非対応（支払い方法は要確認）"]
+        )
+      );
+    } else if (isMapPrimaryLayout) {
+      card.appendChild(
+        el(
+          "p",
+          {
+            "class": "candidate-payment-caution candidate-payment-caution-reserved",
+            "aria-hidden": "true",
           },
           ["クレジットカード非対応（支払い方法は要確認）"]
         )
@@ -1274,10 +1305,23 @@
   // function never builds both affordances into the same render. The
   // position counter is a plain, non-interactive <span> (not itself a
   // control, so it needs no allowedPurposes entry -- adr/0031's own text:
-  // "件数カウンタ自体は操作ではないためこの規則には掛からない") and,
-  // deliberately, a sibling of deckViewportEl rather than a child of it, so
-  // its own negative top offset (home.html) is not clipped by the
-  // viewport's overflow: hidden.
+  // "件数カウンタ自体は操作ではないためこの規則には掛からない").
+  //
+  // Human real-device report (2026-09-01, D-fix 案A, deck見た目3件): on
+  // isMapPrimaryLayout, the counter used to float as an absolutely
+  // positioned badge over the map's own top-right corner ("地図右端の中央に
+  // 黒いピルが浮いている") -- unreadable out of context and far from the
+  // paging buttons it describes. It now sits inside a dedicated pager row
+  // (candidate-deck-pager, "‹ 1–5 / 5 ›") between deckPreviousEl and
+  // deckNextEl, below the card viewport -- DeckFix.dc.html's own
+  // "送りボタンの間に置く" decision. Only the DOM position/parentage
+  // changes here: candidate-deck-position's own testid and
+  // data-deck-visible-start/-end/-total attributes (updateDeckPositionDisplay)
+  // are unchanged, so the contract's own observation surface is unaffected
+  // (DeckFix.dc.html's own confirmation: "契約が求めているのは...機械観測面の
+  // 存在だけで、置き場所は何も定めていない"). isMapPrimaryTouchLayout has no
+  // paging buttons (adr/0033) and was not part of this human decision, so
+  // its own position/deckChildren stay exactly as they were.
   function renderDeck(cardsContainer) {
     deckPositionEl = el(
       "span",
@@ -1324,7 +1368,12 @@
         pageDeckNext();
       });
       deckPeekEl = null;
-      deckChildren = [deckPreviousEl, deckViewportEl, deckNextEl, deckPositionEl];
+      var deckPager = el("div", { "class": "candidate-deck-pager" }, [
+        deckPreviousEl,
+        deckPositionEl,
+        deckNextEl,
+      ]);
+      deckChildren = [deckViewportEl, deckPager];
     } else {
       deckPreviousEl = null;
       deckNextEl = null;
@@ -2330,6 +2379,46 @@
     renderProblem(body.code, body.message, hasDisplayedProposal);
   }
 
+  // contracts/candidate-search-browser-interface.yaml's gatheringEntry
+  // section (adr/0038): candidate-gathering-entry itself is plain,
+  // server-rendered HTML (home.html) and therefore already present before
+  // this script runs. Only the badge -- which mirrors
+  // gathering-scheduling-api.yaml's getInProgressGatheringCount, a
+  // different business contract's own resource -- is built here, once
+  // fetched. Independent of the candidate-proposal request above: a
+  // failure fetching one must never block or hide the other.
+  function loadGatheringEntryBadge() {
+    var entry = document.querySelector('[data-testid="candidate-gathering-entry"]');
+    if (!entry) {
+      return;
+    }
+    fetch("/gatherings/in-progress-count", { credentials: "same-origin" })
+      .then(function (response) {
+        return response.status === 200 ? response.json() : null;
+      })
+      .then(function (body) {
+        if (!body) {
+          return;
+        }
+        var count = body.inProgressGatheringCount;
+        var badge = entry.querySelector('[data-testid="candidate-gathering-entry-badge"]');
+        // presenceRule: present exactly when the count is greater than
+        // zero; absent when it is zero (Handoff.dc.html: "0のときはバッジを
+        // 出さない").
+        if (count > 0) {
+          if (!badge) {
+            badge = el("span", { "data-testid": "candidate-gathering-entry-badge", "class": "candidate-gathering-entry-badge" }, []);
+            entry.appendChild(badge);
+          }
+          badge.setAttribute("data-in-progress-gathering-count", String(count));
+          badge.textContent = String(count);
+        } else if (badge) {
+          badge.remove();
+        }
+      })
+      .catch(function () {});
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     requestProposal(null)
       .then(function (result) {
@@ -2340,6 +2429,17 @@
           "PROVIDER_UNAVAILABLE",
           "Candidate proposals cannot be retrieved right now. Please try again later."
         );
-      });
+      })
+      // Real-measurement finding (this slice): firing this second fetch
+      // concurrently with the initial /candidate-proposals request (rather
+      // than after it settles) made an unrelated acceptance test's own
+      // page.wait_for_load_state("networkidle") wait on -- and, in one
+      // observed run, time out around -- a second in-flight request it had
+      // never had to account for before this screen made any request
+      // besides the proposal one on load. Sequencing this strictly after
+      // the proposal request settles (success or failure) removes that
+      // concurrency without changing what this call does or when a human
+      // sees the badge appear in practice (it was already asynchronous).
+      .finally(loadGatheringEntryBadge);
   });
 })();

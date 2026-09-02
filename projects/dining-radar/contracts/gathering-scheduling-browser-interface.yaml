@@ -85,11 +85,39 @@
 #   契約条件を確認済みで契約影響なし——唯一の制約（PCカード案Bの空き場所に
 #   `candidate-card-payment-caution`のtest idを付けないこと）は既存の`presenceRule`が既に
 #   強制しており、本ファイル・`candidate-search-browser-interface.yaml`とも変更を要しない。
+#
+# 2026-09-02 追補 (architect、ADR-0039。実装ラウンドの合流でdeveloperが確定させたFR-028の契約穴):
+# - developerがこの契約の`organizerGatheringCreate`・`candidateDateList.addCandidateDateForm`を
+#   実装したところ、素の値入力欄（`gathering-create-name-input`・
+#   `gathering-create-candidate-date-input`・`gathering-add-candidate-date-input`）が横断検査
+#   `assert_gathering_screen_has_no_forbidden_surfaces`（`allGatheringScreenFormControlsMustDeclare
+#   Purpose`の機械化）に引っかかった。`allowedPurposes`の17件はいずれも動詞的な操作名
+#   （open/submit/cancel/select等）であり、値をただ保持するだけの入力欄に対応する語彙が無い。
+#   ネイティブ`<input>`を避ける回避は走査を欺く改悪であり不採用（developerの判断に同意）。
+# - **本契約はこれまで`forbiddenFormControlCategories`を明示していなかった**（candidate-search-
+#   browser-interface.yamlは持つ）——横断検査が暗黙にどの要素種別を拾うかが本ファイル単体では
+#   読み取れなかったことが、この穴が起草時点で見えなかった一因である。今回、
+#   `candidate-search-browser-interface.yaml`と同じ列挙を明示した。
+# - **「操作的コントロール」と「値入力コントロール」を区別する**（ADR-0039、決定の核）:
+#   `allGatheringScreenFormControlsMustDeclarePurpose`が要求するpurpose宣言は、活性化それ自体が
+#   このcontractのrequiredOutcomeを引き起こす**操作的**コントロール（`allowedPurposes`の17件が
+#   すべてそれである）にだけ及ぶ。値を保持するだけで、値の消費は別の操作的コントロール（submit等）の
+#   requiredOutcomeが引き受ける**値入力**コントロールは対象外とする——ただし、この契約が
+#   `valueEntryControlTestIds`として名指しし、かつどの操作的コントロールがその値を消費するかを
+#   `browserControlSurface`内に明記している場合に限る（`unavailableControls.
+#   operationalControlScope`参照）。名指しも消費先の明記も無い値入力コントロールは、従来どおり
+#   一般則の対象のままである——これは「無条件の値入力欄免除」ではなく、追跡可能性を条件にした
+#   限定的な適用範囲の明確化である。
+# - この整理により、`gathering-participant-name-input`（参加者の名前入力、当初から存在していたが
+#   `nameControl`配下に構造化されたtestId宣言を持たず、この横断検査が実際に走ったときに
+#   引っかかるかどうか未検証のまま残っていた）も同じ規律のもとに置いた——`nameControl.input`として
+#   明示的に構造化し、`valueEntryControlTestIds`へ追加した。将来この契約に新しい値入力欄が増えても、
+#   同じ規律がそのまま及ぶ（一貫して効くことを狙った設計、ADR-0039）。
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.3'
+contractVersion: '0.4'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -217,6 +245,75 @@ browserEntry:
 unavailableControls:
   allGatheringScreenFormControlsMustDeclarePurpose: true
   purposeAttribute: data-gathering-control-purpose
+  forbiddenFormControlCategories:
+    [select, input, textarea, checkbox, radio, range, combobox, listbox,
+     slider, spinbutton, button]
+  forbiddenFormControlCategoriesNote: >-
+    Added 2026-09-02 (ADR-0039) -- this contract had required purpose
+    declaration since drafting but had never explicitly enumerated which
+    element categories the requirement scans, unlike
+    candidate-search-browser-interface.yaml. This is the same enumeration
+    that file uses, matching the shared tester DSL's FORM_CONTROL_SELECTOR
+    (activeContext.md's 2026-08-25 record). See operationalControlScope
+    below for the boundary this enumeration is now read against.
+  operationalControlScope: >-
+    Added 2026-09-02 (ADR-0039, FR-028 gap developer confirmed while
+    implementing organizerGatheringCreate and
+    candidateDateList.addCandidateDateForm). The purpose-declaration
+    requirement above applies to *operational* controls -- an element whose
+    own activation is itself a requiredOutcome trigger somewhere in this
+    contract. Every entry in allowedPurposes below names exactly one such
+    control (open/submit/cancel/select/toggle/recopy/revoke-style
+    activations). It does not apply to *value-entry* controls -- a native
+    `input` (of type text/date/time/datetime-local/number) or `textarea`
+    whose own activation (typing into it) is not itself a requiredOutcome
+    trigger; it only holds a value that a separately-declared operational
+    control (typically a `submit`) consumes when that control is activated.
+    This distinction is not a blanket exemption for "any input someone
+    decides not to label": a value-entry control is exempt from declaring a
+    data-gathering-control-purpose value **only if** both of the following
+    hold, so that every value-entry control remains individually traceable
+    to exactly one declared operation --
+      1. its test id appears in valueEntryControlTestIds below, and
+      2. browserControlSurface documents, by test id, which operational
+         control's requiredOutcome names this field as a value it consumes
+         (e.g. organizerGatheringCreate.nameInput/candidateDateRow.dateInput
+         are consumed by organizerGatheringCreate.submit.requiredOutcome;
+         candidateDateList.addCandidateDateForm.dateInput is consumed by its
+         own submit.requiredOutcome; participantAnswer.nameControl.input is
+         consumed by nameControl.submit.requiredOutcome).
+    A native input/textarea meeting forbiddenFormControlCategories above
+    that is *not* listed in valueEntryControlTestIds, or whose consuming
+    operational control this contract does not document, remains subject to
+    the general requirement and must declare a purpose from allowedPurposes
+    like any other control -- this is what keeps an unaccounted, silently
+    added input from escaping the audit this requirement exists for (ADR-0013
+    origin: "全フォームコントロールのpurposeをallowedPurposesと突き合わせる").
+    This clause does not exempt select/checkbox/radio/combobox/listbox/
+    range/slider/spinbutton/button elements, or any interactive ARIA role --
+    those represent a bounded choice-from-known-options or an operation in
+    their own right and continue to require a declared purpose exactly as
+    before (e.g. every existing allowedPurposes entry that is a *-select or
+    *-toggle purpose remains unaffected by this clause).
+  valueEntryControlTestIds:
+    [gathering-create-name-input, gathering-create-candidate-date-input,
+     gathering-add-candidate-date-input, gathering-participant-name-input]
+  valueEntryControlTestIdsNote: >-
+    Four value-entry controls are exempt under operationalControlScope
+    above, each traceable to exactly one consuming operational control's
+    requiredOutcome: gathering-create-name-input and
+    gathering-create-candidate-date-input (organizerGatheringCreate.submit),
+    gathering-add-candidate-date-input
+    (candidateDateList.addCandidateDateForm.submit), and
+    gathering-participant-name-input (participantAnswer.nameControl.submit).
+    The last of these existed since this contract's original 2026-08-30
+    draft but had no structured browserControlSurface entry of its own
+    (only prose mentioning it) -- ADR-0039 brought it under the same
+    discipline retroactively rather than leaving it "not yet caught by
+    the cross-cutting check" by accident. Any future value-entry control
+    this contract adds must be listed here and traced to its consuming
+    operational control the same way, or it remains subject to the general
+    purpose-declaration requirement.
   allowedPurposes:
     [gathering-add-candidate-date-open, gathering-add-candidate-date-submit,
      gathering-add-candidate-date-cancel, gathering-participant-link-copy,
@@ -347,6 +444,11 @@ browserControlSurface:
       requirement: >-
         A text input whose value becomes CreateGatheringRequest.title on
         submit. Present unconditionally on this screen.
+      valueEntryControl: >-
+        Exempt from allGatheringScreenFormControlsMustDeclarePurpose per
+        unavailableControls.operationalControlScope (ADR-0039) -- its value
+        is consumed by submit.requiredOutcome below, which is this field's
+        documented consuming operational control.
     candidateDateRow:
       testId: gathering-create-candidate-date-row
       cardinality: >-
@@ -355,6 +457,10 @@ browserControlSurface:
         row); addRow appends further rows.
       dateInput:
         testId: gathering-create-candidate-date-input
+        valueEntryControl: >-
+          Exempt from allGatheringScreenFormControlsMustDeclarePurpose per
+          unavailableControls.operationalControlScope (ADR-0039) -- its
+          value is consumed by submit.requiredOutcome below.
       note: >-
         This contract requires each row to expose enough input to produce
         one valid ISO-8601 date-time value for
@@ -365,7 +471,10 @@ browserControlSurface:
         AddDate.dc.html. Whether the row collects date and time via one
         merged input or two separate inputs (in which case the second uses
         a `-time-input` suffix, designer's own naming proposal) is a UI
-        implementation choice this contract does not fix.
+        implementation choice this contract does not fix; either shape
+        remains covered by the same dateInput valueEntryControl exemption
+        above, since it is the same field regardless of how many DOM
+        elements implement it.
       addRow:
         testId: gathering-create-add-candidate-date-row
         purpose: gathering-create-add-candidate-date-row
@@ -398,8 +507,10 @@ browserControlSurface:
         boundary convention as confirmDate.disabledState.
       requiredOutcome: >-
         Activating it (while not disabled) calls createGathering with
-        title and candidateDates built from the current rows (TDR-GTH-01).
-        On success, the new gathering subsequently appears in
+        title (consumed from gathering-create-name-input) and
+        candidateDates (consumed from every gathering-create-candidate-
+        date-row's dateInput) built from the current rows (TDR-GTH-01). On
+        success, the new gathering subsequently appears in
         organizerGatheringList.list (createdAt descending places it first).
         This contract does not fix the immediate post-submit destination
         screen. On a DUPLICATE_CANDIDATE_DATE rejection (adr/0038, two rows
@@ -537,6 +648,10 @@ browserControlSurface:
           gathering-add-candidate-date-cancel is activated.
         dateInput:
           testId: gathering-add-candidate-date-input
+          valueEntryControl: >-
+            Exempt from allGatheringScreenFormControlsMustDeclarePurpose per
+            unavailableControls.operationalControlScope (ADR-0039) -- its
+            value is consumed by submit.requiredOutcome below.
         note: >-
           Same time-is-required note as
           organizerGatheringCreate.candidateDateRow above: `startAt`'s
@@ -548,8 +663,9 @@ browserControlSurface:
           purpose: gathering-add-candidate-date-submit
           requiredOutcome: >-
             Activating it calls addCandidateDate with the entered
-            date-time. On success, exactly one new gathering-candidate-date
-            appears in gathering-candidate-date-list (ordering per
+            date-time (consumed from dateInput above). On success, exactly
+            one new gathering-candidate-date appears in
+            gathering-candidate-date-list (ordering per
             candidateDateList.orderingInvariant), the gathering's phase is
             unchanged, and gathering-add-candidate-date-form remains present
             for the next entry. On a DUPLICATE_CANDIDATE_DATE rejection
@@ -769,11 +885,27 @@ browserControlSurface:
         requiredOutcome: >-
           Activating it reveals gathering-participant-name-input (text
           field) and gathering-participant-name-submit.
+      input:
+        testId: gathering-participant-name-input
+        requirement: >-
+          A text input whose value becomes setParticipantDisplayName's name
+          parameter on submit. Absent until gathering-participant-name-open
+          is activated (see open.requiredOutcome above).
+        valueEntryControl: >-
+          Added 2026-09-02 (ADR-0039) -- this test id existed in this
+          contract's prose since 2026-08-30 (open.requiredOutcome
+          mentioned it) but had no structured browserControlSurface entry
+          of its own until now. Exempt from
+          allGatheringScreenFormControlsMustDeclarePurpose per
+          unavailableControls.operationalControlScope -- its value is
+          consumed by submit.requiredOutcome below, its documented
+          consuming operational control.
       submit:
         testId: gathering-participant-name-submit
         purpose: gathering-participant-name-submit
         requiredOutcome: >-
-          Submitting a non-empty name calls setParticipantDisplayName.
+          Submitting a non-empty name (consumed from
+          gathering-participant-name-input) calls setParticipantDisplayName.
           data-participant-named becomes "true" and remains "true" for the
           rest of the session, including for schedule responses recorded
           before the name was attached (TDR-GTH-05) -- this contract does
