@@ -1684,10 +1684,37 @@ Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (
      `TDR-GTH-21`〜`25`／candidate-search-browser-interface v1.7.0（`candidate-gathering-entry`、
      purposeless要素の既存先例踏襲で最小追補）。deck見た目3件は契約影響なし確認済み。
 
-   **次**: 入口追補PR（`contracts/dining-radar-gathering-entry`）はPR #182のマージで承認済み
-   （2026-09-01）。developer側の実装は完了（12.参照）——testerのTDR-GTH-21〜25 step実装が並行して
-   要る。その後、第2弾「店の絞り込み連携」の契約スライスへ。残る未決: 会データの保持期間・削除方針／
-   トークン期限90日・レート制限の見直し時期／FINALIZED局面の観測面（第4弾）。
+   **入口ラウンドを完了した（2026-09-02〜03、developer＋tester並行／orchestrator合流検証・実測／
+   reviewer監査／architect契約修正）**。12.のdeveloper実装に加えて:
+   - **tester**: TDR-GTH-21〜25のstep・TDR-GTH-02の書き直し（前回監査Major#1の完全解消——
+     インラインフォームをブラウザ完結で駆動）・横断検査の新namespace適用。
+   - **合流で実バグ2件＋契約の穴1件**（役割分離の実例、3例目）:
+     (1) 空状態で`gathering-list`コンテナ自体を描画しない実装バグ——契約の「必須＝常時存在」の
+     読みで実装側を修正。
+     (2) **9時間ずれの真因確定**——サーバは無罪。`datetime-local`（TZ情報なし）の値を
+     `new Date().toISOString()`に通すとJS仕様どおりホストのローカルTZ（JST）で解釈される。
+     developerのtest client検証で再現しなかったのはJS変換を経由しないため。リテラルUTCタグ付けの
+     決定的変換へ修正し、JSソース回帰テストで固定。**重複候補日が409にならない件も同根**で同時解消。
+     (3) 値入力欄に対応するpurpose語彙が契約に無い穴——architectが`adr/0039`で
+     `operationalControlScope`／`valueEntryControlTestIds`（登録制・消費先明記・未登録inputは
+     引き続き検出）を導入（browser-interface v0.4）。`formControl: false`の虚偽宣言は不採用。
+     参加者名前入力の「たまたま緑」も構造化エントリ化で解消。
+   - **reviewer監査**（`reviews/audit-gathering-entry-steps.md`）: Blocker 0・Major 3・Minor 4。
+     Major#1（一覧属性2つ未検査）・Major#2（作成フォームの成功経路が一度も実走しない→
+     **TDR-GTH-01を作成画面のブラウザ操作E2Eへ書き直し**。送信のページ遷移でPlaywrightの応答本文が
+     読めなくなる実挙動を踏み、`getGathering`での読み戻し検証へ切替）・Major#3（インラインフォーム
+     展開中の横断検査）・Minor#4（input type ガード）をtesterが反映（`eaab493`）。欠陥注入は
+     全ラウンド累計で検出確認済み。
+   - **orchestrator実測（受け入れ基盤上、2026-09-02）**: スマホ「会」ボタン44×44・ヘッダー内・
+     横スクロール0／スマホカード高さ291.5px＝**画面の35.9%**（指摘前は大半を占有）／PCカード
+     **5枚とも290pxで等高**／ページャーは送りボタンの間／インラインフォームはパネル190→282px
+     （+92px、設計見積り~130pxより小さい）・縦スクロール発生なし。
+   - **orchestrator最終検証**: L4全49件 OK（統合状態、606秒）。
+
+   **次**: 入口実装PRのマージ（＝承認。`adr/0039`もこのPRのマージが承認）→ 本番デプロイ後に
+   人間の実機確認 → 第2弾「店の絞り込み連携」の契約スライスへ。残る未決: 会データの保持期間・
+   削除方針／トークン期限90日・レート制限の見直し時期／FINALIZED局面の観測面（第4弾）／
+   会一覧の「名前」のdata属性（監査指摘、契約未定義のまま——第2弾の契約作業で拾う）。
 
 12. **入口追補（会の一覧・作成・インライン候補日フォーム・ヘッダー導線）とdeck見た目3件を実装した
    （2026-09-02、developer、ブランチ`impl/gathering-entry`）**。契約（`gathering-scheduling-api.yaml`
