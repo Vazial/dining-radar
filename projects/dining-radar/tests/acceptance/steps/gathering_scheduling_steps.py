@@ -367,6 +367,9 @@ class GatheringSchedulingSteps:
     def organizer_attempts_to_issue_a_participant_link_via_api(self) -> object:
         return self.dsl.attempt_issue_participant_link_via_api()
 
+    def organizer_attempts_to_finalize_via_api(self, shop_id: str) -> object:
+        return self.dsl.attempt_finalize_via_api(shop_id)
+
     # Then -- shortlist / vote / finalize / decision -----------------------
 
     def shortlisted_shops_match(self, expected_ids: list[str]) -> None:
@@ -378,8 +381,14 @@ class GatheringSchedulingSteps:
     def shop_is_not_offered_in_the_shortlist(self, shop_id: str) -> None:
         self.dsl.assert_shop_not_offered_in_open_shop_list(shop_id)
 
-    def shortlist_attempt_is_rejected_as_invalid(self, response: object) -> None:
-        self.dsl.assert_shortlist_rejected_as_invalid_selection(response)  # type: ignore[arg-type]
+    def rejected_as_invalid_shop_selection(self, response: object) -> None:
+        self.dsl.assert_rejected_as_invalid_shop_selection(response)  # type: ignore[arg-type]
+
+    def rejected_because_not_selecting_shop_phase(self, response: object) -> None:
+        self.dsl.assert_rejected_because_not_selecting_shop_phase(response)  # type: ignore[arg-type]
+
+    def rejected_because_shop_voting_not_started(self, response: object) -> None:
+        self.dsl.assert_rejected_because_shop_voting_not_started(response)  # type: ignore[arg-type]
 
     def no_shortlist_is_recorded_yet(self) -> None:
         self.dsl.assert_no_shortlist_recorded_yet()
@@ -434,3 +443,6 @@ class GatheringSchedulingSteps:
 
     def participant_question_surfaces_are_replaced(self) -> None:
         self.dsl.assert_participant_question_surfaces_are_replaced()
+
+    def participant_name_controls_are_absent(self) -> None:
+        self.dsl.assert_participant_name_controls_are_absent()
