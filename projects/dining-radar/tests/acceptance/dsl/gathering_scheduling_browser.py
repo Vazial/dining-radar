@@ -91,6 +91,32 @@ OPEN_SHOP_COUNT_ATTR = "data-open-shop-count"
 OPEN_SHOP_PREVIEW_ITEM = "gathering-open-shop-preview-item"
 OPEN_SHOP_PREVIEW_ITEM_NAME = "gathering-open-shop-preview-item-name"
 
+# organizerDashboard.shortlistSelection / shortlistedShopVotes / finalize
+# (TDR-GTH-26..33/35/36, adr/0042 -- shop shortlisting, D7 replace, finalize).
+SHOP_ID_ATTR = "data-shop-id"
+OPEN_SHOP_LIST = "gathering-open-shop-list"
+OPEN_SHOP_LIST_ITEM = "gathering-open-shop-list-item"
+SHORTLISTED_ATTR = "data-shortlisted"
+OPEN_SHOP_SELECT = "gathering-open-shop-select"
+SHORTLIST_SUBMIT = "gathering-shortlist-submit"
+SHORTLISTED_SHOP_LIST = "gathering-shortlisted-shop-list"
+SHORTLISTED_SHOP_ITEM = "gathering-shortlisted-shop-item"
+APPROVAL_COUNT_ATTR = "data-approval-count"
+SHORTLIST_OPEN = "gathering-shortlist-open"
+FINALIZE_SHOP_SELECT = "gathering-finalize-shop-select"
+FINALIZE_SELECTED_ATTR = "data-finalize-selected"
+FINALIZE_SUBMIT = "gathering-finalize-submit"
+
+# participantAnswer.shopVoteQuestion / finalizedView (TDR-GTH-28..30/34, adr/0042).
+SHOP_VOTE_QUESTION = "gathering-shop-vote-question"
+YOUR_APPROVAL_ATTR = "data-your-approval"
+SHOP_VOTE_SELECT = "gathering-shop-vote-select"
+SHOP_VOTE_TALLY = "gathering-shop-vote-tally"
+PARTICIPANT_PROGRESS = "gathering-participant-progress"
+PARTICIPANT_DECISION = "gathering-participant-decision"
+YOUR_SCHEDULE_RESPONSE_ATTR = "data-your-schedule-response"
+PARTICIPANT_DECISION_APPROVED_SHOP = "gathering-participant-decision-approved-shop"
+
 # organizerGatheringList / organizerGatheringCreate test ids / attributes
 # (gathering-scheduling-browser-interface.yaml v0.3, adr/0038).
 GATHERING_LIST = "gathering-list"
@@ -158,6 +184,14 @@ GATHERING_ALLOWED_PURPOSES = {
     "gathering-create-remove-candidate-date-row",
     "gathering-create-submit",
     "gathering-create-cancel",
+    # shortlist selection / D7 replace / finalize / participant shop-vote
+    # (adr/0042, browser-interface v0.5's allowedPurposesNote2026_09_04).
+    "gathering-open-shop-select",
+    "gathering-shortlist-submit",
+    "gathering-shortlist-open",
+    "gathering-finalize-shop-select",
+    "gathering-finalize-submit",
+    "gathering-shop-vote-select",
 }
 # unavailableControls.valueEntryControlTestIds (ADR-0039, v0.4): native
 # input/textarea value-entry controls exempt from purpose declaration --
@@ -1056,6 +1090,292 @@ class GatheringSchedulingBrowserDsl:
         self.assertions.assertEqual(response.status, 409)
         self.assertions.assertEqual(response.payload["code"], "GATHERING_NOT_IN_SCHEDULING_PHASE")
 
+    # Shortlist selection / D7 replace / finalize (organizer UI, TDR-GTH-26/27/
+    # 31/32/33/35, adr/0042) -------------------------------------------------
+
+    def create_selecting_shop_gathering(
+        self, title: str, candidate_date_isos: list[str], confirm_index: int = 0
+    ) -> str:
+        """Given-state builder ("幹事が開催日を決めた「店を選び中」の会を持っている"):
+        creates a SCHEDULING gathering (the same public-API path
+        given_scheduling_gathering uses) and immediately confirms one of its
+        candidate dates via confirm_candidate_date_via_api (already exercised
+        by TDR-GTH-21). Unlike that existing helper, this one also updates
+        self.gathering so callers immediately see confirmedCandidateDateId.
+        Returns the confirmed candidate date's id.
+        """
+        self._create_gathering(title, candidate_date_isos)
+        candidate_date_id = self.candidate_date_id_at(confirm_index)
+        payload = self.confirm_candidate_date_via_api(self.gathering_id, candidate_date_id)
+        self._set_gathering(payload)
+        return candidate_date_id
+
+    def refresh_gathering_from_api(self) -> dict:
+        """Given-state technique for TDR-GTH-34: confirm_tentatively_selected_date
+        (the UI-driven confirm action, reused unmodified from TDR-GTH-06/10/11)
+        does not update self.gathering, so a scenario that confirms through the
+        UI and then needs confirmedCandidateDateId for a further Given-state
+        call (fetch_confirmed_date_open_shop_ids below) reads it back via the
+        same getGathering operation TDR-GTH-01's browser flow already uses.
+        """
+        response = self._api("GET", f"/gatherings/{self.gathering_id}")
+        self._assert_api_ok(response, 200, "getGathering (refresh)")
+        self._set_gathering(response.payload)
+        return response.payload
+
+    def fetch_confirmed_date_open_shop_ids(self) -> list[str]:
+        """Given-state technique: reads the confirmed date's open-shop population
+        directly via previewOpenShopsForCandidateDate (adr/0042's shopId field)
+        without driving the tentative-selection UI, for scenarios where the
+        organizer's own shortlist-building action (not the preview itself,
+        already covered by TDR-GTH-08) is what's under test.
+        """
+        gathering = require(self.gathering, "no gathering exists")
+        candidate_date_id = require(
+            gathering["confirmedCandidateDateId"],  # type: ignore[index]
+            "no candidate date is confirmed",
+        )
+        response = self._api(
+            "GET",
+            f"/gatherings/{self.gathering_id}/candidate-dates/{candidate_date_id}/open-shop-preview",
+        )
+        self._assert_api_ok(response, 200, "previewOpenShopsForCandidateDate")
+        return [shop["shopId"] for shop in response.payload["previewShops"]]
+
+    def set_shortlisted_shops_via_api(self, shop_ids: list[str]) -> dict:
+        """Given-state builder for scenarios where setShortlistedShops itself is
+        not the action under test (adr/0037 decision 1's public-API path).
+        """
+        response = self._api(
+            "PUT",
+            f"/gatherings/{self.gathering_id}/shortlisted-shops",
+            {"shopIds": shop_ids},
+            csrf=True,
+        )
+        self._assert_api_ok(response, 200, "setShortlistedShops (given-state)")
+        self._set_gathering(response.payload)
+        return response.payload
+
+    def current_preview_shop_ids(self) -> set[str]:
+        response = require(self._current_open_shop_preview, "no open-shop preview was captured")
+        return {shop["shopId"] for shop in response.payload["previewShops"]}  # type: ignore[union-attr,index]
+
+    def identify_a_shop_closed_on_the_confirmed_date(
+        self, all_open_candidate_date_id: str, confirmed_candidate_date_id: str
+    ) -> str:
+        """Test-arrangement technique for TDR-GTH-27: diffs
+        previewOpenShopsForCandidateDate's shopId sets between a candidate
+        date where every synthetic shop is open
+        (GATHERING_OPEN_SHOP_WEEKDAY_MATCH's Thursday/Friday/Saturday) and the
+        date the scenario will confirm, naming one shop this contract's own
+        weekday-matching excludes on the confirmed date -- without assuming
+        any shopId naming convention (OpenShopPreviewItem.shopId's value is
+        implementation-chosen). Both dates must still be reachable by tentative
+        selection, so this must run while phase is still SCHEDULING.
+        """
+        self.tentatively_select_candidate_date(all_open_candidate_date_id)
+        all_open_ids = self.current_preview_shop_ids()
+        self.tentatively_select_candidate_date(confirmed_candidate_date_id)
+        confirmed_ids = self.current_preview_shop_ids()
+        closed_ids = all_open_ids - confirmed_ids
+        self.assertions.assertEqual(
+            len(closed_ids), 1, f"expected exactly one closed shop, got {closed_ids}"
+        )
+        return next(iter(closed_ids))
+
+    def _read_open_shop_list_items(self) -> list[dict[str, object]]:
+        nodes = wait_for_at_least_one(self.page, OPEN_SHOP_LIST_ITEM)
+        result = []
+        for index in range(nodes.count()):
+            node = nodes.nth(index)
+            result.append(
+                {
+                    "shopId": node.get_attribute(SHOP_ID_ATTR),
+                    "shortlisted": node.get_attribute(SHORTLISTED_ATTR) == "true",
+                }
+            )
+        return result
+
+    def _open_shop_list_item_locator(self, shop_id: str) -> Locator:
+        return self.page.locator(
+            f'[data-testid="{OPEN_SHOP_LIST_ITEM}"][{SHOP_ID_ATTR}="{shop_id}"]'
+        )
+
+    def toggle_open_shop_selection(self, shop_id: str) -> None:
+        item = self._open_shop_list_item_locator(shop_id)
+        expect(item).to_be_attached()
+        before = item.get_attribute(SHORTLISTED_ATTR)
+        by_test_id(item, OPEN_SHOP_SELECT).click()
+        expect(item).to_have_attribute(SHORTLISTED_ATTR, "false" if before == "true" else "true")
+
+    def select_first_n_open_shops_for_shortlist(self, n: int) -> list[str]:
+        """gathering-open-shop-select's requiredOutcome (TDR-GTH-26): selecting is
+        client-side pending state only -- this does not itself call
+        setShortlistedShops (submit_shortlist below does).
+        """
+        chosen = [item["shopId"] for item in self._read_open_shop_list_items()[:n]]
+        for shop_id in chosen:
+            self.toggle_open_shop_selection(shop_id)
+        return chosen
+
+    def assert_no_shortlist_recorded_yet(self) -> None:
+        """Proves gathering-open-shop-select's activation is pending-only (no
+        network call) -- unlike the participant's shop-vote checkbox
+        (toggle_shop_vote below), which calls setShopVotes immediately on every
+        activation. Both models are individually documented in
+        gathering-scheduling-browser-interface.yaml's renderModel; this
+        asserts the organizer side of that documented asymmetry actually holds.
+        """
+        response = self._api("GET", f"/gatherings/{self.gathering_id}")
+        self._assert_api_ok(response, 200, "getGathering (pending-shortlist check)")
+        self.assertions.assertEqual(response.payload["shortlistedShops"], [])
+
+    def submit_shortlist(self) -> None:
+        by_test_id(self.page, SHORTLIST_SUBMIT).click()
+        wait_for_at_least_one(self.page, SHORTLISTED_SHOP_LIST)
+        assert_absent(self.assertions, self.page, OPEN_SHOP_LIST)
+
+    def _read_shortlisted_shop_items(self) -> list[dict[str, object]]:
+        nodes = wait_for_at_least_one(self.page, SHORTLISTED_SHOP_ITEM)
+        result = []
+        for index in range(nodes.count()):
+            node = nodes.nth(index)
+            result.append(
+                {
+                    "shopId": node.get_attribute(SHOP_ID_ATTR),
+                    "approvalCount": int(node.get_attribute(APPROVAL_COUNT_ATTR)),
+                    "respondedCount": int(node.get_attribute(RESPONDED_COUNT_ATTR)),
+                }
+            )
+        return result
+
+    def assert_shortlisted_shop_ids(self, expected_ids: list[str]) -> None:
+        actual_ids = {item["shopId"] for item in self._read_shortlisted_shop_items()}
+        self.assertions.assertEqual(actual_ids, set(expected_ids))
+
+    def assert_shortlisted_shop_tally(self, shop_id: str, *, approval: int, responded: int) -> None:
+        items = {item["shopId"]: item for item in self._read_shortlisted_shop_items()}
+        item = require(items.get(shop_id), f"shortlisted shop {shop_id} not shown")
+        self.assertions.assertEqual(item["approvalCount"], approval)  # type: ignore[index]
+        self.assertions.assertEqual(item["respondedCount"], responded)  # type: ignore[index]
+
+    def assert_shop_not_offered_in_open_shop_list(self, shop_id: str) -> None:
+        wait_for_at_least_one(self.page, OPEN_SHOP_LIST)
+        ids = {item["shopId"] for item in self._read_open_shop_list_items()}
+        self.assertions.assertNotIn(shop_id, ids)
+
+    def attempt_set_shortlisted_shops_via_api(self, shop_ids: list[str]) -> CapturedApiResponse:
+        return self._api(
+            "PUT",
+            f"/gatherings/{self.gathering_id}/shortlisted-shops",
+            {"shopIds": shop_ids},
+            csrf=True,
+        )
+
+    def assert_rejected_as_invalid_shop_selection(self, response: CapturedApiResponse) -> None:
+        """INVALID_SHOP_SELECTION (400) is shared by setShortlistedShops (an
+        out-of-population or out-of-bounds-count shopIds list), setShopVotes,
+        and finalizeGathering (either naming a shopId absent from the current
+        shortlist) -- reviewer audit Major#3 asked for the two latter triggers
+        and the count boundary, not only setShortlistedShops' population
+        check TDR-GTH-27 already exercised.
+        """
+        self.assertions.assertEqual(response.status, 400)
+        self.assertions.assertEqual(response.payload["code"], "INVALID_SHOP_SELECTION")
+
+    def assert_rejected_because_not_selecting_shop_phase(
+        self, response: CapturedApiResponse
+    ) -> None:
+        """GATHERING_NOT_IN_SELECTING_SHOP_PHASE (409): setShortlistedShops or
+        finalizeGathering called while the gathering has not yet confirmed a
+        candidate date (still SCHEDULING) -- reviewer audit Major#3.
+        """
+        self.assertions.assertEqual(response.status, 409)
+        self.assertions.assertEqual(
+            response.payload["code"], "GATHERING_NOT_IN_SELECTING_SHOP_PHASE"
+        )
+
+    def assert_rejected_because_shop_voting_not_started(
+        self, response: CapturedApiResponse
+    ) -> None:
+        """SHOP_VOTING_NOT_STARTED (409): setShopVotes or finalizeGathering
+        called while Gathering.shortlistedShops is still empty (the organizer
+        has not called setShortlistedShops at least once yet) -- reviewer
+        audit Major#3.
+        """
+        self.assertions.assertEqual(response.status, 409)
+        self.assertions.assertEqual(response.payload["code"], "SHOP_VOTING_NOT_STARTED")
+
+    def attempt_finalize_via_api(self, shop_id: str) -> CapturedApiResponse:
+        return self._api(
+            "POST", f"/gatherings/{self.gathering_id}/finalize", {"shopId": shop_id}, csrf=True
+        )
+
+    def open_shortlist_replace(self) -> None:
+        by_test_id(self.page, SHORTLIST_OPEN).first.click()
+        wait_for_at_least_one(self.page, OPEN_SHOP_LIST)
+
+    def replace_shortlisted_shop(self, old_shop_id: str, new_shop_id: str) -> None:
+        """D7 replace (TDR-GTH-31/32): opens shortlistedShopVotes.replaceOpen,
+        confirms the D7 pre-check contract (a kept shop starts data-shortlisted
+        ="true" when the replace panel reopens), swaps exactly one shop for a
+        previously-unlisted one, and submits.
+        """
+        self.open_shortlist_replace()
+        old_item = self._open_shop_list_item_locator(old_shop_id)
+        expect(old_item).to_have_attribute(SHORTLISTED_ATTR, "true")
+        self.toggle_open_shop_selection(old_shop_id)
+        self.toggle_open_shop_selection(new_shop_id)
+        self.submit_shortlist()
+
+    def select_shop_for_finalize(self, shop_id: str) -> None:
+        item = self.page.locator(
+            f'[data-testid="{SHORTLISTED_SHOP_ITEM}"][{SHOP_ID_ATTR}="{shop_id}"]'
+        )
+        by_test_id(item, FINALIZE_SHOP_SELECT).click()
+        expect(by_test_id(item, FINALIZE_SHOP_SELECT)).to_have_attribute(
+            FINALIZE_SELECTED_ATTR, "true"
+        )
+
+    def submit_finalize(self) -> None:
+        by_test_id(self.page, FINALIZE_SUBMIT).click()
+        expect(by_test_id(self.page, GATHERING_PHASE_INDICATOR)).to_have_attribute(
+            GATHERING_PHASE_ATTR, "FINALIZED"
+        )
+
+    def assert_finalized_controls_are_absent(self) -> None:
+        """FINALIZED局面で消える操作コントロールの一覧 (adr/0042 決定3): every
+        operational control this contract scopes to SCHEDULING/SELECTING_SHOP
+        becomes absent once FINALIZED -- only recopy remains reachable (P4,
+        exercised separately by TDR-GTH-36).
+        """
+        assert_all_absent(
+            self.assertions,
+            self.page,
+            [
+                CONFIRM_DATE_SELECT,
+                ADD_CANDIDATE_DATE_OPEN,
+                SHORTLIST_OPEN,
+                FINALIZE_SHOP_SELECT,
+                FINALIZE_SUBMIT,
+                PARTICIPANT_LINK_COPY,
+                PARTICIPANT_LINK_REVOKE,
+            ],
+        )
+        tentative_select_purpose = self.page.locator(
+            f'[{GATHERING_CONTROL_PURPOSE_ATTR}="gathering-candidate-date-tentative-select"]'
+        )
+        self.assertions.assertEqual(tentative_select_purpose.count(), 0)
+
+    def attempt_issue_participant_link_via_api(self) -> CapturedApiResponse:
+        return self._api(
+            "POST", f"/gatherings/{self.gathering_id}/participant-links", {"count": 1}, csrf=True
+        )
+
+    def assert_rejected_because_gathering_finalized(self, response: CapturedApiResponse) -> None:
+        self.assertions.assertEqual(response.status, 409)
+        self.assertions.assertEqual(response.payload["code"], "GATHERING_FINALIZED")
+
     # Participant browser actions --------------------------------------------
 
     def open_participant_link(self, link: dict[str, str]) -> None:
@@ -1229,6 +1549,120 @@ class GatheringSchedulingBrowserDsl:
     def assert_valid_participant_view_is_shown(self) -> None:
         assert_all_present(self.assertions, self.page, [PARTICIPANT_HEADER, SCHEDULE_QUESTION])
         assert_absent(self.assertions, self.page, PARTICIPANT_LINK_ERROR)
+
+    # Shop-vote / finalized-decision (participant UI, TDR-GTH-28/29/30/34,
+    # adr/0042) --------------------------------------------------------------
+
+    def _shop_vote_question_locator(self, shop_id: str) -> Locator:
+        return self.page.locator(
+            f'[data-testid="{SHOP_VOTE_QUESTION}"][{SHOP_ID_ATTR}="{shop_id}"]'
+        )
+
+    def toggle_shop_vote(self, shop_id: str) -> None:
+        """gathering-shop-vote-select's requiredOutcome: unlike the organizer's
+        shortlist checkbox, this calls setShopVotes immediately on every
+        activation (no separate submit control, Vote.dc.html's "選ぶとその場で
+        保存されます").
+        """
+        question = self._shop_vote_question_locator(shop_id)
+        expect(question).to_be_attached()
+        before = question.get_attribute(YOUR_APPROVAL_ATTR)
+        by_test_id(question, SHOP_VOTE_SELECT).click()
+        expect(question).to_have_attribute(
+            YOUR_APPROVAL_ATTR, "false" if before == "true" else "true"
+        )
+
+    def vote_for_shops(self, shop_ids: list[str]) -> None:
+        for shop_id in shop_ids:
+            self.toggle_shop_vote(shop_id)
+
+    def assert_shop_vote_your_approval(self, shop_id: str, expected: str) -> None:
+        expect(self._shop_vote_question_locator(shop_id)).to_have_attribute(
+            YOUR_APPROVAL_ATTR, expected
+        )
+
+    def assert_shop_vote_tally_absent(self, shop_id: str) -> None:
+        question = self._shop_vote_question_locator(shop_id)
+        self.assertions.assertEqual(
+            question.locator(f'[data-testid="{SHOP_VOTE_TALLY}"]').count(), 0
+        )
+
+    def assert_shop_vote_tally(self, shop_id: str, *, approval: int, responded: int) -> None:
+        question = self._shop_vote_question_locator(shop_id)
+        tally = question.locator(f'[data-testid="{SHOP_VOTE_TALLY}"]')
+        expect(tally).to_have_count(1)
+        self.assertions.assertEqual(tally.get_attribute(APPROVAL_COUNT_ATTR), str(approval))
+        self.assertions.assertEqual(tally.get_attribute(RESPONDED_COUNT_ATTR), str(responded))
+
+    def attempt_set_schedule_response_via_api(
+        self, link: dict[str, str], candidate_date_id: str, status: str
+    ) -> CapturedApiResponse:
+        return self._api(
+            "PUT",
+            f"/participant-links/{link['token']}/responses/{candidate_date_id}",
+            {"status": status},
+        )
+
+    def attempt_set_shop_votes_via_api(
+        self, link: dict[str, str], approved_shop_ids: list[str]
+    ) -> CapturedApiResponse:
+        return self._api(
+            "PUT",
+            f"/participant-links/{link['token']}/shop-votes",
+            {"approvedShopIds": approved_shop_ids},
+        )
+
+    def _read_participant_decision(self) -> dict[str, object]:
+        node = assert_present(self.assertions, self.page, PARTICIPANT_DECISION)
+        approved_nodes = self.page.locator(f'[data-testid="{PARTICIPANT_DECISION_APPROVED_SHOP}"]')
+        approved_ids = [
+            approved_nodes.nth(index).get_attribute(SHOP_ID_ATTR)
+            for index in range(approved_nodes.count())
+        ]
+        return {
+            "confirmedCandidateDate": node.get_attribute(GATHERING_CONFIRMED_CANDIDATE_DATE_ATTR),
+            "shopId": node.get_attribute(SHOP_ID_ATTR),
+            "yourScheduleResponse": node.get_attribute(YOUR_SCHEDULE_RESPONSE_ATTR),
+            "approvedShopIds": approved_ids,
+        }
+
+    def assert_participant_decision(
+        self,
+        *,
+        confirmed_candidate_date: str,
+        shop_id: str,
+        your_schedule_response: str,
+        approved_shop_ids: list[str],
+    ) -> None:
+        decision = self._read_participant_decision()
+        self.assertions.assertEqual(decision["confirmedCandidateDate"], confirmed_candidate_date)
+        self.assertions.assertEqual(decision["shopId"], shop_id)
+        self.assertions.assertEqual(decision["yourScheduleResponse"], your_schedule_response)
+        self.assertions.assertEqual(set(decision["approvedShopIds"]), set(approved_shop_ids))  # type: ignore[arg-type]
+
+    def assert_participant_question_surfaces_are_replaced(self) -> None:
+        """replacesQuestionSurfaces (adr/0042): once ParticipantView.decision is
+        non-null, the per-candidate-date/per-shop breakdowns are fully replaced
+        by the flat decision summary above -- this is also how "他の参加者の
+        回答や投票は示されない" (TDR-GTH-34) is enforced structurally, not only
+        by decision.yourApprovedShops' own content.
+        """
+        assert_all_absent(
+            self.assertions,
+            self.page,
+            [SCHEDULE_QUESTION, SHOP_VOTE_QUESTION, PARTICIPANT_PROGRESS],
+        )
+
+    def assert_participant_name_controls_are_absent(self) -> None:
+        """nameControl.open/submit's own presenceRule ("Absent once
+        ParticipantView.decision is non-null") and adr/0042 決定4's
+        "名前を変える操作も置かない" -- not covered by
+        assert_participant_question_surfaces_are_replaced above, which checks
+        only the schedule/vote/progress surfaces (reviewer audit Major#2).
+        """
+        assert_all_absent(
+            self.assertions, self.page, [PARTICIPANT_NAME_OPEN, PARTICIPANT_NAME_SUBMIT]
+        )
 
     # Cross-cutting: unavailableControls / disclosureObservations -----------
     # (both organizerDashboard and participantAnswer; whichever screen is

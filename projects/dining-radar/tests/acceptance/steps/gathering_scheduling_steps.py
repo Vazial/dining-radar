@@ -1,4 +1,4 @@
-"""Thin Gherkin-to-DSL mappings for TDR-GTH-01 through TDR-GTH-25."""
+"""Thin Gherkin-to-DSL mappings for TDR-GTH-01 through TDR-GTH-36."""
 
 from __future__ import annotations
 
@@ -321,3 +321,128 @@ class GatheringSchedulingSteps:
         self, recopied_url: str, original_link: dict[str, str]
     ) -> None:
         self.dsl.assert_recopied_url_matches_original(recopied_url, original_link["url"])
+
+    # Given / When -- shortlist selection, D7 replace, finalize (TDR-GTH-26/27/
+    # 31/32/33/35/36) -----------------------------------------------------
+
+    def organizer_has_a_selecting_shop_gathering(
+        self, title: str, candidate_date_isos: list[str], confirm_index: int = 0
+    ) -> str:
+        return self.dsl.create_selecting_shop_gathering(title, candidate_date_isos, confirm_index)
+
+    def gathering_state_is_refreshed(self) -> dict:
+        return self.dsl.refresh_gathering_from_api()
+
+    def open_shop_ids_for_the_confirmed_date(self) -> list[str]:
+        return self.dsl.fetch_confirmed_date_open_shop_ids()
+
+    def organizer_shortlists_shops_via_api(self, shop_ids: list[str]) -> dict:
+        return self.dsl.set_shortlisted_shops_via_api(shop_ids)
+
+    def organizer_identifies_a_closed_shop(
+        self, all_open_candidate_date_id: str, confirmed_candidate_date_id: str
+    ) -> str:
+        return self.dsl.identify_a_shop_closed_on_the_confirmed_date(
+            all_open_candidate_date_id, confirmed_candidate_date_id
+        )
+
+    def organizer_selects_first_n_open_shops(self, n: int) -> list[str]:
+        return self.dsl.select_first_n_open_shops_for_shortlist(n)
+
+    def organizer_submits_the_shortlist(self) -> None:
+        self.dsl.submit_shortlist()
+
+    def organizer_attempts_to_shortlist_shops_via_api(self, shop_ids: list[str]) -> object:
+        return self.dsl.attempt_set_shortlisted_shops_via_api(shop_ids)
+
+    def organizer_replaces_a_shortlisted_shop(self, old_shop_id: str, new_shop_id: str) -> None:
+        self.dsl.replace_shortlisted_shop(old_shop_id, new_shop_id)
+
+    def organizer_selects_a_shop_for_finalize(self, shop_id: str) -> None:
+        self.dsl.select_shop_for_finalize(shop_id)
+
+    def organizer_submits_finalize(self) -> None:
+        self.dsl.submit_finalize()
+
+    def organizer_attempts_to_issue_a_participant_link_via_api(self) -> object:
+        return self.dsl.attempt_issue_participant_link_via_api()
+
+    def organizer_attempts_to_finalize_via_api(self, shop_id: str) -> object:
+        return self.dsl.attempt_finalize_via_api(shop_id)
+
+    # Then -- shortlist / vote / finalize / decision -----------------------
+
+    def shortlisted_shops_match(self, expected_ids: list[str]) -> None:
+        self.dsl.assert_shortlisted_shop_ids(expected_ids)
+
+    def shortlisted_shop_tally_is(self, shop_id: str, *, approval: int, responded: int) -> None:
+        self.dsl.assert_shortlisted_shop_tally(shop_id, approval=approval, responded=responded)
+
+    def shop_is_not_offered_in_the_shortlist(self, shop_id: str) -> None:
+        self.dsl.assert_shop_not_offered_in_open_shop_list(shop_id)
+
+    def rejected_as_invalid_shop_selection(self, response: object) -> None:
+        self.dsl.assert_rejected_as_invalid_shop_selection(response)  # type: ignore[arg-type]
+
+    def rejected_because_not_selecting_shop_phase(self, response: object) -> None:
+        self.dsl.assert_rejected_because_not_selecting_shop_phase(response)  # type: ignore[arg-type]
+
+    def rejected_because_shop_voting_not_started(self, response: object) -> None:
+        self.dsl.assert_rejected_because_shop_voting_not_started(response)  # type: ignore[arg-type]
+
+    def no_shortlist_is_recorded_yet(self) -> None:
+        self.dsl.assert_no_shortlist_recorded_yet()
+
+    def finalized_controls_are_absent(self) -> None:
+        self.dsl.assert_finalized_controls_are_absent()
+
+    def rejected_because_gathering_finalized(self, response: object) -> None:
+        self.dsl.assert_rejected_because_gathering_finalized(response)  # type: ignore[arg-type]
+
+    # Participant shop-vote / finalized decision (TDR-GTH-28/29/30/34) ------
+
+    def participant_votes_for_shops(self, shop_ids: list[str]) -> None:
+        self.dsl.vote_for_shops(shop_ids)
+
+    def participant_toggles_shop_vote(self, shop_id: str) -> None:
+        self.dsl.toggle_shop_vote(shop_id)
+
+    def shop_vote_your_approval_is(self, shop_id: str, expected: str) -> None:
+        self.dsl.assert_shop_vote_your_approval(shop_id, expected)
+
+    def shop_vote_tally_is_absent(self, shop_id: str) -> None:
+        self.dsl.assert_shop_vote_tally_absent(shop_id)
+
+    def shop_vote_tally_is(self, shop_id: str, *, approval: int, responded: int) -> None:
+        self.dsl.assert_shop_vote_tally(shop_id, approval=approval, responded=responded)
+
+    def participant_attempts_to_answer_via_api(
+        self, link: dict[str, str], candidate_date_id: str, status: str
+    ) -> object:
+        return self.dsl.attempt_set_schedule_response_via_api(link, candidate_date_id, status)
+
+    def participant_attempts_to_vote_via_api(
+        self, link: dict[str, str], approved_shop_ids: list[str]
+    ) -> object:
+        return self.dsl.attempt_set_shop_votes_via_api(link, approved_shop_ids)
+
+    def participant_decision_is(
+        self,
+        *,
+        confirmed_candidate_date: str,
+        shop_id: str,
+        your_schedule_response: str,
+        approved_shop_ids: list[str],
+    ) -> None:
+        self.dsl.assert_participant_decision(
+            confirmed_candidate_date=confirmed_candidate_date,
+            shop_id=shop_id,
+            your_schedule_response=your_schedule_response,
+            approved_shop_ids=approved_shop_ids,
+        )
+
+    def participant_question_surfaces_are_replaced(self) -> None:
+        self.dsl.assert_participant_question_surfaces_are_replaced()
+
+    def participant_name_controls_are_absent(self) -> None:
+        self.dsl.assert_participant_name_controls_are_absent()
