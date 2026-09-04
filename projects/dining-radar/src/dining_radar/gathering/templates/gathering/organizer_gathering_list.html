@@ -3,6 +3,15 @@
 
 {% block title %}会の一覧{% endblock %}
 
+{% block extra_head %}
+    {% comment %}
+      Cache-busting query string (FR-025) -- bump this on every
+      organizer.css change. Shared with organizer_gathering_create.html and
+      organizer_dashboard.html (2026-09-04 visual-language pass).
+    {% endcomment %}
+    <link rel="stylesheet" href="{% static 'dining_radar/gathering/organizer.css' %}?v=20260904a-visual-language">
+{% endblock %}
+
 {% block content %}
     <header data-testid="authenticated-application-shell">
       <div class="app-header">
@@ -27,5 +36,5 @@
       Cache-busting query string (FR-025) -- bump this on every
       gathering_list.js change.
     {% endcomment %}
-    <script src="{% static 'dining_radar/gathering/gathering_list.js' %}?v=20260904-gathering-title-attribute"></script>
+    <script src="{% static 'dining_radar/gathering/gathering_list.js' %}?v=20260904a-visual-language"></script>
 {% endblock %}
