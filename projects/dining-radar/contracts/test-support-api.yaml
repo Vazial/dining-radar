@@ -171,13 +171,35 @@
 #   だけが選べること）は`GATHERING_OPEN_SHOP_WEEKDAY_MATCH`が定めるのと同じ母集団・同じ
 #   `previewOpenShopsForCandidateDate`配線を経由するため、`setCandidateProposalAcceptanceState`/
 #   `resetCandidateProposalAcceptanceState`の一覧にも追加した。
+#
+# 2026-09-04 追補2 (architect、ADR-0044。本番の実機フィードバック3点への対応。TDR-GTH-37〜40の
+#   一覧登録のみ——いずれも新しいseamを要さない):
+# - TDR-GTH-37（参加者の店の並びは投票しても変わらない）は`resetGatheringSchedulingAcceptanceState`
+#   だけに追加した——公開境界（setShortlistedShops・setShopVotes）だけで組み立てられ、
+#   `CandidateProposalAcceptanceState`側の特定modeを必要としない。
+# - TDR-GTH-38（幹事の選定画面に地図と店の情報が示される）・TDR-GTH-39（参加者の投票画面に
+#   同じ情報が示される）は、`gathering-scheduling-api.yaml`が2026-09-04に`OpenShopPreviewItem`・
+#   `ShortlistedShop`・`ParticipantShopVoteOption`へ追加した`location`/`walkingTimeMinutes`/
+#   `providerPageUrl`を検査する。**これらのフィールドに新しい合成データは要らない**——
+#   `candidate-search-api.yaml`はADR-0025以来、すべてのmodeで`Candidate.location`/
+#   `walkingTimeMinutes`/`providerPageUrl`を非null・schema準拠で返すことを既に要求しており、
+#   `GATHERING_OPEN_SHOP_WEEKDAY_MATCH`を含むどのmodeの合成候補も同じ共有ファクトリ
+#   （`acceptance_state.py`の`_synthetic_candidate`）から作られる。TDR-GTH-26/27と同じ population
+#   （`GATHERING_OPEN_SHOP_WEEKDAY_MATCH`）を選ぶことで、これらのフィールドの**存在**（具体的な
+#   数値・座標そのものではない）を決定的に検査できる。`setCandidateProposalAcceptanceState`/
+#   `resetCandidateProposalAcceptanceState`の一覧へ追加し、
+#   `resetGatheringSchedulingAcceptanceState`にも追加した。
+# - TDR-GTH-40（幹事は店ごとの三段階の内訳を見て確定する店を選ぶ）は参加者の投票結果（票数）を
+#   検査するものであり、特定の候補母集団modeには依存しない——`resetGatheringSchedulingAcceptanceState`
+#   にのみ追加した。
+# - `info.description`のシナリオ範囲表記を「TDR-GTH-01 through TDR-GTH-40」へ揃えた。
 openapi: 3.0.3
 info:
   title: Dining Radar acceptance test-support API
-  version: 1.5.1
+  version: 1.5.2
   description: >-
     Acceptance-only setup and reset seams for TDR-AUTH-01 through TDR-AUTH-07,
-    TDR-CS-00 through TDR-CS-16, and TDR-GTH-01 through TDR-GTH-36.
+    TDR-CS-00 through TDR-CS-16, and TDR-GTH-01 through TDR-GTH-40.
     Browser actions and outcomes under test must use the public same-origin
     authentication, candidate-search, and gathering-scheduling boundaries;
     these operations are only for deterministic Given state and scenario
@@ -187,8 +209,9 @@ info:
     boundary alone cannot reach (link expiry, link rate-limiting) and for the
     population TDR-GTH's open-shop-count feature shares with TDR-CS. This
     also holds for the shortlist/vote/finalize scenarios TDR-GTH-26 through
-    TDR-GTH-36 add (ADR-0040/0041/0042) -- none of them required a new seam
-    (adr/0043).
+    TDR-GTH-36 add (ADR-0040/0041/0042) and for TDR-GTH-37 through TDR-GTH-40
+    add (adr/0044, a stable participant shop order, a three-tier vote, and
+    shop map/detail information) -- none of them required a new seam.
 paths:
   /test-support/candidate-proposals/state:
     put:
@@ -204,16 +227,21 @@ paths:
         resetCandidateProposalAcceptanceState. Also governs the population
         gathering-scheduling-api.yaml's previewOpenShopsForCandidateDate and
         ParticipantScheduleQuestion.openShopCount read (adr/0037 decision 3)
-        -- a TDR-GTH-08/09/26/27 scenario selects
+        -- a TDR-GTH-08/09/26/27/38/39 scenario selects
         GATHERING_OPEN_SHOP_WEEKDAY_MATCH here in addition to any
         gathering-scheduling-api.yaml calls it makes (TDR-GTH-26/27 added
-        2026-09-04, adr/0043, documentation freshness only -- these
-        scenarios reuse this same seam and population unchanged).
+        2026-09-04, adr/0043, documentation freshness only; TDR-GTH-38/39
+        added 2026-09-04, adr/0044, to check for the presence of
+        OpenShopPreviewItem/ParticipantShopVoteOption's new
+        location/walkingTimeMinutes/providerPageUrl fields -- these
+        scenarios reuse this same seam and population unchanged, since
+        candidate-search-api.yaml has required these fields non-null under
+        every mode since adr/0025, well before this round).
       x-acceptance-scenarios:
         [TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05, TDR-CS-06,
          TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12, TDR-CS-13,
          TDR-CS-14, TDR-CS-15, TDR-CS-16, TDR-GTH-08, TDR-GTH-09,
-         TDR-GTH-26, TDR-GTH-27]
+         TDR-GTH-26, TDR-GTH-27, TDR-GTH-38, TDR-GTH-39]
       requestBody:
         required: true
         content:
@@ -238,7 +266,7 @@ paths:
         [TDR-CS-00, TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05,
          TDR-CS-06, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12,
          TDR-CS-13, TDR-CS-14, TDR-CS-15, TDR-CS-16, TDR-GTH-08, TDR-GTH-09,
-         TDR-GTH-26, TDR-GTH-27]
+         TDR-GTH-26, TDR-GTH-27, TDR-GTH-38, TDR-GTH-39]
       responses:
         '204':
           description: Candidate-proposal acceptance state is reset.
@@ -362,10 +390,11 @@ paths:
         boundary during acceptance testing. It does not read, write, or
         reset provider data, candidate-search acceptance state (see
         resetCandidateProposalAcceptanceState/setCandidateProposalAcceptanceState
-        for that separate domain, which TDR-GTH-08/09/26/27 also depend on),
-        private runtime settings, runtime secrets, or organizer accounts.
-        Call before each TDR-GTH scenario to keep scenarios independent
-        (mirrors resetAuthenticationAcceptanceState's role for TDR-AUTH).
+        for that separate domain, which TDR-GTH-08/09/26/27/38/39 also depend
+        on), private runtime settings, runtime secrets, or organizer
+        accounts. Call before each TDR-GTH scenario to keep scenarios
+        independent (mirrors resetAuthenticationAcceptanceState's role for
+        TDR-AUTH).
       x-acceptance-scenarios:
         [TDR-GTH-01, TDR-GTH-02, TDR-GTH-03, TDR-GTH-04, TDR-GTH-05,
          TDR-GTH-06, TDR-GTH-07, TDR-GTH-08, TDR-GTH-09, TDR-GTH-10,
@@ -374,7 +403,7 @@ paths:
          TDR-GTH-21, TDR-GTH-22, TDR-GTH-23, TDR-GTH-24, TDR-GTH-25,
          TDR-GTH-26, TDR-GTH-27, TDR-GTH-28, TDR-GTH-29, TDR-GTH-30,
          TDR-GTH-31, TDR-GTH-32, TDR-GTH-33, TDR-GTH-34, TDR-GTH-35,
-         TDR-GTH-36]
+         TDR-GTH-36, TDR-GTH-37, TDR-GTH-38, TDR-GTH-39, TDR-GTH-40]
       responses:
         '204':
           description: Gathering-scheduling acceptance state is reset. No response body is returned.
@@ -669,12 +698,13 @@ components:
             without using real provider data.
 
             GATHERING_OPEN_SHOP_WEEKDAY_MATCH is the deterministic TDR-GTH-08/
-            09/26/27 Given (adr/0035 decision 6, adr/0037 decision 3;
-            TDR-GTH-26/27 reuse it unchanged, adr/0043). Every other mode
-            above fixes `regularHoliday="日曜・祝日"` for every synthetic
-            candidate (a single shared factory in acceptance_state.py) --
-            adequate for TDR-CS, which never reads regularHoliday's text for
-            business logic, but insufficient to exercise
+            09/26/27/38/39 Given (adr/0035 decision 6, adr/0037 decision 3;
+            TDR-GTH-26/27 reuse it unchanged, adr/0043; TDR-GTH-38/39 reuse
+            it unchanged, adr/0044). Every other mode above fixes
+            `regularHoliday="日曜・祝日"` for every synthetic candidate (a
+            single shared factory in acceptance_state.py) -- adequate for
+            TDR-CS, which never reads regularHoliday's text for business
+            logic, but insufficient to exercise
             gathering-scheduling-api.yaml's weekday-matching soft filter
             (CandidateDateOpenShopPreview.openShopCount /
             ParticipantScheduleQuestion.openShopCount) across more than one
@@ -722,6 +752,14 @@ components:
             OpenShopPreviewItem.shopId (gathering-scheduling-api.yaml,
             adr/0042) the same way TDR-GTH-08/09 read their display fields
             -- no additional seed data was needed for this round (adr/0043).
+            TDR-GTH-38/39 (adr/0044, 2026-09-04) read this same population's
+            `location`/`walkingTimeMinutes`/`providerPageUrl` values via
+            OpenShopPreviewItem/ParticipantShopVoteOption -- again no
+            additional seed data was needed, since every synthetic candidate
+            this shared factory produces has already carried these fields
+            (non-null, schema-valid) since adr/0025, for candidate-search-
+            api.yaml's own sake, well before gathering-scheduling-api.yaml
+            started reusing them this round.
         randomSeed:
           type: integer
           nullable: true
