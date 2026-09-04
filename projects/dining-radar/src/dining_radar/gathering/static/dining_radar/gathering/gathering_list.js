@@ -103,6 +103,10 @@
     var attrs = {
       "data-testid": "gathering-list-item",
       "data-gathering-id": gathering.id,
+      // adr/0042: closes ADR-0040 未決事項2's audit-flagged gap -- this
+      // list previously had no machine-observable attribute for the
+      // gathering's own name.
+      "data-gathering-title": gathering.title,
       "data-gathering-phase": gathering.phase,
       "data-responded-count": gathering.respondedParticipantCount,
       "data-active-issued-links": gathering.activeParticipantLinkCount,

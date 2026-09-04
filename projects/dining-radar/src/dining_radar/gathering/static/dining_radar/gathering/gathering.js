@@ -18,6 +18,22 @@
  * this script never clears either one as a side effect of a successful
  * confirm-date call.
  *
+ * 2026-09-04 addition (adr/0042, contract v0.5): shop shortlisting/approval-
+ * voting/finalization. Two more pieces of state are client-side pending
+ * selection only, mirroring web/static/dining_radar/web/candidate.js's own
+ * pending-filter convention (changePendingFilter: toggle now, apply only on
+ * an explicit submit):
+ *   - shortlistPending: { [shopId]: boolean } -- the checked state of
+ *     gathering-open-shop-list-item's checkbox before gathering-shortlist-
+ *     submit is activated. Never sent anywhere until that click.
+ *   - finalizeSelectedShopId: the one shopId currently selected by the
+ *     gathering-finalize-shop-select radio group, before gathering-finalize-
+ *     submit is activated.
+ * shortlistSelection.list reuses previewOpenShopsForCandidateDate (the same
+ * endpoint tentativeSelectionAndPreview already calls) for the confirmed
+ * candidate date -- gathering-scheduling-api.yaml's own 2026-09-03 header
+ * comment documents this reuse.
+ *
  * data-issued-link-url (participantLinkCopy.requiredOutcome /
  * participantLinkList.item.recopy.requiredOutcome) is likewise tracked in
  * `state` (headerIssuedLinkUrl / recopiedLinkUrls) rather than mutated
@@ -55,6 +71,24 @@
     addCandidateDateDuplicateError: false,
     headerIssuedLinkUrl: null,
     recopiedLinkUrls: {},
+    // adr/0042: the last-fetched CandidateDateOpenShopPreview for the
+    // confirmed candidate date, reused as shortlistSelection.list's source
+    // (same population previewOpenShopsForCandidateDate already exposes).
+    openShopList: null,
+    // adr/0042: client-side pending checked state for shortlistSelection's
+    // checkboxes -- shopId -> boolean. Never sent to setShortlistedShops
+    // until gathering-shortlist-submit is activated.
+    shortlistPending: {},
+    // adr/0042: whether shortlistSelection is shown while
+    // Gathering.votingStartedAt is already non-null (a D7 replace, opened
+    // via gathering-shortlist-open). Irrelevant while votingStartedAt is
+    // null -- shortlistSelectionVisible() shows the list unconditionally
+    // in that case (PickFive.dc.html's default first-time state).
+    shortlistReplaceOpen: false,
+    // adr/0042: client-side pending radio selection for
+    // shortlistedShopVotes.list.item.finalizeSelect, before
+    // gathering-finalize-submit is activated.
+    finalizeSelectedShopId: null,
   };
 
   function csrfToken() {
@@ -146,17 +180,73 @@
     return "/gatherings/" + gatheringId;
   }
 
-  function loadGathering() {
-    return requestJson("GET", gatheringUrl()).then(function (result) {
-      state.gathering = result.body;
-      return requestJson("GET", gatheringUrl() + "/participant-links");
-    }).then(function (result) {
-      state.participantLinks = result.body.participantLinks;
-      render();
+  // adr/0042: shortlistSelection is shown unconditionally while
+  // votingStartedAt is still null (PickFive.dc.html's default first-time
+  // state); once non-null, only while a D7 replace has been opened
+  // (gathering-shortlist-open). Always absent outside SELECTING_SHOP.
+  function shortlistSelectionVisible() {
+    if (!state.gathering || state.gathering.phase !== "SELECTING_SHOP") {
+      return false;
+    }
+    if (state.gathering.votingStartedAt === null) {
+      return true;
+    }
+    return state.shortlistReplaceOpen === true;
+  }
+
+  function fetchOpenShopListForShortlist() {
+    var candidateDateId = state.gathering.confirmedCandidateDateId;
+    if (!candidateDateId) {
+      return Promise.resolve();
+    }
+    return requestJson(
+      "GET",
+      gatheringUrl() + "/candidate-dates/" + candidateDateId + "/open-shop-preview"
+    ).then(function (result) {
+      if (result.status !== 200) {
+        return;
+      }
+      state.openShopList = result.body;
+      // D7 replace: pre-populate every item's pending checked state from
+      // the *current* Gathering.shortlistedShops
+      // (shortlistSelection.list.item.requirement, TDR-GTH-31/32).
+      var currentShopIds = {};
+      state.gathering.shortlistedShops.forEach(function (shop) {
+        currentShopIds[shop.shopId] = true;
+      });
+      var pending = {};
+      state.openShopList.previewShops.forEach(function (item) {
+        pending[item.shopId] = !!currentShopIds[item.shopId];
+      });
+      state.shortlistPending = pending;
     });
   }
 
+  function loadGathering() {
+    return requestJson("GET", gatheringUrl())
+      .then(function (result) {
+        state.gathering = result.body;
+        return requestJson("GET", gatheringUrl() + "/participant-links");
+      })
+      .then(function (result) {
+        state.participantLinks = result.body.participantLinks;
+        if (state.gathering.phase === "SELECTING_SHOP" && state.gathering.votingStartedAt === null) {
+          return fetchOpenShopListForShortlist();
+        }
+      })
+      .then(function () {
+        render();
+      });
+  }
+
   function tentativelySelectCandidateDate(candidateDateId) {
+    if (state.gathering.phase !== "SCHEDULING") {
+      // tentativeSelectionAndPreview.trigger.presenceRuleForPurpose: this
+      // purpose is only activatable while phase is SCHEDULING -- the
+      // element itself stays present as a record (renderCandidateDate
+      // below), but no longer accepts this activation.
+      return;
+    }
     state.tentativeSelectedId = candidateDateId;
     render();
     requestJson("GET", gatheringUrl() + "/candidate-dates/" + candidateDateId + "/open-shop-preview")
@@ -180,7 +270,9 @@
         // deliberately left unchanged -- confirmDate's own requiredOutcome
         // says this call must not affect either.
         state.gathering = result.body;
-        return loadParticipantLinksOnly();
+        return loadParticipantLinksOnly()
+          .then(fetchOpenShopListForShortlist)
+          .then(render);
       }
     });
   }
@@ -307,6 +399,68 @@
     );
   }
 
+  // --- adr/0042: shop shortlisting / approval voting / finalization -------
+
+  function toggleShortlistPending(shopId) {
+    // Client-side pending selection only (shortlistSelection.list.item.
+    // select.requiredOutcome) -- calls no public operation.
+    state.shortlistPending[shopId] = !state.shortlistPending[shopId];
+    render();
+  }
+
+  function submitShortlist() {
+    var shopIds = Object.keys(state.shortlistPending).filter(function (shopId) {
+      return state.shortlistPending[shopId];
+    });
+    if (shopIds.length < 1) {
+      return;
+    }
+    requestJson("PUT", gatheringUrl() + "/shortlisted-shops", { shopIds: shopIds }).then(
+      function (result) {
+        if (result.status === 200) {
+          state.gathering = result.body;
+          state.shortlistReplaceOpen = false;
+          state.finalizeSelectedShopId = null;
+          render();
+        }
+      }
+    );
+  }
+
+  function openShortlistReplace() {
+    // Refetch first, then reveal the list -- so the very first render of
+    // shortlistSelection already carries the D7 pre-checked state from the
+    // *current* shortlist (shortlistSelection.list.item.requirement),
+    // rather than showing a stale/empty list for one frame.
+    fetchOpenShopListForShortlist().then(function () {
+      state.shortlistReplaceOpen = true;
+      render();
+    });
+  }
+
+  function selectFinalizeShop(shopId) {
+    // Client-side pending selection only (shortlistedShopVotes.list.item.
+    // finalizeSelect.requiredOutcome) -- calls no public operation.
+    state.finalizeSelectedShopId = shopId;
+    render();
+  }
+
+  function finalizeGathering() {
+    if (!state.finalizeSelectedShopId) {
+      return;
+    }
+    requestJson("POST", gatheringUrl() + "/finalize", {
+      shopId: state.finalizeSelectedShopId,
+    }).then(function (result) {
+      if (result.status === 200) {
+        state.gathering = result.body;
+        state.finalizeSelectedShopId = null;
+        state.shortlistReplaceOpen = false;
+        render();
+      }
+    });
+  }
+
   function renderPhaseIndicator() {
     return el(
       "div",
@@ -356,41 +510,50 @@
 
   function renderCandidateDate(candidateDate) {
     var isTentative = state.tentativeSelectedId === candidateDate.id;
-    var node = el(
-      "div",
-      {
-        "data-testid": "gathering-candidate-date",
-        "data-candidate-date-id": candidateDate.id,
-        "data-going-count": candidateDate.goingCount,
-        "data-maybe-count": candidateDate.maybeCount,
-        "data-not-going-count": candidateDate.notGoingCount,
-        "data-confirmed": candidateDate.isConfirmed ? "true" : "false",
-        "data-tentative-selected": isTentative ? "true" : "false",
-        "data-gathering-control-purpose": "gathering-candidate-date-tentative-select",
-        role: "button",
-        tabindex: "0",
-      },
-      [
-        el("span", {}, [candidateDate.startAt]),
-        el("span", {}, [
-          " 行ける " +
-            candidateDate.goingCount +
-            " / たぶん " +
-            candidateDate.maybeCount +
-            " / むり " +
-            candidateDate.notGoingCount,
-        ]),
-      ]
-    );
-    node.addEventListener("click", function () {
-      tentativelySelectCandidateDate(candidateDate.id);
-    });
-    node.addEventListener("keydown", function (event) {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
+    // tentativeSelectionAndPreview.trigger.presenceRuleForPurpose (adr/0042):
+    // once phase is SELECTING_SHOP or FINALIZED, this element remains
+    // present as a record but no longer accepts the tentative-select
+    // activation -- represented here by dropping the purpose/role/tabindex
+    // and the event listeners entirely, rather than leaving an inert
+    // role="button" with no declared purpose (which would fail
+    // unavailableControls.allGatheringScreenFormControlsMustDeclarePurpose).
+    var isSchedulingPhase = state.gathering.phase === "SCHEDULING";
+    var attrs = {
+      "data-testid": "gathering-candidate-date",
+      "data-candidate-date-id": candidateDate.id,
+      "data-going-count": candidateDate.goingCount,
+      "data-maybe-count": candidateDate.maybeCount,
+      "data-not-going-count": candidateDate.notGoingCount,
+      "data-confirmed": candidateDate.isConfirmed ? "true" : "false",
+      "data-tentative-selected": isTentative ? "true" : "false",
+    };
+    if (isSchedulingPhase) {
+      attrs["data-gathering-control-purpose"] = "gathering-candidate-date-tentative-select";
+      attrs.role = "button";
+      attrs.tabindex = "0";
+    }
+    var node = el("div", attrs, [
+      el("span", {}, [candidateDate.startAt]),
+      el("span", {}, [
+        " 行ける " +
+          candidateDate.goingCount +
+          " / たぶん " +
+          candidateDate.maybeCount +
+          " / むり " +
+          candidateDate.notGoingCount,
+      ]),
+    ]);
+    if (isSchedulingPhase) {
+      node.addEventListener("click", function () {
         tentativelySelectCandidateDate(candidateDate.id);
-      }
-    });
+      });
+      node.addEventListener("keydown", function (event) {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          tentativelySelectCandidateDate(candidateDate.id);
+        }
+      });
+    }
     return node;
   }
 
@@ -493,6 +656,164 @@
     return button;
   }
 
+  // --- adr/0042: shortlistSelection (PickFive.dc.html 案A) -----------------
+
+  function renderOpenShopListItem(item) {
+    var checked = !!state.shortlistPending[item.shopId];
+    var checkbox = el(
+      "input",
+      {
+        type: "checkbox",
+        "data-testid": "gathering-open-shop-select",
+        "data-gathering-control-purpose": "gathering-open-shop-select",
+        checked: checked,
+      },
+      []
+    );
+    checkbox.addEventListener("click", function () {
+      toggleShortlistPending(item.shopId);
+    });
+    return el(
+      "div",
+      {
+        "data-testid": "gathering-open-shop-list-item",
+        "data-shop-id": item.shopId,
+        "data-shortlisted": checked ? "true" : "false",
+      },
+      [checkbox, el("span", {}, [item.name]), el("span", {}, [item.genre])]
+    );
+  }
+
+  function renderShortlistSelection() {
+    var previewShops = state.openShopList ? state.openShopList.previewShops : [];
+    var list = el(
+      "div",
+      {
+        "data-testid": "gathering-open-shop-list",
+        "data-open-shop-count": state.openShopList ? state.openShopList.openShopCount : 0,
+      },
+      previewShops.map(renderOpenShopListItem)
+    );
+
+    var selectedCount = Object.keys(state.shortlistPending).filter(function (shopId) {
+      return state.shortlistPending[shopId];
+    }).length;
+    var submit = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "gathering-shortlist-submit",
+        "data-gathering-control-purpose": "gathering-shortlist-submit",
+        disabled: selectedCount < 1,
+      },
+      ["この" + selectedCount + "件で投票する"]
+    );
+    submit.addEventListener("click", submitShortlist);
+
+    return el("div", {}, [list, submit]);
+  }
+
+  // --- adr/0042: shortlistedShopVotes (Organizer.dc.html 状態②) ------------
+
+  function renderShortlistedShopItem(shop) {
+    var attrs = {
+      "data-testid": "gathering-shortlisted-shop-item",
+      "data-shop-id": shop.shopId,
+      "data-approval-count": shop.approvalCount,
+      "data-responded-count": shop.respondedParticipantCount,
+    };
+    var children = [
+      el("span", {}, [shop.name]),
+      el("span", {}, [shop.approvalCount + "人 / " + shop.respondedParticipantCount + "人中"]),
+    ];
+    if (state.gathering.phase === "SELECTING_SHOP") {
+      var selected = state.finalizeSelectedShopId === shop.shopId;
+      var radio = el(
+        "input",
+        {
+          type: "radio",
+          name: "gathering-finalize-shop",
+          "data-testid": "gathering-finalize-shop-select",
+          "data-gathering-control-purpose": "gathering-finalize-shop-select",
+          "data-finalize-selected": selected ? "true" : "false",
+          checked: selected,
+        },
+        []
+      );
+      radio.addEventListener("click", function () {
+        selectFinalizeShop(shop.shopId);
+      });
+      children.push(radio);
+    }
+    return el("div", attrs, children);
+  }
+
+  function renderShortlistedShopVotes() {
+    var phase = state.gathering.phase;
+    var list = el(
+      "div",
+      { "data-testid": "gathering-shortlisted-shop-list" },
+      state.gathering.shortlistedShops.map(renderShortlistedShopItem)
+    );
+    var children = [list];
+
+    // replaceOpen/finalizeSubmit: both present only while SELECTING_SHOP
+    // (absent once FINALIZED, shortlistedShopVotes.replaceOpen.presenceRule /
+    // finalizeSubmit.presenceRule).
+    if (phase === "SELECTING_SHOP") {
+      var replaceOpen = el(
+        "button",
+        {
+          type: "button",
+          "data-testid": "gathering-shortlist-open",
+          "data-gathering-control-purpose": "gathering-shortlist-open",
+        },
+        ["店を絞りなおす"]
+      );
+      replaceOpen.addEventListener("click", openShortlistReplace);
+      children.push(replaceOpen);
+
+      if (state.gathering.shortlistedShops.length > 0) {
+        var finalizeSubmit = el(
+          "button",
+          {
+            type: "button",
+            "data-testid": "gathering-finalize-submit",
+            "data-gathering-control-purpose": "gathering-finalize-submit",
+            disabled: !state.finalizeSelectedShopId,
+          },
+          ["日と店を確定する"]
+        );
+        finalizeSubmit.addEventListener("click", finalizeGathering);
+        children.push(finalizeSubmit);
+      }
+    }
+
+    return el("div", {}, children);
+  }
+
+  // --- adr/0042: finalizedSummary (Final.dc.html A③) -----------------------
+
+  function renderFinalizedSummary() {
+    var confirmed = state.gathering.candidateDates.filter(function (candidateDate) {
+      return candidateDate.isConfirmed;
+    })[0];
+    return el(
+      "div",
+      {
+        "data-testid": "gathering-decision-banner",
+        "data-confirmed-candidate-date": confirmed ? confirmed.startAt : undefined,
+        "data-finalized-shop-id": state.gathering.finalizedShopId,
+      },
+      [
+        "決まりました: " +
+          (confirmed ? confirmed.startAt : "") +
+          " ・ " +
+          state.gathering.finalizedShopId,
+      ]
+    );
+  }
+
   function renderParticipantLinkCopy() {
     var button = el(
       "button",
@@ -524,19 +845,30 @@
       recopyParticipantLink(link.id);
     });
 
-    var revokeButton = el(
-      "button",
-      {
-        type: "button",
-        "data-testid": "gathering-participant-link-revoke",
-        "data-gathering-control-purpose": "gathering-participant-link-revoke",
-        disabled: link.hasResponded || link.revoked,
-      },
-      ["失効"]
-    );
-    revokeButton.addEventListener("click", function () {
-      revokeParticipantLink(link.id);
-    });
+    var children = [
+      el("span", {}, [link.displayName === null ? "名無し" : link.displayName]),
+      recopyButton,
+    ];
+
+    // participantLinkList.item.revoke.presenceRule (adr/0042): absent once
+    // phase is FINALIZED (P4) -- present (with its own pre-existing
+    // disabledState) while SCHEDULING or SELECTING_SHOP.
+    if (state.gathering.phase !== "FINALIZED") {
+      var revokeButton = el(
+        "button",
+        {
+          type: "button",
+          "data-testid": "gathering-participant-link-revoke",
+          "data-gathering-control-purpose": "gathering-participant-link-revoke",
+          disabled: link.hasResponded || link.revoked,
+        },
+        ["失効"]
+      );
+      revokeButton.addEventListener("click", function () {
+        revokeParticipantLink(link.id);
+      });
+      children.push(revokeButton);
+    }
 
     return el(
       "div",
@@ -548,11 +880,7 @@
         "data-revoked": link.revoked ? "true" : "false",
         "data-participant-named": link.displayName === null ? "false" : "true",
       },
-      [
-        el("span", {}, [link.displayName === null ? "名無し" : link.displayName]),
-        recopyButton,
-        revokeButton,
-      ]
+      children
     );
   }
 
@@ -569,6 +897,8 @@
     if (!state.gathering) {
       return;
     }
+    var phase = state.gathering.phase;
+
     // adr/0038, addCandidateDateOpen.requiredOutcome: the revealed form
     // must sit inline *within* gathering-candidate-date-list (AddDate.dc.
     // html 案A "その場で開く"), not beside it -- so the open control/form
@@ -576,24 +906,50 @@
     // gathering-candidate-date row (orderingInvariant only constrains the
     // relative order of gathering-candidate-date-tagged children, which
     // this trailing, differently-tagged child does not disturb).
+    // addCandidateDateOpen.presenceRule (adr/0042): present only while
+    // SCHEDULING.
+    var candidateDateListChildren = state.gathering.candidateDates.map(renderCandidateDate);
+    if (phase === "SCHEDULING") {
+      candidateDateListChildren = candidateDateListChildren.concat([renderAddCandidateDateOpen()]);
+    }
     var candidateDateList = el(
       "div",
       { "data-testid": "gathering-candidate-date-list" },
-      state.gathering.candidateDates.map(renderCandidateDate).concat([renderAddCandidateDateOpen()])
+      candidateDateListChildren
     );
 
-    root.appendChild(
-      el("div", {}, [
-        renderPhaseIndicator(),
-        renderResponseSummary(),
-        renderUnansweredSummary(),
-        candidateDateList,
-        renderOpenShopPreview(),
-        renderConfirmDate(),
-        renderParticipantLinkCopy(),
-        renderParticipantLinkList(),
-      ])
-    );
+    var children = [
+      renderPhaseIndicator(),
+      renderResponseSummary(),
+      renderUnansweredSummary(),
+      candidateDateList,
+    ];
+
+    if (phase === "SCHEDULING") {
+      children.push(renderOpenShopPreview());
+      children.push(renderConfirmDate());
+    }
+
+    if (shortlistSelectionVisible()) {
+      children.push(renderShortlistSelection());
+    }
+
+    if (state.gathering.votingStartedAt !== null) {
+      children.push(renderShortlistedShopVotes());
+    }
+
+    if (phase === "FINALIZED") {
+      children.push(renderFinalizedSummary());
+    }
+
+    // participantLinkCopy.presenceRule (adr/0042): absent once FINALIZED (P4).
+    if (phase !== "FINALIZED") {
+      children.push(renderParticipantLinkCopy());
+    }
+
+    children.push(renderParticipantLinkList());
+
+    root.appendChild(el("div", {}, children));
   }
 
   loadGathering();

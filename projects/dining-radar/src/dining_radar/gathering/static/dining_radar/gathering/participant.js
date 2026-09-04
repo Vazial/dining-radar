@@ -50,6 +50,19 @@
  * last successfully loaded view -- state.view is therefore only ever
  * replaced on a *successful* response; a failure only sets state.errorCode
  * (see render()).
+ *
+ * 2026-09-04 addition (adr/0042, contract v0.5): the approval-voting
+ * surface (shopVoteQuestion, Vote.dc.html B-2) and the finalized view
+ * (finalizedView, Final.dc.html B-3). Unlike shortlistSelection's pending/
+ * apply model on the organizer dashboard, shopVoteQuestion's checkbox has
+ * **no pending state of its own** -- each toggle immediately calls
+ * setShopVotes with the complete updated approvedShopIds (Vote.dc.html:
+ * "選ぶとその場で保存されます", no separate submit button). Once
+ * ParticipantView.decision becomes non-null, finalizedView **replaces**
+ * scheduleQuestion/shopVoteQuestion/progress/nameControl's open+submit
+ * entirely rather than coexisting with them (this contract's own
+ * replacesQuestionSurfaces/noOperations clauses) -- render() branches on
+ * `state.view.decision` before building anything else.
  */
 (function () {
   "use strict";
@@ -132,6 +145,31 @@
     );
   }
 
+  function toggleShopVote(shopId) {
+    // shopVoteQuestion.selectOption.requiredOutcome: immediately calls
+    // setShopVotes with the complete updated approvedShopIds (every
+    // currently-checked gathering-shop-vote-question among those
+    // rendered) -- not a pending/submit model, unlike the organizer's
+    // shortlistSelection. Computed from the *current* view so a toggle
+    // flips exactly the targeted shop and leaves every other shop's
+    // approval as-is.
+    var approvedShopIds = (state.view.shopVoteQuestions || [])
+      .filter(function (question) {
+        if (question.shopId === shopId) {
+          return question.yourApproval !== true;
+        }
+        return question.yourApproval === true;
+      })
+      .map(function (question) {
+        return question.shopId;
+      });
+    requestJson("PUT", participantUrl() + "/shop-votes", { approvedShopIds: approvedShopIds }).then(
+      function (result) {
+        applyResult(result);
+      }
+    );
+  }
+
   function openNameControl() {
     state.nameOpen = true;
     render();
@@ -162,11 +200,36 @@
     return el(
       "header",
       { "data-testid": "gathering-participant-header", "data-gathering-phase": state.view.phase },
-      [titleRow, progressBar, renderNameControl()]
+      [titleRow, progressBar, renderNameControl(true)]
     );
   }
 
-  function renderNameControl() {
+  /**
+   * Final.dc.html B-3's simpler header -- no per-date progress counter.
+   * data-gathering-phase remains present unconditionally per this
+   * contract's own headerAttributes.requirement, and
+   * gathering-participant-name-status remains present too (only the
+   * open/submit editing controls retire, nameControl.open/submit
+   * .presenceRule below).
+   */
+  function renderFinalizedHeader() {
+    var titleRow = el("div", { class: "gth-hd-row" }, [
+      el("div", { class: "gth-title" }, [state.view.gatheringTitle]),
+    ]);
+    return el(
+      "header",
+      { "data-testid": "gathering-participant-header", "data-gathering-phase": state.view.phase },
+      [titleRow, renderNameControl(false)]
+    );
+  }
+
+  /**
+   * @param allowEdit nameControl.open/submit.presenceRule (adr/0042):
+   *   absent once ParticipantView.decision is non-null (Final.dc.html:
+   *   "名前を変える操作も置かない"). gathering-participant-name-status
+   *   itself always renders regardless.
+   */
+  function renderNameControl(allowEdit) {
     var named = state.view.displayName !== null;
     var status = el(
       "div",
@@ -177,6 +240,10 @@
       },
       [named ? "回答者: " + state.view.displayName : "名前なしのまま"]
     );
+
+    if (!allowEdit) {
+      return el("div", { class: "gth-who" }, [status]);
+    }
 
     var openButton = el(
       "button",
@@ -366,6 +433,148 @@
     ]);
   }
 
+  /**
+   * The approval-voting surface (Vote.dc.html B-2, shopVoteQuestion).
+   * Present exactly when ParticipantView.shopVoteQuestions is non-null and
+   * decision is still null (render() only calls this from the non-decision
+   * branch, so the decision check itself lives there).
+   */
+  function renderShopVoteTally(question) {
+    if (question.tally === null || question.tally === undefined) {
+      // product-brief.md §2's "answer first, then see others" rule, applied
+      // per shop (TDR-GTH-29) -- absent exactly when yourApproval is
+      // "UNANSWERED".
+      return null;
+    }
+    return el(
+      "div",
+      {
+        "data-testid": "gathering-shop-vote-tally",
+        "data-approval-count": question.tally.approvalCount,
+        "data-responded-count": question.tally.respondedParticipantCount,
+        class: "gth-vote-tally",
+      },
+      [el("b", {}, [String(question.tally.approvalCount)]), "人が行ってもいいと回答"]
+    );
+  }
+
+  function renderShopVoteQuestion(question) {
+    var yourApprovalValue =
+      question.yourApproval === null
+        ? "UNANSWERED"
+        : question.yourApproval
+          ? "true"
+          : "false";
+    var checkbox = el(
+      "input",
+      {
+        type: "checkbox",
+        "data-testid": "gathering-shop-vote-select",
+        "data-gathering-control-purpose": "gathering-shop-vote-select",
+        checked: question.yourApproval === true,
+      },
+      []
+    );
+    checkbox.addEventListener("click", function () {
+      toggleShopVote(question.shopId);
+    });
+
+    var children = [checkbox, el("span", { class: "gth-vote-name" }, [question.name])];
+    var tally = renderShopVoteTally(question);
+    if (tally) {
+      children.push(tally);
+    } else {
+      children.push(el("span", { class: "gth-vote-mask" }, ["あなたが選ぶと票が見えます"]));
+    }
+
+    return el(
+      "div",
+      {
+        "data-testid": "gathering-shop-vote-question",
+        "data-shop-id": question.shopId,
+        "data-your-approval": yourApprovalValue,
+        class: "gth-vote-row",
+      },
+      children
+    );
+  }
+
+  function renderShopVoteSection() {
+    if (!state.view.shopVoteQuestions) {
+      return null;
+    }
+    return el(
+      "div",
+      { class: "gth-vote-section" },
+      [el("div", { class: "gth-vote-heading" }, ["行ってもいい店をぜんぶ選んでください"])].concat(
+        state.view.shopVoteQuestions.map(renderShopVoteQuestion)
+      )
+    );
+  }
+
+  /**
+   * Final.dc.html B-3 -- the decision plus this participant's own
+   * retrospective record (P5, adr/0041/adr/0042). Never another
+   * participant's data (decision.yourApprovedShops is this participant's
+   * own approvals only, gathering-scheduling-api.yaml adr/0041).
+   */
+  function renderFinalizedView() {
+    var decision = state.view.decision;
+    var yourScheduleResponseValue =
+      decision.yourScheduleResponse === null ? "UNANSWERED" : decision.yourScheduleResponse;
+
+    var approvedShopEls = decision.yourApprovedShops.map(function (shop) {
+      return el(
+        "div",
+        {
+          "data-testid": "gathering-participant-decision-approved-shop",
+          "data-shop-id": shop.shopId,
+          class: "gth-final-approved-shop",
+        },
+        [shop.name]
+      );
+    });
+
+    var decisionEl = el(
+      "div",
+      {
+        "data-testid": "gathering-participant-decision",
+        "data-confirmed-candidate-date": decision.confirmedCandidateDate,
+        "data-shop-id": decision.shop.shopId,
+        "data-your-schedule-response": yourScheduleResponseValue,
+        class: "gth-final",
+      },
+      [
+        el("div", { class: "gth-final-badge" }, ["決まりました"]),
+        el("div", { class: "gth-final-when-lb" }, ["日時"]),
+        el("div", { class: "gth-final-when" }, [decision.confirmedCandidateDate]),
+        el("div", { class: "gth-final-shop-lb" }, ["お店"]),
+        el("div", { class: "gth-final-shop" }, [decision.shop.name]),
+        el("div", { class: "gth-final-yours-lb" }, ["あなたの記録"]),
+        el("div", { class: "gth-final-yours-row" }, [
+          "この日へのあなたの回答: ",
+          el("b", {}, [
+            decision.yourScheduleResponse === null
+              ? "未回答"
+              : RESPONSE_LABELS[decision.yourScheduleResponse],
+          ]),
+        ]),
+        el(
+          "div",
+          { class: "gth-final-approved" },
+          [el("div", { class: "gth-final-approved-lb" }, ["あなたが「行ってもいい」と選んだ店"])].concat(
+            approvedShopEls
+          )
+        ),
+        el("p", { class: "gth-fine" }, [
+          "締まっているので変えられません。ほかの人が何を選んだかは出していません。",
+        ]),
+      ]
+    );
+
+    return el("div", { class: "gth-body" }, [decisionEl]);
+  }
+
   function renderFooter() {
     // Answer.dc.html shows these two entry points ("あとで答える" /
     // "結果をのぞく") but defines no resulting operation for either in this
@@ -414,38 +623,51 @@
     root.innerHTML = "";
     var children = [];
     if (state.view) {
-      var questions = state.view.scheduleQuestions;
-      var total = questions.length;
-      var firstUnansweredIndex = -1;
-      for (var index = 0; index < questions.length; index += 1) {
-        if (questions[index].yourResponse === null) {
-          firstUnansweredIndex = index;
-          break;
-        }
-      }
-      var answered = firstUnansweredIndex === -1 ? total : firstUnansweredIndex;
-
-      children.push(renderHeader(answered, total));
-
-      var body = [];
-      for (var doneIndex = 0; doneIndex < answered; doneIndex += 1) {
-        body.push(renderDoneQuestionCard(questions[doneIndex]));
-      }
-      var remainingCount;
-      if (firstUnansweredIndex === -1) {
-        remainingCount = 0;
+      if (state.view.decision) {
+        // finalizedView (adr/0042): replaces scheduleQuestion/
+        // shopVoteQuestion/progress and nameControl's open/submit entirely
+        // (replacesQuestionSurfaces/noOperations) -- built from a
+        // dedicated branch rather than gating each element individually.
+        children.push(renderFinalizedHeader());
+        children.push(renderFinalizedView());
       } else {
-        body.push(renderOpenQuestionCard(questions[firstUnansweredIndex]));
-        remainingCount = total - firstUnansweredIndex - 1;
+        var questions = state.view.scheduleQuestions;
+        var total = questions.length;
+        var firstUnansweredIndex = -1;
+        for (var index = 0; index < questions.length; index += 1) {
+          if (questions[index].yourResponse === null) {
+            firstUnansweredIndex = index;
+            break;
+          }
+        }
+        var answered = firstUnansweredIndex === -1 ? total : firstUnansweredIndex;
+
+        children.push(renderHeader(answered, total));
+
+        var body = [];
+        for (var doneIndex = 0; doneIndex < answered; doneIndex += 1) {
+          body.push(renderDoneQuestionCard(questions[doneIndex]));
+        }
+        var remainingCount;
+        if (firstUnansweredIndex === -1) {
+          remainingCount = 0;
+        } else {
+          body.push(renderOpenQuestionCard(questions[firstUnansweredIndex]));
+          remainingCount = total - firstUnansweredIndex - 1;
+        }
+        var shopVoteSection = renderShopVoteSection();
+        if (shopVoteSection) {
+          body.push(shopVoteSection);
+        }
+        var nextPanel = renderNextPanel(remainingCount, state.view.phase);
+        if (nextPanel) {
+          body.push(nextPanel);
+        }
+        body.push(renderFooter());
+        body.push(renderFinePrint());
+        children.push(el("main", { class: "gth-body" }, body));
+        children.push(renderProgress(total, answered));
       }
-      var nextPanel = renderNextPanel(remainingCount, state.view.phase);
-      if (nextPanel) {
-        body.push(nextPanel);
-      }
-      body.push(renderFooter());
-      body.push(renderFinePrint());
-      children.push(el("main", { class: "gth-body" }, body));
-      children.push(renderProgress(total, answered));
     }
     if (state.errorCode) {
       children.push(renderError());
