@@ -46,6 +46,25 @@
  * carried the attribute). Baking the value into the element's initial
  * attributes at build time, from state, means every rebuild reproduces it
  * instead of losing it.
+ *
+ * 2026-09-04 addition (human decision, same day as the adr/0042 slice --
+ * "作りかけに見える。見て判断できるところまで作りこんでほしい"): visual
+ * language pass. Every `el()` call below may now also carry a `class`
+ * attribute -- purely presentational, built from the same designer tokens
+ * `contracts/gathering-scheduling-browser-interface.yaml`'s referenced
+ * canvases use (`E:\AWS\dsg-out\party\*.dc.html`) and already partially
+ * adopted by web/static/dining_radar/web/candidate.js
+ * (candidate-gathering-entry's #14614a/#c6cfc6/#17201b). **No test id, no
+ * data-* attribute, and no data-gathering-control-purpose value changed or
+ * was added/removed by this pass** -- every attribute a contract or test
+ * observes is byte-for-byte the same as before. A handful of purely
+ * decorative wrapper/heading elements (no test id, `gathering.css`'s
+ * `.gth-pane`/`.gth-pane-head` etc.) were added around already-existing
+ * controls to group them into panels the way the approved canvases draw
+ * them; this changes *parent* nodes only, never the relative DOM order of
+ * two elements that share a test id (orderingInvariant is unaffected) and
+ * never how any element is located (tests locate by test id, not by exact
+ * tree depth).
  */
 (function () {
   "use strict";
@@ -56,6 +75,17 @@
   }
 
   var gatheringId = root.getAttribute("data-gathering-id");
+
+  // product-brief.md §2's three-phase state machine (adr/0038 D10) --
+  // display labels only; the machine-observed data-gathering-phase
+  // attribute always carries the raw enum value unchanged (ADR-0020
+  // decision 4(d)'s spirit: never expose the enum itself as the only
+  // visible text).
+  var PHASE_LABELS = {
+    SCHEDULING: "日程を聞き中",
+    SELECTING_SHOP: "店を選び中",
+    FINALIZED: "確定",
+  };
 
   var state = {
     gathering: null,
@@ -464,8 +494,12 @@
   function renderPhaseIndicator() {
     return el(
       "div",
-      { "data-testid": "gathering-phase-indicator", "data-gathering-phase": state.gathering.phase },
-      ["局面: " + state.gathering.phase]
+      {
+        "data-testid": "gathering-phase-indicator",
+        "data-gathering-phase": state.gathering.phase,
+        class: "gth-phase",
+      },
+      [PHASE_LABELS[state.gathering.phase] || state.gathering.phase]
     );
   }
 
@@ -476,12 +510,13 @@
         "data-testid": "gathering-responded-summary",
         "data-responded-count": state.gathering.respondedParticipantCount,
         "data-anonymous-responded-count": state.gathering.anonymousRespondedParticipantCount,
+        class: "gth-stat",
       },
       [
-        state.gathering.respondedParticipantCount +
-          "人が回答（うち" +
-          state.gathering.anonymousRespondedParticipantCount +
-          "人は名前なし）",
+        el("b", {}, [String(state.gathering.respondedParticipantCount)]),
+        "人が回答（うち",
+        el("b", {}, [String(state.gathering.anonymousRespondedParticipantCount)]),
+        "人は名前なし）",
       ]
     );
   }
@@ -497,13 +532,14 @@
         "data-revoked-links": state.gathering.totalRevokedParticipantLinks,
         "data-active-issued-links": state.gathering.activeParticipantLinkCount,
         "data-unanswered-count": unansweredCount,
+        class: "gth-stat",
       },
       [
-        "有効なリンク " +
-          state.gathering.activeParticipantLinkCount +
-          "本 ・ まだ " +
-          unansweredCount +
-          "人が未回答",
+        "有効なリンク ",
+        el("b", {}, [String(state.gathering.activeParticipantLinkCount)]),
+        "本 ・ まだ ",
+        el("b", {}, [String(unansweredCount)]),
+        "人が未回答",
       ]
     );
   }
@@ -526,6 +562,7 @@
       "data-not-going-count": candidateDate.notGoingCount,
       "data-confirmed": candidateDate.isConfirmed ? "true" : "false",
       "data-tentative-selected": isTentative ? "true" : "false",
+      class: "gth-date" + (isSchedulingPhase ? " gth-date--pickable" : ""),
     };
     if (isSchedulingPhase) {
       attrs["data-gathering-control-purpose"] = "gathering-candidate-date-tentative-select";
@@ -533,14 +570,14 @@
       attrs.tabindex = "0";
     }
     var node = el("div", attrs, [
-      el("span", {}, [candidateDate.startAt]),
-      el("span", {}, [
-        " 行ける " +
-          candidateDate.goingCount +
-          " / たぶん " +
-          candidateDate.maybeCount +
-          " / むり " +
-          candidateDate.notGoingCount,
+      el("div", { class: "gth-date-top" }, [
+        el("span", { class: "gth-date-value" }, [candidateDate.startAt]),
+        candidateDate.isConfirmed ? el("span", { class: "gth-date-badge" }, ["決定"]) : null,
+      ]),
+      el("div", { class: "gth-date-tally" }, [
+        el("span", {}, ["行ける ", el("b", {}, [String(candidateDate.goingCount)])]),
+        el("span", {}, ["たぶん ", el("b", {}, [String(candidateDate.maybeCount)])]),
+        el("span", {}, ["むり ", el("b", {}, [String(candidateDate.notGoingCount)])]),
       ]),
     ]);
     if (isSchedulingPhase) {
@@ -567,6 +604,7 @@
         type: "datetime-local",
         "data-testid": "gathering-add-candidate-date-input",
         value: state.addCandidateDateValue || undefined,
+        class: "gth-input",
       },
       []
     );
@@ -576,6 +614,7 @@
         type: "button",
         "data-testid": "gathering-add-candidate-date-submit",
         "data-gathering-control-purpose": "gathering-add-candidate-date-submit",
+        class: "gth-btn gth-btn-primary",
       },
       ["足す"]
     );
@@ -588,16 +627,23 @@
         type: "button",
         "data-testid": "gathering-add-candidate-date-cancel",
         "data-gathering-control-purpose": "gathering-add-candidate-date-cancel",
+        class: "gth-btn",
       },
       ["やめる"]
     );
     cancel.addEventListener("click", cancelAddCandidateDate);
 
-    var children = [input, submit, cancel];
+    var children = [
+      el("div", { class: "gth-inline-form-row" }, [input, submit, cancel]),
+    ];
     if (state.addCandidateDateDuplicateError) {
-      children.push(el("p", {}, ["この日時は既に追加されています。"]));
+      children.push(el("p", { class: "gth-error" }, ["この日時は既に追加されています。"]));
     }
-    return el("div", { "data-testid": "gathering-add-candidate-date-form" }, children);
+    return el(
+      "div",
+      { "data-testid": "gathering-add-candidate-date-form", class: "gth-inline-form" },
+      children
+    );
   }
 
   function renderAddCandidateDateOpen() {
@@ -607,8 +653,9 @@
         type: "button",
         "data-testid": "gathering-add-candidate-date-open",
         "data-gathering-control-purpose": "gathering-add-candidate-date-open",
+        class: "gth-link-btn",
       },
-      ["候補日を足す"]
+      ["＋ 候補日を足す"]
     );
     openButton.addEventListener("click", openAddCandidateDate);
 
@@ -616,13 +663,17 @@
     if (state.addCandidateDateOpen) {
       children.push(renderAddCandidateDateForm());
     }
-    return el("div", {}, children);
+    return el("div", { class: "gth-add-date" }, children);
   }
 
   function renderOpenShopPreviewItem(item) {
-    return el("div", { "data-testid": "gathering-open-shop-preview-item" }, [
-      el("span", { "data-testid": "gathering-open-shop-preview-item-name" }, [item.name]),
-      el("span", { "data-testid": "gathering-open-shop-preview-item-genre" }, [item.genre]),
+    return el("div", { "data-testid": "gathering-open-shop-preview-item", class: "gth-preview-item" }, [
+      el("span", { "data-testid": "gathering-open-shop-preview-item-name", class: "gth-preview-name" }, [
+        item.name,
+      ]),
+      el("span", { "data-testid": "gathering-open-shop-preview-item-genre", class: "gth-preview-genre" }, [
+        item.genre,
+      ]),
     ]);
   }
 
@@ -636,8 +687,15 @@
         "data-testid": "gathering-open-shop-preview",
         "data-candidate-date-id": state.openShopPreview.candidateDateId,
         "data-open-shop-count": state.openShopPreview.openShopCount,
+        class: "gth-preview",
       },
-      state.openShopPreview.previewShops.map(renderOpenShopPreviewItem)
+      [
+        el("div", { class: "gth-preview-head" }, [
+          "この日に開いている店 ",
+          el("b", {}, [String(state.openShopPreview.openShopCount)]),
+          "件",
+        ]),
+      ].concat(state.openShopPreview.previewShops.map(renderOpenShopPreviewItem))
     );
   }
 
@@ -649,6 +707,7 @@
         "data-testid": "gathering-confirm-date-select",
         "data-gathering-control-purpose": "gathering-confirm-date-select",
         disabled: !state.tentativeSelectedId,
+        class: "gth-btn gth-btn-primary gth-btn-block",
       },
       ["この日にする"]
     );
@@ -667,6 +726,7 @@
         "data-testid": "gathering-open-shop-select",
         "data-gathering-control-purpose": "gathering-open-shop-select",
         checked: checked,
+        class: "gth-checkbox",
       },
       []
     );
@@ -679,8 +739,15 @@
         "data-testid": "gathering-open-shop-list-item",
         "data-shop-id": item.shopId,
         "data-shortlisted": checked ? "true" : "false",
+        class: "gth-shop-row" + (checked ? " gth-shop-row--on" : ""),
       },
-      [checkbox, el("span", {}, [item.name]), el("span", {}, [item.genre])]
+      [
+        checkbox,
+        el("div", { class: "gth-shop-body" }, [
+          el("span", { class: "gth-shop-name" }, [item.name]),
+          el("span", { class: "gth-shop-genre" }, [item.genre]),
+        ]),
+      ]
     );
   }
 
@@ -691,6 +758,7 @@
       {
         "data-testid": "gathering-open-shop-list",
         "data-open-shop-count": state.openShopList ? state.openShopList.openShopCount : 0,
+        class: "gth-shop-list",
       },
       previewShops.map(renderOpenShopListItem)
     );
@@ -705,26 +773,41 @@
         "data-testid": "gathering-shortlist-submit",
         "data-gathering-control-purpose": "gathering-shortlist-submit",
         disabled: selectedCount < 1,
+        class: "gth-btn gth-btn-primary gth-btn-block",
       },
       ["この" + selectedCount + "件で投票する"]
     );
     submit.addEventListener("click", submitShortlist);
 
-    return el("div", {}, [list, submit]);
+    return el("div", { class: "gth-pane" }, [
+      el("div", { class: "gth-pane-head" }, [
+        "開いている店から選ぶ",
+        el("span", { class: "gth-pane-sub" }, [
+          (state.openShopList ? state.openShopList.openShopCount : 0) + "件・1件から選べます",
+        ]),
+      ]),
+      list,
+      submit,
+    ]);
   }
 
   // --- adr/0042: shortlistedShopVotes (Organizer.dc.html 状態②) ------------
 
-  function renderShortlistedShopItem(shop) {
+  function renderShortlistedShopItem(shop, index) {
     var attrs = {
       "data-testid": "gathering-shortlisted-shop-item",
       "data-shop-id": shop.shopId,
       "data-approval-count": shop.approvalCount,
       "data-responded-count": shop.respondedParticipantCount,
+      class: "gth-shop-row gth-shop-row--vote",
     };
     var children = [
-      el("span", {}, [shop.name]),
-      el("span", {}, [shop.approvalCount + "人 / " + shop.respondedParticipantCount + "人中"]),
+      el("span", { class: "gth-shop-rank" }, [String(index + 1)]),
+      el("div", { class: "gth-shop-body" }, [el("span", { class: "gth-shop-name" }, [shop.name])]),
+      el("div", { class: "gth-shop-votes" }, [
+        el("b", {}, [String(shop.approvalCount)]),
+        "人 / " + shop.respondedParticipantCount + "人中",
+      ]),
     ];
     if (state.gathering.phase === "SELECTING_SHOP") {
       var selected = state.finalizeSelectedShopId === shop.shopId;
@@ -737,6 +820,7 @@
           "data-gathering-control-purpose": "gathering-finalize-shop-select",
           "data-finalize-selected": selected ? "true" : "false",
           checked: selected,
+          class: "gth-radio",
         },
         []
       );
@@ -752,10 +836,18 @@
     var phase = state.gathering.phase;
     var list = el(
       "div",
-      { "data-testid": "gathering-shortlisted-shop-list" },
-      state.gathering.shortlistedShops.map(renderShortlistedShopItem)
+      { "data-testid": "gathering-shortlisted-shop-list", class: "gth-shop-list" },
+      state.gathering.shortlistedShops.map(function (shop, index) {
+        return renderShortlistedShopItem(shop, index);
+      })
     );
-    var children = [list];
+    var paneChildren = [
+      el("div", { class: "gth-pane-head" }, [
+        "お店の候補",
+        el("span", { class: "gth-pane-sub" }, ["並び: 行ってもいい人が多い順"]),
+      ]),
+      list,
+    ];
 
     // replaceOpen/finalizeSubmit: both present only while SELECTING_SHOP
     // (absent once FINALIZED, shortlistedShopVotes.replaceOpen.presenceRule /
@@ -767,12 +859,13 @@
           type: "button",
           "data-testid": "gathering-shortlist-open",
           "data-gathering-control-purpose": "gathering-shortlist-open",
+          class: "gth-btn",
         },
         ["店を絞りなおす"]
       );
       replaceOpen.addEventListener("click", openShortlistReplace);
-      children.push(replaceOpen);
 
+      var actions = [replaceOpen];
       if (state.gathering.shortlistedShops.length > 0) {
         var finalizeSubmit = el(
           "button",
@@ -781,15 +874,17 @@
             "data-testid": "gathering-finalize-submit",
             "data-gathering-control-purpose": "gathering-finalize-submit",
             disabled: !state.finalizeSelectedShopId,
+            class: "gth-btn gth-btn-primary",
           },
           ["日と店を確定する"]
         );
         finalizeSubmit.addEventListener("click", finalizeGathering);
-        children.push(finalizeSubmit);
+        actions.push(finalizeSubmit);
       }
+      paneChildren.push(el("div", { class: "gth-pane-actions" }, actions));
     }
 
-    return el("div", {}, children);
+    return el("div", { class: "gth-pane" }, paneChildren);
   }
 
   // --- adr/0042: finalizedSummary (Final.dc.html A③) -----------------------
@@ -798,18 +893,34 @@
     var confirmed = state.gathering.candidateDates.filter(function (candidateDate) {
       return candidateDate.isConfirmed;
     })[0];
+    // Display only: prefer the shortlisted shop's own live-projected name
+    // over the raw opaque shopId, if it is still resolvable (shortlistedShops
+    // remains present, unchanged, once FINALIZED -- shortlistedShopVotes.
+    // presenceRule above). data-finalized-shop-id itself always carries the
+    // raw Gathering.finalizedShopId value unchanged, regardless of this.
+    var finalizedShop = state.gathering.shortlistedShops.filter(function (shop) {
+      return shop.shopId === state.gathering.finalizedShopId;
+    })[0];
     return el(
       "div",
       {
         "data-testid": "gathering-decision-banner",
         "data-confirmed-candidate-date": confirmed ? confirmed.startAt : undefined,
         "data-finalized-shop-id": state.gathering.finalizedShopId,
+        class: "gth-decision",
       },
       [
-        "決まりました: " +
-          (confirmed ? confirmed.startAt : "") +
-          " ・ " +
-          state.gathering.finalizedShopId,
+        el("span", { class: "gth-decision-badge" }, ["決まりました"]),
+        el("div", { class: "gth-decision-body" }, [
+          el("div", { class: "gth-decision-row" }, [
+            el("span", { class: "gth-decision-label" }, ["日時"]),
+            el("b", {}, [confirmed ? confirmed.startAt : "―"]),
+          ]),
+          el("div", { class: "gth-decision-row" }, [
+            el("span", { class: "gth-decision-label" }, ["お店"]),
+            el("b", {}, [finalizedShop ? finalizedShop.name : state.gathering.finalizedShopId]),
+          ]),
+        ]),
       ]
     );
   }
@@ -822,6 +933,7 @@
         "data-testid": "gathering-participant-link-copy",
         "data-gathering-control-purpose": "gathering-participant-link-copy",
         "data-issued-link-url": state.headerIssuedLinkUrl || undefined,
+        class: "gth-btn gth-btn-primary",
       },
       ["回答リンクをコピー"]
     );
@@ -838,6 +950,7 @@
         "data-gathering-control-purpose": "gathering-participant-link-recopy",
         disabled: link.revoked,
         "data-issued-link-url": state.recopiedLinkUrls[link.id] || undefined,
+        class: "gth-btn gth-btn-small",
       },
       ["再コピー"]
     );
@@ -846,8 +959,8 @@
     });
 
     var children = [
-      el("span", {}, [link.displayName === null ? "名無し" : link.displayName]),
-      recopyButton,
+      el("span", { class: "gth-link-name" }, [link.displayName === null ? "名無し" : link.displayName]),
+      el("div", { class: "gth-link-actions" }, [recopyButton]),
     ];
 
     // participantLinkList.item.revoke.presenceRule (adr/0042): absent once
@@ -861,13 +974,14 @@
           "data-testid": "gathering-participant-link-revoke",
           "data-gathering-control-purpose": "gathering-participant-link-revoke",
           disabled: link.hasResponded || link.revoked,
+          class: "gth-btn gth-btn-small",
         },
         ["失効"]
       );
       revokeButton.addEventListener("click", function () {
         revokeParticipantLink(link.id);
       });
-      children.push(revokeButton);
+      children[1].appendChild(revokeButton);
     }
 
     return el(
@@ -879,6 +993,7 @@
         "data-has-responded": link.hasResponded ? "true" : "false",
         "data-revoked": link.revoked ? "true" : "false",
         "data-participant-named": link.displayName === null ? "false" : "true",
+        class: "gth-link-row",
       },
       children
     );
@@ -887,7 +1002,7 @@
   function renderParticipantLinkList() {
     return el(
       "div",
-      { "data-testid": "gathering-participant-link-list" },
+      { "data-testid": "gathering-participant-link-list", class: "gth-link-list" },
       state.participantLinks.map(renderParticipantLinkItem)
     );
   }
@@ -898,6 +1013,11 @@
       return;
     }
     var phase = state.gathering.phase;
+
+    var header = el("div", { class: "gth-header" }, [
+      renderPhaseIndicator(),
+      el("div", { class: "gth-stats-row" }, [renderResponseSummary(), renderUnansweredSummary()]),
+    ]);
 
     // adr/0038, addCandidateDateOpen.requiredOutcome: the revealed form
     // must sit inline *within* gathering-candidate-date-list (AddDate.dc.
@@ -914,42 +1034,47 @@
     }
     var candidateDateList = el(
       "div",
-      { "data-testid": "gathering-candidate-date-list" },
+      { "data-testid": "gathering-candidate-date-list", class: "gth-date-list" },
       candidateDateListChildren
     );
 
-    var children = [
-      renderPhaseIndicator(),
-      renderResponseSummary(),
-      renderUnansweredSummary(),
+    var schedulePaneChildren = [
+      el("div", { class: "gth-pane-head" }, ["日程"]),
       candidateDateList,
     ];
-
     if (phase === "SCHEDULING") {
-      children.push(renderOpenShopPreview());
-      children.push(renderConfirmDate());
+      schedulePaneChildren.push(renderOpenShopPreview());
+      schedulePaneChildren.push(renderConfirmDate());
     }
+    var schedulePane = el("div", { class: "gth-pane" }, schedulePaneChildren);
+
+    var sections = [header, schedulePane];
 
     if (shortlistSelectionVisible()) {
-      children.push(renderShortlistSelection());
+      sections.push(renderShortlistSelection());
     }
 
     if (state.gathering.votingStartedAt !== null) {
-      children.push(renderShortlistedShopVotes());
+      sections.push(renderShortlistedShopVotes());
     }
 
     if (phase === "FINALIZED") {
-      children.push(renderFinalizedSummary());
+      sections.push(renderFinalizedSummary());
     }
 
+    var linkPaneHeadChildren = [el("div", { class: "gth-pane-head" }, ["発行済みリンク"])];
     // participantLinkCopy.presenceRule (adr/0042): absent once FINALIZED (P4).
     if (phase !== "FINALIZED") {
-      children.push(renderParticipantLinkCopy());
+      linkPaneHeadChildren.push(renderParticipantLinkCopy());
     }
+    sections.push(
+      el("div", { class: "gth-pane" }, [
+        el("div", { class: "gth-pane-head-row" }, linkPaneHeadChildren),
+        renderParticipantLinkList(),
+      ])
+    );
 
-    children.push(renderParticipantLinkList());
-
-    root.appendChild(el("div", {}, children));
+    root.appendChild(el("div", { class: "gth-dash" }, sections));
   }
 
   loadGathering();

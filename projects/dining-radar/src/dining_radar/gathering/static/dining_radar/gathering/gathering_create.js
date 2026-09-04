@@ -155,6 +155,7 @@
         type: "datetime-local",
         "data-testid": "gathering-create-candidate-date-input",
         value: row.value || undefined,
+        "class": "gathering-input",
       },
       []
     );
@@ -176,6 +177,7 @@
           type: "button",
           "data-testid": "gathering-create-remove-candidate-date-row",
           "data-gathering-control-purpose": "gathering-create-remove-candidate-date-row",
+          "class": "gathering-btn gathering-btn-small",
         },
         ["削除"]
       );
@@ -201,6 +203,7 @@
         "data-testid": "gathering-create-name-input",
         placeholder: "例: 第8回 社内ランチ会",
         value: state.title || undefined,
+        "class": "gathering-input",
       },
       []
     );
@@ -223,8 +226,9 @@
         type: "button",
         "data-testid": "gathering-create-add-candidate-date-row",
         "data-gathering-control-purpose": "gathering-create-add-candidate-date-row",
+        "class": "gathering-link-btn",
       },
-      ["候補日を足す"]
+      ["＋ 候補日を足す"]
     );
     addRowButton.addEventListener("click", addRow);
 
@@ -235,6 +239,7 @@
         "data-testid": "gathering-create-submit",
         "data-gathering-control-purpose": "gathering-create-submit",
         disabled: !canSubmit(),
+        "class": "gathering-btn gathering-btn-primary",
       },
       ["会をつくる"]
     );
@@ -246,14 +251,15 @@
         type: "button",
         "data-testid": "gathering-create-cancel",
         "data-gathering-control-purpose": "gathering-create-cancel",
+        "class": "gathering-btn",
       },
       ["やめる"]
     );
     cancelButton.addEventListener("click", cancel);
 
     var children = [
-      el("label", {}, ["会の名前", nameInput]),
-      el("label", {}, ["最初の候補日"]),
+      el("label", { "class": "gathering-field" }, ["会の名前", nameInput]),
+      el("label", { "class": "gathering-field-label" }, ["最初の候補日"]),
       rowsContainer,
       addRowButton,
     ];
@@ -262,7 +268,7 @@
     }
     children.push(el("div", { "class": "gathering-create-actions" }, [submitButton, cancelButton]));
 
-    root.appendChild(el("div", {}, children));
+    root.appendChild(el("div", { "class": "gathering-create-form" }, children));
   }
 
   render();
