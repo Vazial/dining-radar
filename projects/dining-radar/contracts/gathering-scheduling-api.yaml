@@ -175,10 +175,24 @@
 #   前回の改訂で定義漏れ（宙に浮いた`$ref`）になっていたことに気づき、あわせて追加した
 #   （`approvedShopIds`、0件以上）——今回の人間裁定とは独立した、architect自身の監査による修正
 #   である。
+#
+# 2026-09-04 追補 (architect、ADR-0042。designerがPickFive.dc.html／Final.dc.htmlを仕上げ、
+#   browser-interface契約を起草する過程で発見した1件の自己監査による修正):
+# - **`OpenShopPreviewItem`に`shopId`を追加する**: PickFive.dc.html（5件選定、案A＝ダッシュボード
+#   内のチェックリスト）を観測可能にするには、一覧の各行が`setShortlistedShops`へ送る実際の
+#   `shopId`を特定できる必要がある。しかし`previewOpenShopsForCandidateDate`（`ADR-0040`が
+#   「5件選定の下見にも再利用する」とした既存エンドポイント）の`OpenShopPreviewItem`は、起草時点
+#   （`ADR-0035`）から一貫して表示専用フィールドのみを持ち、`shopId`を含んでいなかった——
+#   `CandidateDateOpenShopPreview.previewShops`の説明文も「この対応づけ方法は固定しない」と
+#   明示的に先送りしていた。browser-interface契約がチェックボックスと`shopId`を結びつける
+#   具体的な観測面を必要とする段になり、この先送りは実装不能な仕様になることが判明したため、
+#   `OpenShopPreviewItem`へ`shopId`（必須）を追加し、先送りの記述を削除した。これは今回の
+#   designer材料・人間裁定のいずれにも起因しない、architect自身が契約起草の過程で見つけた
+#   実装可能性の穴の修正である（FR-028として報告する）。
 openapi: 3.0.3
 info:
   title: Dining Radar Gathering Scheduling API
-  version: 0.5.0
+  version: 0.5.1
   description: >-
     Lets an authenticated organizer list their gatherings, create a gathering
     with candidate dates, add further candidate dates while scheduling, issue
@@ -201,12 +215,14 @@ info:
     covers the full "会の作成と日程調整・店の絞り込み連携・承認投票・確定" scope
     (adr/0040 merges what adr/0035 decision 2 had originally split into 4
     slices, per explicit 2026-09-03 human decision; adr/0041 records a
-    further round of 6 human decisions the same day, P1-P6). The gathering
-    never persists provider-derived shop attributes (name, genre,
-    coordinates, hours, images); "open shop" counts, previews, and
-    shortlisted-shop displays are all recomputed from the private candidate
-    population on every read (adr/0034 decision 6). DRAFT: this contract
-    version is not yet human-approved; see
+    further round of 6 human decisions the same day, P1-P6; adr/0042 adds
+    the browser-interface contract and a self-audited OpenShopPreviewItem.
+    shopId fix needed to make it implementable). The gathering never
+    persists provider-derived shop attributes (name, genre, coordinates,
+    hours, images); "open shop" counts, previews, and shortlisted-shop
+    displays are all recomputed from the private candidate population on
+    every read (adr/0034 decision 6). DRAFT: this contract version is not yet
+    human-approved; see
     adr/0035-scope-the-gathering-scheduling-slice-and-record-2026-08-30-decisions.md,
     adr/0036-adopt-gathering-scheduling-browser-interface-contract.md
     (decision 7, participant-link management),
@@ -214,8 +230,9 @@ info:
     (gathering list, creation screen, inline add-date form, candidate-screen
     entry point),
     adr/0040-merge-shop-narrowing-voting-and-finalization-into-one-slice.md,
+    adr/0041-refine-shortlisting-recopy-and-the-finalized-participant-view.md,
     and
-    adr/0041-refine-shortlisting-recopy-and-the-finalized-participant-view.md
+    adr/0042-adopt-shortlist-vote-finalize-browser-interface-contract.md
     (this revision).
 servers:
   - url: https://app.example.invalid
@@ -1364,9 +1381,8 @@ components:
         6). Ordered within Gathering.shortlistedShops by `approvalCount`
         descending (Organizer.dc.html: "並び: 行ってもいい人が多い順");
         no manual reorder control exists (unavailableControls.
-        forbiddenPurposes' manual-ordering category, when the browser
-        contract for this list is drafted, is expected to cover it the same
-        way it already covers candidateDateList and participantLinkList).
+        forbiddenPurposes' manual-ordering category already covers this
+        list, adr/0042 -- see gathering-scheduling-browser-interface.yaml).
         This schema carries its own display fields (rather than reusing
         LiveProjectedShop) because it additionally requires `addedAt` and
         the two vote-tally fields, which LiveProjectedShop's narrower,
@@ -1375,12 +1391,10 @@ components:
         shopId:
           type: string
           description: >-
-            The same opaque provider shop identifier OpenShopPreviewItem's
-            surrounding preview items are keyed by conceptually (this schema
-            does not itself expose an id on OpenShopPreviewItem, since that
-            endpoint's previewShops are display-only; shortlisting promotes
-            one specific shop's id to a durable reference, ADR-0034 decision
-            6).
+            The same opaque provider shop identifier
+            OpenShopPreviewItem.shopId uses (adr/0042 -- the organizer
+            builds setShortlistedShops' shopIds from the shopId attributes
+            it reads off the open-shop preview it browsed).
         addedAt:
           type: string
           format: date-time
@@ -1592,7 +1606,7 @@ components:
             (adr/0038, designer's judgment carried into this contract).
     OpenShopPreviewItem:
       type: object
-      required: [name, genre, capacityTier, nonSmokingStatus, dinnerBudgetTier]
+      required: [shopId, name, genre, capacityTier, nonSmokingStatus, dinnerBudgetTier]
       additionalProperties: false
       description: >-
         A live, non-persisted projection of one shop for the organizer's
@@ -1602,8 +1616,18 @@ components:
         candidate-search-api.yaml's Candidate schema (ADR-0019) -- not the
         raw seat counts shown in the designer's non-approved exploratory
         canvas (adr/0035 decision 5's scope: that canvas is an input, not an
-        approved design).
+        approved design). `shopId` was added 2026-09-04 (adr/0042,
+        architect self-audit, not part of any human decision this round) --
+        drafting-time versions of this schema left the item display-only,
+        deferring how a client would correlate a previewed row with the
+        shopId it later submits to setShortlistedShops; once
+        gathering-scheduling-browser-interface.yaml needed a concrete
+        checkbox-to-shopId observation for PickFive.dc.html, this
+        deferral turned out to make the approved screen unimplementable,
+        so this field was added rather than left open any longer.
       properties:
+        shopId:
+          type: string
         name:
           type: string
         genre:
@@ -1648,15 +1672,18 @@ components:
             $ref: '#/components/schemas/OpenShopPreviewItem'
           description: >-
             A nearest-first subset of the open shops for this candidate
-            date, for organizer preview only. The exact number shown is a
-            UI-implementation detail this schema does not fix (same pattern
-            as candidate-search-api.yaml's display cap); `openShopCount` is
-            the authoritative total. This endpoint does not itself expose a
-            shop id per item (previewShops entries are display-only); a shop
-            the organizer decides to shortlist is identified by shopId via
-            setShortlistedShops instead (adr/0040) -- this contract does not
-            fix how the client correlates a previewed row with the shopId it
-            submits, only that the population the two draw from is the same.
+            date. The exact number shown is a UI-implementation detail this
+            schema does not fix (same pattern as candidate-search-api.
+            yaml's display cap); `openShopCount` is the authoritative
+            total. Once the gathering reaches SELECTING_SHOP, this same
+            array (now with each item's `shopId`, adr/0042) is also what
+            the organizer's shortlist-selection surface renders and
+            chooses from (PickFive.dc.html) -- when `openShopCount` exceeds
+            `previewShops.length`, the excess shops are not reachable
+            through this contract's selection surface in this slice; this
+            is a known, unmeasured scale limitation PickFive.dc.html itself
+            flags ("母集団が多い日の見え方は描いていない"), not resolved
+            here.
     SetShortlistedShopsRequest:
       type: object
       additionalProperties: false
@@ -2039,13 +2066,14 @@ components:
             gathering's title -- scheduleQuestions/shopVoteQuestions remain
             in the response for historical reference (this participant's
             own past answers, in their original per-candidate-date/per-shop
-            shape) but no further mutation is accepted
+            shape), but gathering-scheduling-browser-interface.yaml's
+            finalizedView (adr/0042) fully replaces both surfaces with the
+            flat `decision` summary rather than rendering them alongside it
+            -- resolving this schema's own previously-open note ("left to
+            that later contract, ADR-0013 order") in favor of replacement,
+            not coexistence. No further mutation is accepted regardless
             (setScheduleResponse/setShopVotes both reject with
-            GATHERING_FINALIZED once phase is FINALIZED). Whether a future
-            browser-interface contract's confirmed-participant screen
-            displays anything from scheduleQuestions/shopVoteQuestions
-            alongside `decision` is left to that later contract (ADR-0013
-            order; not yet drafted, adr/0040).
+            GATHERING_FINALIZED once phase is FINALIZED).
     ProblemResponse:
       type: object
       required: [code, message]
