@@ -164,11 +164,28 @@
 #   区別を再定義していない（Organizer.dc.html自体は今回「承認済み・無変更」として扱われている）。
 #   本契約は両方を同じ`gathering-shortlist-open`purposeの2インスタンスとして扱う——これが
 #   正しいかは人間の確認待ちとする。
+#
+# 2026-09-04 追補2 (architect、ADR-0043。developerが実装中に発見した契約の自己矛盾、FR-028):
+# - **矛盾の内容**: `browserEntry.participantAnswer.validLinkOutcome`は2026-08-30起草時点から
+#   `present: [gathering-participant-header, gathering-schedule-question]`と書いており、有効な
+#   リンクを開けば常に`gathering-schedule-question`が存在すると要求していた。一方、
+#   `scheduleQuestion.presenceRule`（本ファイル2026-09-04追補、adr/0042）は「`ParticipantView.
+#   decision`が非nullなら`gathering-schedule-question`は不在」と明記した。確定後
+#   （`decision`が非null）の状態で両者は文字どおり矛盾する——これはarchitect自身がadr/0042起草時に
+#   見落としていた、`validLinkOutcome`という古い記述との整合確認漏れである。developerが実装中に
+#   発見し、FR-028の流儀（解消せず報告）でそのまま報告した。
+# - **修正方針**: developerの実装判断（新しく具体的な`presenceRule`を正とし、確定後は設問を
+#   出さない）を追認する——`Final.dc.html`B-3自体がこの読みを裏づけている（決定後は
+#   per-candidate-date/per-shopの内訳を再掲しない）。`validLinkOutcome`の文面を、有効なリンクに
+#   ついて無条件に成り立つことだけ（ヘッダーの存在・エラー面の不在）に狭め、局面・`decision`に
+#   依存する要素（`gathering-schedule-question`・`gathering-participant-decision`等）の生死は、
+#   それぞれの`presenceRule`だけに委ね、`validLinkOutcome`側では二重に記述しない——同じ条件を
+#   2箇所に書くと、今回のように片方だけ更新されて食い違う再発を防ぐための設計判断である。
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.5'
+contractVersion: '0.5.1'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -295,8 +312,33 @@ browserEntry:
       browser opens it, this contract makes no special-case requirement --
       the token still governs access on its own.
     validLinkOutcome:
-      present: [gathering-participant-header, gathering-schedule-question]
+      present: [gathering-participant-header]
       absent: [gathering-participant-link-error]
+      conditionalPresence: >-
+        Fixed 2026-09-04 (adr/0043, resolving a self-contradiction developer
+        found during implementation, FR-028). This entry originally also
+        listed gathering-schedule-question as unconditionally present (the
+        2026-08-30 draft, written before decision/finalizedView existed);
+        once scheduleQuestion.presenceRule was added (2026-09-04, adr/0042)
+        to make it absent whenever ParticipantView.decision is non-null, the
+        two entries contradicted each other for any finalized gathering.
+        This entry is now narrowed to only what holds unconditionally for
+        any valid link: the header is present and the error surface is
+        absent. Which decision/phase-dependent surface is present instead
+        (gathering-schedule-question while decision is null,
+        gathering-participant-decision once decision is non-null,
+        gathering-shop-vote-question once voting has started and decision
+        is still null) is governed entirely by each element's own
+        presenceRule elsewhere in this contract (scheduleQuestion.
+        presenceRule, shopVoteQuestion.presenceRule, finalizedView.
+        presenceRule) -- deliberately not restated here a second time, so
+        that a future change to one of those conditions cannot silently
+        re-introduce the same drift by leaving a stale copy in this entry.
+        developer's implementation (treating the newer, more specific
+        presenceRule as authoritative -- no schedule question once
+        finalized) is confirmed correct by this fix and by Final.dc.html
+        B-3 itself, which does not repeat the per-candidate-date breakdown
+        once the decision is shown.
     invalidLinkOutcome:
       present: [gathering-participant-link-error]
       absent: [gathering-participant-header, gathering-schedule-question,
@@ -1304,7 +1346,11 @@ browserControlSurface:
         breakdown, only finalizedView.decision below. This resolves
         gathering-scheduling-api.yaml's own previously-open note ("left to
         that later contract, ADR-0013 order") in favor of full
-        replacement, not coexistence.
+        replacement, not coexistence. **This is the sole authority for
+        this element's presence** -- browserEntry.participantAnswer.
+        validLinkOutcome does not separately restate this condition (fixed
+        2026-09-04, adr/0043, after the two entries were found to
+        contradict each other post-FINALIZED).
       cardinality: >-
         This contract does not fix whether every CandidateDate renders
         simultaneously or progressively (a wizard-style one-at-a-time flow,
