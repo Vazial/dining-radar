@@ -53,6 +53,13 @@ from .serializers import (
     serialize_participant_view,
 )
 
+# SetShortlistedShopsRequest.shopIds is checked for count/duplicate/
+# membership validity in dining_radar.gathering.services (all three map to
+# INVALID_SHOP_SELECTION, adr/0040) -- this module's own parsing only
+# rejects a structurally malformed body (not a list, or containing a
+# non-string/empty element), matching createGathering's existing REQUEST_
+# REJECTED-vs-domain-error split.
+
 _SCHEDULE_RESPONSE_STATUSES = frozenset(status.value for status in ScheduleResponseStatus)
 _MAX_ISSUE_COUNT = 200
 _RATE_LIMIT_RETRY_AFTER_SECONDS = 30
@@ -127,6 +134,21 @@ _DUPLICATE_CANDIDATE_DATE = (
     "DUPLICATE_CANDIDATE_DATE",
     "This candidate date has already been added.",
 )
+_GATHERING_NOT_IN_SELECTING_SHOP_PHASE = (
+    409,
+    "GATHERING_NOT_IN_SELECTING_SHOP_PHASE",
+    "Confirm a candidate date before selecting shops to vote on.",
+)
+_SHOP_VOTING_NOT_STARTED = (
+    409,
+    "SHOP_VOTING_NOT_STARTED",
+    "Select shops to vote on before finalizing.",
+)
+_INVALID_SHOP_SELECTION = (
+    400,
+    "INVALID_SHOP_SELECTION",
+    "One or more selected shops are not valid for this gathering.",
+)
 
 
 def _organizer_error_response(error: Exception) -> JsonResponse:
@@ -142,6 +164,14 @@ def _organizer_error_response(error: Exception) -> JsonResponse:
         return _problem(*_PARTICIPANT_LINK_ALREADY_ANSWERED)
     if isinstance(error, services.ParticipantLinkRevokedError):
         return _problem(*_PARTICIPANT_LINK_REVOKED)
+    if isinstance(error, services.GatheringFinalizedError):
+        return _problem(*_GATHERING_FINALIZED)
+    if isinstance(error, services.GatheringNotInSelectingShopPhaseError):
+        return _problem(*_GATHERING_NOT_IN_SELECTING_SHOP_PHASE)
+    if isinstance(error, services.ShopVotingNotStartedError):
+        return _problem(*_SHOP_VOTING_NOT_STARTED)
+    if isinstance(error, services.InvalidShopSelectionError):
+        return _problem(*_INVALID_SHOP_SELECTION)
     raise error
 
 
@@ -160,6 +190,10 @@ def _participant_link_error_response(error: Exception) -> JsonResponse:
         return _problem(*_GATHERING_FINALIZED)
     if isinstance(error, services.CandidateDateNotFoundError):
         return _problem(*_CANDIDATE_DATE_NOT_FOUND)
+    if isinstance(error, services.ShopVotingNotStartedError):
+        return _problem(*_SHOP_VOTING_NOT_STARTED)
+    if isinstance(error, services.InvalidShopSelectionError):
+        return _problem(*_INVALID_SHOP_SELECTION)
     raise error
 
 
@@ -225,6 +259,30 @@ def _parse_display_name(raw: object) -> str:
 
 def _parse_status(raw: object) -> str:
     if raw not in _SCHEDULE_RESPONSE_STATUSES:
+        raise MalformedRequestError
+    return raw
+
+
+def _parse_shop_id_list(raw: object) -> list[str]:
+    """Structural shape only (a list of non-empty strings, of any length).
+
+    Count bounds, duplicates, and population/shortlist membership are all
+    ``INVALID_SHOP_SELECTION`` domain errors raised by
+    ``dining_radar.gathering.services``, not ``REQUEST_REJECTED`` -- see
+    this module's header comment.
+    """
+    if not isinstance(raw, list):
+        raise MalformedRequestError
+    parsed = []
+    for item in raw:
+        if not isinstance(item, str) or not item:
+            raise MalformedRequestError
+        parsed.append(item)
+    return parsed
+
+
+def _parse_shop_id(raw: object) -> str:
+    if not isinstance(raw, str) or not raw:
         raise MalformedRequestError
     return raw
 
@@ -355,7 +413,7 @@ def participant_links(request, gathering_id):
 
     try:
         gathering, links = services.issue_participant_links(request.user, gathering_id, count)
-    except services.GatheringNotFoundError as error:
+    except (services.GatheringNotFoundError, services.GatheringFinalizedError) as error:
         return _organizer_error_response(error)
     return JsonResponse(
         {
@@ -440,6 +498,63 @@ def confirm_date(request, gathering_id):
     return JsonResponse(serialize_gathering(gathering), status=200)
 
 
+@csrf_exempt
+@require_http_methods(["PUT"])
+def shortlisted_shops(request, gathering_id):
+    """``PUT /gatherings/{gatheringId}/shortlisted-shops``: ``setShortlistedShops``."""
+    if not request.user.is_authenticated:
+        return _problem(*_AUTHENTICATION_REQUIRED)
+    if _csrf_failed(request):
+        return _problem(*_REQUEST_REJECTED)
+    try:
+        body = _read_body(request)
+        if set(body) != {"shopIds"}:
+            raise MalformedRequestError
+        shop_ids = _parse_shop_id_list(body["shopIds"])
+    except MalformedRequestError:
+        return _problem(*_REQUEST_REJECTED)
+
+    try:
+        gathering = services.set_shortlisted_shops(request.user, gathering_id, shop_ids)
+    except (
+        services.GatheringNotFoundError,
+        services.GatheringNotInSelectingShopPhaseError,
+        services.GatheringFinalizedError,
+        services.InvalidShopSelectionError,
+    ) as error:
+        return _organizer_error_response(error)
+    return JsonResponse(serialize_gathering(gathering), status=200)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def finalize(request, gathering_id):
+    """``POST /gatherings/{gatheringId}/finalize``: ``finalizeGathering``."""
+    if not request.user.is_authenticated:
+        return _problem(*_AUTHENTICATION_REQUIRED)
+    if _csrf_failed(request):
+        return _problem(*_REQUEST_REJECTED)
+    try:
+        body = _read_body(request)
+        if set(body) != {"shopId"}:
+            raise MalformedRequestError
+        shop_id = _parse_shop_id(body["shopId"])
+    except MalformedRequestError:
+        return _problem(*_REQUEST_REJECTED)
+
+    try:
+        gathering = services.finalize_gathering(request.user, gathering_id, shop_id)
+    except (
+        services.GatheringNotFoundError,
+        services.GatheringNotInSelectingShopPhaseError,
+        services.ShopVotingNotStartedError,
+        services.GatheringFinalizedError,
+        services.InvalidShopSelectionError,
+    ) as error:
+        return _organizer_error_response(error)
+    return JsonResponse(serialize_gathering(gathering), status=200)
+
+
 # --- participant JSON API (signed token, no session, no CSRF) ---------------
 
 
@@ -479,6 +594,33 @@ def schedule_response(request, token, candidate_date_id):
         services.LinkRateLimitedError,
         services.GatheringFinalizedError,
         services.CandidateDateNotFoundError,
+    ) as error:
+        return _participant_link_error_response(error)
+    return JsonResponse(serialize_participant_view(link), status=200)
+
+
+@csrf_exempt
+@require_http_methods(["PUT"])
+def shop_votes(request, token):
+    """``PUT /participant-links/{token}/shop-votes``: ``setShopVotes``."""
+    try:
+        body = _read_body(request)
+        if set(body) != {"approvedShopIds"}:
+            raise MalformedRequestError
+        approved_shop_ids = _parse_shop_id_list(body["approvedShopIds"])
+    except MalformedRequestError:
+        return _problem(*_REQUEST_REJECTED)
+
+    try:
+        link = services.set_shop_votes(token, approved_shop_ids)
+    except (
+        services.LinkNotFoundError,
+        services.LinkExpiredError,
+        services.LinkRevokedError,
+        services.LinkRateLimitedError,
+        services.ShopVotingNotStartedError,
+        services.GatheringFinalizedError,
+        services.InvalidShopSelectionError,
     ) as error:
         return _participant_link_error_response(error)
     return JsonResponse(serialize_participant_view(link), status=200)

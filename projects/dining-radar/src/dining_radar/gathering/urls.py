@@ -44,12 +44,23 @@ urlpatterns = [
         name="participant-link-revoke",
     ),
     path("gatherings/<uuid:gathering_id>/confirm-date", views.confirm_date, name="confirm-date"),
+    path(
+        "gatherings/<uuid:gathering_id>/shortlisted-shops",
+        views.shortlisted_shops,
+        name="shortlisted-shops",
+    ),
+    path("gatherings/<uuid:gathering_id>/finalize", views.finalize, name="finalize"),
     # Participant JSON API (signed token, no session, no CSRF).
     path("participant-links/<str:token>", views.participant_view, name="participant-view"),
     path(
         "participant-links/<str:token>/responses/<uuid:candidate_date_id>",
         views.schedule_response,
         name="schedule-response",
+    ),
+    path(
+        "participant-links/<str:token>/shop-votes",
+        views.shop_votes,
+        name="shop-votes",
     ),
     path(
         "participant-links/<str:token>/display-name",
