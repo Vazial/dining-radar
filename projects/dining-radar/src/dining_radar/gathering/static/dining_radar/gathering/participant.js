@@ -114,6 +114,39 @@
     });
   }
 
+  // --- shared-date-formatting BEGIN (identical copy in gathering.js; keep both in sync) ---
+  // Every startAt/confirmedCandidateDate value this screen ever receives
+  // from the public API was itself produced by tagging a raw
+  // <input type="datetime-local"> value as a literal UTC instant
+  // (gathering.js's dateTimeLocalValueToIso: `value + ":00Z"`). Formatting
+  // it for display must read back the *same* UTC calendar/clock
+  // components, not convert to the viewing browser's own host timezone
+  // (toLocaleString()/getHours()/getDate()/getDay() etc. all use the
+  // host's local timezone per the JS spec) -- doing so would silently turn
+  // the organizer's typed "12:00" into a different wall-clock number on a
+  // non-UTC host, the same class of bug TDR-GTH-24 already found in the
+  // opposite (input) direction. Human decision 2026-09-04 (real-measurement
+  // finding: dates rendered as the raw ISO string, unreadable): format as
+  // "M/D (曜) HH:MM" (Organizer.dc.html/Answer.dc.html/Final.dc.html's own
+  // display convention), reading every component from the Date object's
+  // UTC accessors only.
+  var WEEKDAY_LABELS_JA = ["日", "月", "火", "水", "木", "金", "土"];
+
+  function pad2(value) {
+    return value < 10 ? "0" + value : String(value);
+  }
+
+  function formatGatheringDateTime(isoString) {
+    var date = new Date(isoString);
+    var month = date.getUTCMonth() + 1;
+    var day = date.getUTCDate();
+    var weekday = WEEKDAY_LABELS_JA[date.getUTCDay()];
+    var hours = pad2(date.getUTCHours());
+    var minutes = pad2(date.getUTCMinutes());
+    return month + "/" + day + " (" + weekday + ") " + hours + ":" + minutes;
+  }
+  // --- shared-date-formatting END ---
+
   function participantUrl() {
     return "/participant-links/" + encodeURIComponent(token);
   }
@@ -339,7 +372,7 @@
     var yourResponse = question.yourResponse;
     var children = [
       el("div", { class: "gth-done-top" }, [
-        el("div", { class: "gth-done-date" }, [question.startAt]),
+        el("div", { class: "gth-done-date" }, [formatGatheringDateTime(question.startAt)]),
         el("div", { class: "gth-done-badge" }, [RESPONSE_LABELS[yourResponse]]),
       ]),
     ];
@@ -389,7 +422,7 @@
       },
       [
         el("div", { class: "gth-open-label" }, ["この日、行けそう？"]),
-        el("div", { class: "gth-open-date" }, [question.startAt]),
+        el("div", { class: "gth-open-date" }, [formatGatheringDateTime(question.startAt)]),
         el("div", { class: "gth-open-shop-count" }, [
           "この日に開いている店 ",
           el("b", {}, [String(question.openShopCount)]),
@@ -547,7 +580,7 @@
       [
         el("div", { class: "gth-final-badge" }, ["決まりました"]),
         el("div", { class: "gth-final-when-lb" }, ["日時"]),
-        el("div", { class: "gth-final-when" }, [decision.confirmedCandidateDate]),
+        el("div", { class: "gth-final-when" }, [formatGatheringDateTime(decision.confirmedCandidateDate)]),
         el("div", { class: "gth-final-shop-lb" }, ["お店"]),
         el("div", { class: "gth-final-shop" }, [decision.shop.name]),
         el("div", { class: "gth-final-yours-lb" }, ["あなたの記録"]),

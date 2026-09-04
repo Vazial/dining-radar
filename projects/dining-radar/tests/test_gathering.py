@@ -10,7 +10,11 @@ the JSON API views, plus the acceptance-only test-support seams
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
+import subprocess
+import unittest
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -63,6 +67,16 @@ GATHERING_LIST_JS = (
     / "dining_radar"
     / "gathering"
     / "gathering_list.js"
+)
+PARTICIPANT_JS = (
+    PROJECT_ROOT
+    / "src"
+    / "dining_radar"
+    / "gathering"
+    / "static"
+    / "dining_radar"
+    / "gathering"
+    / "participant.js"
 )
 
 
@@ -3288,3 +3302,189 @@ class GatheringListAlwaysPresentSourceTests(SimpleTestCase):
             "gatherings.length === 0 branch that adds gathering-list-empty "
             "as an additional sibling",
         )
+
+
+# --- date-display formatting (human 2026-09-04: raw ISO strings were unreadable) --
+
+_DATE_FORMAT_SNIPPET_BEGIN = "// --- shared-date-formatting BEGIN"
+_DATE_FORMAT_SNIPPET_END = "// --- shared-date-formatting END ---"
+# The *code* starts at this stable marker, deliberately after the leading
+# prose comment -- that comment's own wording differs by one clause between
+# the two files (each names the *other* file as "the identical copy"), so
+# comparing from here on excludes that intentional, cosmetic difference
+# while still comparing every executable line verbatim. It also excludes
+# the comment's own prose mention of the very method names
+# (toLocaleString()/getHours()/etc.) the forbidden-accessor check below
+# scans for -- that mention is deliberate documentation of what *not* to
+# use, not a call site, so it must not itself trip that check.
+_DATE_FORMAT_CODE_BEGIN = "var WEEKDAY_LABELS_JA ="
+
+
+def _extract_date_format_snippet(source: str) -> str:
+    start = source.index(_DATE_FORMAT_SNIPPET_BEGIN)
+    end = source.index(_DATE_FORMAT_SNIPPET_END, start) + len(_DATE_FORMAT_SNIPPET_END)
+    return source[start:end]
+
+
+def _extract_date_format_code(source: str) -> str:
+    snippet = _extract_date_format_snippet(source)
+    return snippet[snippet.index(_DATE_FORMAT_CODE_BEGIN) :]
+
+
+class GatheringDateTimeFormattingSourceTests(SimpleTestCase):
+    """Guards the fix for a real readability gap human real-measurement found
+    (2026-09-04): ``gathering-candidate-date``/``gathering-decision-banner``/
+    ``gathering-schedule-question``/``gathering-participant-decision`` all
+    rendered a raw ISO-8601 string (e.g. "2026-09-07T12:00:00+00:00")
+    instead of a readable "M/D (曜) HH:MM" -- Organizer.dc.html/
+    Answer.dc.html/Final.dc.html's own display convention.
+
+    Every value this formatter reads was itself produced by tagging a raw
+    ``<input type="datetime-local">`` value as a literal UTC instant
+    (``dateTimeLocalValueToIso``/``toStartAtIso``, TDR-GTH-24's own fix) --
+    formatting must read back the *same* UTC calendar/clock components, not
+    the viewing browser's own host timezone (mirrors
+    ``DateTimeLocalConversionSourceTests``'s own reasoning for the opposite,
+    input, direction). Proof by construction: JS's ``getUTC*`` accessors are
+    defined by spec to be host-timezone-independent, so verifying only
+    those accessors are used is a complete proof of TZ-independence, not
+    merely circumstantial evidence -- ``GatheringDateTimeFormattingExecution
+    Tests`` below additionally proves this empirically by executing the
+    real function under different ``TZ`` environment values.
+    """
+
+    def test_gathering_js_and_participant_js_carry_the_identical_code(self):
+        gathering_code = _extract_date_format_code(GATHERING_JS.read_text(encoding="utf-8"))
+        participant_code = _extract_date_format_code(PARTICIPANT_JS.read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            gathering_code,
+            participant_code,
+            "gathering.js and participant.js must carry byte-identical "
+            "copies of the shared formatter's own code (no shared-module "
+            "system exists in this codebase; every other small utility -- "
+            "el()/csrfToken()/requestJson() -- is already duplicated the "
+            "same way). Only the leading prose comment's own "
+            "self-reference ('identical copy in <the other file>') may "
+            "differ between the two.",
+        )
+
+    def test_uses_only_utc_accessors_never_a_host_local_equivalent(self):
+        for path in (GATHERING_JS, PARTICIPANT_JS):
+            snippet = _extract_date_format_code(path.read_text(encoding="utf-8"))
+            for required in (
+                "getUTCMonth",
+                "getUTCDate()",
+                "getUTCDay()",
+                "getUTCHours()",
+                "getUTCMinutes()",
+            ):
+                self.assertIn(required, snippet, f"{path.name} is missing {required}")
+            for forbidden in (
+                "toLocaleString(",
+                "toLocaleDateString(",
+                "toLocaleTimeString(",
+                ".getHours(",
+                ".getMinutes(",
+                ".getDate(",
+                ".getMonth(",
+                ".getDay(",
+                ".getFullYear(",
+            ):
+                self.assertNotIn(
+                    forbidden,
+                    snippet,
+                    f"{path.name} must never read a host-timezone-dependent "
+                    f"component ({forbidden}) when formatting for display",
+                )
+
+    def test_every_display_call_site_goes_through_the_formatter(self):
+        gathering_source = GATHERING_JS.read_text(encoding="utf-8")
+        self.assertNotIn("[candidateDate.startAt]", gathering_source)
+        self.assertNotIn("[confirmed ? confirmed.startAt", gathering_source)
+        self.assertIn("formatGatheringDateTime(candidateDate.startAt)", gathering_source)
+        self.assertIn("formatGatheringDateTime(confirmed.startAt)", gathering_source)
+
+        participant_source = PARTICIPANT_JS.read_text(encoding="utf-8")
+        self.assertNotIn("[question.startAt]", participant_source)
+        self.assertNotIn("[decision.confirmedCandidateDate]", participant_source)
+        self.assertIn("formatGatheringDateTime(question.startAt)", participant_source)
+        self.assertIn(
+            "formatGatheringDateTime(decision.confirmedCandidateDate)", participant_source
+        )
+
+    def test_dashboard_heading_shows_the_gathering_title(self):
+        # Human 2026-09-04 real-measurement finding: the dashboard heading
+        # was the generic "会の日程調整" title only, with no way to tell
+        # which gathering is open from the screen itself. This contract's
+        # organizerDashboard section defines no test id for the gathering's
+        # own name (unlike organizerGatheringList's data-gathering-title),
+        # so this is rendered as a plain, purposeless element -- no
+        # data-testid, no data-gathering-control-purpose.
+        source = GATHERING_JS.read_text(encoding="utf-8")
+        self.assertIn('el("div", { class: "gth-title" }, [state.gathering.title])', source)
+
+
+@unittest.skipUnless(shutil.which("node"), "Node.js is not on PATH in this environment")
+class GatheringDateTimeFormattingExecutionTests(SimpleTestCase):
+    """Executes the real, extracted formatter with Node.js under different
+    ``TZ`` environment values, empirically proving the computed output never
+    depends on the executing host's own timezone (in addition to the
+    source-level proof above). Skipped, not failed, where Node.js is
+    unavailable -- this project's CI does not provision Node.js explicitly
+    (GitHub's ubuntu-latest runner images ship one already), and this test
+    must not become a hard environment dependency for a presentational-only
+    fix.
+    """
+
+    def _run_formatter(self, iso_value: str, tz: str) -> str:
+        snippet = _extract_date_format_snippet(GATHERING_JS.read_text(encoding="utf-8"))
+        script = snippet + "\nconsole.log(formatGatheringDateTime(" + json.dumps(iso_value) + "));"
+        # encoding="utf-8" is required on Windows: subprocess.run(text=True)
+        # otherwise decodes the child's stdout using the console's own
+        # codepage (cp932 in this environment), which cannot represent the
+        # Japanese weekday character node writes as UTF-8 bytes.
+        result = subprocess.run(
+            ["node", "-e", script],
+            capture_output=True,
+            encoding="utf-8",
+            env={**os.environ, "TZ": tz},
+            timeout=30,
+            check=True,
+        )
+        return result.stdout.strip()
+
+    def test_a_monday_noon_utc_instant_formats_correctly(self):
+        # 2026-09-07 is a real Monday (verified independently via Python's
+        # own datetime.date(2026, 9, 7).weekday() == 0).
+        formatted = self._run_formatter("2026-09-07T12:00:00+00:00", tz="UTC")
+
+        self.assertEqual(formatted, "9/7 (月) 12:00")
+
+    def test_output_is_identical_regardless_of_the_executing_hosts_own_timezone(self):
+        iso_value = "2026-08-27T12:00:00+00:00"
+
+        utc_result = self._run_formatter(iso_value, tz="UTC")
+        jst_result = self._run_formatter(iso_value, tz="Asia/Tokyo")
+        pacific_result = self._run_formatter(iso_value, tz="America/Los_Angeles")
+
+        self.assertEqual(utc_result, jst_result)
+        self.assertEqual(utc_result, pacific_result)
+        # 2026-08-27 is a real Thursday.
+        self.assertEqual(utc_result, "8/27 (木) 12:00")
+
+    def test_midnight_utc_does_not_roll_to_the_previous_or_next_local_day(self):
+        # The clearest possible demonstration: a UTC instant at the exact
+        # boundary of a calendar day. A host-timezone-dependent formatter
+        # (e.g. using getDate()/getDay() instead of getUTCDate()/getUTCDay())
+        # would show a *different* calendar date here depending on whether
+        # the host's own offset is positive or negative.
+        iso_value = "2026-09-07T00:00:00+00:00"
+
+        utc_result = self._run_formatter(iso_value, tz="UTC")
+        ahead_of_utc = self._run_formatter(iso_value, tz="Asia/Tokyo")
+        behind_utc = self._run_formatter(iso_value, tz="America/Los_Angeles")
+
+        self.assertEqual(utc_result, "9/7 (月) 00:00")
+        self.assertEqual(utc_result, ahead_of_utc)
+        self.assertEqual(utc_result, behind_utc)
