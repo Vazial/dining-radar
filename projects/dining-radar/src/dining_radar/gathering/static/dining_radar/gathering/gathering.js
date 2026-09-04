@@ -18,6 +18,22 @@
  * this script never clears either one as a side effect of a successful
  * confirm-date call.
  *
+ * 2026-09-04 addition (adr/0042, contract v0.5): shop shortlisting/approval-
+ * voting/finalization. Two more pieces of state are client-side pending
+ * selection only, mirroring web/static/dining_radar/web/candidate.js's own
+ * pending-filter convention (changePendingFilter: toggle now, apply only on
+ * an explicit submit):
+ *   - shortlistPending: { [shopId]: boolean } -- the checked state of
+ *     gathering-open-shop-list-item's checkbox before gathering-shortlist-
+ *     submit is activated. Never sent anywhere until that click.
+ *   - finalizeSelectedShopId: the one shopId currently selected by the
+ *     gathering-finalize-shop-select radio group, before gathering-finalize-
+ *     submit is activated.
+ * shortlistSelection.list reuses previewOpenShopsForCandidateDate (the same
+ * endpoint tentativeSelectionAndPreview already calls) for the confirmed
+ * candidate date -- gathering-scheduling-api.yaml's own 2026-09-03 header
+ * comment documents this reuse.
+ *
  * data-issued-link-url (participantLinkCopy.requiredOutcome /
  * participantLinkList.item.recopy.requiredOutcome) is likewise tracked in
  * `state` (headerIssuedLinkUrl / recopiedLinkUrls) rather than mutated
@@ -30,6 +46,25 @@
  * carried the attribute). Baking the value into the element's initial
  * attributes at build time, from state, means every rebuild reproduces it
  * instead of losing it.
+ *
+ * 2026-09-04 addition (human decision, same day as the adr/0042 slice --
+ * "作りかけに見える。見て判断できるところまで作りこんでほしい"): visual
+ * language pass. Every `el()` call below may now also carry a `class`
+ * attribute -- purely presentational, built from the same designer tokens
+ * `contracts/gathering-scheduling-browser-interface.yaml`'s referenced
+ * canvases use (`E:\AWS\dsg-out\party\*.dc.html`) and already partially
+ * adopted by web/static/dining_radar/web/candidate.js
+ * (candidate-gathering-entry's #14614a/#c6cfc6/#17201b). **No test id, no
+ * data-* attribute, and no data-gathering-control-purpose value changed or
+ * was added/removed by this pass** -- every attribute a contract or test
+ * observes is byte-for-byte the same as before. A handful of purely
+ * decorative wrapper/heading elements (no test id, `gathering.css`'s
+ * `.gth-pane`/`.gth-pane-head` etc.) were added around already-existing
+ * controls to group them into panels the way the approved canvases draw
+ * them; this changes *parent* nodes only, never the relative DOM order of
+ * two elements that share a test id (orderingInvariant is unaffected) and
+ * never how any element is located (tests locate by test id, not by exact
+ * tree depth).
  */
 (function () {
   "use strict";
@@ -40,6 +75,17 @@
   }
 
   var gatheringId = root.getAttribute("data-gathering-id");
+
+  // product-brief.md §2's three-phase state machine (adr/0038 D10) --
+  // display labels only; the machine-observed data-gathering-phase
+  // attribute always carries the raw enum value unchanged (ADR-0020
+  // decision 4(d)'s spirit: never expose the enum itself as the only
+  // visible text).
+  var PHASE_LABELS = {
+    SCHEDULING: "日程を聞き中",
+    SELECTING_SHOP: "店を選び中",
+    FINALIZED: "確定",
+  };
 
   var state = {
     gathering: null,
@@ -55,6 +101,24 @@
     addCandidateDateDuplicateError: false,
     headerIssuedLinkUrl: null,
     recopiedLinkUrls: {},
+    // adr/0042: the last-fetched CandidateDateOpenShopPreview for the
+    // confirmed candidate date, reused as shortlistSelection.list's source
+    // (same population previewOpenShopsForCandidateDate already exposes).
+    openShopList: null,
+    // adr/0042: client-side pending checked state for shortlistSelection's
+    // checkboxes -- shopId -> boolean. Never sent to setShortlistedShops
+    // until gathering-shortlist-submit is activated.
+    shortlistPending: {},
+    // adr/0042: whether shortlistSelection is shown while
+    // Gathering.votingStartedAt is already non-null (a D7 replace, opened
+    // via gathering-shortlist-open). Irrelevant while votingStartedAt is
+    // null -- shortlistSelectionVisible() shows the list unconditionally
+    // in that case (PickFive.dc.html's default first-time state).
+    shortlistReplaceOpen: false,
+    // adr/0042: client-side pending radio selection for
+    // shortlistedShopVotes.list.item.finalizeSelect, before
+    // gathering-finalize-submit is activated.
+    finalizeSelectedShopId: null,
   };
 
   function csrfToken() {
@@ -102,6 +166,39 @@
     return value + ":00Z";
   }
 
+  // --- shared-date-formatting BEGIN (identical copy in participant.js; keep both in sync) ---
+  // Every startAt/confirmedCandidateDate value this screen ever receives
+  // from the public API was itself produced by tagging a raw
+  // <input type="datetime-local"> value as a literal UTC instant
+  // (dateTimeLocalValueToIso above: `value + ":00Z"`). Formatting it for
+  // display must read back the *same* UTC calendar/clock components, not
+  // convert to the viewing browser's own host timezone
+  // (toLocaleString()/getHours()/getDate()/getDay() etc. all use the host's
+  // local timezone per the JS spec) -- doing so would silently turn the
+  // organizer's typed "12:00" into a different wall-clock number on a
+  // non-UTC host, the same class of bug TDR-GTH-24 already found in the
+  // opposite (input) direction. Human decision 2026-09-04 (real-measurement
+  // finding: dates rendered as the raw ISO string, unreadable): format as
+  // "M/D (曜) HH:MM" (Organizer.dc.html/Answer.dc.html/Final.dc.html's own
+  // display convention), reading every component from the Date object's
+  // UTC accessors only.
+  var WEEKDAY_LABELS_JA = ["日", "月", "火", "水", "木", "金", "土"];
+
+  function pad2(value) {
+    return value < 10 ? "0" + value : String(value);
+  }
+
+  function formatGatheringDateTime(isoString) {
+    var date = new Date(isoString);
+    var month = date.getUTCMonth() + 1;
+    var day = date.getUTCDate();
+    var weekday = WEEKDAY_LABELS_JA[date.getUTCDay()];
+    var hours = pad2(date.getUTCHours());
+    var minutes = pad2(date.getUTCMinutes());
+    return month + "/" + day + " (" + weekday + ") " + hours + ":" + minutes;
+  }
+  // --- shared-date-formatting END ---
+
   function el(tag, attrs, children) {
     var node = document.createElement(tag);
     Object.keys(attrs || {}).forEach(function (name) {
@@ -146,17 +243,73 @@
     return "/gatherings/" + gatheringId;
   }
 
-  function loadGathering() {
-    return requestJson("GET", gatheringUrl()).then(function (result) {
-      state.gathering = result.body;
-      return requestJson("GET", gatheringUrl() + "/participant-links");
-    }).then(function (result) {
-      state.participantLinks = result.body.participantLinks;
-      render();
+  // adr/0042: shortlistSelection is shown unconditionally while
+  // votingStartedAt is still null (PickFive.dc.html's default first-time
+  // state); once non-null, only while a D7 replace has been opened
+  // (gathering-shortlist-open). Always absent outside SELECTING_SHOP.
+  function shortlistSelectionVisible() {
+    if (!state.gathering || state.gathering.phase !== "SELECTING_SHOP") {
+      return false;
+    }
+    if (state.gathering.votingStartedAt === null) {
+      return true;
+    }
+    return state.shortlistReplaceOpen === true;
+  }
+
+  function fetchOpenShopListForShortlist() {
+    var candidateDateId = state.gathering.confirmedCandidateDateId;
+    if (!candidateDateId) {
+      return Promise.resolve();
+    }
+    return requestJson(
+      "GET",
+      gatheringUrl() + "/candidate-dates/" + candidateDateId + "/open-shop-preview"
+    ).then(function (result) {
+      if (result.status !== 200) {
+        return;
+      }
+      state.openShopList = result.body;
+      // D7 replace: pre-populate every item's pending checked state from
+      // the *current* Gathering.shortlistedShops
+      // (shortlistSelection.list.item.requirement, TDR-GTH-31/32).
+      var currentShopIds = {};
+      state.gathering.shortlistedShops.forEach(function (shop) {
+        currentShopIds[shop.shopId] = true;
+      });
+      var pending = {};
+      state.openShopList.previewShops.forEach(function (item) {
+        pending[item.shopId] = !!currentShopIds[item.shopId];
+      });
+      state.shortlistPending = pending;
     });
   }
 
+  function loadGathering() {
+    return requestJson("GET", gatheringUrl())
+      .then(function (result) {
+        state.gathering = result.body;
+        return requestJson("GET", gatheringUrl() + "/participant-links");
+      })
+      .then(function (result) {
+        state.participantLinks = result.body.participantLinks;
+        if (state.gathering.phase === "SELECTING_SHOP" && state.gathering.votingStartedAt === null) {
+          return fetchOpenShopListForShortlist();
+        }
+      })
+      .then(function () {
+        render();
+      });
+  }
+
   function tentativelySelectCandidateDate(candidateDateId) {
+    if (state.gathering.phase !== "SCHEDULING") {
+      // tentativeSelectionAndPreview.trigger.presenceRuleForPurpose: this
+      // purpose is only activatable while phase is SCHEDULING -- the
+      // element itself stays present as a record (renderCandidateDate
+      // below), but no longer accepts this activation.
+      return;
+    }
     state.tentativeSelectedId = candidateDateId;
     render();
     requestJson("GET", gatheringUrl() + "/candidate-dates/" + candidateDateId + "/open-shop-preview")
@@ -180,7 +333,9 @@
         // deliberately left unchanged -- confirmDate's own requiredOutcome
         // says this call must not affect either.
         state.gathering = result.body;
-        return loadParticipantLinksOnly();
+        return loadParticipantLinksOnly()
+          .then(fetchOpenShopListForShortlist)
+          .then(render);
       }
     });
   }
@@ -307,11 +462,77 @@
     );
   }
 
+  // --- adr/0042: shop shortlisting / approval voting / finalization -------
+
+  function toggleShortlistPending(shopId) {
+    // Client-side pending selection only (shortlistSelection.list.item.
+    // select.requiredOutcome) -- calls no public operation.
+    state.shortlistPending[shopId] = !state.shortlistPending[shopId];
+    render();
+  }
+
+  function submitShortlist() {
+    var shopIds = Object.keys(state.shortlistPending).filter(function (shopId) {
+      return state.shortlistPending[shopId];
+    });
+    if (shopIds.length < 1) {
+      return;
+    }
+    requestJson("PUT", gatheringUrl() + "/shortlisted-shops", { shopIds: shopIds }).then(
+      function (result) {
+        if (result.status === 200) {
+          state.gathering = result.body;
+          state.shortlistReplaceOpen = false;
+          state.finalizeSelectedShopId = null;
+          render();
+        }
+      }
+    );
+  }
+
+  function openShortlistReplace() {
+    // Refetch first, then reveal the list -- so the very first render of
+    // shortlistSelection already carries the D7 pre-checked state from the
+    // *current* shortlist (shortlistSelection.list.item.requirement),
+    // rather than showing a stale/empty list for one frame.
+    fetchOpenShopListForShortlist().then(function () {
+      state.shortlistReplaceOpen = true;
+      render();
+    });
+  }
+
+  function selectFinalizeShop(shopId) {
+    // Client-side pending selection only (shortlistedShopVotes.list.item.
+    // finalizeSelect.requiredOutcome) -- calls no public operation.
+    state.finalizeSelectedShopId = shopId;
+    render();
+  }
+
+  function finalizeGathering() {
+    if (!state.finalizeSelectedShopId) {
+      return;
+    }
+    requestJson("POST", gatheringUrl() + "/finalize", {
+      shopId: state.finalizeSelectedShopId,
+    }).then(function (result) {
+      if (result.status === 200) {
+        state.gathering = result.body;
+        state.finalizeSelectedShopId = null;
+        state.shortlistReplaceOpen = false;
+        render();
+      }
+    });
+  }
+
   function renderPhaseIndicator() {
     return el(
       "div",
-      { "data-testid": "gathering-phase-indicator", "data-gathering-phase": state.gathering.phase },
-      ["局面: " + state.gathering.phase]
+      {
+        "data-testid": "gathering-phase-indicator",
+        "data-gathering-phase": state.gathering.phase,
+        class: "gth-phase",
+      },
+      [PHASE_LABELS[state.gathering.phase] || state.gathering.phase]
     );
   }
 
@@ -322,12 +543,13 @@
         "data-testid": "gathering-responded-summary",
         "data-responded-count": state.gathering.respondedParticipantCount,
         "data-anonymous-responded-count": state.gathering.anonymousRespondedParticipantCount,
+        class: "gth-stat",
       },
       [
-        state.gathering.respondedParticipantCount +
-          "人が回答（うち" +
-          state.gathering.anonymousRespondedParticipantCount +
-          "人は名前なし）",
+        el("b", {}, [String(state.gathering.respondedParticipantCount)]),
+        "人が回答（うち",
+        el("b", {}, [String(state.gathering.anonymousRespondedParticipantCount)]),
+        "人は名前なし）",
       ]
     );
   }
@@ -343,54 +565,65 @@
         "data-revoked-links": state.gathering.totalRevokedParticipantLinks,
         "data-active-issued-links": state.gathering.activeParticipantLinkCount,
         "data-unanswered-count": unansweredCount,
+        class: "gth-stat",
       },
       [
-        "有効なリンク " +
-          state.gathering.activeParticipantLinkCount +
-          "本 ・ まだ " +
-          unansweredCount +
-          "人が未回答",
+        "有効なリンク ",
+        el("b", {}, [String(state.gathering.activeParticipantLinkCount)]),
+        "本 ・ まだ ",
+        el("b", {}, [String(unansweredCount)]),
+        "人が未回答",
       ]
     );
   }
 
   function renderCandidateDate(candidateDate) {
     var isTentative = state.tentativeSelectedId === candidateDate.id;
-    var node = el(
-      "div",
-      {
-        "data-testid": "gathering-candidate-date",
-        "data-candidate-date-id": candidateDate.id,
-        "data-going-count": candidateDate.goingCount,
-        "data-maybe-count": candidateDate.maybeCount,
-        "data-not-going-count": candidateDate.notGoingCount,
-        "data-confirmed": candidateDate.isConfirmed ? "true" : "false",
-        "data-tentative-selected": isTentative ? "true" : "false",
-        "data-gathering-control-purpose": "gathering-candidate-date-tentative-select",
-        role: "button",
-        tabindex: "0",
-      },
-      [
-        el("span", {}, [candidateDate.startAt]),
-        el("span", {}, [
-          " 行ける " +
-            candidateDate.goingCount +
-            " / たぶん " +
-            candidateDate.maybeCount +
-            " / むり " +
-            candidateDate.notGoingCount,
-        ]),
-      ]
-    );
-    node.addEventListener("click", function () {
-      tentativelySelectCandidateDate(candidateDate.id);
-    });
-    node.addEventListener("keydown", function (event) {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
+    // tentativeSelectionAndPreview.trigger.presenceRuleForPurpose (adr/0042):
+    // once phase is SELECTING_SHOP or FINALIZED, this element remains
+    // present as a record but no longer accepts the tentative-select
+    // activation -- represented here by dropping the purpose/role/tabindex
+    // and the event listeners entirely, rather than leaving an inert
+    // role="button" with no declared purpose (which would fail
+    // unavailableControls.allGatheringScreenFormControlsMustDeclarePurpose).
+    var isSchedulingPhase = state.gathering.phase === "SCHEDULING";
+    var attrs = {
+      "data-testid": "gathering-candidate-date",
+      "data-candidate-date-id": candidateDate.id,
+      "data-going-count": candidateDate.goingCount,
+      "data-maybe-count": candidateDate.maybeCount,
+      "data-not-going-count": candidateDate.notGoingCount,
+      "data-confirmed": candidateDate.isConfirmed ? "true" : "false",
+      "data-tentative-selected": isTentative ? "true" : "false",
+      class: "gth-date" + (isSchedulingPhase ? " gth-date--pickable" : ""),
+    };
+    if (isSchedulingPhase) {
+      attrs["data-gathering-control-purpose"] = "gathering-candidate-date-tentative-select";
+      attrs.role = "button";
+      attrs.tabindex = "0";
+    }
+    var node = el("div", attrs, [
+      el("div", { class: "gth-date-top" }, [
+        el("span", { class: "gth-date-value" }, [formatGatheringDateTime(candidateDate.startAt)]),
+        candidateDate.isConfirmed ? el("span", { class: "gth-date-badge" }, ["決定"]) : null,
+      ]),
+      el("div", { class: "gth-date-tally" }, [
+        el("span", {}, ["行ける ", el("b", {}, [String(candidateDate.goingCount)])]),
+        el("span", {}, ["たぶん ", el("b", {}, [String(candidateDate.maybeCount)])]),
+        el("span", {}, ["むり ", el("b", {}, [String(candidateDate.notGoingCount)])]),
+      ]),
+    ]);
+    if (isSchedulingPhase) {
+      node.addEventListener("click", function () {
         tentativelySelectCandidateDate(candidateDate.id);
-      }
-    });
+      });
+      node.addEventListener("keydown", function (event) {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          tentativelySelectCandidateDate(candidateDate.id);
+        }
+      });
+    }
     return node;
   }
 
@@ -404,6 +637,7 @@
         type: "datetime-local",
         "data-testid": "gathering-add-candidate-date-input",
         value: state.addCandidateDateValue || undefined,
+        class: "gth-input",
       },
       []
     );
@@ -413,6 +647,7 @@
         type: "button",
         "data-testid": "gathering-add-candidate-date-submit",
         "data-gathering-control-purpose": "gathering-add-candidate-date-submit",
+        class: "gth-btn gth-btn-primary",
       },
       ["足す"]
     );
@@ -425,16 +660,23 @@
         type: "button",
         "data-testid": "gathering-add-candidate-date-cancel",
         "data-gathering-control-purpose": "gathering-add-candidate-date-cancel",
+        class: "gth-btn",
       },
       ["やめる"]
     );
     cancel.addEventListener("click", cancelAddCandidateDate);
 
-    var children = [input, submit, cancel];
+    var children = [
+      el("div", { class: "gth-inline-form-row" }, [input, submit, cancel]),
+    ];
     if (state.addCandidateDateDuplicateError) {
-      children.push(el("p", {}, ["この日時は既に追加されています。"]));
+      children.push(el("p", { class: "gth-error" }, ["この日時は既に追加されています。"]));
     }
-    return el("div", { "data-testid": "gathering-add-candidate-date-form" }, children);
+    return el(
+      "div",
+      { "data-testid": "gathering-add-candidate-date-form", class: "gth-inline-form" },
+      children
+    );
   }
 
   function renderAddCandidateDateOpen() {
@@ -444,8 +686,9 @@
         type: "button",
         "data-testid": "gathering-add-candidate-date-open",
         "data-gathering-control-purpose": "gathering-add-candidate-date-open",
+        class: "gth-link-btn",
       },
-      ["候補日を足す"]
+      ["＋ 候補日を足す"]
     );
     openButton.addEventListener("click", openAddCandidateDate);
 
@@ -453,13 +696,17 @@
     if (state.addCandidateDateOpen) {
       children.push(renderAddCandidateDateForm());
     }
-    return el("div", {}, children);
+    return el("div", { class: "gth-add-date" }, children);
   }
 
   function renderOpenShopPreviewItem(item) {
-    return el("div", { "data-testid": "gathering-open-shop-preview-item" }, [
-      el("span", { "data-testid": "gathering-open-shop-preview-item-name" }, [item.name]),
-      el("span", { "data-testid": "gathering-open-shop-preview-item-genre" }, [item.genre]),
+    return el("div", { "data-testid": "gathering-open-shop-preview-item", class: "gth-preview-item" }, [
+      el("span", { "data-testid": "gathering-open-shop-preview-item-name", class: "gth-preview-name" }, [
+        item.name,
+      ]),
+      el("span", { "data-testid": "gathering-open-shop-preview-item-genre", class: "gth-preview-genre" }, [
+        item.genre,
+      ]),
     ]);
   }
 
@@ -473,8 +720,15 @@
         "data-testid": "gathering-open-shop-preview",
         "data-candidate-date-id": state.openShopPreview.candidateDateId,
         "data-open-shop-count": state.openShopPreview.openShopCount,
+        class: "gth-preview",
       },
-      state.openShopPreview.previewShops.map(renderOpenShopPreviewItem)
+      [
+        el("div", { class: "gth-preview-head" }, [
+          "この日に開いている店 ",
+          el("b", {}, [String(state.openShopPreview.openShopCount)]),
+          "件",
+        ]),
+      ].concat(state.openShopPreview.previewShops.map(renderOpenShopPreviewItem))
     );
   }
 
@@ -486,11 +740,222 @@
         "data-testid": "gathering-confirm-date-select",
         "data-gathering-control-purpose": "gathering-confirm-date-select",
         disabled: !state.tentativeSelectedId,
+        class: "gth-btn gth-btn-primary gth-btn-block",
       },
       ["この日にする"]
     );
     button.addEventListener("click", confirmDate);
     return button;
+  }
+
+  // --- adr/0042: shortlistSelection (PickFive.dc.html 案A) -----------------
+
+  function renderOpenShopListItem(item) {
+    var checked = !!state.shortlistPending[item.shopId];
+    var checkbox = el(
+      "input",
+      {
+        type: "checkbox",
+        "data-testid": "gathering-open-shop-select",
+        "data-gathering-control-purpose": "gathering-open-shop-select",
+        checked: checked,
+        class: "gth-checkbox",
+      },
+      []
+    );
+    checkbox.addEventListener("click", function () {
+      toggleShortlistPending(item.shopId);
+    });
+    return el(
+      "div",
+      {
+        "data-testid": "gathering-open-shop-list-item",
+        "data-shop-id": item.shopId,
+        "data-shortlisted": checked ? "true" : "false",
+        class: "gth-shop-row" + (checked ? " gth-shop-row--on" : ""),
+      },
+      [
+        checkbox,
+        el("div", { class: "gth-shop-body" }, [
+          el("span", { class: "gth-shop-name" }, [item.name]),
+          el("span", { class: "gth-shop-genre" }, [item.genre]),
+        ]),
+      ]
+    );
+  }
+
+  function renderShortlistSelection() {
+    var previewShops = state.openShopList ? state.openShopList.previewShops : [];
+    var list = el(
+      "div",
+      {
+        "data-testid": "gathering-open-shop-list",
+        "data-open-shop-count": state.openShopList ? state.openShopList.openShopCount : 0,
+        class: "gth-shop-list",
+      },
+      previewShops.map(renderOpenShopListItem)
+    );
+
+    var selectedCount = Object.keys(state.shortlistPending).filter(function (shopId) {
+      return state.shortlistPending[shopId];
+    }).length;
+    var submit = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "gathering-shortlist-submit",
+        "data-gathering-control-purpose": "gathering-shortlist-submit",
+        disabled: selectedCount < 1,
+        class: "gth-btn gth-btn-primary gth-btn-block",
+      },
+      ["この" + selectedCount + "件で投票する"]
+    );
+    submit.addEventListener("click", submitShortlist);
+
+    return el("div", { class: "gth-pane" }, [
+      el("div", { class: "gth-pane-head" }, [
+        "開いている店から選ぶ",
+        el("span", { class: "gth-pane-sub" }, [
+          (state.openShopList ? state.openShopList.openShopCount : 0) + "件・1件から選べます",
+        ]),
+      ]),
+      list,
+      submit,
+    ]);
+  }
+
+  // --- adr/0042: shortlistedShopVotes (Organizer.dc.html 状態②) ------------
+
+  function renderShortlistedShopItem(shop, index) {
+    var attrs = {
+      "data-testid": "gathering-shortlisted-shop-item",
+      "data-shop-id": shop.shopId,
+      "data-approval-count": shop.approvalCount,
+      "data-responded-count": shop.respondedParticipantCount,
+      class: "gth-shop-row gth-shop-row--vote",
+    };
+    var children = [
+      el("span", { class: "gth-shop-rank" }, [String(index + 1)]),
+      el("div", { class: "gth-shop-body" }, [el("span", { class: "gth-shop-name" }, [shop.name])]),
+      el("div", { class: "gth-shop-votes" }, [
+        el("b", {}, [String(shop.approvalCount)]),
+        "人 / " + shop.respondedParticipantCount + "人中",
+      ]),
+    ];
+    if (state.gathering.phase === "SELECTING_SHOP") {
+      var selected = state.finalizeSelectedShopId === shop.shopId;
+      var radio = el(
+        "input",
+        {
+          type: "radio",
+          name: "gathering-finalize-shop",
+          "data-testid": "gathering-finalize-shop-select",
+          "data-gathering-control-purpose": "gathering-finalize-shop-select",
+          "data-finalize-selected": selected ? "true" : "false",
+          checked: selected,
+          class: "gth-radio",
+        },
+        []
+      );
+      radio.addEventListener("click", function () {
+        selectFinalizeShop(shop.shopId);
+      });
+      children.push(radio);
+    }
+    return el("div", attrs, children);
+  }
+
+  function renderShortlistedShopVotes() {
+    var phase = state.gathering.phase;
+    var list = el(
+      "div",
+      { "data-testid": "gathering-shortlisted-shop-list", class: "gth-shop-list" },
+      state.gathering.shortlistedShops.map(function (shop, index) {
+        return renderShortlistedShopItem(shop, index);
+      })
+    );
+    var paneChildren = [
+      el("div", { class: "gth-pane-head" }, [
+        "お店の候補",
+        el("span", { class: "gth-pane-sub" }, ["並び: 行ってもいい人が多い順"]),
+      ]),
+      list,
+    ];
+
+    // replaceOpen/finalizeSubmit: both present only while SELECTING_SHOP
+    // (absent once FINALIZED, shortlistedShopVotes.replaceOpen.presenceRule /
+    // finalizeSubmit.presenceRule).
+    if (phase === "SELECTING_SHOP") {
+      var replaceOpen = el(
+        "button",
+        {
+          type: "button",
+          "data-testid": "gathering-shortlist-open",
+          "data-gathering-control-purpose": "gathering-shortlist-open",
+          class: "gth-btn",
+        },
+        ["店を絞りなおす"]
+      );
+      replaceOpen.addEventListener("click", openShortlistReplace);
+
+      var actions = [replaceOpen];
+      if (state.gathering.shortlistedShops.length > 0) {
+        var finalizeSubmit = el(
+          "button",
+          {
+            type: "button",
+            "data-testid": "gathering-finalize-submit",
+            "data-gathering-control-purpose": "gathering-finalize-submit",
+            disabled: !state.finalizeSelectedShopId,
+            class: "gth-btn gth-btn-primary",
+          },
+          ["日と店を確定する"]
+        );
+        finalizeSubmit.addEventListener("click", finalizeGathering);
+        actions.push(finalizeSubmit);
+      }
+      paneChildren.push(el("div", { class: "gth-pane-actions" }, actions));
+    }
+
+    return el("div", { class: "gth-pane" }, paneChildren);
+  }
+
+  // --- adr/0042: finalizedSummary (Final.dc.html A③) -----------------------
+
+  function renderFinalizedSummary() {
+    var confirmed = state.gathering.candidateDates.filter(function (candidateDate) {
+      return candidateDate.isConfirmed;
+    })[0];
+    // Display only: prefer the shortlisted shop's own live-projected name
+    // over the raw opaque shopId, if it is still resolvable (shortlistedShops
+    // remains present, unchanged, once FINALIZED -- shortlistedShopVotes.
+    // presenceRule above). data-finalized-shop-id itself always carries the
+    // raw Gathering.finalizedShopId value unchanged, regardless of this.
+    var finalizedShop = state.gathering.shortlistedShops.filter(function (shop) {
+      return shop.shopId === state.gathering.finalizedShopId;
+    })[0];
+    return el(
+      "div",
+      {
+        "data-testid": "gathering-decision-banner",
+        "data-confirmed-candidate-date": confirmed ? confirmed.startAt : undefined,
+        "data-finalized-shop-id": state.gathering.finalizedShopId,
+        class: "gth-decision",
+      },
+      [
+        el("span", { class: "gth-decision-badge" }, ["決まりました"]),
+        el("div", { class: "gth-decision-body" }, [
+          el("div", { class: "gth-decision-row" }, [
+            el("span", { class: "gth-decision-label" }, ["日時"]),
+            el("b", {}, [confirmed ? formatGatheringDateTime(confirmed.startAt) : "―"]),
+          ]),
+          el("div", { class: "gth-decision-row" }, [
+            el("span", { class: "gth-decision-label" }, ["お店"]),
+            el("b", {}, [finalizedShop ? finalizedShop.name : state.gathering.finalizedShopId]),
+          ]),
+        ]),
+      ]
+    );
   }
 
   function renderParticipantLinkCopy() {
@@ -501,6 +966,7 @@
         "data-testid": "gathering-participant-link-copy",
         "data-gathering-control-purpose": "gathering-participant-link-copy",
         "data-issued-link-url": state.headerIssuedLinkUrl || undefined,
+        class: "gth-btn gth-btn-primary",
       },
       ["回答リンクをコピー"]
     );
@@ -517,6 +983,7 @@
         "data-gathering-control-purpose": "gathering-participant-link-recopy",
         disabled: link.revoked,
         "data-issued-link-url": state.recopiedLinkUrls[link.id] || undefined,
+        class: "gth-btn gth-btn-small",
       },
       ["再コピー"]
     );
@@ -524,19 +991,31 @@
       recopyParticipantLink(link.id);
     });
 
-    var revokeButton = el(
-      "button",
-      {
-        type: "button",
-        "data-testid": "gathering-participant-link-revoke",
-        "data-gathering-control-purpose": "gathering-participant-link-revoke",
-        disabled: link.hasResponded || link.revoked,
-      },
-      ["失効"]
-    );
-    revokeButton.addEventListener("click", function () {
-      revokeParticipantLink(link.id);
-    });
+    var children = [
+      el("span", { class: "gth-link-name" }, [link.displayName === null ? "名無し" : link.displayName]),
+      el("div", { class: "gth-link-actions" }, [recopyButton]),
+    ];
+
+    // participantLinkList.item.revoke.presenceRule (adr/0042): absent once
+    // phase is FINALIZED (P4) -- present (with its own pre-existing
+    // disabledState) while SCHEDULING or SELECTING_SHOP.
+    if (state.gathering.phase !== "FINALIZED") {
+      var revokeButton = el(
+        "button",
+        {
+          type: "button",
+          "data-testid": "gathering-participant-link-revoke",
+          "data-gathering-control-purpose": "gathering-participant-link-revoke",
+          disabled: link.hasResponded || link.revoked,
+          class: "gth-btn gth-btn-small",
+        },
+        ["失効"]
+      );
+      revokeButton.addEventListener("click", function () {
+        revokeParticipantLink(link.id);
+      });
+      children[1].appendChild(revokeButton);
+    }
 
     return el(
       "div",
@@ -547,19 +1026,16 @@
         "data-has-responded": link.hasResponded ? "true" : "false",
         "data-revoked": link.revoked ? "true" : "false",
         "data-participant-named": link.displayName === null ? "false" : "true",
+        class: "gth-link-row",
       },
-      [
-        el("span", {}, [link.displayName === null ? "名無し" : link.displayName]),
-        recopyButton,
-        revokeButton,
-      ]
+      children
     );
   }
 
   function renderParticipantLinkList() {
     return el(
       "div",
-      { "data-testid": "gathering-participant-link-list" },
+      { "data-testid": "gathering-participant-link-list", class: "gth-link-list" },
       state.participantLinks.map(renderParticipantLinkItem)
     );
   }
@@ -569,6 +1045,24 @@
     if (!state.gathering) {
       return;
     }
+    var phase = state.gathering.phase;
+
+    // Human decision 2026-09-04 (real-measurement finding: the heading was
+    // the generic "会の日程調整" title only, with no way to tell which
+    // gathering is open from the screen itself -- Organizer.dc.html's own
+    // header always shows the gathering's own name). This contract's
+    // organizerDashboard section defines no test id for the gathering's
+    // own name (unlike organizerGatheringList's data-gathering-title) --
+    // rendered as a plain, purposeless <div> (no data-testid, no
+    // data-gathering-control-purpose; `allowedPurposes` is a closed list
+    // this developer cannot extend), the same style already established
+    // for candidate-gathering-entry/candidate-map-open.
+    var header = el("div", { class: "gth-header" }, [
+      el("div", { class: "gth-title" }, [state.gathering.title]),
+      renderPhaseIndicator(),
+      el("div", { class: "gth-stats-row" }, [renderResponseSummary(), renderUnansweredSummary()]),
+    ]);
+
     // adr/0038, addCandidateDateOpen.requiredOutcome: the revealed form
     // must sit inline *within* gathering-candidate-date-list (AddDate.dc.
     // html 案A "その場で開く"), not beside it -- so the open control/form
@@ -576,24 +1070,55 @@
     // gathering-candidate-date row (orderingInvariant only constrains the
     // relative order of gathering-candidate-date-tagged children, which
     // this trailing, differently-tagged child does not disturb).
+    // addCandidateDateOpen.presenceRule (adr/0042): present only while
+    // SCHEDULING.
+    var candidateDateListChildren = state.gathering.candidateDates.map(renderCandidateDate);
+    if (phase === "SCHEDULING") {
+      candidateDateListChildren = candidateDateListChildren.concat([renderAddCandidateDateOpen()]);
+    }
     var candidateDateList = el(
       "div",
-      { "data-testid": "gathering-candidate-date-list" },
-      state.gathering.candidateDates.map(renderCandidateDate).concat([renderAddCandidateDateOpen()])
+      { "data-testid": "gathering-candidate-date-list", class: "gth-date-list" },
+      candidateDateListChildren
     );
 
-    root.appendChild(
-      el("div", {}, [
-        renderPhaseIndicator(),
-        renderResponseSummary(),
-        renderUnansweredSummary(),
-        candidateDateList,
-        renderOpenShopPreview(),
-        renderConfirmDate(),
-        renderParticipantLinkCopy(),
+    var schedulePaneChildren = [
+      el("div", { class: "gth-pane-head" }, ["日程"]),
+      candidateDateList,
+    ];
+    if (phase === "SCHEDULING") {
+      schedulePaneChildren.push(renderOpenShopPreview());
+      schedulePaneChildren.push(renderConfirmDate());
+    }
+    var schedulePane = el("div", { class: "gth-pane" }, schedulePaneChildren);
+
+    var sections = [header, schedulePane];
+
+    if (shortlistSelectionVisible()) {
+      sections.push(renderShortlistSelection());
+    }
+
+    if (state.gathering.votingStartedAt !== null) {
+      sections.push(renderShortlistedShopVotes());
+    }
+
+    if (phase === "FINALIZED") {
+      sections.push(renderFinalizedSummary());
+    }
+
+    var linkPaneHeadChildren = [el("div", { class: "gth-pane-head" }, ["発行済みリンク"])];
+    // participantLinkCopy.presenceRule (adr/0042): absent once FINALIZED (P4).
+    if (phase !== "FINALIZED") {
+      linkPaneHeadChildren.push(renderParticipantLinkCopy());
+    }
+    sections.push(
+      el("div", { class: "gth-pane" }, [
+        el("div", { class: "gth-pane-head-row" }, linkPaneHeadChildren),
         renderParticipantLinkList(),
       ])
     );
+
+    root.appendChild(el("div", { class: "gth-dash" }, sections));
   }
 
   loadGathering();

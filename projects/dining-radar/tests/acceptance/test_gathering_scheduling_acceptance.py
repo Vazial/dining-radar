@@ -1,4 +1,4 @@
-"""JS-capable browser/API L4 runner for TDR-GTH-01 through TDR-GTH-25.
+"""JS-capable browser/API L4 runner for TDR-GTH-01 through TDR-GTH-36.
 
 gathering-scheduling-browser-interface.yaml's own profiles.localAcceptance
 marks only TDR-GTH-13 (token guessing is API-level fuzzing, not a browser
@@ -7,7 +7,11 @@ exercised here at the API/boundary level through the same authenticated
 Playwright session (see gathering_scheduling_browser.py's module docstring).
 TDR-GTH-01 drives organizerGatheringCreate end-to-end through the browser
 (reviewer audit Major#2, resolving the prior direct-API gap this docstring
-used to describe).
+used to describe). TDR-GTH-26 through TDR-GTH-36 (adr/0040-0042) add the
+5-shop shortlist, D7 replace, approval voting, finalize, and finalized-view
+scenarios; every Given-state builder that is not itself the scenario under
+test still goes through gathering-scheduling-api.yaml's public boundary
+(adr/0037 decision 1), not a new test-support seam.
 """
 
 from __future__ import annotations
@@ -455,3 +459,289 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.in_progress_gathering_count_badge_shows(2)
         self.steps.organizer_opens_the_gathering_entry()
         self.steps.gathering_list_screen_is_shown()
+
+    # TDR-GTH-26 through TDR-GTH-36 (adr/0040/0041/0042: shop shortlisting, D7
+    # replace, approval voting, finalize, finalized views) -----------------
+
+    def test_tdr_gth_26_organizer_selects_five_shops_and_starts_voting(self) -> None:
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会26", [thursday])
+        open_shop_ids = self.steps.open_shop_ids_for_the_confirmed_date()
+        # Reviewer audit Major#3: SHOP_VOTING_NOT_STARTED (409) was never
+        # exercised for either operation it gates -- Gathering.shortlistedShops
+        # is still empty at this point (setShortlistedShops has not been
+        # called yet).
+        finalize_too_early = self.steps.organizer_attempts_to_finalize_via_api(open_shop_ids[0])
+        self.steps.rejected_because_shop_voting_not_started(finalize_too_early)
+        early_link = self.steps.a_participant_link_is_issued()
+        vote_too_early = self.steps.participant_attempts_to_vote_via_api(
+            early_link, [open_shop_ids[0]]
+        )
+        self.steps.rejected_because_shop_voting_not_started(vote_too_early)
+        # Reviewer audit Major#3: INVALID_SHOP_SELECTION's two count-boundary
+        # triggers (0 entries, more than 5) were never exercised -- only the
+        # out-of-population trigger was (TDR-GTH-27).
+        empty_selection = self.steps.organizer_attempts_to_shortlist_shops_via_api([])
+        self.steps.rejected_as_invalid_shop_selection(empty_selection)
+        too_many = self.steps.organizer_attempts_to_shortlist_shops_via_api(open_shop_ids)
+        self.steps.rejected_as_invalid_shop_selection(too_many)
+        self.steps.organizer_opens_the_dashboard()
+        # Reviewer audit Major#1: shortlistSelection is one of six new screen
+        # states this cross-cutting check had never run against.
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+        selected = self.steps.organizer_selects_first_n_open_shops(5)
+        # gathering-open-shop-select's own pending-only model (contrast with
+        # participant shop-vote's immediate model, adr/0042's asymmetric design):
+        # nothing is sent to the server until submit is activated.
+        self.steps.no_shortlist_is_recorded_yet()
+        self.steps.organizer_submits_the_shortlist()
+        self.steps.shortlisted_shops_match(selected)
+        self.steps.gathering_phase_is("SELECTING_SHOP")
+
+    def test_tdr_gth_27_only_open_shops_are_offered_for_voting(self) -> None:
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        monday = next_weekday_iso(0)  # OPEN_SHOP_COUNT_BY_WEEKDAY[0] == 5 (1 closed)
+        thursday = next_weekday_iso(3)  # OPEN_SHOP_COUNT_BY_WEEKDAY[3] == 6 (all open)
+        self.steps.organizer_has_a_scheduling_gathering("会27", [monday, thursday])
+        self.steps.organizer_opens_the_dashboard()
+        monday_id = self.dsl.candidate_date_id_at(0)
+        thursday_id = self.dsl.candidate_date_id_at(1)
+        closed_shop_id = self.steps.organizer_identifies_a_closed_shop(thursday_id, monday_id)
+        # Reviewer audit Major#3: GATHERING_NOT_IN_SELECTING_SHOP_PHASE (409) was
+        # never exercised -- the gathering is still SCHEDULING here (no date
+        # confirmed yet), so setShortlistedShops must reject even a shopId that
+        # is otherwise valid (one of Monday's own open shops).
+        monday_open_shop_id = next(iter(self.dsl.current_preview_shop_ids()))
+        phase_boundary_response = self.steps.organizer_attempts_to_shortlist_shops_via_api(
+            [monday_open_shop_id]
+        )
+        self.steps.rejected_because_not_selecting_shop_phase(phase_boundary_response)
+        self.steps.organizer_confirms_the_tentatively_selected_date()
+        self.steps.shop_is_not_offered_in_the_shortlist(closed_shop_id)
+        response = self.steps.organizer_attempts_to_shortlist_shops_via_api([closed_shop_id])
+        self.steps.rejected_as_invalid_shop_selection(response)
+
+    def test_tdr_gth_28_participant_selects_shops_they_would_go_to(self) -> None:
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会28", [thursday])
+        shop_a, shop_b = self.steps.open_shop_ids_for_the_confirmed_date()[:2]
+        self.steps.organizer_shortlists_shops_via_api([shop_a, shop_b])
+        link = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link)
+        self.steps.participant_votes_for_shops([shop_a])
+        self.steps.shop_vote_your_approval_is(shop_a, "true")
+        self.steps.shop_vote_your_approval_is(shop_b, "false")
+        # Reviewer audit Major#1: participantAnswer.shopVoteQuestion is one of
+        # six new screen states this cross-cutting check had never run against.
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+        # "1つも選ばないことも選べる": deselecting the only approved shop must be
+        # accepted, not rejected -- 0 selections is a meaningful, valid answer.
+        self.steps.participant_toggles_shop_vote(shop_a)
+        self.steps.shop_vote_your_approval_is(shop_a, "false")
+        self.steps.shop_vote_your_approval_is(shop_b, "false")
+        self.steps.participant_view_is_valid()
+
+    def test_tdr_gth_29_other_participants_votes_are_hidden_until_self_votes(self) -> None:
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会29", [thursday])
+        shop_a, shop_b = self.steps.open_shop_ids_for_the_confirmed_date()[:2]
+        self.steps.organizer_shortlists_shops_via_api([shop_a, shop_b])
+        other_link = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(other_link)
+        self.steps.participant_votes_for_shops([shop_a])
+        link = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link)
+        self.steps.shop_vote_tally_is_absent(shop_a)
+        self.steps.shop_vote_tally_is_absent(shop_b)
+        self.steps.participant_votes_for_shops([shop_a])
+        self.steps.shop_vote_tally_is(shop_a, approval=2, responded=2)
+        self.steps.shop_vote_tally_is(shop_b, approval=0, responded=2)
+
+    def test_tdr_gth_30_participant_can_always_change_their_shop_vote(self) -> None:
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会30", [thursday])
+        open_shop_ids = self.steps.open_shop_ids_for_the_confirmed_date()
+        shop_a, shop_b, not_shortlisted_shop = open_shop_ids[:3]
+        self.steps.organizer_shortlists_shops_via_api([shop_a, shop_b])
+        link = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link)
+        self.steps.participant_votes_for_shops([shop_a])
+        self.steps.shop_vote_your_approval_is(shop_a, "true")
+        self.steps.shop_vote_your_approval_is(shop_b, "false")
+        self.steps.participant_votes_for_shops([shop_b])
+        self.steps.participant_toggles_shop_vote(shop_a)
+        self.steps.shop_vote_your_approval_is(shop_a, "false")
+        self.steps.shop_vote_your_approval_is(shop_b, "true")
+        # Reviewer audit Major#3: INVALID_SHOP_SELECTION's setShopVotes trigger
+        # (naming a shopId absent from the current shortlist) was never
+        # exercised -- only setShortlistedShops' own trigger was (TDR-GTH-27).
+        foreign_vote = self.steps.participant_attempts_to_vote_via_api(link, [not_shortlisted_shop])
+        self.steps.rejected_as_invalid_shop_selection(foreign_vote)
+
+    def test_tdr_gth_31_kept_shops_retain_votes_after_a_replace(self) -> None:
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会31", [thursday])
+        shops = self.steps.open_shop_ids_for_the_confirmed_date()[:6]
+        shop_0, shop_1, shop_2, _shop_3, shop_4, shop_5 = shops
+        self.steps.organizer_shortlists_shops_via_api(shops[:5])
+        link_one = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_one)
+        self.steps.participant_votes_for_shops([shop_0, shop_1])
+        link_two = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_two)
+        self.steps.participant_votes_for_shops([shop_0])
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.shortlisted_shop_tally_is(shop_0, approval=2, responded=2)
+        self.steps.shortlisted_shop_tally_is(shop_1, approval=1, responded=2)
+        self.steps.shortlisted_shop_tally_is(shop_2, approval=0, responded=2)
+        self.steps.organizer_replaces_a_shortlisted_shop(shop_4, shop_5)
+        self.steps.shortlisted_shop_tally_is(shop_0, approval=2, responded=2)
+        self.steps.shortlisted_shop_tally_is(shop_1, approval=1, responded=2)
+        self.steps.shortlisted_shop_tally_is(shop_2, approval=0, responded=2)
+
+    def test_tdr_gth_32_a_newly_replaced_shop_stays_unanswered_for_participants_who_already_voted(
+        self,
+    ) -> None:
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会32", [thursday])
+        shops = self.steps.open_shop_ids_for_the_confirmed_date()[:6]
+        shop_0, _shop_1, _shop_2, _shop_3, shop_4, shop_5 = shops
+        self.steps.organizer_shortlists_shops_via_api(shops[:5])
+        link = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link)
+        self.steps.participant_votes_for_shops([shop_0])
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.organizer_replaces_a_shortlisted_shop(shop_4, shop_5)
+        self.steps.participant_opens_the_link(link)
+        self.steps.shop_vote_your_approval_is(shop_5, "UNANSWERED")
+        self.steps.shop_vote_tally_is_absent(shop_5)
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.shortlisted_shop_tally_is(shop_5, approval=0, responded=0)
+
+    def test_tdr_gth_33_organizer_finalizes_the_date_and_shop(self) -> None:
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会33", [thursday])
+        shop_a, shop_b, foreign_shop = self.steps.open_shop_ids_for_the_confirmed_date()[:3]
+        self.steps.organizer_shortlists_shops_via_api([shop_a, shop_b])
+        link = self.steps.a_participant_link_is_issued()
+        candidate_date_id = self.dsl.candidate_date_id_at(0)
+        self.steps.organizer_opens_the_dashboard()
+        # Reviewer audit Major#1: shortlistedShopVotes (with the finalize
+        # radios/submit present) is one of six new screen states this
+        # cross-cutting check had never run against.
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+        # Reviewer audit Major#3: INVALID_SHOP_SELECTION's finalizeGathering
+        # trigger (naming a shopId absent from the current shortlist) was
+        # never exercised -- only setShortlistedShops' own trigger was
+        # (TDR-GTH-27).
+        foreign_finalize = self.steps.organizer_attempts_to_finalize_via_api(foreign_shop)
+        self.steps.rejected_as_invalid_shop_selection(foreign_finalize)
+        self.steps.organizer_selects_a_shop_for_finalize(shop_a)
+        self.steps.organizer_submits_finalize()
+        self.steps.gathering_phase_is("FINALIZED")
+        # Reviewer audit Major#1: organizerDashboard.finalizedSummary is one of
+        # six new screen states this cross-cutting check had never run against.
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+        self.steps.finalized_controls_are_absent()
+        schedule_response = self.steps.participant_attempts_to_answer_via_api(
+            link, candidate_date_id, "MAYBE"
+        )
+        self.steps.rejected_because_gathering_finalized(schedule_response)
+        vote_response = self.steps.participant_attempts_to_vote_via_api(link, [shop_a])
+        self.steps.rejected_because_gathering_finalized(vote_response)
+        # Reviewer audit Major#3: finalizeGathering's own third 409 branch
+        # (already FINALIZED) was never exercised -- only its effect on other
+        # operations was.
+        refinalize_response = self.steps.organizer_attempts_to_finalize_via_api(shop_a)
+        self.steps.rejected_because_gathering_finalized(refinalize_response)
+
+    def test_tdr_gth_34_finalized_view_shows_the_decision_and_own_record_only(self) -> None:
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        self.steps.organizer_has_a_scheduling_gathering("会34", [thursday])
+        candidate_date_id = self.dsl.candidate_date_id_at(0)
+        link = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link)
+        self.steps.participant_answers_the_candidate_date(candidate_date_id, "GOING")
+        self.steps.gathering_candidate_date_is_confirmed_via_api(
+            self.dsl.gathering_id, candidate_date_id
+        )
+        self.steps.gathering_state_is_refreshed()
+        shop_a, shop_b = self.steps.open_shop_ids_for_the_confirmed_date()[:2]
+        self.steps.organizer_shortlists_shops_via_api([shop_a, shop_b])
+        self.steps.participant_opens_the_link(link)
+        self.steps.participant_votes_for_shops([shop_a])
+        other_link = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(other_link)
+        self.steps.participant_votes_for_shops([shop_b])
+        confirmed_date_iso = self.dsl.gathering["candidateDates"][0]["startAt"]
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.organizer_selects_a_shop_for_finalize(shop_a)
+        self.steps.organizer_submits_finalize()
+        self.steps.participant_opens_the_link(link)
+        self.steps.participant_decision_is(
+            confirmed_candidate_date=confirmed_date_iso,
+            shop_id=shop_a,
+            your_schedule_response="GOING",
+            approved_shop_ids=[shop_a],
+        )
+        self.steps.participant_question_surfaces_are_replaced()
+        # Reviewer audit Major#1: participantAnswer.finalizedView is one of six
+        # new screen states this cross-cutting check had never run against.
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+        # Reviewer audit Major#2 (adr/0042 決定4): "名前を変える操作も置かない" --
+        # gathering-participant-name-open/-submit must also be absent once
+        # ParticipantView.decision is non-null, not only the schedule/vote/
+        # progress surfaces participant_question_surfaces_are_replaced checks.
+        self.steps.participant_name_controls_are_absent()
+        schedule_response = self.steps.participant_attempts_to_answer_via_api(
+            link, candidate_date_id, "MAYBE"
+        )
+        self.steps.rejected_because_gathering_finalized(schedule_response)
+        vote_response = self.steps.participant_attempts_to_vote_via_api(link, [shop_a])
+        self.steps.rejected_because_gathering_finalized(vote_response)
+
+    def test_tdr_gth_35_no_new_participant_links_after_finalized(self) -> None:
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会35", [thursday])
+        shop_a = self.steps.open_shop_ids_for_the_confirmed_date()[0]
+        self.steps.organizer_shortlists_shops_via_api([shop_a])
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.organizer_selects_a_shop_for_finalize(shop_a)
+        self.steps.organizer_submits_finalize()
+        response = self.steps.organizer_attempts_to_issue_a_participant_link_via_api()
+        self.steps.rejected_because_gathering_finalized(response)
+        self.steps.finalized_controls_are_absent()
+
+    def test_tdr_gth_36_organizer_can_still_recopy_a_link_after_finalized(self) -> None:
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会36", [thursday])
+        self.steps.organizer_opens_the_dashboard()
+        link = self.steps.organizer_issues_a_participant_link()
+        shop_a = self.steps.open_shop_ids_for_the_confirmed_date()[0]
+        self.steps.organizer_shortlists_shops_via_api([shop_a])
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.organizer_selects_a_shop_for_finalize(shop_a)
+        self.steps.organizer_submits_finalize()
+        recopied_url = self.steps.organizer_recopies_the_link_at(0)
+        self.steps.recopied_link_matches_original(recopied_url, link)

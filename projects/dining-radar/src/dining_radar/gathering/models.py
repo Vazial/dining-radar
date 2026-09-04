@@ -74,6 +74,19 @@ class Gathering(models.Model):
     total_issued_participant_links = models.PositiveIntegerField(default=0)
     total_revoked_participant_links = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
+    # Gathering.votingStartedAt (adr/0040): null until the first successful
+    # setShortlistedShops call, non-null and unchanged thereafter. Distinct
+    # from `phase`, which stays SELECTING_SHOP while shortlisting/voting
+    # happen -- this field is the sub-state adr/0040 introduced instead of a
+    # fourth enum value (FR-028, settled by P6/adr/0041).
+    voting_started_at = models.DateTimeField(null=True, blank=True)
+    # Gathering.finalizedShopId (adr/0040): the opaque provider shop
+    # identifier (same value space as ShortlistedShop.shop_id below) the
+    # organizer chose via finalizeGathering. A plain string, not a foreign
+    # key, for the same reason ShortlistedShop.shop_id is a plain string --
+    # the shop itself is never a persisted row this product owns (ADR-0034
+    # decision 6); only the *reference* to it is durable.
+    finalized_shop_id = models.CharField(max_length=500, null=True, blank=True)
 
     class Meta:
         ordering = ["created_at"]
@@ -162,3 +175,63 @@ class ScheduleResponse(models.Model):
                 name="one_schedule_response_per_link_and_date",
             )
         ]
+
+
+class ShortlistedShop(models.Model):
+    """One shop the organizer has shortlisted for approval voting (adr/0040).
+
+    ``shop_id`` is the same opaque provider identifier
+    ``dining_radar.gathering.services`` derives from
+    ``NormalizedCandidate.provider_page_url`` (the natural, already-unique
+    shop identity this codebase uses elsewhere, e.g.
+    ``dining_radar.recommendation.pipeline._dedupe``) -- a plain string, not
+    a foreign key, since the shop's display attributes are never persisted
+    (ADR-0034 decision 6; only this reference is durable). Removing a shop
+    from the shortlist deletes its row entirely (adr/0040 design judgment:
+    re-adding the same shop id later is a brand-new entry, not a restore),
+    which also removes any per-shop vote history tied to it -- a
+    participant's ``ShopVoteSubmission`` stores raw shop ids, not a foreign
+    key to this table, precisely so a submission survives its referenced
+    shop being dropped and re-added under a new row/``added_at``.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    gathering = models.ForeignKey(
+        Gathering, on_delete=models.CASCADE, related_name="shortlisted_shops"
+    )
+    shop_id = models.CharField(max_length=500)
+    # ShortlistedShop.addedAt: reset to "now" whenever this shop id is newly
+    # added or re-added after removal (adr/0040). The basis for D7's
+    # per-shop denominator (respondedParticipantCount).
+    added_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ["added_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["gathering", "shop_id"], name="one_shortlisted_row_per_gathering_and_shop"
+            )
+        ]
+
+
+class ShopVoteSubmission(models.Model):
+    """One participant's most recent, complete shop-vote submission (adr/0040).
+
+    ``setShopVotes`` replaces this participant's entire vote in one call (not
+    a per-shop toggle, product-brief.md §2), so one row per
+    ``ParticipantLink`` is enough -- there is no history of earlier
+    submissions to keep. ``approved_shop_ids`` stores raw shop id strings
+    (not a many-to-many to ``ShortlistedShop``) so a submission remains valid
+    even after the organizer removes and later re-adds the same shop id
+    under a new ``ShortlistedShop`` row (see that model's own docstring).
+    """
+
+    participant_link = models.OneToOneField(
+        ParticipantLink, on_delete=models.CASCADE, related_name="shop_vote_submission"
+    )
+    approved_shop_ids = models.JSONField(default=list)
+    # Compared against ShortlistedShop.added_at to derive
+    # ParticipantShopVoteOption.yourApproval's "not yet answered" (null)
+    # state (D7) -- updated (via auto_now) on every setShopVotes call,
+    # including one that resubmits the same content.
+    submitted_at = models.DateTimeField(auto_now=True)

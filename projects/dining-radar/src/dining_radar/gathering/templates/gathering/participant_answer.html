@@ -177,6 +177,62 @@
         color: #982c22;
         font-size: 0.8125rem;
       }
+
+      /* Approval-voting surface (Vote.dc.html B-2, adr/0042) */
+      .gth-vote-section {
+        background: #fff;
+        border: 1px solid #dfe4de;
+        border-radius: 0.75rem;
+        padding: 0.8rem 0.95rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      .gth-vote-heading { font-size: 0.8125rem; font-weight: 700; }
+      .gth-vote-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        min-height: 2.75rem;
+        border: 1px solid #dfe4de;
+        border-radius: 0.5rem;
+        padding: 0.4rem 0.6rem;
+        font-size: 0.75rem;
+      }
+      .gth-vote-name { flex: 1; font-weight: 500; }
+      .gth-vote-mask { color: #77827a; font-size: 0.6875rem; }
+      .gth-vote-tally { color: #4b564e; font-size: 0.6875rem; white-space: nowrap; }
+      .gth-vote-tally b { color: #b4531c; font-weight: 700; }
+
+      /* Finalized view (Final.dc.html B-3, adr/0042) */
+      .gth-final {
+        background: #fff;
+        border: 1.6px solid #14614a;
+        border-radius: 0.875rem;
+        padding: 1.1rem 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      .gth-final-badge {
+        align-self: flex-start;
+        font-size: 0.6875rem;
+        font-weight: 700;
+        color: #fff;
+        background: #14614a;
+        border-radius: 999px;
+        padding: 0.2rem 0.75rem;
+      }
+      .gth-final-when-lb, .gth-final-shop-lb, .gth-final-yours-lb, .gth-final-approved-lb {
+        font-size: 0.6875rem;
+        color: #77827a;
+        margin-top: 0.4rem;
+      }
+      .gth-final-when { font-size: 1.25rem; font-weight: 700; }
+      .gth-final-shop { font-size: 1.25rem; font-weight: 700; }
+      .gth-final-yours-row { font-size: 0.8125rem; }
+      .gth-final-approved { display: flex; flex-direction: column; gap: 0.2rem; }
+      .gth-final-approved-shop { font-size: 0.8125rem; }
     </style>
   </head>
   <body>
@@ -199,6 +255,6 @@
     {% comment %}
       Cache-busting query string on participant.js (FR-025).
     {% endcomment %}
-    <script src="{% static 'dining_radar/gathering/participant.js' %}?v=20260831d-answer-wizard"></script>
+    <script src="{% static 'dining_radar/gathering/participant.js' %}?v=20260904b-readable-dates"></script>
   </body>
 </html>

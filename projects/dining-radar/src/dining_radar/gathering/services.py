@@ -36,6 +36,8 @@ from .models import (
     ParticipantLink,
     ScheduleResponse,
     ScheduleResponseStatus,
+    ShopVoteSubmission,
+    ShortlistedShop,
 )
 
 # adr/0035 decision 4: "有効期限90日" -- a deliberately weakly-justified value
@@ -43,6 +45,11 @@ from .models import (
 # .expires_at) so a later change to this constant never retroactively changes
 # an already-issued link's own expiry.
 PARTICIPANT_LINK_VALIDITY_DAYS = 90
+
+# SetShortlistedShopsRequest.shopIds: "minItems: 1, maxItems: 5" (adr/0040;
+# the lower bound confirmed by human decision P2, 2026-09-03, adr/0041).
+SHORTLIST_MIN_SHOPS = 1
+SHORTLIST_MAX_SHOPS = 5
 
 # CandidateDateOpenShopPreview.previewShops: "maxItems: 10" (a nearest-first
 # subset for organizer preview only; openShopCount is the authoritative
@@ -108,6 +115,18 @@ class LinkRateLimitedError(Exception):
 
 class GatheringFinalizedError(Exception):
     """``GATHERING_FINALIZED``: no further schedule response is accepted."""
+
+
+class GatheringNotInSelectingShopPhaseError(Exception):
+    """``GATHERING_NOT_IN_SELECTING_SHOP_PHASE`` (adr/0040): still SCHEDULING."""
+
+
+class ShopVotingNotStartedError(Exception):
+    """``SHOP_VOTING_NOT_STARTED`` (adr/0040): ``shortlistedShops`` is empty."""
+
+
+class InvalidShopSelectionError(Exception):
+    """``INVALID_SHOP_SELECTION`` (adr/0040): the submitted shop id(s) are not valid."""
 
 
 def _get_owned_gathering(organizer: AbstractBaseUser, gathering_id: object) -> Gathering:
@@ -214,8 +233,17 @@ def confirm_candidate_date(
 def issue_participant_links(
     organizer: AbstractBaseUser, gathering_id: object, count: int
 ) -> tuple[Gathering, list[ParticipantLink]]:
-    """``issueParticipantLinks``: issue ``count`` new, distinct tokens."""
+    """``issueParticipantLinks``: issue ``count`` new, distinct tokens.
+
+    Rejected once the gathering is FINALIZED (adr/0040) -- reuses
+    ``GatheringFinalizedError``/``GATHERING_FINALIZED`` rather than a new
+    code, per explicit human instruction. Contrast with
+    ``recopy_participant_link``/``revoke_participant_link`` below, which
+    remain available after FINALIZED (P4, adr/0041).
+    """
     gathering = _get_owned_gathering(organizer, gathering_id)
+    if gathering.phase == GatheringPhase.FINALIZED:
+        raise GatheringFinalizedError
     issued_at = timezone.now()
     expires_at = issued_at + timedelta(days=PARTICIPANT_LINK_VALIDITY_DAYS)
     with transaction.atomic():
@@ -392,6 +420,209 @@ def preview_open_shops_for_candidate_date(
     gathering = _get_owned_gathering(organizer, gathering_id)
     candidate_date = _get_candidate_date(gathering, candidate_date_id)
     return candidate_date, open_shop_population_for_candidate_date(candidate_date)
+
+
+def shop_lookup_for_gathering(
+    gathering: Gathering, source: object = _SENTINEL
+) -> dict[str, NormalizedCandidate]:
+    """Maps a shop id (``NormalizedCandidate.provider_page_url``) to its live entry.
+
+    Reuses the exact same population ``previewOpenShopsForCandidateDate``
+    exposed for the confirmed candidate date (adr/0040/adr/0041) -- every
+    display field ``ShortlistedShop``/``ParticipantShopVoteOption``/
+    ``LiveProjectedShop`` expose is refetched from this population on every
+    read, never persisted (ADR-0034 decision 6). Returns an empty mapping
+    while ``confirmed_candidate_date`` is unset (SCHEDULING never has a
+    shortlist to look up).
+    """
+    if gathering.confirmed_candidate_date_id is None:
+        return {}
+    population = open_shop_population_for_candidate_date(gathering.confirmed_candidate_date, source)
+    return {candidate.provider_page_url: candidate for candidate in population}
+
+
+def set_shortlisted_shops(
+    organizer: AbstractBaseUser, gathering_id: object, shop_ids: Sequence[str]
+) -> Gathering:
+    """``setShortlistedShops`` ("この5件で投票する"/"5件を差し替える", adr/0040).
+
+    Replaces the entire shortlist. A shop id already present keeps its
+    ``added_at`` (and therefore its vote history, D7); a newly added shop id
+    starts a fresh row with ``added_at`` set to now; a shop id present
+    before but absent from ``shop_ids`` is dropped entirely (re-adding it
+    later is a brand-new entry -- architect design judgment, simplicity).
+    Never advances ``Gathering.phase`` (FR-028, settled by P6/adr/0041) --
+    only sets ``votingStartedAt`` on the first successful call.
+    """
+    gathering = _get_owned_gathering(organizer, gathering_id)
+    if gathering.phase == GatheringPhase.SCHEDULING:
+        raise GatheringNotInSelectingShopPhaseError
+    if gathering.phase == GatheringPhase.FINALIZED:
+        raise GatheringFinalizedError
+    if not (SHORTLIST_MIN_SHOPS <= len(shop_ids) <= SHORTLIST_MAX_SHOPS):
+        raise InvalidShopSelectionError
+    if len(set(shop_ids)) != len(shop_ids):
+        raise InvalidShopSelectionError
+    population_shop_ids = {
+        candidate.provider_page_url
+        for candidate in open_shop_population_for_candidate_date(gathering.confirmed_candidate_date)
+    }
+    if not set(shop_ids) <= population_shop_ids:
+        raise InvalidShopSelectionError
+
+    now = timezone.now()
+    with transaction.atomic():
+        existing = {shop.shop_id: shop for shop in gathering.shortlisted_shops.all()}
+        requested = set(shop_ids)
+        for shop_id, shop in existing.items():
+            if shop_id not in requested:
+                shop.delete()
+        ShortlistedShop.objects.bulk_create(
+            ShortlistedShop(gathering=gathering, shop_id=shop_id, added_at=now)
+            for shop_id in shop_ids
+            if shop_id not in existing
+        )
+        if gathering.voting_started_at is None:
+            gathering.voting_started_at = now
+            gathering.save(update_fields=["voting_started_at"])
+    return gathering
+
+
+def finalize_gathering(
+    organizer: AbstractBaseUser, gathering_id: object, shop_id: str
+) -> Gathering:
+    """``finalizeGathering`` ("日と店を確定する", adr/0040). SELECTING_SHOP -> FINALIZED.
+
+    Never auto-selects the top-voted shop (product-brief.md §2: votes are
+    material for the decision, not the decision itself) -- ``shop_id`` must
+    name one of the current ``shortlistedShops``.
+    """
+    gathering = _get_owned_gathering(organizer, gathering_id)
+    if gathering.phase == GatheringPhase.SCHEDULING:
+        raise GatheringNotInSelectingShopPhaseError
+    current_shop_ids = set(gathering.shortlisted_shops.values_list("shop_id", flat=True))
+    if not current_shop_ids:
+        raise ShopVotingNotStartedError
+    if gathering.phase == GatheringPhase.FINALIZED:
+        raise GatheringFinalizedError
+    if shop_id not in current_shop_ids:
+        raise InvalidShopSelectionError
+    gathering.phase = GatheringPhase.FINALIZED
+    gathering.finalized_shop_id = shop_id
+    gathering.save(update_fields=["phase", "finalized_shop_id"])
+    return gathering
+
+
+@dataclass(frozen=True)
+class ShortlistedShopTally:
+    """One ``ShortlistedShop`` plus its D7 per-shop vote tallies."""
+
+    shortlisted_shop: ShortlistedShop
+    approval_count: int
+    responded_participant_count: int
+
+
+def shortlisted_shops_with_tallies(gathering: Gathering) -> list[ShortlistedShopTally]:
+    """``Gathering.shortlistedShops``, ordered ``approvalCount`` descending.
+
+    D7's per-shop denominator: a participant counts toward a given shop's
+    ``respondedParticipantCount``/``approvalCount`` only if their most recent
+    ``setShopVotes`` submission was sent at or after that shop's own
+    ``added_at`` -- a shop just added by a shortlist replacement starts with
+    both counts at 0 even if every participant already voted on the
+    previous shortlist. The tie-break on equal ``approval_count`` is
+    ``added_at`` ascending (``ShortlistedShop.Meta.ordering``, preserved by
+    Python's stable sort), mirroring ``candidate_dates_with_tallies``'s own
+    creation-order tie-break.
+    """
+    shops = list(gathering.shortlisted_shops.all())
+    submissions = list(
+        ShopVoteSubmission.objects.filter(participant_link__gathering=gathering).values_list(
+            "submitted_at", "approved_shop_ids"
+        )
+    )
+    tallies = [
+        ShortlistedShopTally(
+            shortlisted_shop=shop,
+            approval_count=sum(
+                1
+                for submitted_at, approved_shop_ids in submissions
+                if submitted_at >= shop.added_at and shop.shop_id in (approved_shop_ids or [])
+            ),
+            responded_participant_count=sum(
+                1
+                for submitted_at, _approved_shop_ids in submissions
+                if submitted_at >= shop.added_at
+            ),
+        )
+        for shop in shops
+    ]
+    tallies.sort(key=lambda tally: tally.approval_count, reverse=True)
+    return tallies
+
+
+def set_shop_votes(token: str, approved_shop_ids: Sequence[str]) -> ParticipantLink:
+    """``setShopVotes`` ("行ってもいい店をぜんぶ選ぶ", adr/0040).
+
+    Replaces this participant's entire vote in one call (not a per-shop
+    toggle); may be empty. Rejected with ``ShopVotingNotStartedError`` while
+    ``shortlistedShops`` is empty, and with ``GatheringFinalizedError`` once
+    ``phase`` is FINALIZED (reusing the existing code, adr/0040).
+    """
+    link = _get_participant_link_by_token(token)
+    _authorize_participant_link(link)
+    gathering = link.gathering
+    current_shop_ids = set(gathering.shortlisted_shops.values_list("shop_id", flat=True))
+    if not current_shop_ids:
+        raise ShopVotingNotStartedError
+    if gathering.phase == GatheringPhase.FINALIZED:
+        raise GatheringFinalizedError
+    deduped_ids = list(dict.fromkeys(approved_shop_ids))
+    if len(deduped_ids) != len(approved_shop_ids):
+        raise InvalidShopSelectionError
+    if not set(deduped_ids) <= current_shop_ids:
+        raise InvalidShopSelectionError
+    ShopVoteSubmission.objects.update_or_create(
+        participant_link=link, defaults={"approved_shop_ids": deduped_ids}
+    )
+    return link
+
+
+@dataclass(frozen=True)
+class ParticipantShopVoteOption:
+    """One shortlisted shop from one participant's own point of view (D7)."""
+
+    shortlisted_shop: ShortlistedShop
+    approval_count: int
+    responded_participant_count: int
+    your_approval: bool | None
+
+
+def participant_shop_vote_options(link: ParticipantLink) -> list[ParticipantShopVoteOption]:
+    """``ParticipantView.shopVoteQuestions`` entries, ordered like the organizer's list.
+
+    ``your_approval`` is ``None`` ("まだ答えていません", D7) exactly when
+    this participant has never submitted ``setShopVotes``, or their most
+    recent submission predates the shop's own ``added_at`` -- a shop added
+    by a later shortlist replacement, after this participant last voted.
+    """
+    submission = ShopVoteSubmission.objects.filter(participant_link=link).first()
+    options = []
+    for tally in shortlisted_shops_with_tallies(link.gathering):
+        shop = tally.shortlisted_shop
+        if submission is None or submission.submitted_at < shop.added_at:
+            your_approval = None
+        else:
+            your_approval = shop.shop_id in submission.approved_shop_ids
+        options.append(
+            ParticipantShopVoteOption(
+                shortlisted_shop=shop,
+                approval_count=tally.approval_count,
+                responded_participant_count=tally.responded_participant_count,
+                your_approval=your_approval,
+            )
+        )
+    return options
 
 
 def _get_participant_link_by_token(token: str) -> ParticipantLink:
