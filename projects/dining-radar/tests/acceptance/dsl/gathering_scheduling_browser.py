@@ -1272,9 +1272,44 @@ class GatheringSchedulingBrowserDsl:
             csrf=True,
         )
 
-    def assert_shortlist_rejected_as_invalid_selection(self, response: CapturedApiResponse) -> None:
+    def assert_rejected_as_invalid_shop_selection(self, response: CapturedApiResponse) -> None:
+        """INVALID_SHOP_SELECTION (400) is shared by setShortlistedShops (an
+        out-of-population or out-of-bounds-count shopIds list), setShopVotes,
+        and finalizeGathering (either naming a shopId absent from the current
+        shortlist) -- reviewer audit Major#3 asked for the two latter triggers
+        and the count boundary, not only setShortlistedShops' population
+        check TDR-GTH-27 already exercised.
+        """
         self.assertions.assertEqual(response.status, 400)
         self.assertions.assertEqual(response.payload["code"], "INVALID_SHOP_SELECTION")
+
+    def assert_rejected_because_not_selecting_shop_phase(
+        self, response: CapturedApiResponse
+    ) -> None:
+        """GATHERING_NOT_IN_SELECTING_SHOP_PHASE (409): setShortlistedShops or
+        finalizeGathering called while the gathering has not yet confirmed a
+        candidate date (still SCHEDULING) -- reviewer audit Major#3.
+        """
+        self.assertions.assertEqual(response.status, 409)
+        self.assertions.assertEqual(
+            response.payload["code"], "GATHERING_NOT_IN_SELECTING_SHOP_PHASE"
+        )
+
+    def assert_rejected_because_shop_voting_not_started(
+        self, response: CapturedApiResponse
+    ) -> None:
+        """SHOP_VOTING_NOT_STARTED (409): setShopVotes or finalizeGathering
+        called while Gathering.shortlistedShops is still empty (the organizer
+        has not called setShortlistedShops at least once yet) -- reviewer
+        audit Major#3.
+        """
+        self.assertions.assertEqual(response.status, 409)
+        self.assertions.assertEqual(response.payload["code"], "SHOP_VOTING_NOT_STARTED")
+
+    def attempt_finalize_via_api(self, shop_id: str) -> CapturedApiResponse:
+        return self._api(
+            "POST", f"/gatherings/{self.gathering_id}/finalize", {"shopId": shop_id}, csrf=True
+        )
 
     def open_shortlist_replace(self) -> None:
         by_test_id(self.page, SHORTLIST_OPEN).first.click()
@@ -1616,6 +1651,17 @@ class GatheringSchedulingBrowserDsl:
             self.assertions,
             self.page,
             [SCHEDULE_QUESTION, SHOP_VOTE_QUESTION, PARTICIPANT_PROGRESS],
+        )
+
+    def assert_participant_name_controls_are_absent(self) -> None:
+        """nameControl.open/submit's own presenceRule ("Absent once
+        ParticipantView.decision is non-null") and adr/0042 決定4's
+        "名前を変える操作も置かない" -- not covered by
+        assert_participant_question_surfaces_are_replaced above, which checks
+        only the schedule/vote/progress surfaces (reviewer audit Major#2).
+        """
+        assert_all_absent(
+            self.assertions, self.page, [PARTICIPANT_NAME_OPEN, PARTICIPANT_NAME_SUBMIT]
         )
 
     # Cross-cutting: unavailableControls / disclosureObservations -----------

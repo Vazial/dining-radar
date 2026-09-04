@@ -347,6 +347,13 @@
   align-items: center;
   gap: 0.625rem 1rem;
 }
+.gth-title {
+  flex-basis: 100%;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #17201b;
+  overflow-wrap: break-word;
+}
 
 .gth-phase {
   display: inline-flex;

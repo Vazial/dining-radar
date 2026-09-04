@@ -166,6 +166,39 @@
     return value + ":00Z";
   }
 
+  // --- shared-date-formatting BEGIN (identical copy in participant.js; keep both in sync) ---
+  // Every startAt/confirmedCandidateDate value this screen ever receives
+  // from the public API was itself produced by tagging a raw
+  // <input type="datetime-local"> value as a literal UTC instant
+  // (dateTimeLocalValueToIso above: `value + ":00Z"`). Formatting it for
+  // display must read back the *same* UTC calendar/clock components, not
+  // convert to the viewing browser's own host timezone
+  // (toLocaleString()/getHours()/getDate()/getDay() etc. all use the host's
+  // local timezone per the JS spec) -- doing so would silently turn the
+  // organizer's typed "12:00" into a different wall-clock number on a
+  // non-UTC host, the same class of bug TDR-GTH-24 already found in the
+  // opposite (input) direction. Human decision 2026-09-04 (real-measurement
+  // finding: dates rendered as the raw ISO string, unreadable): format as
+  // "M/D (曜) HH:MM" (Organizer.dc.html/Answer.dc.html/Final.dc.html's own
+  // display convention), reading every component from the Date object's
+  // UTC accessors only.
+  var WEEKDAY_LABELS_JA = ["日", "月", "火", "水", "木", "金", "土"];
+
+  function pad2(value) {
+    return value < 10 ? "0" + value : String(value);
+  }
+
+  function formatGatheringDateTime(isoString) {
+    var date = new Date(isoString);
+    var month = date.getUTCMonth() + 1;
+    var day = date.getUTCDate();
+    var weekday = WEEKDAY_LABELS_JA[date.getUTCDay()];
+    var hours = pad2(date.getUTCHours());
+    var minutes = pad2(date.getUTCMinutes());
+    return month + "/" + day + " (" + weekday + ") " + hours + ":" + minutes;
+  }
+  // --- shared-date-formatting END ---
+
   function el(tag, attrs, children) {
     var node = document.createElement(tag);
     Object.keys(attrs || {}).forEach(function (name) {
@@ -571,7 +604,7 @@
     }
     var node = el("div", attrs, [
       el("div", { class: "gth-date-top" }, [
-        el("span", { class: "gth-date-value" }, [candidateDate.startAt]),
+        el("span", { class: "gth-date-value" }, [formatGatheringDateTime(candidateDate.startAt)]),
         candidateDate.isConfirmed ? el("span", { class: "gth-date-badge" }, ["決定"]) : null,
       ]),
       el("div", { class: "gth-date-tally" }, [
@@ -914,7 +947,7 @@
         el("div", { class: "gth-decision-body" }, [
           el("div", { class: "gth-decision-row" }, [
             el("span", { class: "gth-decision-label" }, ["日時"]),
-            el("b", {}, [confirmed ? confirmed.startAt : "―"]),
+            el("b", {}, [confirmed ? formatGatheringDateTime(confirmed.startAt) : "―"]),
           ]),
           el("div", { class: "gth-decision-row" }, [
             el("span", { class: "gth-decision-label" }, ["お店"]),
@@ -1014,7 +1047,18 @@
     }
     var phase = state.gathering.phase;
 
+    // Human decision 2026-09-04 (real-measurement finding: the heading was
+    // the generic "会の日程調整" title only, with no way to tell which
+    // gathering is open from the screen itself -- Organizer.dc.html's own
+    // header always shows the gathering's own name). This contract's
+    // organizerDashboard section defines no test id for the gathering's
+    // own name (unlike organizerGatheringList's data-gathering-title) --
+    // rendered as a plain, purposeless <div> (no data-testid, no
+    // data-gathering-control-purpose; `allowedPurposes` is a closed list
+    // this developer cannot extend), the same style already established
+    // for candidate-gathering-entry/candidate-map-open.
     var header = el("div", { class: "gth-header" }, [
+      el("div", { class: "gth-title" }, [state.gathering.title]),
       renderPhaseIndicator(),
       el("div", { class: "gth-stats-row" }, [renderResponseSummary(), renderUnansweredSummary()]),
     ]);
