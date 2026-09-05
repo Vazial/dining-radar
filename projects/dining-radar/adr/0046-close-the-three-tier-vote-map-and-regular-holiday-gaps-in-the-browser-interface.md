@@ -23,7 +23,8 @@ relates_to:
 > こと——を記録する。人間のチャット裁定を経ない、architect自身の技術的な整合性判断であるため、
 > `meta/adr/0064`の作法に従い`status: 提案中`・`approved_by: null`とする。あわせて、今回の
 > ブラウザ契約起草で新たに見つかった1件の食い違い（確定後の「答えないまま締まりました」表示と
-> APIスキーマの不一致）を、解消せず報告する（P-08）。
+> APIスキーマの不一致）を、解消せず報告する（P-08）。**2026-09-05、この食い違い（決定4・
+> 未決事項3）は人間のチャット裁定により決着した——末尾の未決事項節を参照。**
 
 ## 文脈
 
@@ -144,7 +145,20 @@ browser-interface.yaml`の`finalizedView.decision.shopVote.unresolvedDesignNote`
 2. 決定3（定休日を出さない）は、`Final.dc.html`の「あとから何度でも開かれる記録」という
    designerの理由への直接の反論ではなく、本ラウンドのスコープ外という理由による見送りである。
    人間が定休日の表示を望むなら、別ADRでAPIスキーマ拡張から着手する必要がある。
-3. 決定4（確定後の未回答店の表示）は完全に未解決である——次にこの画面の契約・実装に触れる者は、
-   人間に判断を仰ぐこと。
+3. ~~決定4（確定後の未回答店の表示）は完全に未解決である——次にこの画面の契約・実装に触れる者は、
+   人間に判断を仰ぐこと。~~ **2026-09-05、決着した**（`meta/adr/0064`書式、人間裁定・チャット
+   選択肢UI）。人間の裁定は「答えないまま締まりました」と出す——確定後の参加者画面には、投票に
+   かかった店が全部並び、自分が答えなかった店もそう分かる形にする、というもの。理由はP5の意図
+   （自分がどう答えたかを振り返れる）に忠実であること。この裁定を受け、以下を改訂した（本注記と
+   同一PR）——`gathering-scheduling-api.yaml`（v0.7.0→v0.8.0）: `ParticipantDecisionShopVote.
+   status`を`nullable: true`へ改め、`decision.yourShopVotes`が確定時点で`Gathering.
+   shortlistedShops`にあった店を全件含むようにした（未回答の店は`status: null`）。
+   `gathering-scheduling-browser-interface.yaml`（v0.6.0→v0.7.0）: `finalizedView.decision.
+   shopVote.unresolvedDesignNote`を、`statusValues`へ`UNANSWERED`センチネルを加えた確定要件へ
+   書き換えた（`scheduleQuestion`/`shopVoteQuestion`が既に使うnull-to-sentinel様式の再利用）。
+   `gathering-scheduling.feature`: TDR-GTH-34へ、投票にかけられた店の中に一度も答えなかった店が
+   1件ある前提と、その店が「答えないまま締まった店」として示されることを検査する一文を追加した。
+   **本決定3節・決定4節本文・検討した代替案・帰結の各節はP-06に従い書き換えていない**——この
+   注記のみが決着の記録である。
 4. `Organizer.dc.html`状態②の「店を絞りなおす」「5件を差し替える」2ボタンの区別（`ADR-0042`が
    残した未決事項）は本ADRの範囲外であり、引き続き未決のままである。

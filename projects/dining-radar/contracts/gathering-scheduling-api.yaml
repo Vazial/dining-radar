@@ -299,10 +299,25 @@
 # - **既存の二択の投票データは移行しない**（人間裁定）: 本番で稼働していた旧`approvedShopIds`方式の
 #   投票データは、実運用の記録が実質無いことを理由に、移行の仕組みを設計しない。実装スライスでは
 #   単純に破棄（テーブルの列を置き換え、既存行は失われる）してよい——ADR-0044決定5参照。
+#
+# 2026-09-05 追補5 (architect、adr/0046 未決事項3の決着。人間裁定は2026-09-05チャット選択肢UIに
+#   よる。version 0.7.0 -> 0.8.0):
+# - **確定後の未回答店の表示**（人間裁定: 「答えないまま締まりました」と出す。確定後の参加者画面には
+#   投票にかかった店が全部並び、自分が答えなかった店もそう分かる形にする）: `ParticipantDecisionShopVote`
+#   の`status`を`nullable: true`へ改めた（`required`は変更しない——`yourVote`と同じ「keyは必須、値は
+#   null許容」という既存の様式）。`ParticipantView.decision.yourShopVotes`は、確定時点で
+#   `Gathering.shortlistedShops`にあった店を**全件**含むようになった——一度も投票しなかった店
+#   （`yourVote`がnullの店）を除外していた従来の設計（adr/0041由来、adr/0044でも変わらなかった
+#   ゲーティング）を置き換える。`status`がnullになる条件は、`ParticipantShopVoteOption.yourVote`が
+#   確定時点でnullだった場合とまったく同じ（一度も答えていない、またはその店の直近の`addedAt`より
+#   前の回答しか無い）。並び順（近い順、adr/0044決定2）は変更しない。この決着はブラウザ契約
+#   （`gathering-scheduling-browser-interface.yaml`）側の`finalizedView.decision.shopVote`の
+#   対応する改訂・`gathering-scheduling.feature`のTDR-GTH-34拡張と同じPRで行う——詳細は
+#   `adr/0046`の未決事項節を参照する。
 openapi: 3.0.3
 info:
   title: Dining Radar Gathering Scheduling API
-  version: 0.7.0
+  version: 0.8.0
   description: >-
     Lets an authenticated organizer list their gatherings, create a gathering
     with candidate dates, add further candidate dates while scheduling, issue
@@ -343,15 +358,18 @@ info:
     decision). Once the organizer finalizes, both organizer and
     participant see the decision only, including the participant's own
     retrospective schedule answer and this participant's own answer for
-    every shop they were asked about at the finalized date (P5, adr/0041,
-    generalized to the three-tier model by adr/0044) -- never another
-    participant's answers or votes; no further schedule response, shop
-    vote, or link issuance is accepted (GATHERING_FINALIZED). This
-    contract now covers the full "会の作成と日程調整・店の絞り込み連携・
-    承認投票・確定" scope (adr/0040 merges what adr/0035 decision 2 had
-    originally split into 4 slices, per explicit 2026-09-03 human decision;
-    adr/0041 records a further round of 6 human decisions the same day,
-    P1-P6; adr/0042 adds the browser-interface contract and a self-audited
+    every shop among the finalized shortlist -- including a shop this
+    participant never got a chance to vote on, shown with a null status
+    rather than omitted (P5, adr/0041, generalized to the three-tier model
+    by adr/0044, extended to include never-answered shops 2026-09-05, human
+    chat decision, adr/0046) -- never another participant's answers or
+    votes; no further schedule response, shop vote, or link issuance is
+    accepted (GATHERING_FINALIZED). This contract now covers the full
+    "会の作成と日程調整・店の絞り込み連携・承認投票・確定" scope (adr/0040
+    merges what adr/0035 decision 2 had originally split into 4 slices, per
+    explicit 2026-09-03 human decision; adr/0041 records a further round of
+    6 human decisions the same day, P1-P6; adr/0042 adds the
+    browser-interface contract and a self-audited
     OpenShopPreviewItem.shopId fix needed to make it implementable; adr/0044
     responds to three points of production field feedback -- a
     nearest-first, vote-independent participant shop order, a distinctly
@@ -360,12 +378,14 @@ info:
     the organizer's shortlist screen and the participant's vote screen;
     adr/0045 extends adr/0025 decision 1's search-origin disclosure from the
     authenticated organizer screen to this unauthenticated participant
-    screen). The gathering never persists provider-derived shop attributes
-    (name, genre, location, walking time, seating/smoking/budget tier,
-    provider page, hours, images); "open shop" counts, previews, and
-    shortlisted-shop displays are all recomputed from the private candidate
-    population on every read (adr/0034 decision 6). DRAFT: this contract
-    version is not yet human-approved; see
+    screen; adr/0046 resolves whether a never-answered shop appears in the
+    finalized retrospective, 2026-09-05 human chat decision). The gathering
+    never persists provider-derived shop attributes (name, genre, location,
+    walking time, seating/smoking/budget tier, provider page, hours,
+    images); "open shop" counts, previews, and shortlisted-shop displays
+    are all recomputed from the private candidate population on every read
+    (adr/0034 decision 6). DRAFT: this contract version is not yet
+    human-approved; see
     adr/0035-scope-the-gathering-scheduling-slice-and-record-2026-08-30-decisions.md,
     adr/0036-adopt-gathering-scheduling-browser-interface-contract.md
     (decision 7, participant-link management),
@@ -376,9 +396,10 @@ info:
     adr/0041-refine-shortlisting-recopy-and-the-finalized-participant-view.md,
     adr/0042-adopt-shortlist-vote-finalize-browser-interface-contract.md,
     adr/0044-move-shop-voting-to-three-tiers-stabilize-participant-order-and-add-shop-map-details.md,
+    adr/0045-extend-search-origin-disclosure-to-the-participants-signed-link-screen.md,
     and
-    adr/0045-extend-search-origin-disclosure-to-the-participants-signed-link-screen.md
-    (this revision).
+    adr/0046-close-the-three-tier-vote-map-and-regular-holiday-gaps-in-the-browser-interface.md
+    (this revision, open item 3).
 servers:
   - url: https://app.example.invalid
     description: >-
@@ -982,12 +1003,15 @@ paths:
         null until `phase` is FINALIZED, at which point it holds the
         finalized candidate date, shop, and this participant's own
         retrospective schedule answer and this participant's own answer for
-        every shop they were asked about -- never another participant's
-        answers or votes (adr/0040, extended by P5/adr/0041 and generalized
-        to the three-tier vote model by adr/0044). Once the organizer has
-        revoked this link (ADR-0036 decision 7), this operation returns
-        `LINK_REVOKED` instead, regardless of whether the token would
-        otherwise still be within its validity period.
+        every shop among the finalized shortlist, including one this
+        participant never got a chance to vote on (null status rather than
+        omitted, 2026-09-05, adr/0046) -- never another participant's
+        answers or votes (adr/0040, extended by P5/adr/0041, generalized to
+        the three-tier vote model by adr/0044, and extended to never-
+        answered shops by adr/0046). Once the organizer has revoked this
+        link (ADR-0036 decision 7), this operation returns `LINK_REVOKED`
+        instead, regardless of whether the token would otherwise still be
+        within its validity period.
       parameters:
         - $ref: '#/components/parameters/ParticipantToken'
       responses:
@@ -2363,25 +2387,43 @@ components:
         Added 2026-09-04 (adr/0044), replacing the retired
         `yourApprovedShops` (an array of only-approved LiveProjectedShop
         entries). One entry per shop among Gathering.shortlistedShops at
-        the moment of finalization for which this participant had answered
-        (ParticipantShopVoteOption.yourVote was non-null) -- a shop this
-        participant never got a chance to vote on (yourVote null) is
-        excluded, the same gating the prior model already applied, but
-        this schema now carries the actual three-tier `status` chosen
-        rather than filtering to a single "approved" bucket, since the
-        three-tier model has no single bucket that unambiguously
-        corresponds to the retired boolean "approved". This mirrors
-        `yourScheduleResponse` below (which reports the answer's value,
-        not only a subset of favorable answers) and more completely
-        satisfies the human's stated intent ("投票後に振りかえられる", a
-        personal retrospective of what this participant actually said) --
-        the retired model silently dropped a NOT_GOING-equivalent answer
-        from this retrospective, which this generalization no longer does.
+        the moment of finalization -- **including a shop this participant
+        never got a chance to vote on** (changed 2026-09-05, human chat
+        decision, adr/0046 open item 3 resolved: the finalized participant
+        screen must show "答えないまま締まりました" for such a shop, so a
+        participant can tell a shop they never answered apart from one
+        that simply was not shortlisted at all). The prior revision
+        excluded a no-answer shop entirely (yourVote null); this revision
+        instead carries `status: null` for it -- the same null-means-not-
+        yet-answered convention ParticipantShopVoteOption.yourVote already
+        uses pre-finalization. For a shop this participant did answer, this
+        schema carries the actual three-tier `status` chosen rather than
+        filtering to a single "approved" bucket, since the three-tier model
+        has no single bucket that unambiguously corresponds to the retired
+        boolean "approved". This mirrors `yourScheduleResponse` below
+        (which reports the answer's value, not only a subset of favorable
+        answers) and more completely satisfies the human's stated intent
+        ("投票後に振りかえられる", a personal retrospective of what this
+        participant actually said) -- the model this replaces silently
+        dropped a NOT_GOING-equivalent answer from this retrospective, and
+        the model before that dropped a never-answered shop from it
+        entirely; neither omission survives in this revision.
       properties:
         shop:
           $ref: '#/components/schemas/LiveProjectedShop'
         status:
           $ref: '#/components/schemas/ShopVoteStatus'
+          nullable: true
+          description: >-
+            Null exactly when this participant's yourVote for this shop was
+            still null at the moment of finalization (never answered, or
+            answered before this shop's most recent addedAt) -- the same
+            gating ParticipantShopVoteOption.yourVote already applies to
+            this same shop pre-finalization (changed 2026-09-05, human chat
+            decision, adr/0046 open item 3: 答えなかった店も並べ、答えな
+            かったと分かる形にする -- the prior revision omitted such a
+            shop from this array entirely instead of carrying a null
+            status).
     ParticipantView:
       type: object
       required:
@@ -2488,13 +2530,17 @@ components:
               description: >-
                 Added by human decision P5 (2026-09-03, adr/0041) as
                 `yourApprovedShops`; generalized to the three-tier vote
-                model 2026-09-04 (adr/0044) and renamed accordingly -- see
-                ParticipantDecisionShopVote for why this now carries every
-                shop this participant answered (with the answer's actual
-                three-tier value), not only a filtered "approved" subset.
-                Ordered the same way shopVoteQuestions was ordered at the
-                moment of finalization (nearest-first by distance from the
-                search origin, adr/0044) -- this contract does not require
+                model 2026-09-04 (adr/0044) and renamed accordingly. Carries
+                one entry for every shop among Gathering.shortlistedShops at
+                the moment of finalization, whether or not this participant
+                ever answered it (changed 2026-09-05, human chat decision,
+                adr/0046 open item 3 resolved -- the prior revision
+                excluded a never-answered shop entirely; see
+                ParticipantDecisionShopVote for why `status` is null for
+                such a shop instead of the shop being omitted). Ordered the
+                same way shopVoteQuestions was ordered at the moment of
+                finalization (nearest-first by distance from the search
+                origin, adr/0044) -- this contract does not require
                 re-deriving a different order here.
           description: >-
             Null until phase is FINALIZED; non-null and unchanged

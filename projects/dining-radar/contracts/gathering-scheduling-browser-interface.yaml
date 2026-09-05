@@ -284,11 +284,26 @@
 #   （＝回答した店の数だけ）に定めており、この未回答行を契約上のMustにはしていない——APIを変える
 #   （nullの`yourVote`を持つ店も含める）か、designerの絵からこの行を落とすかの判断を人間に
 #   委ねる（詳細は`adr/0046`）。
+#
+# 2026-09-05 追補5 (architect、adr/0046 未決事項3の決着。人間裁定は2026-09-05チャット選択肢UIに
+#   よる。contractVersion 0.6.0 -> 0.7.0):
+# - **確定後の未回答店の表示**（人間裁定: 「答えないまま締まりました」と出す。確定後の参加者画面には
+#   投票にかかった店が全部並び、自分が答えなかった店もそう分かる形にする）: `finalizedView.decision.
+#   shopVote`の`unresolvedDesignNote`を確定した要件へ書き換えた。`gathering-scheduling-api.yaml`側の
+#   `ParticipantDecisionShopVote.status`が`nullable: true`へ改まったことに追随し、
+#   `statusValues`へ`UNANSWERED`を追加した——`scheduleQuestion.yourResponseValues`・
+#   `shopVoteQuestion.yourVoteValues`が既に確立している「nullをセンチネル文字列へ投影する」様式の
+#   再利用であり、新しい表現方法は導入していない。`data-vote-status`は、そのエントリの`status`が
+#   nullのとき厳密に`"UNANSWERED"`（Final.dc.html「答えないまま締まりました」の行）、それ以外は
+#   実際のShopVoteStatus文字列とする。cardinalityは変更しない（引き続き`decision.yourShopVotes`の
+#   要素数と厳密に一致する——API側がこの配列に未回答店を含めるようになったため、契約を書き換えずとも
+#   この一致は保たれる）。`gathering-scheduling-api.yaml`のバージョン更新・`gathering-scheduling.
+#   feature`のTDR-GTH-34拡張と同じPRで行う——詳細は`adr/0046`の未決事項節を参照する。
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.6.0'
+contractVersion: '0.7.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -1877,8 +1892,8 @@ browserControlSurface:
           scheduleQuestion.tally's own per-candidate-date gating).
         requirement: >-
           **Fixed 2026-09-05 (adr/0044)**: this contract previously exposed
-          a single, since-retired approvalCount/data-approval-count; the
-          four attributes above replace it, mirroring this same shop's
+          this shop's tally as a single data-approval-count; the three
+          attributes above replace it, mirroring this same shop's
           organizer-facing ShortlistedShop.wantToGoCount/okToGoCount/
           notGoingCount/respondedParticipantCount exactly.
     progress:
@@ -1902,7 +1917,10 @@ browserControlSurface:
         B-3 (Final.dc.html) -- the same signed-link URL, now showing the
         decision only (D1, 2026-08-30) plus this participant's own
         retrospective record (P5, 2026-09-03, adr/0041/adr/0042; extended
-        to the three-tier vote 2026-09-05, adr/0044).
+        to the three-tier vote 2026-09-05, adr/0044; extended again the
+        same day to include a shop this participant never voted on, shown
+        with a null status rather than omitted, 2026-09-05, adr/0046 open
+        item 3, human chat decision).
       requiredTestIds:
         decision: gathering-participant-decision
       presenceRule: Present exactly when ParticipantView.decision is non-null (phase FINALIZED).
@@ -1932,38 +1950,38 @@ browserControlSurface:
           attributes:
             shopId: data-shop-id
             status: data-vote-status
-          statusValues: [WANT_TO_GO, OK_TO_GO, NOT_GOING]
+          statusValues: [WANT_TO_GO, OK_TO_GO, NOT_GOING, UNANSWERED]
           requirement: >-
-            **Renamed and restructured 2026-09-05 (adr/0044)** from the
-            retired gathering-participant-decision-approved-shop (which
-            projected only decision.yourApprovedShops, an approved-only
-            subset). One element per decision.yourShopVotes entry
-            (gathering-scheduling-api.yaml's ParticipantDecisionShopVote).
-            data-vote-status equals that entry's status exactly
-            (Final.dc.html's per-shop "行きたい"/"行ってもいい"/"むり"
-            line). Never carries another participant's shopId, status, or
-            any aggregate count -- decision.yourShopVotes is this
-            participant's own data only (P5's explicit "他人の票は出さない"
-            constraint, enforced at the schema level by
-            gathering-scheduling-api.yaml, unchanged by this rename).
-          unresolvedDesignNote: >-
-            **Flagged, not resolved (FR-028, 2026-09-05, see adr/0046)**:
-            Final.dc.html's 「あなたが店にどう答えたか」 list additionally
-            draws a row for a shop this participant never voted on before
-            finalization, labelled "答えないまま締まりました" -- but
-            gathering-scheduling-api.yaml's ParticipantDecisionShopVote/
-            decision.yourShopVotes explicitly excludes any shop this
-            participant's yourVote was null for at finalization (an
-            existing rule, unchanged by this round's three-tier
-            restructure). This contract's cardinality above -- one element
-            per actual yourShopVotes entry -- therefore does not require
-            this additional never-answered row to exist; an implementation
-            that omits it still satisfies this contract as written.
-            Resolving the mismatch (either the API grows a null-status
-            entry for never-answered shops, or the design drops this row)
-            needs a human decision this round's browser-interface-only
-            scope does not include -- reported per P-08 rather than
-            silently decided either way.
+            **Renamed and restructured 2026-09-05 (adr/0044); resolved
+            2026-09-05 (adr/0046 open item 3, human chat decision)** from
+            the retired gathering-participant-decision-approved-shop
+            (which projected only decision.yourApprovedShops, an
+            approved-only subset). One element per decision.yourShopVotes
+            entry (gathering-scheduling-api.yaml's
+            ParticipantDecisionShopVote) -- this now means one element per
+            shop that was on Gathering.shortlistedShops at the moment of
+            finalization, **including a shop this participant never voted
+            on** (the human decision: 「答えないまま締まりました」と出す。
+            確定後の参加者画面には投票にかかった店が全部並び、自分が答え
+            なかった店もそう分かる形にする). data-vote-status is
+            "UNANSWERED" exactly when that entry's status is null (this
+            participant's yourVote for that shop was still null at
+            finalization), otherwise the exact ShopVoteStatus string
+            chosen (Final.dc.html's per-shop "行きたい"/"行ってもいい"/
+            "むり"/"答えないまま締まりました" line) -- the same
+            null-to-sentinel convention this same file's
+            scheduleQuestion.yourResponseValues and
+            shopVoteQuestion.yourVoteValues above already use. Never
+            carries another participant's shopId, status, or any aggregate
+            count -- decision.yourShopVotes is this participant's own data
+            only (P5's explicit "他人の票は出さない" constraint, enforced
+            at the schema level by gathering-scheduling-api.yaml, unchanged
+            by this rename). Cardinality equals decision.yourShopVotes'
+            own array length exactly, both before and after this
+            resolution -- only the meaning of a null status changed
+            (previously such a shop was excluded from the array entirely;
+            now it is present with status null, per
+            gathering-scheduling-api.yaml's own 2026-09-05 revision).
       replacesQuestionSurfaces: >-
         gathering-schedule-question, gathering-shop-vote-question, and
         gathering-participant-progress are all absent once
