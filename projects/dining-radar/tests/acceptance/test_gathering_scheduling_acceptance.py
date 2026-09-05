@@ -1,4 +1,4 @@
-"""JS-capable browser/API L4 runner for TDR-GTH-01 through TDR-GTH-36.
+"""JS-capable browser/API L4 runner for TDR-GTH-01 through TDR-GTH-41.
 
 gathering-scheduling-browser-interface.yaml's own profiles.localAcceptance
 marks only TDR-GTH-13 (token guessing is API-level fuzzing, not a browser
@@ -8,10 +8,18 @@ Playwright session (see gathering_scheduling_browser.py's module docstring).
 TDR-GTH-01 drives organizerGatheringCreate end-to-end through the browser
 (reviewer audit Major#2, resolving the prior direct-API gap this docstring
 used to describe). TDR-GTH-26 through TDR-GTH-36 (adr/0040-0042) add the
-5-shop shortlist, D7 replace, approval voting, finalize, and finalized-view
+5-shop shortlist, D7 replace, three-tier voting, finalize, and finalized-view
 scenarios; every Given-state builder that is not itself the scenario under
 test still goes through gathering-scheduling-api.yaml's public boundary
-(adr/0037 decision 1), not a new test-support seam.
+(adr/0037 decision 1), not a new test-support seam. TDR-GTH-37 through
+TDR-GTH-41 (adr/0044/0045/0046, 2026-09-04/05) revise the shop-vote model to
+three tiers (WANT_TO_GO/OK_TO_GO/NOT_GOING replacing the retired boolean
+approvedShopIds), stabilize the participant's shop order against votes, and
+add map/shop-detail observations to both the organizer's shortlist-selection
+screen and the participant's vote screen (the latter also gaining a
+search-origin marker). TDR-GTH-28/29/30/31/32/33/34 below are rewritten to
+match -- their .feature scenario bodies are unchanged (per the contract's own
+header comment), but every browser/API interaction they drive changed shape.
 """
 
 from __future__ import annotations
@@ -477,7 +485,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.rejected_because_shop_voting_not_started(finalize_too_early)
         early_link = self.steps.a_participant_link_is_issued()
         vote_too_early = self.steps.participant_attempts_to_vote_via_api(
-            early_link, [open_shop_ids[0]]
+            early_link, {open_shop_ids[0]: "WANT_TO_GO"}
         )
         self.steps.rejected_because_shop_voting_not_started(vote_too_early)
         # Reviewer audit Major#3: INVALID_SHOP_SELECTION's two count-boundary
@@ -524,7 +532,12 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         response = self.steps.organizer_attempts_to_shortlist_shops_via_api([closed_shop_id])
         self.steps.rejected_as_invalid_shop_selection(response)
 
-    def test_tdr_gth_28_participant_selects_shops_they_would_go_to(self) -> None:
+    def test_tdr_gth_28_participant_answers_a_shop_with_one_of_three_tiers(self) -> None:
+        """Rewritten (adr/0044, 2026-09-04 human decision): the approve-any-
+        number model is retired -- a participant now answers each shortlisted
+        shop with exactly one of WANT_TO_GO/OK_TO_GO/NOT_GOING (行きたい／
+        行ってもいい／むり), not a boolean approve/exclude toggle.
+        """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
         thursday = next_weekday_iso(3)
@@ -533,17 +546,17 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.organizer_shortlists_shops_via_api([shop_a, shop_b])
         link = self.steps.a_participant_link_is_issued()
         self.steps.participant_opens_the_link(link)
-        self.steps.participant_votes_for_shops([shop_a])
-        self.steps.shop_vote_your_approval_is(shop_a, "true")
-        self.steps.shop_vote_your_approval_is(shop_b, "false")
+        self.steps.shop_vote_your_vote_is(shop_a, "UNANSWERED")
+        self.steps.participant_answers_shop_vote(shop_a, "WANT_TO_GO")
+        self.steps.shop_vote_your_vote_is(shop_a, "WANT_TO_GO")
+        self.steps.shop_vote_your_vote_is(shop_b, "UNANSWERED")
         # Reviewer audit Major#1: participantAnswer.shopVoteQuestion is one of
         # six new screen states this cross-cutting check had never run against.
         self.steps.screen_has_no_forbidden_controls_or_disclosures()
-        # "1つも選ばないことも選べる": deselecting the only approved shop must be
-        # accepted, not rejected -- 0 selections is a meaningful, valid answer.
-        self.steps.participant_toggles_shop_vote(shop_a)
-        self.steps.shop_vote_your_approval_is(shop_a, "false")
-        self.steps.shop_vote_your_approval_is(shop_b, "false")
+        # A third-tier answer ("むり") is itself a recorded vote, distinct from
+        # never having answered at all (UNANSWERED) -- both are exercised here.
+        self.steps.participant_answers_shop_vote(shop_b, "NOT_GOING")
+        self.steps.shop_vote_your_vote_is(shop_b, "NOT_GOING")
         self.steps.participant_view_is_valid()
 
     def test_tdr_gth_29_other_participants_votes_are_hidden_until_self_votes(self) -> None:
@@ -555,14 +568,17 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.organizer_shortlists_shops_via_api([shop_a, shop_b])
         other_link = self.steps.a_participant_link_is_issued()
         self.steps.participant_opens_the_link(other_link)
-        self.steps.participant_votes_for_shops([shop_a])
+        self.steps.participant_answers_shop_vote(shop_a, "WANT_TO_GO")
         link = self.steps.a_participant_link_is_issued()
         self.steps.participant_opens_the_link(link)
         self.steps.shop_vote_tally_is_absent(shop_a)
         self.steps.shop_vote_tally_is_absent(shop_b)
-        self.steps.participant_votes_for_shops([shop_a])
-        self.steps.shop_vote_tally_is(shop_a, approval=2, responded=2)
-        self.steps.shop_vote_tally_is(shop_b, approval=0, responded=2)
+        self.steps.participant_answers_shop_vote(shop_a, "OK_TO_GO")
+        self.steps.shop_vote_tally_is(shop_a, want_to_go=1, ok_to_go=1, not_going=0, responded=2)
+        # Per-shop gating, not global: self has not answered shop_b (only
+        # shop_a), so shop_b's tally stays hidden even though shop_a's is now
+        # visible -- gating is genuinely per-shop.
+        self.steps.shop_vote_tally_is_absent(shop_b)
 
     def test_tdr_gth_30_participant_can_always_change_their_shop_vote(self) -> None:
         self._sign_in()
@@ -570,21 +586,20 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         thursday = next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会30", [thursday])
         open_shop_ids = self.steps.open_shop_ids_for_the_confirmed_date()
-        shop_a, shop_b, not_shortlisted_shop = open_shop_ids[:3]
-        self.steps.organizer_shortlists_shops_via_api([shop_a, shop_b])
+        shop_a, _shop_b, not_shortlisted_shop = open_shop_ids[:3]
+        self.steps.organizer_shortlists_shops_via_api(open_shop_ids[:2])
         link = self.steps.a_participant_link_is_issued()
         self.steps.participant_opens_the_link(link)
-        self.steps.participant_votes_for_shops([shop_a])
-        self.steps.shop_vote_your_approval_is(shop_a, "true")
-        self.steps.shop_vote_your_approval_is(shop_b, "false")
-        self.steps.participant_votes_for_shops([shop_b])
-        self.steps.participant_toggles_shop_vote(shop_a)
-        self.steps.shop_vote_your_approval_is(shop_a, "false")
-        self.steps.shop_vote_your_approval_is(shop_b, "true")
+        self.steps.participant_answers_shop_vote(shop_a, "WANT_TO_GO")
+        self.steps.shop_vote_your_vote_is(shop_a, "WANT_TO_GO")
+        self.steps.participant_answers_shop_vote(shop_a, "NOT_GOING")
+        self.steps.shop_vote_your_vote_is(shop_a, "NOT_GOING")
         # Reviewer audit Major#3: INVALID_SHOP_SELECTION's setShopVotes trigger
         # (naming a shopId absent from the current shortlist) was never
         # exercised -- only setShortlistedShops' own trigger was (TDR-GTH-27).
-        foreign_vote = self.steps.participant_attempts_to_vote_via_api(link, [not_shortlisted_shop])
+        foreign_vote = self.steps.participant_attempts_to_vote_via_api(
+            link, {not_shortlisted_shop: "WANT_TO_GO"}
+        )
         self.steps.rejected_as_invalid_shop_selection(foreign_vote)
 
     def test_tdr_gth_31_kept_shops_retain_votes_after_a_replace(self) -> None:
@@ -595,20 +610,31 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         shops = self.steps.open_shop_ids_for_the_confirmed_date()[:6]
         shop_0, shop_1, shop_2, _shop_3, shop_4, shop_5 = shops
         self.steps.organizer_shortlists_shops_via_api(shops[:5])
-        link_one = self.steps.a_participant_link_is_issued()
-        self.steps.participant_opens_the_link(link_one)
-        self.steps.participant_votes_for_shops([shop_0, shop_1])
-        link_two = self.steps.a_participant_link_is_issued()
-        self.steps.participant_opens_the_link(link_two)
-        self.steps.participant_votes_for_shops([shop_0])
+        link = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link)
+        self.steps.participant_answers_shop_votes(
+            {shop_0: "WANT_TO_GO", shop_1: "OK_TO_GO", shop_2: "NOT_GOING"}
+        )
         self.steps.organizer_opens_the_dashboard()
-        self.steps.shortlisted_shop_tally_is(shop_0, approval=2, responded=2)
-        self.steps.shortlisted_shop_tally_is(shop_1, approval=1, responded=2)
-        self.steps.shortlisted_shop_tally_is(shop_2, approval=0, responded=2)
+        self.steps.shortlisted_shop_tally_is(
+            shop_0, want_to_go=1, ok_to_go=0, not_going=0, responded=1
+        )
+        self.steps.shortlisted_shop_tally_is(
+            shop_1, want_to_go=0, ok_to_go=1, not_going=0, responded=1
+        )
+        self.steps.shortlisted_shop_tally_is(
+            shop_2, want_to_go=0, ok_to_go=0, not_going=1, responded=1
+        )
         self.steps.organizer_replaces_a_shortlisted_shop(shop_4, shop_5)
-        self.steps.shortlisted_shop_tally_is(shop_0, approval=2, responded=2)
-        self.steps.shortlisted_shop_tally_is(shop_1, approval=1, responded=2)
-        self.steps.shortlisted_shop_tally_is(shop_2, approval=0, responded=2)
+        self.steps.shortlisted_shop_tally_is(
+            shop_0, want_to_go=1, ok_to_go=0, not_going=0, responded=1
+        )
+        self.steps.shortlisted_shop_tally_is(
+            shop_1, want_to_go=0, ok_to_go=1, not_going=0, responded=1
+        )
+        self.steps.shortlisted_shop_tally_is(
+            shop_2, want_to_go=0, ok_to_go=0, not_going=1, responded=1
+        )
 
     def test_tdr_gth_32_a_newly_replaced_shop_stays_unanswered_for_participants_who_already_voted(
         self,
@@ -622,14 +648,16 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.organizer_shortlists_shops_via_api(shops[:5])
         link = self.steps.a_participant_link_is_issued()
         self.steps.participant_opens_the_link(link)
-        self.steps.participant_votes_for_shops([shop_0])
+        self.steps.participant_answers_shop_vote(shop_0, "WANT_TO_GO")
         self.steps.organizer_opens_the_dashboard()
         self.steps.organizer_replaces_a_shortlisted_shop(shop_4, shop_5)
         self.steps.participant_opens_the_link(link)
-        self.steps.shop_vote_your_approval_is(shop_5, "UNANSWERED")
+        self.steps.shop_vote_your_vote_is(shop_5, "UNANSWERED")
         self.steps.shop_vote_tally_is_absent(shop_5)
         self.steps.organizer_opens_the_dashboard()
-        self.steps.shortlisted_shop_tally_is(shop_5, approval=0, responded=0)
+        self.steps.shortlisted_shop_tally_is(
+            shop_5, want_to_go=0, ok_to_go=0, not_going=0, responded=0
+        )
 
     def test_tdr_gth_33_organizer_finalizes_the_date_and_shop(self) -> None:
         self._sign_in()
@@ -662,7 +690,9 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
             link, candidate_date_id, "MAYBE"
         )
         self.steps.rejected_because_gathering_finalized(schedule_response)
-        vote_response = self.steps.participant_attempts_to_vote_via_api(link, [shop_a])
+        vote_response = self.steps.participant_attempts_to_vote_via_api(
+            link, {shop_a: "WANT_TO_GO"}
+        )
         self.steps.rejected_because_gathering_finalized(vote_response)
         # Reviewer audit Major#3: finalizeGathering's own third 409 branch
         # (already FINALIZED) was never exercised -- only its effect on other
@@ -671,6 +701,14 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.rejected_because_gathering_finalized(refinalize_response)
 
     def test_tdr_gth_34_finalized_view_shows_the_decision_and_own_record_only(self) -> None:
+        """Rewritten (adr/0044 three-tier model; adr/0046 open item 3,
+        2026-09-05 human decision): the finalized retrospective now carries
+        one entry per shortlisted shop -- including one this participant
+        never voted on, shown as "UNANSWERED" rather than omitted. shop_b
+        below is exactly that shop: only other_link votes it, `link` never
+        does, satisfying TDR-GTH-34's own added Given ("投票にかけられた店の
+        中に、その参加者が一度も答えなかった店が1件ある").
+        """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
         thursday = next_weekday_iso(3)
@@ -686,10 +724,10 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         shop_a, shop_b = self.steps.open_shop_ids_for_the_confirmed_date()[:2]
         self.steps.organizer_shortlists_shops_via_api([shop_a, shop_b])
         self.steps.participant_opens_the_link(link)
-        self.steps.participant_votes_for_shops([shop_a])
+        self.steps.participant_answers_shop_vote(shop_a, "WANT_TO_GO")
         other_link = self.steps.a_participant_link_is_issued()
         self.steps.participant_opens_the_link(other_link)
-        self.steps.participant_votes_for_shops([shop_b])
+        self.steps.participant_answers_shop_vote(shop_b, "OK_TO_GO")
         confirmed_date_iso = self.dsl.gathering["candidateDates"][0]["startAt"]
         self.steps.organizer_opens_the_dashboard()
         self.steps.organizer_selects_a_shop_for_finalize(shop_a)
@@ -699,7 +737,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
             confirmed_candidate_date=confirmed_date_iso,
             shop_id=shop_a,
             your_schedule_response="GOING",
-            approved_shop_ids=[shop_a],
+            shop_votes={shop_a: "WANT_TO_GO", shop_b: "UNANSWERED"},
         )
         self.steps.participant_question_surfaces_are_replaced()
         # Reviewer audit Major#1: participantAnswer.finalizedView is one of six
@@ -714,7 +752,9 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
             link, candidate_date_id, "MAYBE"
         )
         self.steps.rejected_because_gathering_finalized(schedule_response)
-        vote_response = self.steps.participant_attempts_to_vote_via_api(link, [shop_a])
+        vote_response = self.steps.participant_attempts_to_vote_via_api(
+            link, {shop_a: "WANT_TO_GO"}
+        )
         self.steps.rejected_because_gathering_finalized(vote_response)
 
     def test_tdr_gth_35_no_new_participant_links_after_finalized(self) -> None:
@@ -745,3 +785,114 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.organizer_submits_finalize()
         recopied_url = self.steps.organizer_recopies_the_link_at(0)
         self.steps.recopied_link_matches_original(recopied_url, link)
+
+    # TDR-GTH-37 through TDR-GTH-41 (adr/0044/0045/0046, 2026-09-04/05: a
+    # production defect report drove three-tier voting, a nearest-first
+    # stable participant shop order, and map/shop-detail observations on both
+    # the organizer's shortlist-selection screen and the participant's vote
+    # screen -- the latter also gaining a search-origin marker) ------------
+
+    def test_tdr_gth_37_participant_shop_order_is_nearest_first_and_stable(self) -> None:
+        """participantAnswer.shopVoteQuestion.orderingInvariant (adr/0044
+        decision 2): the near-order clause is checked the same way TDR-GTH-08's
+        own near-order clause already is -- self-consistency against the API's
+        own claimed order, not an independent geographic recomputation (this
+        suite cannot read src/** or the synthetic population's coordinates).
+        The stability clause ("投票しても変わらない") is fully verifiable:
+        the DOM order recorded before a vote must equal the order after it.
+        """
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会37", [thursday])
+        shops = self.steps.open_shop_ids_for_the_confirmed_date()[:5]
+        self.steps.organizer_shortlists_shops_via_api(shops)
+        link = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link)
+        self.steps.shop_vote_question_order_matches_participant_view(link)
+        before_order = self.steps.shop_vote_question_order_snapshot()
+        self.steps.participant_answers_shop_vote(shops[0], "WANT_TO_GO")
+        self.steps.shop_vote_question_order_is_unchanged(before_order)
+
+    def test_tdr_gth_38_organizer_sees_map_and_shop_details_while_selecting(self) -> None:
+        """TDR-GTH-38: shortlistSelection.list (PickFive.dc.html, the "その日に
+        開いている店の一覧") shows a map and per-shop detail fields -- not the
+        shortlistedShopVotes tally view (adr/0044's own documented asymmetry).
+        """
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会38", [thursday])
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.open_shop_list_shows_map_and_shop_details()
+        # Reviewer audit Major#1's own lesson (前ラウンドで2回指摘): a
+        # cross-cutting check must be exercised against every new screen
+        # state a round introduces, not only re-run against ones a prior
+        # round already covered -- this is the map-bearing selection screen.
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+
+    def test_tdr_gth_39_participant_sees_map_and_shop_details_while_voting(self) -> None:
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会39", [thursday])
+        shops = self.steps.open_shop_ids_for_the_confirmed_date()[:3]
+        self.steps.organizer_shortlists_shops_via_api(shops)
+        link = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link)
+        self.steps.shop_vote_question_list_shows_map_and_shop_details(link)
+        # Same lesson as TDR-GTH-38 above, applied to the map-bearing vote
+        # screen (a distinct new screen state from the pre-map TDR-GTH-28/29).
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+
+    def test_tdr_gth_40_organizer_sees_the_three_tier_breakdown_ordered_by_combined_count(
+        self,
+    ) -> None:
+        """TDR-GTH-40: 店ごとの三段階の内訳（行きたい／行ってもいい／むり）が、
+        その店に回答した人数を分母にして示され、店は「行きたい」+「行ってもいい」
+        の合計が多い順に並ぶ (adr/0044 decision 3). shop_high/shop_mid/shop_low
+        are engineered to distinct combined counts (2/1/0) so the ordering
+        assertion does not depend on an implementation-chosen tie-break.
+        """
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会40", [thursday])
+        shop_high, shop_mid, shop_low = self.steps.open_shop_ids_for_the_confirmed_date()[:3]
+        self.steps.organizer_shortlists_shops_via_api([shop_high, shop_mid, shop_low])
+        link_one = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_one)
+        self.steps.participant_answers_shop_votes(
+            {shop_high: "WANT_TO_GO", shop_mid: "OK_TO_GO", shop_low: "NOT_GOING"}
+        )
+        link_two = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_two)
+        self.steps.participant_answers_shop_votes(
+            {shop_high: "WANT_TO_GO", shop_mid: "NOT_GOING", shop_low: "NOT_GOING"}
+        )
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.shortlisted_shop_tally_is(
+            shop_high, want_to_go=2, ok_to_go=0, not_going=0, responded=2
+        )
+        self.steps.shortlisted_shop_tally_is(
+            shop_mid, want_to_go=0, ok_to_go=1, not_going=1, responded=2
+        )
+        self.steps.shortlisted_shop_tally_is(
+            shop_low, want_to_go=0, ok_to_go=0, not_going=2, responded=2
+        )
+        self.steps.shortlisted_shop_list_is_ordered_by_combined_tier_descending()
+
+    def test_tdr_gth_41_participant_map_shows_the_search_origin_marker(self) -> None:
+        """TDR-GTH-41 (adr/0045): 参加者の投票画面の地図には検索基点の位置も
+        示される -- extends ADR-0025 decision 1's organizer-only disclosure to
+        this unauthenticated, signed-link screen.
+        """
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会41", [thursday])
+        shop_a = self.steps.open_shop_ids_for_the_confirmed_date()[0]
+        self.steps.organizer_shortlists_shops_via_api([shop_a])
+        link = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link)
+        self.steps.shop_vote_map_shows_search_origin_marker()
