@@ -193,13 +193,24 @@
 #   検査するものであり、特定の候補母集団modeには依存しない——`resetGatheringSchedulingAcceptanceState`
 #   にのみ追加した。
 # - `info.description`のシナリオ範囲表記を「TDR-GTH-01 through TDR-GTH-40」へ揃えた。
+#
+# 2026-09-05 追補3 (architect。TDR-GTH-41（ADR-0045、参加者の投票画面の地図に検索基点も示される）
+#   の一覧登録が漏れていたのを直す。新しいseamは要らない):
+# - TDR-GTH-41は`ParticipantView.searchOrigin`が非nullであること（＝`Gathering.votingStartedAt`
+#   が非null）だけを前提にしており、TDR-GTH-37と同じ理由で`CandidateProposalAcceptanceState`側の
+#   特定modeを必要としない——公開境界（setShortlistedShops・setShopVotes）と、既にどのmodeでも
+#   非null・schema準拠を保証している`searchOrigin`合成値（adr/0025以来の既定）だけで組み立てられる。
+#   `resetGatheringSchedulingAcceptanceState`の一覧にのみ追加した（TDR-GTH-37と同じ扱い、
+#   `setCandidateProposalAcceptanceState`/`resetCandidateProposalAcceptanceState`には追加しない）。
+# - `version`を1.5.2→1.5.3へ、`info.description`のシナリオ範囲表記を
+#   「TDR-GTH-01 through TDR-GTH-41」へ揃えた。
 openapi: 3.0.3
 info:
   title: Dining Radar acceptance test-support API
-  version: 1.5.2
+  version: 1.5.3
   description: >-
     Acceptance-only setup and reset seams for TDR-AUTH-01 through TDR-AUTH-07,
-    TDR-CS-00 through TDR-CS-16, and TDR-GTH-01 through TDR-GTH-40.
+    TDR-CS-00 through TDR-CS-16, and TDR-GTH-01 through TDR-GTH-41.
     Browser actions and outcomes under test must use the public same-origin
     authentication, candidate-search, and gathering-scheduling boundaries;
     these operations are only for deterministic Given state and scenario
@@ -209,9 +220,10 @@ info:
     boundary alone cannot reach (link expiry, link rate-limiting) and for the
     population TDR-GTH's open-shop-count feature shares with TDR-CS. This
     also holds for the shortlist/vote/finalize scenarios TDR-GTH-26 through
-    TDR-GTH-36 add (ADR-0040/0041/0042) and for TDR-GTH-37 through TDR-GTH-40
-    add (adr/0044, a stable participant shop order, a three-tier vote, and
-    shop map/detail information) -- none of them required a new seam.
+    TDR-GTH-36 add (ADR-0040/0041/0042) and for TDR-GTH-37 through TDR-GTH-41
+    add (adr/0044/0045, a stable participant shop order, a three-tier vote,
+    shop map/detail information, and the participant-screen search-origin
+    disclosure) -- none of them required a new seam.
 paths:
   /test-support/candidate-proposals/state:
     put:
@@ -236,7 +248,9 @@ paths:
         location/walkingTimeMinutes/providerPageUrl fields -- these
         scenarios reuse this same seam and population unchanged, since
         candidate-search-api.yaml has required these fields non-null under
-        every mode since adr/0025, well before this round).
+        every mode since adr/0025, well before this round). TDR-GTH-41
+        (adr/0045) does not select a mode here -- see this file's
+        2026-09-05 header addendum for why.
       x-acceptance-scenarios:
         [TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05, TDR-CS-06,
          TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12, TDR-CS-13,
@@ -403,7 +417,8 @@ paths:
          TDR-GTH-21, TDR-GTH-22, TDR-GTH-23, TDR-GTH-24, TDR-GTH-25,
          TDR-GTH-26, TDR-GTH-27, TDR-GTH-28, TDR-GTH-29, TDR-GTH-30,
          TDR-GTH-31, TDR-GTH-32, TDR-GTH-33, TDR-GTH-34, TDR-GTH-35,
-         TDR-GTH-36, TDR-GTH-37, TDR-GTH-38, TDR-GTH-39, TDR-GTH-40]
+         TDR-GTH-36, TDR-GTH-37, TDR-GTH-38, TDR-GTH-39, TDR-GTH-40,
+         TDR-GTH-41]
       responses:
         '204':
           description: Gathering-scheduling acceptance state is reset. No response body is returned.
@@ -759,7 +774,12 @@ components:
             this shared factory produces has already carried these fields
             (non-null, schema-valid) since adr/0025, for candidate-search-
             api.yaml's own sake, well before gathering-scheduling-api.yaml
-            started reusing them this round.
+            started reusing them this round. TDR-GTH-41 (adr/0045,
+            2026-09-05) does not read this mode's population at all -- it
+            asserts only that ParticipantView.searchOrigin is present and
+            rendered, a property every mode already guarantees independently
+            of which mode is selected (see this schema's own top-level
+            description above and the searchOrigin property below).
         randomSeed:
           type: integer
           nullable: true
@@ -820,7 +840,12 @@ components:
             self-consistency check against a single shared constant
             returned by every mode cannot make that distinction, because a
             hardcoded implementation and a correctly wired one are both
-            indistinguishable against a fixed value.
+            indistinguishable against a fixed value. This same synthetic
+            constant backs gathering-scheduling-api.yaml's
+            ParticipantView.searchOrigin (adr/0044/0045, TDR-GTH-41) --
+            TDR-GTH-41 only needs this value to be present and schema-valid,
+            not equal to a scenario-chosen constant, so it does not need to
+            set this property to anything other than its default.
     AcceptanceAccountState:
       type: object
       additionalProperties: false

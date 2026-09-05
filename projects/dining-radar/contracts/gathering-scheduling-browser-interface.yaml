@@ -209,11 +209,86 @@
 #   「OpenShopPreviewItemのスキーマにはこれらが無い」という記述も同じ理由で訂正した**——
 #   `location`・`providerPageUrl`は今やスキーマに存在するが、この特定の画面（同時決めの
 #   プレビュー）がそれらをDOMへ出さないという既存のルール自体は変えていない。
+#
+# 2026-09-05 追補4 (architect、ADR-0044/0045の残り。designerがPickFive.dc.html／Vote.dc.html／
+#   Organizer.dc.html／Final.dc.htmlを描き終え、三段階投票・地図と店の情報・参加者の並びの安定化・
+#   検索基点の開示の骨格すべてが固まったのを受け、この契約が2026-09-04時点で明示的に「stale」の
+#   まま残していた記述（前追補が名指しした4箇所＋その近縁の言及、計26箇所）を今回すべて解消する。
+#   骨格承認は本一連のPRのマージ自体を承認行為として束ねる、人間の「見て判断できるところまで
+#   作りこんでほしい」指示（2026-09-03、adr/0042と同じ運用）に基づく):
+# - `contractVersion`を0.5.2→0.6.0へ上げる。`profiles.localAcceptance.verifiesScenarios`へ
+#   TDR-GTH-38/39/40/41を追加し、`notVerifiedHere`からその3件（38/39/40）を外した——地図・店の
+#   情報・三段階の内訳・検索基点の観測面を、このラウンドで実際に定めたため。
+# - **三段階の観測面**（参加者側）: `participantAnswer.shopVoteQuestion.selectOption`（単一
+#   チェックボックスのトグル、boolean）を廃し、`scheduleQuestion.responseOptions`と同型の
+#   `voteOptions`（3つの選択肢が1つの操作的purpose`gathering-shop-vote-select`を共有する、
+#   日程回答とまったく同じ構造）へ作り直した。`yourApproval`/`yourApprovalValues`（boolean+
+#   'UNANSWERED'）を`yourVote`/`yourVoteValues`（`WANT_TO_GO`/`OK_TO_GO`/`NOT_GOING`/
+#   `UNANSWERED`）へ、`data-your-approval`を`data-your-vote`へ、`tally`の単一`approvalCount`を
+#   `wantToGoCount`/`okToGoCount`/`notGoingCount`の3属性へ改めた——API側の2026-09-04改訂
+#   （`ShopVoteStatus`・`ParticipantShopVoteOption.yourVote`/`tally`）にようやく追随する。表示
+#   文言は人間裁定どおり「行きたい／行ってもいい／むり」（ADR-0044決定1）——designerの下書き板
+#   （Vote.dc.html）にあった「どっちでも」は、人間が別途「行ってもいい」を選んだ既存の呼び名の
+#   ままdesignerが仮描きしていたに過ぎず、この契約は人間裁定の語（行ってもいい）を正とする。
+# - **三段階の観測面**（幹事側）: `shortlistedShopVotes.list.item.attributes`の単一
+#   `approvalCount`を`wantToGoCount`/`okToGoCount`/`notGoingCount`の3属性へ改めた。
+#   `orderingInvariant`を「`wantToGoCount + okToGoCount`降順」へ書き直し、「stale」表記を
+#   除去した（このラウンドで実際に是正したため）。`unavailableControls.forbiddenPurposesNote`
+#   内の同種の記述、および`shopVoteQuestion.orderingInvariant`の「addedAt昇順」という記述も、
+#   API側が確定させた「近い順（検索基点からの距離昇順）」へ揃えて書き直した——ADR-0044決定2の
+#   是正3点（並び順・呼び名・幹事側合算）を、この契約でもすべて反映した。
+# - **地図と店の情報**（ADR-0044決定4、TDR-GTH-38/39）: `organizerDashboard.shortlistSelection.
+#   list`と`participantAnswer.shopVoteQuestion`の双方に、店の位置（地図・ピン）・徒歩のめやす・
+#   席数のめやす・禁煙対応・予算感の目安・店のページへのリンクの観測面を新設した。新設テスト識別子
+#   はいずれも candidate-search の識別子を再利用しない、この契約固有のもの
+#   （`gathering-open-shop-map`/`-marker`、`gathering-shop-vote-map`/`-marker`等）——
+#   `unavailableControls.forbiddenTestIds`が禁じる再利用の対象には当たらないことを確認した。
+#   `organizerDashboard.shortlistedShopVotes`（Organizer.dc.html状態②のタリー面）には地図・
+#   店のページリンクを追加していない——designerの同ラウンドの改訂は状態②に三段階の内訳だけを
+#   反映しており、地図・リンクはPickFive.dc.htmlにしか描いていない（TDR-GTH-38の受入文自体も
+#   「その日に開いている店の一覧」＝`shortlistSelection`だけを対象にしている）。この非対称は
+#   designerの設計判断であり、本契約の見落としではない旨を明記した。
+# - **店のページリンクのpurpose走査**（PickFive.dc.html自身の申し送り「店のページリンクは`<a>`
+#   なのでpurpose宣言の走査に掛かる……architectが判断すること」、architectの判断）: `<a href>`
+#   として実装する限り`forbiddenFormControlCategories`（button/input/select/textarea/checkbox/
+#   radio/range/combobox/listbox/slider/spinbutton、いずれもanchorを含まない）の対象外であり、
+#   `candidate-gathering-entry`・`candidate-search-browser-interface.yaml`の
+#   `candidate-card-provider-page-link`と同じ先例（`formControl: false`、purpose宣言不要）が
+#   そのまま適用できると判断した。新しいallowedPurposesは追加していない。
+# - **参加者の地図への検索基点**（ADR-0045、TDR-GTH-41）: `participantAnswer.shopVoteQuestion`の
+#   地図（`gathering-shop-vote-map`）へ`gathering-search-origin-marker`（新設・display-onlyの
+#   purposeless要素、`candidate-origin-marker`とは別の識別子——`unavailableControls.
+#   forbiddenTestIds`はその再利用を禁じている）を追加した。`ParticipantView.searchOrigin`と
+#   同じ条件（`votingStartedAt`非null）でpresent、確定後も残る（adr/0045決定1）。
+# - **確定後の観測面**（Final.dc.html A③/B-3）: `finalizedView.decision.approvedShop`
+#   （`gathering-participant-decision-approved-shop`）を`decision.shopVote`
+#   （`gathering-participant-decision-shop-vote`、`data-shop-id`+`data-vote-status`）へ
+#   作り直した——API側の`decision.yourApprovedShops`→`yourShopVotes`改称に追随する。
+# - **定休日（regularHoliday）を出さないと決めた**（designerの申し送り、architectの判断、
+#   小さなADR`adr/0046`として記録する）: Final.dc.htmlの確定した店の帯には「定休 日曜・祝日」が
+#   あるが、`regularHoliday`は`LiveProjectedShop`（も`OpenShopPreviewItem`/`ShortlistedShop`/
+#   `ParticipantShopVoteOption`いずれも）に存在しない。本ラウンドの依頼はブラウザ契約の書き換えに
+#   限定されており、APIスキーマ（v0.7.0、既にコミット済み）への項目追加は本ラウンドの範囲外と
+#   判断した。加えて、PickFive.dc.html自身がこのラウンドで「定休日を行から外した」理由
+#   （「この一覧はすでに『開いている店』だけであり、定休日を出しても常に無意味な値しか出ない」）
+#   を明記しており、Final.dc.htmlの帯だけにこの項目を復活させることは、ADR-0044決定4が明示した
+#   6項目のリスト（regularHolidayを含まない）とも整合しない。よって**足さない**と決めた——
+#   Final.dc.htmlのこの1行は実装しないことをこの契約で明記する。将来出す判断をするなら、APIの
+#   スキーマ拡張を伴う独立した人間判断・ADRが要る（詳細は`adr/0046`）。
+# - **未解決のまま申し送る（FR-028、今回新たに気づいた食い違い）**: Final.dc.html B-3の
+#   「あなたが店にどう答えたか」一覧は、投票開始後に絞り込みへ加わったが一度も回答していない店
+#   （▽▽ラーメン）も「答えないまま締まりました」という行として描いているが、
+#   `ParticipantDecisionShopVote`（`decision.yourShopVotes`）は`yourVote`がnullの店を明示的に
+#   除外する仕様のまま（API改訂時から変わっていない、既存の設計判断）。この契約は
+#   `gathering-participant-decision-shop-vote`のcardinalityをAPIの実際の配列要素数どおり
+#   （＝回答した店の数だけ）に定めており、この未回答行を契約上のMustにはしていない——APIを変える
+#   （nullの`yourVote`を持つ店も含める）か、designerの絵からこの行を落とすかの判断を人間に
+#   委ねる（詳細は`adr/0046`）。
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.5.2'
+contractVersion: '0.6.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -227,20 +302,19 @@ renderModel: >-
   name attaching, a link list refreshing after recopy/revoke, an inline
   add-date form staying open after a successful submit, a shortlist
   checkbox toggling pending state without a network call, a shop-vote
-  checkbox instead calling setShopVotes immediately, a shortlisted-shop
-  list's counts refreshing after setShortlistedShops/finalizeGathering)
-  describes a client-side DOM change that a plain-HTTP, server-response-only
-  DSL cannot observe -- none of this contract's interactions are specified
-  as requiring a full page navigation except where explicitly noted (e.g.
-  opening a gathering from the list, or leaving the creation screen after
-  submit). A control this contract requires present must exist in the DOM
-  once the relevant JS-executing render completes; unlike
-  authentication-browser-interface.yaml's renderModel, this contract does
-  not additionally require presence in the raw server-rendered HTML
-  response, because no TDR-GTH scenario depends on a non-JS client (this
-  stated explicitly per the FR-004 lesson: a browser-interface contract must
-  declare its execution-model assumption at authoring time, not leave it for
-  tester to discover at L4).
+  option immediately calling setShopVotes, a shortlisted-shop list's counts
+  refreshing after setShortlistedShops/finalizeGathering) describes a
+  client-side DOM change that a plain-HTTP, server-response-only DSL cannot
+  observe -- none of this contract's interactions are specified as requiring
+  a full page navigation except where explicitly noted (e.g. opening a
+  gathering from the list, or leaving the creation screen after submit). A
+  control this contract requires present must exist in the DOM once the
+  relevant JS-executing render completes; unlike authentication-browser-
+  interface.yaml's renderModel, this contract does not additionally require
+  presence in the raw server-rendered HTML response, because no TDR-GTH
+  scenario depends on a non-JS client (this stated explicitly per the FR-004
+  lesson: a browser-interface contract must declare its execution-model
+  assumption at authoring time, not leave it for tester to discover at L4).
 profiles:
   localAcceptance:
     transport: HTTP
@@ -252,7 +326,8 @@ profiles:
        TDR-GTH-18, TDR-GTH-19, TDR-GTH-20, TDR-GTH-21, TDR-GTH-22,
        TDR-GTH-23, TDR-GTH-24, TDR-GTH-25, TDR-GTH-26, TDR-GTH-27,
        TDR-GTH-28, TDR-GTH-29, TDR-GTH-30, TDR-GTH-31, TDR-GTH-32,
-       TDR-GTH-33, TDR-GTH-34, TDR-GTH-35, TDR-GTH-36, TDR-GTH-37]
+       TDR-GTH-33, TDR-GTH-34, TDR-GTH-35, TDR-GTH-36, TDR-GTH-37,
+       TDR-GTH-38, TDR-GTH-39, TDR-GTH-40, TDR-GTH-41]
     notVerifiedHere:
       - scenario: TDR-GTH-13
         reason: >-
@@ -262,32 +337,6 @@ profiles:
           browser click-through. This contract's disclosureObservations
           section still governs what the error surface may and may not
           reveal when a browser does reach an invalid link.
-      - scenario: TDR-GTH-38
-        reason: >-
-          Added 2026-09-04 (adr/0044): the organizer's shortlist-selection
-          screen showing each shop's map/detail information
-          (location/walkingTimeMinutes/capacityTier/nonSmokingStatus/
-          dinnerBudgetTier/providerPageUrl) is not yet observable through
-          this contract. gathering-scheduling-api.yaml already carries the
-          data (OpenShopPreviewItem); this file's observation surface for
-          it is deferred until designer redraws organizerDashboard.
-          shortlistSelection for this addition (ADR-0013 order).
-      - scenario: TDR-GTH-39
-        reason: >-
-          Same reason as TDR-GTH-38, for the participant's vote screen
-          (participantAnswer.shopVoteQuestion) -- the data exists on
-          ParticipantShopVoteOption, but this contract's DOM observation of
-          it is deferred to the same future round.
-      - scenario: TDR-GTH-40
-        reason: >-
-          Added 2026-09-04 (adr/0044): the organizer's three-tier
-          going/maybe/not-going breakdown per shop
-          (ShortlistedShop.goingCount/maybeCount/notGoingCount, replacing
-          the retired single approvalCount) is not yet observable through
-          this contract -- shortlistedShopVotes.list.item.attributes below
-          still describes the retired single-count model and is explicitly
-          marked stale in this file's 2026-09-04 header comment, pending
-          the same future browser-interface round.
     invariant:
       - The profile is isolated and must never be selected by a public deployment.
       - Gathering, candidate-date, and participant-link state is supplied only through a future test-support-api.yaml extension for TDR-GTH (adr/0035 未決事項, not yet drafted); this contract does not itself define that extension.
@@ -411,7 +460,11 @@ unavailableControls:
     candidate-search-browser-interface.yaml. This is the same enumeration
     that file uses, matching the shared tester DSL's FORM_CONTROL_SELECTOR
     (activeContext.md's 2026-08-25 record). See operationalControlScope
-    below for the boundary this enumeration is now read against.
+    below for the boundary this enumeration is now read against. Note that
+    this enumeration, like candidate-search-browser-interface.yaml's own
+    forbiddenFormControlCategories, does not include a plain anchor
+    (`<a>`) -- see formControlExemptTestIds below for the elements this
+    round adds that rely on that fact.
   operationalControlScope: >-
     Added 2026-09-02 (ADR-0039, FR-028 gap developer confirmed while
     implementing organizerGatheringCreate and
@@ -456,8 +509,8 @@ unavailableControls:
     their own right and continue to require a declared purpose exactly as
     before (e.g. every existing allowedPurposes entry that is a *-select or
     *-toggle purpose remains unaffected by this clause; this is why every
-    new checkbox/radio this round -- gathering-open-shop-select,
-    gathering-finalize-shop-select, gathering-shop-vote-select -- has its
+    checkbox/radio this contract defines -- gathering-open-shop-select,
+    gathering-finalize-shop-select, gathering-shop-vote-option -- has its
     own allowedPurposes entry below rather than being treated as a
     value-entry control).
   valueEntryControlTestIds:
@@ -476,12 +529,37 @@ unavailableControls:
     (only prose mentioning it) -- ADR-0039 brought it under the same
     discipline retroactively rather than leaving it "not yet caught by
     the cross-cutting check" by accident. No new value-entry controls are
-    introduced by this round (2026-09-04, adr/0042) -- every new control
-    (shortlist/finalize/shop-vote selection) is a checkbox or radio, which
-    operationalControlScope's note above explicitly keeps out of this list.
-    Any future value-entry control this contract adds must be listed here
-    and traced to its consuming operational control the same way, or it
-    remains subject to the general purpose-declaration requirement.
+    introduced by this file's map/shop-detail additions (2026-09-04/05,
+    adr/0042/0044/0045) -- every new interactive control (shortlist/
+    finalize/shop-vote selection) is a checkbox or radio, and every new
+    display-only element (map, marker, provider-page link) is either a
+    plain anchor or a purposeless div, neither of which is a value-entry
+    control (see formControlExemptTestIds below for those). Any future
+    value-entry control this contract adds must be listed here and traced
+    to its consuming operational control the same way, or it remains
+    subject to the general purpose-declaration requirement.
+  formControlExemptTestIds:
+    [gathering-open-shop-map, gathering-open-shop-map-marker,
+     gathering-open-shop-list-item-provider-page-link,
+     gathering-shop-vote-map, gathering-shop-vote-map-marker,
+     gathering-search-origin-marker,
+     gathering-shop-vote-question-provider-page-link]
+  formControlExemptTestIdsNote: >-
+    Added 2026-09-05 (adr/0044/0045/0046). These elements sit entirely
+    outside forbiddenFormControlCategories' scan -- the map containers and
+    markers are plain `<div>`/SVG elements carrying no interactive role (the
+    same "display-only, no purpose" precedent candidate-origin-marker and
+    candidate-map-open already establish in candidate-search-browser-
+    interface.yaml), and the two provider-page-link entries are plain
+    `<a href>` elements (forbiddenFormControlCategories does not include a
+    plain anchor, and activeContext.md's 2026-08-25 record confirms the
+    tester DSL's FORM_CONTROL_SELECTOR does not capture one either -- the
+    same precedent candidate-gathering-entry and candidate-search-browser-
+    interface.yaml's candidate-card-provider-page-link already establish).
+    None of these seven test ids appears in allowedPurposes below, and none
+    needs to. See browserControlSurface.organizerDashboard.shortlistSelection
+    and browserControlSurface.participantAnswer.shopVoteQuestion below for
+    each element's own requirement text.
   allowedPurposes:
     [gathering-add-candidate-date-open, gathering-add-candidate-date-submit,
      gathering-add-candidate-date-cancel, gathering-participant-link-copy,
@@ -504,13 +582,13 @@ unavailableControls:
     note on why these two labels are not distinguished),
     gathering-finalize-shop-select (the per-shop radio in
     shortlistedShopVotes) and gathering-finalize-submit (its confirm
-    button), and gathering-shop-vote-select (the participant's approval
-    checkbox in shopVoteQuestion). No purpose is added or removed by the
-    same-dated adr/0044 (2026-09-04) round -- the three-tier vote still
-    uses this same gathering-shop-vote-select purpose, now selecting one of
-    three values instead of toggling a boolean (see this file's 2026-09-04
-    header comment on which parts of shopVoteQuestion remain stale pending
-    a future round).
+    button), and gathering-shop-vote-select (the participant's per-shop
+    vote purpose). No purpose is added or removed by the three-tier
+    restructure (2026-09-04/05, adr/0044) -- gathering-shop-vote-select is
+    now shared by three sibling option elements per shop (voteOptions
+    below) instead of a single toggling checkbox, the same way
+    gathering-schedule-response-select is already shared by three sibling
+    gathering-schedule-response-option elements per candidate date.
   forbiddenPurposes:
     - manual-ordering
     - secondary-condition
@@ -524,24 +602,27 @@ unavailableControls:
     issuedAt-ascending order, no sort toggle -- ADR-0036 decision 7),
     organizerGatheringList.list (fixed createdAt-descending order, no sort
     toggle -- adr/0038), and shortlistedShopVotes.list (fixed
-    approvalCount-descending order, no sort toggle -- adr/0042, this is the
-    approval-voting shop list ADR-0036 design judgment 3 already
-    anticipated when it generalized this category ahead of the list
-    existing; gathering-scheduling-api.yaml renamed this ordering key from
-    approvalCount to goingCount 2026-09-04, adr/0044 -- see this file's
-    2026-09-04 header comment on why this specific list's own description
-    below is not yet updated to match) and is written as a category -- not
-    tied to any specific existing test id -- so any future list this
-    contract adds is covered without a new allowedPurposes/forbiddenPurposes
-    edit. participantAnswer.shopVoteQuestion is likewise covered by this
-    same category (its new 2026-09-04 orderingInvariant, addedAt ascending,
-    is a fixed order with no sort toggle, same as every other list here).
-    `secondary-condition` is reused from the same source contract for the
-    same reason: this product's existing "no auxiliary condition controls
-    beyond the declared filter/sort model" principle (ADR-0005 decision 4)
-    applies here too -- this slice still defines no filter controls of its
-    own (P3, 2026-09-03, confirms the shortlist/vote surfaces this round
-    add none either).
+    `wantToGoCount + okToGoCount`-descending order, no sort toggle --
+    adr/0042/adr/0044; this is the shop-vote-tally list ADR-0036 design
+    judgment 3 already anticipated when it generalized this category ahead
+    of the list existing; gathering-scheduling-api.yaml renamed this
+    ordering key from the retired single `approvalCount` to
+    `wantToGoCount + okToGoCount` 2026-09-04, adr/0044, and this list's own
+    orderingInvariant below is now updated to match) and is written as a
+    category -- not tied to any specific existing test id -- so any future
+    list this contract adds is covered without a new allowedPurposes/
+    forbiddenPurposes edit. participantAnswer.shopVoteQuestion is likewise
+    covered by this same category (its orderingInvariant is nearest-first
+    by distance from the search origin, ascending -- changed 2026-09-05 from
+    an in-progress draft's addedAt-ascending basis to match
+    gathering-scheduling-api.yaml's own 2026-09-04 fix, adr/0044 decision
+    2 -- a fixed order with no sort toggle either way, same as every other
+    list here). `secondary-condition` is reused from the same source
+    contract for the same reason: this product's existing "no auxiliary
+    condition controls beyond the declared filter/sort model" principle
+    (ADR-0005 decision 4) applies here too -- this slice still defines no
+    filter controls of its own (P3, 2026-09-03, confirms the shortlist/vote
+    surfaces this round add none either).
   forbiddenTestIds:
     [candidate-origin-marker, candidate-map, private-search-origin]
   forbiddenTestIdsNote: >-
@@ -551,17 +632,19 @@ unavailableControls:
     a map on a gathering screen. Any shop information a gathering screen
     shows remains a live, non-persisted projection
     (gathering-scheduling-api.yaml's OpenShopPreviewItem/ShortlistedShop/
-    ParticipantShopVoteOption, adr/0034 decision 6). **Corrected 2026-09-04
-    (adr/0044)**: this note previously said "never a map", written before
-    those schemas carried `location`/`walkingTimeMinutes`/`providerPageUrl`
-    (adr/0044 added them, human decision: show the same map/detail
-    information the lunch-candidate screen shows). A future, differently
-    implemented gathering-scoped map element -- showing only a shop's own
-    pin, never the origin marker or walking-radius rings this file's
-    forbidden test ids protect -- is not excluded by this rule; this
-    contract simply does not yet define one (deferred to the
-    browser-interface round after designer redraws the shortlist/vote
-    screens, ADR-0013 order, per this file's 2026-09-04 header comment).
+    ParticipantShopVoteOption, adr/0034 decision 6). **Defined 2026-09-05
+    (adr/0044/0045)**: this contract now defines its own, differently
+    implemented gathering-scoped map elements --
+    organizerDashboard.shortlistSelection.list.map
+    (gathering-open-shop-map/-marker) and
+    participantAnswer.shopVoteQuestion's shopVoteMap
+    (gathering-shop-vote-map/-marker, plus gathering-search-origin-marker
+    for the participant screen only, adr/0045) -- each showing only a
+    shop's own pin (and, for the participant map only, the search origin
+    per adr/0045), never the candidate-search-specific test ids this list
+    forbids and never the walking-radius rings candidate-search-browser-
+    interface.yaml defines. See each element's own requirement text below
+    for what it does and does not show.
 
 browserControlSurface:
   organizerGatheringList:
@@ -977,16 +1060,18 @@ browserControlSurface:
     shortlistSelection:
       description: >-
         The 5-shop shortlist picker (PickFive.dc.html 案A, human decisions
-        P1/P2/P3, 2026-09-03, adr/0041/adr/0042). Renders inline within the
-        same organizer dashboard -- no separate screen (P1). Reuses the
-        same open-shop population previewOpenShopsForCandidateDate exposes
-        for the confirmed candidate date (gathering-scheduling-api.yaml's
-        2026-09-03 header comment) -- each item now carries a data-shop-id
-        attribute projecting OpenShopPreviewItem.shopId, added this round
-        (adr/0042) after the prior contract round left this correlation
-        undefined. Supports TDR-GTH-26/27.
+        P1/P2/P3, 2026-09-03, adr/0041/adr/0042; map and per-shop detail
+        fields added 2026-09-04/05, adr/0044, TDR-GTH-38). Renders inline
+        within the same organizer dashboard -- no separate screen (P1).
+        Reuses the same open-shop population previewOpenShopsForCandidateDate
+        exposes for the confirmed candidate date (gathering-scheduling-api.
+        yaml's 2026-09-03 header comment) -- each item now carries a
+        data-shop-id attribute projecting OpenShopPreviewItem.shopId, added
+        adr/0042 after the prior contract round left this correlation
+        undefined. Supports TDR-GTH-26/27/38.
       requiredTestIds:
         list: gathering-open-shop-list
+        map: gathering-open-shop-map
         submit: gathering-shortlist-submit
       presenceRule: >-
         Present whenever phase is SELECTING_SHOP and Gathering.
@@ -1006,6 +1091,40 @@ browserControlSurface:
           CandidateDateOpenShopPreview.previewShops' order (nearest-first).
           No control in this list may claim the forbidden manual-ordering
           purpose.
+        map:
+          testId: gathering-open-shop-map
+          description: >-
+            Added 2026-09-05 (adr/0044, TDR-GTH-38, PickFive.dc.html's
+            `.map`). One shared map showing every currently rendered
+            gathering-open-shop-list-item as a marker. This is a new,
+            gathering-scoped element -- see unavailableControls.
+            forbiddenTestIdsNote above for why it does not conflict with
+            that list's ban on reusing candidate-search's own map/origin
+            test ids.
+          presenceRule: >-
+            Present whenever gathering-open-shop-list is present (same
+            presenceRule as shortlistSelection itself).
+          scope: >-
+            Shows only shops' own pins -- never the private search origin
+            and never a walking-radius ring (adr/0044 decision 4 scopes
+            this specific screen's map to shops only; contrast with
+            participantAnswer.shopVoteQuestion's shopVoteMap below, which
+            also shows the search origin per adr/0045). This contract does
+            not fix the map's projection, zoom, tile provider, or pixel
+            size.
+          marker:
+            testId: gathering-open-shop-map-marker
+            attributes:
+              shopId: data-shop-id
+            cardinality: zero-or-more-elements-sharing-this-test-id
+            requirement: >-
+              One marker per gathering-open-shop-list-item currently
+              rendered, correlated by data-shop-id (same correlation
+              convention candidate-search-browser-interface.yaml's
+              candidate-map-marker/data-candidate-ref already establishes).
+              Positioned from OpenShopPreviewItem.location. Display-only --
+              no data-gathering-control-purpose is required (see
+              unavailableControls.formControlExemptTestIds above).
         item:
           testId: gathering-open-shop-list-item
           cardinality: zero-or-more-elements-sharing-this-test-id
@@ -1027,6 +1146,47 @@ browserControlSurface:
             via gathering-shortlist-open for a D7 replace, TDR-GTH-31/32),
             "false" otherwise; before the first setShortlistedShops call
             every item starts "false" (PickFive.dc.html's fresh state).
+          detailFields:
+            description: >-
+              Added 2026-09-05 (adr/0044, TDR-GTH-38: "位置を示す地図と、
+              徒歩の目安・席数の目安・禁煙対応・予算感の目安・店のページへの
+              リンクが示される"). Unlike
+              tentativeSelectionAndPreview.preview.item's optionalFields
+              above (no scenario currently asserts those), TDR-GTH-38 does
+              assert these fields for this specific list, so each is a
+              required test id here.
+            walkingTime: {testId: gathering-open-shop-list-item-walking-time}
+            capacityTier: {testId: gathering-open-shop-list-item-capacity-tier}
+            nonSmokingStatus: {testId: gathering-open-shop-list-item-non-smoking}
+            dinnerBudgetTier: {testId: gathering-open-shop-list-item-dinner-budget}
+            providerPageLink:
+              testId: gathering-open-shop-list-item-provider-page-link
+              formControl: false
+              requirement: >-
+                An `<a href>` whose href equals
+                OpenShopPreviewItem.providerPageUrl. Implemented as a plain
+                anchor, not a `<button>` or an element with an interactive
+                ARIA role -- outside forbiddenFormControlCategories' scan
+                (same precedent as candidate-gathering-entry and
+                candidate-search-browser-interface.yaml's
+                candidate-card-provider-page-link, architect design
+                judgment resolving the question PickFive.dc.html's own
+                "この改訂が契約に要求すること" panel raised; see
+                unavailableControls.formControlExemptTestIds above and
+                adr/0046).
+            requirement: >-
+              Each field's test id is present for every
+              gathering-open-shop-list-item currently rendered. This
+              contract does not fix visible wording for a null nullable
+              field ("情報なし", PickFive.dc.html) or require a
+              data-value-state attribute (no TDR-GTH scenario currently
+              distinguishes provided/unavailable at this granularity,
+              unlike candidate-search-browser-interface.yaml's
+              cardDataAttributes). `genre` remains outside this contract's
+              required fields (TDR-GTH-38 does not name it) but may be
+              shown without contract obligation, same as
+              tentativeSelectionAndPreview.preview.item.optionalFields'
+              existing convention.
           select:
             testId: gathering-open-shop-select
             purpose: gathering-open-shop-select
@@ -1063,14 +1223,22 @@ browserControlSurface:
           phaseIndicatorAttributes' note on why this is not a phase
           transition). On a D7 replace (this is not the first call), kept
           shops retain their gathering-shortlisted-shop-item's
-          data-approval-count/data-responded-count; a newly added shop
-          starts both at 0 (TDR-GTH-31/32).
+          data-want-to-go-count/data-ok-to-go-count/data-not-going-count/
+          data-responded-count; a newly added shop starts all four at 0
+          (TDR-GTH-31/32).
     shortlistedShopVotes:
       description: >-
         The vote-tally view once voting has started (Organizer.dc.html
         state②, "お店の候補" panel). Replaces shortlistSelection's inline
         list by default once Gathering.votingStartedAt is non-null.
-        Supports TDR-GTH-31/32/33.
+        Supports TDR-GTH-31/32/33/40. **Does not add a map or provider-page
+        link** (2026-09-05, adr/0044) -- designer's 2026-09-04 redraw of
+        this specific state added only the three-tier breakdown below;
+        PickFive.dc.html (shortlistSelection above) is the only organizer
+        surface this round's map/detail addition covers, and TDR-GTH-38's
+        own Given/When clause names only "その日に開いている店の一覧" (the
+        open-shop list), not this tally view. This asymmetry is a designer
+        decision this contract reflects, not an oversight.
       requiredTestIds:
         list: gathering-shortlisted-shop-list
         replaceOpen: gathering-shortlist-open
@@ -1082,40 +1250,51 @@ browserControlSurface:
         testId: gathering-shortlisted-shop-list
         orderingInvariant: >-
           DOM order of gathering-shortlisted-shop-item children equals
-          Gathering.shortlistedShops' order (approvalCount descending,
-          Organizer.dc.html: "並び: 行ってもいい人が多い順"). **Stale as of
-          2026-09-04 (adr/0044)**: gathering-scheduling-api.yaml renamed
-          this ordering key from approvalCount to goingCount (see this
-          file's 2026-09-04 header comment) -- the underlying rule ("this
-          list's own order, changing as votes are cast") is unaffected,
-          only the API field name it derives from changed. No control in
-          this list may claim the forbidden manual-ordering purpose
-          (already generalized to cover this list without a contract edit,
-          ADR-0036 design judgment 3 / this file's forbiddenPurposesNote).
+          Gathering.shortlistedShops' order (`wantToGoCount + okToGoCount`
+          descending, Organizer.dc.html: "並び: 許容が多い順（行きたい＋
+          行ってもいい）"). **Fixed 2026-09-05 (adr/0044 decision 3)**: this
+          contract previously described this order as a single
+          `approvalCount` descending, matching a since-retired API field;
+          gathering-scheduling-api.yaml now sums two three-tier tiers
+          (`wantToGoCount + okToGoCount`, human decision: a shop someone is
+          merely "OK with" should count toward "how many people can make
+          it" the same as an enthusiastic "want to go" -- an in-progress
+          draft had instead ordered by `wantToGoCount` alone, which this
+          revision corrects). No control in this list may claim the
+          forbidden manual-ordering purpose (already generalized to cover
+          this list without a contract edit, ADR-0036 design judgment 3 /
+          this file's forbiddenPurposesNote).
         item:
           testId: gathering-shortlisted-shop-item
           cardinality: zero-to-five-elements-sharing-this-test-id
           attributes:
             shopId: data-shop-id
-            approvalCount: data-approval-count
+            wantToGoCount: data-want-to-go-count
+            okToGoCount: data-ok-to-go-count
+            notGoingCount: data-not-going-count
             respondedCount: data-responded-count
           requirement: >-
             One element per Gathering.shortlistedShops entry.
-            data-approval-count and data-responded-count mirror
-            ShortlistedShop.approvalCount/respondedParticipantCount exactly
-            (D7's per-shop denominator -- these two counts may differ
-            between items, e.g. a newly replaced-in shop showing a smaller
-            data-responded-count than the others, TDR-GTH-31/32). **Stale
-            as of 2026-09-04 (adr/0044)**: ShortlistedShop.approvalCount no
-            longer exists in gathering-scheduling-api.yaml (replaced by
-            goingCount/maybeCount/notGoingCount, TDR-GTH-40) -- this
-            attribute mapping is not yet updated to the three-tier model
-            and must not be used to implement the three-tier organizer
-            view (see this file's 2026-09-04 header comment; TDR-GTH-40 is
-            notVerifiedHere pending a future round). This contract does not
-            require any other shop attribute (name, genre, etc.) to be
-            machine-asserted here; it fixes only the counts an acceptance
-            test needs.
+            data-want-to-go-count/data-ok-to-go-count/data-not-going-count/
+            data-responded-count mirror ShortlistedShop.wantToGoCount/
+            okToGoCount/notGoingCount/respondedParticipantCount exactly
+            (D7's per-shop denominator -- these counts may differ between
+            items, e.g. a newly replaced-in shop showing a smaller
+            data-responded-count than the others, TDR-GTH-31/32).
+            **Fixed 2026-09-05 (adr/0044)**: this contract previously
+            exposed a single, since-retired `approvalCount`/
+            data-approval-count; the three attributes above replace it,
+            matching gathering-scheduling-api.yaml's
+            goingCount/maybeCount/notGoingCount-shaped three-tier tally
+            (TDR-GTH-40: "店ごとに『行きたい／行ってもいい／むり』の内訳が、
+            その店に回答した人数を分母にして示される").
+            `wantToGoCount + okToGoCount + notGoingCount` always equals
+            data-responded-count for the same item. This contract does not
+            require any other shop attribute (name, genre, location, etc.)
+            to be machine-asserted here (see this section's own description
+            above on why map/detail fields are not required on this
+            specific list); it fixes only the counts an acceptance test
+            needs.
           finalizeSelect:
             testId: gathering-finalize-shop-select
             purpose: gathering-finalize-shop-select
@@ -1348,21 +1527,33 @@ browserControlSurface:
           data-confirmed-candidate-date equals the startAt of the
           gathering-candidate-date whose data-confirmed is "true"
           (unchanged since SELECTING_SHOP). data-finalized-shop-id equals
-          Gathering.finalizedShopId exactly.
+          Gathering.finalizedShopId exactly. This contract does not require
+          a regular-holiday attribute here -- LiveProjectedShop carries no
+          such field (architect decision, adr/0046, 2026-09-05): Final.dc.
+          html's decided-shop banner shows "定休 日曜・祝日", but
+          regularHoliday exists nowhere in gathering-scheduling-api.yaml's
+          shop projections (OpenShopPreviewItem/ShortlistedShop/
+          ParticipantShopVoteOption/LiveProjectedShop all omit it, and
+          PickFive.dc.html's own 2026-09-04 revision deliberately dropped
+          it from its list for the same reason -- "この一覧はすでに『開いて
+          いる店』だけ"). Adding it would require an API schema change this
+          round's browser-interface-only scope does not include; this
+          contract does not require an implementation to render that line.
       unchangedRecords: >-
         gathering-phase-indicator, gathering-responded-summary,
         gathering-unanswered-summary, gathering-candidate-date-list/
         gathering-candidate-date (schedule record), and
         gathering-shortlisted-shop-list/gathering-shortlisted-shop-item
         (vote record, minus finalizeSelect -- see shortlistedShopVotes
-        above) all remain present once FINALIZED, continuing to reflect
-        their same fields (Final.dc.html: "日程の記録"/"票の記録" panels
-        are the same data, frozen as a record). This contract does not
-        require these values to stop changing on the server side; it
-        requires only that no organizer-facing control remains that could
-        cause them to change (see the various presenceRule entries above
-        this section removing every remaining operational control once
-        FINALIZED).
+        above, now exposing the three-tier
+        wantToGoCount/okToGoCount/notGoingCount/respondedCount attributes)
+        all remain present once FINALIZED, continuing to reflect their same
+        fields (Final.dc.html: "日程の記録"/"票の記録" panels are the same
+        data, frozen as a record). This contract does not require these
+        values to stop changing on the server side; it requires only that
+        no organizer-facing control remains that could cause them to
+        change (see the various presenceRule entries above this section
+        removing every remaining operational control once FINALIZED).
       linkManagement: >-
         See participantLinkCopy.presenceRule and participantLinkList.item.
         recopy/revoke above for the read-only-except-recopy rule this
@@ -1497,11 +1688,61 @@ browserControlSurface:
           attributes mirror the organizer-facing
           gathering-candidate-date's goingCount/maybeCount/notGoingCount for
           the same candidate date exactly.
+    shopVoteMap:
+      description: >-
+        Added 2026-09-05 (adr/0044/adr/0045, TDR-GTH-39/41, Vote.dc.html's
+        `.rib`). One shared map showing every currently rendered
+        gathering-shop-vote-question as a marker, plus the search origin
+        adr/0045 adds. A new, gathering-scoped, participant-facing element
+        -- see unavailableControls.forbiddenTestIdsNote above for why it
+        does not conflict with that list's ban on reusing candidate-
+        search's own map/origin test ids.
+      testId: gathering-shop-vote-map
+      presenceRule: >-
+        Same presenceRule as shopVoteQuestion below (present exactly when
+        ParticipantView.shopVoteQuestions is non-null and
+        ParticipantView.decision is still null).
+      scope: >-
+        Unlike organizerDashboard.shortlistSelection.list.map above, this
+        map also shows the private search origin (adr/0045) in addition to
+        shops' own pins -- it never shows a walking-radius ring
+        (ADR-0025's rings are not extended to this screen, adr/0045
+        decision 3).
+      marker:
+        testId: gathering-shop-vote-map-marker
+        attributes:
+          shopId: data-shop-id
+        cardinality: zero-or-more-elements-sharing-this-test-id
+        requirement: >-
+          One marker per gathering-shop-vote-question currently rendered,
+          correlated by data-shop-id (same convention as
+          organizerDashboard.shortlistSelection.list.map.marker above).
+          Positioned from ParticipantShopVoteOption.location. Display-only
+          (unavailableControls.formControlExemptTestIds).
+      searchOriginMarker:
+        testId: gathering-search-origin-marker
+        formControl: false
+        presenceRule: >-
+          Added 2026-09-05 (adr/0045, TDR-GTH-41: "地図には検索基点の位置も
+          示される"). Present exactly when ParticipantView.searchOrigin is
+          non-null (same gating as shopVoteMap/shopVoteQuestion themselves
+          -- Gathering.votingStartedAt non-null) -- remains present once
+          FINALIZED (searchOrigin does not reset to null, adr/0045
+          decision 1). Display-only -- no data-gathering-control-purpose
+          is required, mirroring candidate-origin-marker's own precedent
+          in candidate-search-browser-interface.yaml -- but this is a
+          **distinct** test id from candidate-origin-marker
+          (unavailableControls.forbiddenTestIds forbids reusing that one).
+          This contract does not fix which data attribute, if any, carries
+          the coordinate value, mirroring candidate-origin-marker's own
+          precedent of not fixing this either.
     shopVoteQuestion:
       description: >-
-        The vote surface (Vote.dc.html B-2, screen already
-        approved/unchanged this round; contract observation new
-        2026-09-04, adr/0042). Supports TDR-GTH-28/29/30.
+        The vote surface (Vote.dc.html B-2). Supports TDR-GTH-28/29/30/39.
+        **Restructured 2026-09-05 (adr/0044)** from the retired boolean
+        approve/exclude model (adopted adr/0040, replaced adr/0044) to a
+        three-tier selection mirroring scheduleQuestion.responseOptions
+        above; map/detail fields added the same round (TDR-GTH-38/39).
       testId: gathering-shop-vote-question
       presenceRule: >-
         Present exactly when ParticipantView.shopVoteQuestions is non-null
@@ -1515,17 +1756,28 @@ browserControlSurface:
         list re-sorted itself after every vote -- the human's report:
         「行ってもいい店選ぶたびにソートがかかってるぽい」). DOM order of
         gathering-shop-vote-question children equals
-        ParticipantView.shopVoteQuestions' order (addedAt ascending,
-        gathering-scheduling-api.yaml, deliberately *not* any vote-count
-        order) and **must not change** for any reason attributable to a
-        vote being cast, changed, or left unanswered -- by this participant
-        or by any other participant. A shop only moves within this order
-        when the organizer's own setShortlistedShops replaces it with a
-        newly reset addedAt (D7); this is the only permitted cause of a
-        reorder. No control in this list may claim the forbidden
-        manual-ordering purpose (see unavailableControls above). TDR-GTH-37
-        verifies this directly: recording this list's shopId order, then
-        casting a vote, then asserting the order is unchanged.
+        ParticipantView.shopVoteQuestions' order -- **nearest-first: each
+        shop's distance from the private search origin, ascending
+        (2026-09-05 fix, adr/0044 decision 2, matching gathering-
+        scheduling-api.yaml's own 2026-09-04 correction; an in-progress
+        draft of this contract had instead described this order as
+        addedAt-ascending, which also achieves the "does not change when a
+        vote is cast" property this order needs but not the human-specified
+        near-order -- this revision replaces that basis with distance so
+        both properties hold at once, exactly mirroring the API schema's
+        own shopVoteQuestions description)** -- deliberately *not* any
+        vote-count order. This order **must not change** for any reason
+        attributable to a vote being cast, changed, or left unanswered --
+        by this participant or by any other participant, since a shop's
+        distance from the search origin never varies during a gathering. A
+        shop only moves within this order when the organizer's own
+        setShortlistedShops replaces it with a newly reset addedAt (D7);
+        `addedAt` remains the basis for `yourVote`'s "not yet answered"
+        gating (D7) -- only this order's basis changed, not that gating.
+        No control in this list may claim the forbidden manual-ordering
+        purpose (see unavailableControls above). TDR-GTH-37 verifies this
+        directly: recording this list's shopId order, then casting a vote,
+        then asserting the order is unchanged.
       cardinality: >-
         One element per ParticipantShopVoteOption currently in
         ParticipantView.shopVoteQuestions (up to 5). This contract does not
@@ -1533,66 +1785,102 @@ browserControlSurface:
         scheduleQuestion's own cardinality note).
       attributes:
         shopId: data-shop-id
-        yourApproval: data-your-approval
-      yourApprovalValues: ['true', 'false', 'UNANSWERED']
+        yourVote: data-your-vote
+      yourVoteValues: ['WANT_TO_GO', 'OK_TO_GO', 'NOT_GOING', 'UNANSWERED']
       requirement: >-
-        data-your-approval is "UNANSWERED" exactly when
-        ParticipantShopVoteOption.yourApproval is null (D7's "まだ答えて
-        いません", Vote.dc.html); otherwise "true"/"false" matching
-        yourApproval exactly. No shop attribute beyond shopId is required
-        to be machine-asserted here (name/genre/etc. mirror
+        **Fixed 2026-09-05 (adr/0044)**: this contract previously exposed a
+        boolean `data-your-approval` (mirroring the since-retired
+        ParticipantShopVoteOption.yourApproval); data-your-vote above
+        replaces it. data-your-vote is "UNANSWERED" exactly when
+        ParticipantShopVoteOption.yourVote is null (D7's "まだ答えて
+        いません", Vote.dc.html); otherwise it is the exact ShopVoteStatus
+        string (WANT_TO_GO/OK_TO_GO/NOT_GOING, displayed as 「行きたい」/
+        「行ってもいい」/「むり」, adr/0044 decision 1 -- deliberately a
+        different vocabulary from scheduleQuestion.yourResponseValues'
+        GOING/MAYBE/NOT_GOING/「行ける」/「たぶん」/「むり」, since a shop
+        vote expresses preference for a shop, not schedule availability).
+        No shop attribute beyond shopId is required to be machine-asserted
+        by this specific attribute mapping (name/genre mirror
         ParticipantShopVoteOption's schema but this contract does not fix
-        their DOM representation, same convention as organizerDashboard's
-        preview optionalFields). **Stale as of 2026-09-04 (adr/0044)**:
-        ParticipantShopVoteOption.yourApproval (boolean, nullable) no
-        longer exists in gathering-scheduling-api.yaml -- it was replaced
-        by `yourVote` (nullable ShopVoteStatus, three values). This
-        attribute/values pair, and selectOption/tally immediately below,
-        describe the retired boolean model and are not yet updated to the
-        three-tier model (see this file's 2026-09-04 header comment;
-        TDR-GTH-28/30/40 depend on the updated model and TDR-GTH-40 is
-        notVerifiedHere pending a future round -- TDR-GTH-28/30 remain
-        listed in verifiesScenarios above because their business rules
-        (a participant answers each shop; a participant may change any
-        answer at any time) do not themselves require this specific stale
-        attribute mapping to hold, only that *some* correct per-shop
-        answer/change mechanism exists).
-      selectOption:
-        testId: gathering-shop-vote-select
+        their DOM representation here, same convention as
+        organizerDashboard's preview optionalFields) -- see detailFields
+        below for the fields TDR-GTH-39 does assert.
+      detailFields:
+        description: >-
+          Added 2026-09-05 (adr/0044, TDR-GTH-39: "位置を示す地図と、徒歩の
+          目安・席数の目安・禁煙対応・予算感の目安・店のページへのリンクが
+          示される"). Mirrors organizerDashboard.shortlistSelection.list.
+          item.detailFields above field-for-field (both draw from the same
+          location/walkingTimeMinutes/capacityTier/nonSmokingStatus/
+          dinnerBudgetTier/providerPageUrl fields, added to
+          ParticipantShopVoteOption the same round as OpenShopPreviewItem).
+        walkingTime: {testId: gathering-shop-vote-question-walking-time}
+        capacityTier: {testId: gathering-shop-vote-question-capacity-tier}
+        nonSmokingStatus: {testId: gathering-shop-vote-question-non-smoking}
+        dinnerBudgetTier: {testId: gathering-shop-vote-question-dinner-budget}
+        providerPageLink:
+          testId: gathering-shop-vote-question-provider-page-link
+          formControl: false
+          requirement: >-
+            An `<a href>` whose href equals
+            ParticipantShopVoteOption.providerPageUrl. Implemented as a
+            plain anchor -- same exemption as organizerDashboard.
+            shortlistSelection.list.item.detailFields.providerPageLink
+            above (unavailableControls.formControlExemptTestIds, adr/0046).
+        requirement: >-
+          Each field's test id is present for every
+          gathering-shop-vote-question currently rendered, same
+          value-state convention as organizerDashboard.shortlistSelection.
+          list.item.detailFields.requirement above (no data-value-state
+          attribute required; genre stays outside this contract's required
+          fields).
+      voteOptions:
+        testId: gathering-shop-vote-option
         purpose: gathering-shop-vote-select
+        attribute: data-vote-value
+        values: [WANT_TO_GO, OK_TO_GO, NOT_GOING]
+        cardinality: exactly-three-per-gathering-shop-vote-question
         requiredOutcome: >-
-          Activating it toggles this shop's inclusion in this
-          participant's approved set and immediately calls setShopVotes
-          with the complete updated approvedShopIds (every currently-
-          checked gathering-shop-vote-question among those rendered) --
-          not a pending/submit model (Vote.dc.html: "選ぶとその場で保存
-          されます", no separate submit button, unlike the organizer's
-          shortlistSelection above). data-your-approval updates to
-          "true"/"false" immediately. Re-activating any option updates the
-          sent set again (TDR-GTH-30: always changeable). **Stale as of
-          2026-09-04, adr/0044** -- setShopVotes' request shape changed
-          from a bare approvedShopIds array to a `votes` array of
-          `{shopId, status}` entries; this paragraph's "toggle/
-          approvedShopIds" description is not yet rewritten for the
-          three-tier selection UI designer has not yet drawn (see this
-          file's 2026-09-04 header comment).
+          **Restructured 2026-09-05 (adr/0044)** to mirror
+          scheduleQuestion.responseOptions above exactly, replacing this
+          contract's retired single-checkbox selectOption (the 2026-09-04
+          draft's boolean toggle) now that gathering-scheduling-api.yaml's
+          SetShopVotesRequest/ParticipantShopVoteOption.yourVote are
+          three-tier. Activating the option whose data-vote-value is V
+          immediately calls setShopVotes with a votes array containing
+          `{shopId, status: V}` for this shop plus this participant's
+          currently-held vote for every other currently-rendered shop
+          (SetShopVotesRequest's own "resend the complete current answer
+          set on every call" requirement, the same shape the retired
+          approvedShopIds model already used) -- not a pending/submit model
+          (Vote.dc.html: "選ぶとその場で保存されます", no separate submit
+          button, unlike the organizer's shortlistSelection above).
+          data-your-vote updates to V immediately. Re-activating a
+          different option for the same shop updates the sent set again
+          (TDR-GTH-30: always changeable). No new allowedPurposes entry is
+          required -- this three-tier selection still shares
+          gathering-shop-vote-select across all three option instances,
+          the same purpose the 2026-09-04 draft already anticipated
+          reusing (this file's allowedPurposesNote2026_09_04).
       tally:
         testId: gathering-shop-vote-tally
         attributes:
-          approvalCount: data-approval-count
+          wantToGoCount: data-want-to-go-count
+          okToGoCount: data-ok-to-go-count
+          notGoingCount: data-not-going-count
           respondedCount: data-responded-count
         presenceRule: >-
           Present within a given gathering-shop-vote-question exactly when
-          that question's data-your-approval is not "UNANSWERED"
+          that question's data-your-vote is not "UNANSWERED"
           (product-brief.md §2's "answer first, then see others" rule,
           applied per shop -- TDR-GTH-29; independent of
-          scheduleQuestion.tally's own per-candidate-date gating). Once
-          present, mirrors this same shop's organizer-facing
-          ShortlistedShop.approvalCount/respondedParticipantCount exactly.
-          **Stale as of 2026-09-04 (adr/0044)**: same retirement as
-          attributes/yourApprovalValues/selectOption above -- ShortlistedShop
-          no longer has a single approvalCount (replaced by
-          goingCount/maybeCount/notGoingCount).
+          scheduleQuestion.tally's own per-candidate-date gating).
+        requirement: >-
+          **Fixed 2026-09-05 (adr/0044)**: this contract previously exposed
+          a single, since-retired approvalCount/data-approval-count; the
+          four attributes above replace it, mirroring this same shop's
+          organizer-facing ShortlistedShop.wantToGoCount/okToGoCount/
+          notGoingCount/respondedParticipantCount exactly.
     progress:
       testId: gathering-participant-progress
       presenceRule: >-
@@ -1613,7 +1901,8 @@ browserControlSurface:
       description: >-
         B-3 (Final.dc.html) -- the same signed-link URL, now showing the
         decision only (D1, 2026-08-30) plus this participant's own
-        retrospective record (P5, 2026-09-03, adr/0041/adr/0042).
+        retrospective record (P5, 2026-09-03, adr/0041/adr/0042; extended
+        to the three-tier vote 2026-09-05, adr/0044).
       requiredTestIds:
         decision: gathering-participant-decision
       presenceRule: Present exactly when ParticipantView.decision is non-null (phase FINALIZED).
@@ -1630,28 +1919,51 @@ browserControlSurface:
           data-your-schedule-response is "UNANSWERED" exactly when
           decision.yourScheduleResponse is null, otherwise the exact
           ScheduleResponseStatus string (Final.dc.html's "あなたの回答"
-          line: "行ける").
-        approvedShop:
-          testId: gathering-participant-decision-approved-shop
+          line: "行ける"). This contract does not require a
+          regular-holiday attribute here either -- same reasoning as
+          organizerDashboard.finalizedSummary.decisionBanner.requirement
+          above (adr/0046): LiveProjectedShop (decision.shop's schema)
+          carries no regularHoliday field, so Final.dc.html's "定休
+          日曜・祝日" line on this phone-sized decision card is likewise
+          not required to be rendered by this contract.
+        shopVote:
+          testId: gathering-participant-decision-shop-vote
           cardinality: zero-or-more-elements-sharing-this-test-id
           attributes:
             shopId: data-shop-id
+            status: data-vote-status
+          statusValues: [WANT_TO_GO, OK_TO_GO, NOT_GOING]
           requirement: >-
-            One element per decision.yourApprovedShops entry (Final.dc.html's
-            "あなたが『行ってもいい』と選んだ店" list). Never carries
-            another participant's shopId or any aggregate count --
-            decision.yourApprovedShops is this participant's own data only
-            (P5's explicit "他人の票は出さない" constraint, enforced at the
-            schema level by gathering-scheduling-api.yaml adr/0041).
-            **Stale as of 2026-09-04 (adr/0044)**: `decision.
-            yourApprovedShops` no longer exists in gathering-scheduling-
-            api.yaml -- it was replaced by `decision.yourShopVotes` (every
-            answered shop, with its actual three-tier status, not only
-            approved ones). This element's testId/attributes/requirement
-            are not yet updated to reflect that rename (see this file's
-            2026-09-04 header comment); the underlying "never another
-            participant's data" constraint remains intended to hold once
-            updated.
+            **Renamed and restructured 2026-09-05 (adr/0044)** from the
+            retired gathering-participant-decision-approved-shop (which
+            projected only decision.yourApprovedShops, an approved-only
+            subset). One element per decision.yourShopVotes entry
+            (gathering-scheduling-api.yaml's ParticipantDecisionShopVote).
+            data-vote-status equals that entry's status exactly
+            (Final.dc.html's per-shop "行きたい"/"行ってもいい"/"むり"
+            line). Never carries another participant's shopId, status, or
+            any aggregate count -- decision.yourShopVotes is this
+            participant's own data only (P5's explicit "他人の票は出さない"
+            constraint, enforced at the schema level by
+            gathering-scheduling-api.yaml, unchanged by this rename).
+          unresolvedDesignNote: >-
+            **Flagged, not resolved (FR-028, 2026-09-05, see adr/0046)**:
+            Final.dc.html's 「あなたが店にどう答えたか」 list additionally
+            draws a row for a shop this participant never voted on before
+            finalization, labelled "答えないまま締まりました" -- but
+            gathering-scheduling-api.yaml's ParticipantDecisionShopVote/
+            decision.yourShopVotes explicitly excludes any shop this
+            participant's yourVote was null for at finalization (an
+            existing rule, unchanged by this round's three-tier
+            restructure). This contract's cardinality above -- one element
+            per actual yourShopVotes entry -- therefore does not require
+            this additional never-answered row to exist; an implementation
+            that omits it still satisfies this contract as written.
+            Resolving the mismatch (either the API grows a null-status
+            entry for never-answered shops, or the design drops this row)
+            needs a human decision this round's browser-interface-only
+            scope does not include -- reported per P-08 rather than
+            silently decided either way.
       replacesQuestionSurfaces: >-
         gathering-schedule-question, gathering-shop-vote-question, and
         gathering-participant-progress are all absent once
@@ -1660,7 +1972,7 @@ browserControlSurface:
         per-candidate-date/per-shop breakdown, only the flat
         gathering-participant-decision summary.
       noOperations: >-
-        No gathering-schedule-response-option, gathering-shop-vote-select,
+        No gathering-schedule-response-option, gathering-shop-vote-option,
         or gathering-participant-name-open/submit is present once
         ParticipantView.decision is non-null (Final.dc.html B-3: "この画面
         に操作はありません") -- setScheduleResponse and setShopVotes both
@@ -1763,9 +2075,9 @@ browserActions:
     success:
       requiredOutcome: browserControlSurface.participantAnswer.scheduleQuestion.responseOptions.requiredOutcome
   answerShopVote:
-    inputs: [gathering-shop-vote-select]
+    inputs: [gathering-shop-vote-option]
     success:
-      requiredOutcome: browserControlSurface.participantAnswer.shopVoteQuestion.selectOption.requiredOutcome
+      requiredOutcome: browserControlSurface.participantAnswer.shopVoteQuestion.voteOptions.requiredOutcome
   attachDisplayName:
     inputs: [gathering-participant-name-open, gathering-participant-name-input,
              gathering-participant-name-submit]
