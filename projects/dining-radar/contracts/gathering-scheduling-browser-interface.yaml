@@ -299,11 +299,38 @@
 #   要素数と厳密に一致する——API側がこの配列に未回答店を含めるようになったため、契約を書き換えずとも
 #   この一致は保たれる）。`gathering-scheduling-api.yaml`のバージョン更新・`gathering-scheduling.
 #   feature`のTDR-GTH-34拡張と同じPRで行う——詳細は`adr/0046`の未決事項節を参照する。
+#
+# 2026-09-06 追補6 (architect、ADR-0047。developer報告「参加者用JavaScriptにエラー処理が一切
+#   無く、サーバ側で何か起きると画面に何も出ない」への対応。人間裁定は2026-09-06チャット選択肢UI:
+#   「短いお知らせを出す」。やり直すボタンは置かない。contractVersion 0.7.0 -> 0.8.0):
+# - **新しい状態を、既存の`linkError`とは別に定義する**: `linkError`（`invalidLinkOutcome`）は
+#   参加者向けAPI呼び出しが`LINK_NOT_FOUND`/`LINK_EXPIRED`/`LINK_REVOKED`/`LINK_RATE_LIMITED`と
+#   いう**意味のある**`ProblemResponse`コードを返した場合の観測面であり、今回の穴（応答が
+#   得られない・契約が想定するどの形にも一致しない失敗）とは別の状態である。`browserEntry.
+#   participantAnswer`へ`unexpectedLoadFailureOutcome`を新設し、`validLinkOutcome`（有効な
+#   リンクとして完結）・`invalidLinkOutcome`（意味のある拒否として完結）のどちらでもない場合の
+#   帰結を定めた——この場合`gathering-participant-load-error`だけが存在し、設問・エラー面・
+#   名前操作を含む他のすべての参加者向け要素は不在になる（読み込めていないのだから設問も決定も
+#   出ない、という自然な帰結であり、既存の各presenceRuleと矛盾しない）。
+# - `browserControlSurface.participantAnswer`へ`loadFailure`
+#   （`gathering-participant-load-error`）を新設した。**操作は置かない**（人間裁定どおり、
+#   やり直すボタンなし——`allowedPurposes`への追加は無い）。可視文言は「うまく読み込めませんでした。
+#   時間をおいて開き直してください」程度の趣旨のみを求め、正確な日本語表現は固定しない。
+#   `linkError`の開示規律（会・参加者の内容を明かさない）を踏襲し、加えてHTTPステータスコード・
+#   例外メッセージやスタックトレース・リクエスト/トレースID・ホスト名など技術的な内部情報を
+#   可視文言・属性のいずれにも出さないことをMustにした——サーバ側の未処理の失敗というこの状態の
+#   性質上、`linkError`よりも開示リスクが高いためである。
+# - `profiles.localAcceptance.verifiesScenarios`へTDR-GTH-42を追加した。
+# - `contracts/test-support-api.yaml`へ`seedParticipantLinkServerError`を新設した（詳細は同
+#   ファイルのヘッダとadr/0047決定4を参照）——`adr/0037`決定1の原則（公開境界だけで作れる状態には
+#   新しいseamを追加しない）を確認したが、今回の状態は公開操作を正しく呼ぶ限り決して作れないため、
+#   `seedExpiredParticipantLink`・`seedRateLimitedParticipantLink`と同種の例外として新設が要ると
+#   判断した。
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.7.0'
+contractVersion: '0.8.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -342,7 +369,7 @@ profiles:
        TDR-GTH-23, TDR-GTH-24, TDR-GTH-25, TDR-GTH-26, TDR-GTH-27,
        TDR-GTH-28, TDR-GTH-29, TDR-GTH-30, TDR-GTH-31, TDR-GTH-32,
        TDR-GTH-33, TDR-GTH-34, TDR-GTH-35, TDR-GTH-36, TDR-GTH-37,
-       TDR-GTH-38, TDR-GTH-39, TDR-GTH-40, TDR-GTH-41]
+       TDR-GTH-38, TDR-GTH-39, TDR-GTH-40, TDR-GTH-41, TDR-GTH-42]
     notVerifiedHere:
       - scenario: TDR-GTH-13
         reason: >-
@@ -461,6 +488,28 @@ browserEntry:
       present: [gathering-participant-link-error]
       absent: [gathering-participant-header, gathering-schedule-question,
                 gathering-participant-name-open]
+    unexpectedLoadFailureOutcome:
+      present: [gathering-participant-load-error]
+      absent: [gathering-participant-header, gathering-schedule-question,
+                gathering-participant-name-open, gathering-participant-link-error,
+                gathering-shop-vote-question, gathering-participant-decision]
+      requirement: >-
+        Added 2026-09-06 (adr/0047, TDR-GTH-42; human chat decision;
+        developer-found gap: this screen's JavaScript had no error handling
+        at all, so an unrecognized response left the page blank -- no
+        question, no error surface, no explanation). This is a **distinct**
+        condition from invalidLinkOutcome above: invalidLinkOutcome covers a
+        *meaningful* rejection the participant-facing API explicitly
+        returned (one of linkError's four recognized ProblemResponse
+        codes); this entry covers every other case -- a network failure
+        that never reaches the server, a response the client cannot parse,
+        or a server-side failure that carries none of those four codes.
+        validLinkOutcome and invalidLinkOutcome above and this entry are
+        mutually exclusive and, together with each element's own
+        presenceRule elsewhere in this contract, exhaustive: opening a
+        participant link always yields exactly one of the three. See
+        browserControlSurface.participantAnswer.loadFailure below for what
+        gathering-participant-load-error itself requires.
 
 unavailableControls:
   allGatheringScreenFormControlsMustDeclarePurpose: true
@@ -2018,6 +2067,36 @@ browserControlSurface:
         each other -- possessing a link already implies the holder was
         invited, so which of these three failure reasons applies is not
         equivalent to leaking whether an unrelated account exists.
+    loadFailure:
+      testId: gathering-participant-load-error
+      presenceRule: >-
+        Present exactly per
+        browserEntry.participantAnswer.unexpectedLoadFailureOutcome above;
+        absent whenever validLinkOutcome or invalidLinkOutcome instead
+        applies.
+      requirement: >-
+        Added 2026-09-06 (adr/0047, TDR-GTH-42, human chat decision
+        2026-09-06: 「短いお知らせを出す」). Its visible text must convey
+        only that loading failed and that reopening the link later may
+        work (the human's own wording, "うまく読み込めませんでした。時間を
+        おいて開き直してください", or an equivalent paraphrase -- this
+        contract does not fix the exact Japanese string, only its meaning).
+        It must not disclose any technical or internal detail -- an HTTP
+        status code, an exception message or stack trace, a request/trace
+        identifier, a hostname, or any of
+        profiles.localAcceptance.syntheticDisclosureCanaries' values --
+        mirroring linkError's own disclosure discipline above (this
+        element's disclosure risk is higher than linkError's, since it is
+        shown precisely when something on the server failed in a way this
+        contract had not already named).
+      noRetryControl: >-
+        This element contains no purpose-declared control, and no
+        allowedPurposes entry exists for one -- human ruling (2026-09-06
+        chat, presented alongside a "add a retry button" alternative that
+        was not chosen): the notice alone is the required behavior
+        (「やり直すボタンは置かない」). Reopening the participant link (a
+        fresh page load of the same URL) is the only way to retry; this
+        contract does not require a dedicated shortcut for that.
 
 browserActions:
   openGatheringFromList:

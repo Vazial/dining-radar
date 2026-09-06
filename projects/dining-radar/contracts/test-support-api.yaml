@@ -204,25 +204,50 @@
 #   `setCandidateProposalAcceptanceState`/`resetCandidateProposalAcceptanceState`には追加しない）。
 # - `version`を1.5.2→1.5.3へ、`info.description`のシナリオ範囲表記を
 #   「TDR-GTH-01 through TDR-GTH-41」へ揃えた。
+#
+# 2026-09-06 追補4 (architect、ADR-0047。developer報告「参加者用JavaScriptにエラー処理が一切
+#   無く、サーバ側で何か起きると画面に何も出ない」への対応。人間裁定は2026-09-06チャット選択肢UI:
+#   「短いお知らせを出す」、やり直すボタンは置かない):
+# - **新しいseamが要ると判断した理由**: `adr/0037`決定1の原則（公開境界だけで作れる状態には
+#   新しいseamを追加しない）を確認したが、今回作りたい状態（サーバが`ProblemResponse`の形にも
+#   成功応答の形にも一致しない失敗を返す）は、`gathering-scheduling-api.yaml`の公開操作を正しく
+#   呼ぶ限り決して作れない——`seedExpiredParticipantLink`（90日待てない）・
+#   `seedRateLimitedParticipantLink`（閾値に達するまで実際に叩けない）と同じ種類の例外である。
+# - `seedParticipantLinkServerError`を新設する。既存2seamと同じ設計（`ParticipantLinkTokenSeed`
+#   を再利用し、次の1回の該当`getParticipantView`呼び出しだけに適用、204を返す）に倣う。次に
+#   一致するリクエストは、`linkError`が定めるどの`ProblemResponse`コード（LINK_NOT_FOUND/
+#   LINK_EXPIRED/LINK_REVOKED/LINK_RATE_LIMITED）にも一致しないHTTP 500応答を返す——本文が空か、
+#   `ProblemResponse`スキーマに準拠しない内容かはこのseamが特定しない
+#   （`gathering-scheduling-browser-interface.yaml`の`gathering-participant-load-error`の要件が
+#   両方を同一に扱うため）。新しいスキーマは要らない——既存の`ParticipantLinkTokenSeed`をそのまま
+#   再利用する（adr/0047決定4）。
+# - `resetGatheringSchedulingAcceptanceState`の`x-acceptance-scenarios`へTDR-GTH-42を追加した
+#   （新設seamで作る状態も、他のTDR-GTHシナリオと同じくこのresetの対象である）。
+#   `setCandidateProposalAcceptanceState`/`resetCandidateProposalAcceptanceState`には追加しない
+#   ——TDR-GTH-42は`CandidateProposalAcceptanceState`側の特定modeを必要としない（TDR-GTH-37・41と
+#   同じ扱い）。
+# - `version`を1.5.3→1.5.4へ、`info.description`のシナリオ範囲表記を
+#   「TDR-GTH-01 through TDR-GTH-42」へ揃えた。
 openapi: 3.0.3
 info:
   title: Dining Radar acceptance test-support API
-  version: 1.5.3
+  version: 1.5.4
   description: >-
     Acceptance-only setup and reset seams for TDR-AUTH-01 through TDR-AUTH-07,
-    TDR-CS-00 through TDR-CS-16, and TDR-GTH-01 through TDR-GTH-41.
+    TDR-CS-00 through TDR-CS-16, and TDR-GTH-01 through TDR-GTH-42.
     Browser actions and outcomes under test must use the public same-origin
     authentication, candidate-search, and gathering-scheduling boundaries;
     these operations are only for deterministic Given state and scenario
     isolation. Most TDR-GTH Given state is built by calling
     gathering-scheduling-api.yaml's own public operations directly (adr/0037
     decision 1) -- this file adds seams only for the handful of states that
-    boundary alone cannot reach (link expiry, link rate-limiting) and for the
-    population TDR-GTH's open-shop-count feature shares with TDR-CS. This
-    also holds for the shortlist/vote/finalize scenarios TDR-GTH-26 through
-    TDR-GTH-36 add (ADR-0040/0041/0042) and for TDR-GTH-37 through TDR-GTH-41
-    add (adr/0044/0045, a stable participant shop order, a three-tier vote,
-    shop map/detail information, and the participant-screen search-origin
+    boundary alone cannot reach (link expiry, link rate-limiting, and now an
+    unrecognized/non-conforming failure, adr/0047) and for the population
+    TDR-GTH's open-shop-count feature shares with TDR-CS. This also holds for
+    the shortlist/vote/finalize scenarios TDR-GTH-26 through TDR-GTH-36 add
+    (ADR-0040/0041/0042) and for TDR-GTH-37 through TDR-GTH-41 add
+    (adr/0044/0045, a stable participant shop order, a three-tier vote, shop
+    map/detail information, and the participant-screen search-origin
     disclosure) -- none of them required a new seam.
 paths:
   /test-support/candidate-proposals/state:
@@ -398,11 +423,12 @@ paths:
       summary: Reset only gathering-scheduling state owned by the acceptance harness
       description: >-
         Removes every synthetic gathering, candidate date, participant link
-        (including any state seeded by seedExpiredParticipantLink or
-        seedRateLimitedParticipantLink), schedule response, shortlisted shop,
-        and shop vote created through gathering-scheduling-api.yaml's public
-        boundary during acceptance testing. It does not read, write, or
-        reset provider data, candidate-search acceptance state (see
+        (including any state seeded by seedExpiredParticipantLink,
+        seedRateLimitedParticipantLink, or seedParticipantLinkServerError),
+        schedule response, shortlisted shop, and shop vote created through
+        gathering-scheduling-api.yaml's public boundary during acceptance
+        testing. It does not read, write, or reset provider data,
+        candidate-search acceptance state (see
         resetCandidateProposalAcceptanceState/setCandidateProposalAcceptanceState
         for that separate domain, which TDR-GTH-08/09/26/27/38/39 also depend
         on), private runtime settings, runtime secrets, or organizer
@@ -418,7 +444,7 @@ paths:
          TDR-GTH-26, TDR-GTH-27, TDR-GTH-28, TDR-GTH-29, TDR-GTH-30,
          TDR-GTH-31, TDR-GTH-32, TDR-GTH-33, TDR-GTH-34, TDR-GTH-35,
          TDR-GTH-36, TDR-GTH-37, TDR-GTH-38, TDR-GTH-39, TDR-GTH-40,
-         TDR-GTH-41]
+         TDR-GTH-41, TDR-GTH-42]
       responses:
         '204':
           description: Gathering-scheduling acceptance state is reset. No response body is returned.
@@ -484,6 +510,45 @@ paths:
       responses:
         '204':
           description: The next matching participant-facing request for this token will be rate-limited. No response body is returned.
+  /test-support/gathering-scheduling/participant-links/server-error:
+    post:
+      operationId: seedParticipantLinkServerError
+      summary: Force the next getParticipantView call for one link to fail unrecognizably
+      description: >-
+        Given a token previously obtained from a public issueParticipantLinks
+        or recopyParticipantLink response, makes the next getParticipantView
+        request against exactly that token return an HTTP 500 response that
+        matches none of linkError's four recognized ProblemResponse codes
+        (LINK_NOT_FOUND, LINK_EXPIRED, LINK_REVOKED, LINK_RATE_LIMITED) --
+        the response body may be empty or may not conform to
+        ProblemResponse's schema; this seam does not fix which, because
+        gathering-scheduling-browser-interface.yaml's
+        gathering-participant-load-error requirement treats both identically
+        as an unrecognized outcome (adr/0047 decision 4). This models a
+        failure this product's own code cannot produce through the public
+        boundary alone -- the same kind of exception seedExpiredParticipantLink
+        (waiting 90 days) and seedRateLimitedParticipantLink (waiting for a
+        real threshold) already are to adr/0037 decision 1's "build Given
+        state through the public boundary" default. This seam lets L4 verify
+        TDR-GTH-42 (a short notice appears, with no question and no retry
+        control, and no technical/internal detail is disclosed)
+        deterministically, without depending on an actual server exception.
+        Does not affect Gathering.activeParticipantLinkCount,
+        totalRevokedParticipantLinks, hasResponded, or any other participant
+        link state -- this is a transport-level failure for exactly one
+        subsequent request, not a change to the link's own status (contrast
+        with seedExpiredParticipantLink/seedRateLimitedParticipantLink, which
+        do change status).
+      x-acceptance-scenarios: [TDR-GTH-42]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ParticipantLinkTokenSeed'
+      responses:
+        '204':
+          description: The next getParticipantView request for this token will fail unrecognizably. No response body is returned.
 components:
   schemas:
     CandidateProposalAcceptanceState:
