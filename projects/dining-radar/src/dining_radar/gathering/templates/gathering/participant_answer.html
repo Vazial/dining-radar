@@ -5,6 +5,19 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>会の日程回答</title>
+    {% comment %}
+      Leaflet/OSM, the same vendored map library
+      web/templates/web/home.html already uses for the lunch-candidate
+      screen's own map (adr/0044/0045, TDR-GTH-39/41) --
+      shopVoteQuestion's gathering-shop-vote-map borrows this convention
+      but defines its own, distinct test ids
+      (unavailableControls.forbiddenTestIds forbids reusing
+      candidate-map/candidate-map-marker/candidate-origin-marker). No
+      cache-busting query string here -- this vendored file changes only
+      when the library itself is upgraded, mirroring home.html's own
+      precedent.
+    {% endcomment %}
+    <link rel="stylesheet" href="{% static 'dining_radar/web/vendor/leaflet/leaflet.css' %}">
     <style>
       :root {
         color: #17201b;
@@ -178,7 +191,8 @@
         font-size: 0.8125rem;
       }
 
-      /* Approval-voting surface (Vote.dc.html B-2, adr/0042) */
+      /* Approval-voting surface (Vote.dc.html B-2, adr/0042; three-tier +
+         map/detail fields adr/0044/0045, 2026-09-05) */
       .gth-vote-section {
         background: #fff;
         border: 1px solid #dfe4de;
@@ -191,18 +205,66 @@
       .gth-vote-heading { font-size: 0.8125rem; font-weight: 700; }
       .gth-vote-row {
         display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        min-height: 2.75rem;
+        flex-direction: column;
+        gap: 0.4rem;
         border: 1px solid #dfe4de;
         border-radius: 0.5rem;
-        padding: 0.4rem 0.6rem;
+        padding: 0.5rem 0.6rem;
         font-size: 0.75rem;
       }
-      .gth-vote-name { flex: 1; font-weight: 500; }
+      .gth-vote-name { font-weight: 700; font-size: 0.8125rem; }
       .gth-vote-mask { color: #77827a; font-size: 0.6875rem; }
-      .gth-vote-tally { color: #4b564e; font-size: 0.6875rem; white-space: nowrap; }
+      .gth-vote-options { display: flex; gap: 0.375rem; }
+      .gth-vote-tally { display: flex; gap: 0.6rem; color: #4b564e; font-size: 0.6875rem; }
       .gth-vote-tally b { color: #b4531c; font-weight: 700; }
+
+      /* Shop map + per-shop detail fields (adr/0044/0045), shared class
+         names with organizer.css's own copy (different DOM, same tokens). */
+      .gth-shop-map {
+        width: 100%;
+        height: 11rem;
+        box-sizing: border-box;
+        border: 1px solid #dfe4de;
+        border-radius: 0.625rem;
+        overflow: hidden;
+        background: #eaf0ea;
+      }
+      .gathering-shop-vote-map-marker-icon { display: flex; align-items: center; justify-content: center; }
+      .gathering-shop-vote-map-marker-visual {
+        display: block;
+        width: 0.875rem;
+        height: 0.875rem;
+        border-radius: 50%;
+        background: #14614a;
+        border: 2px solid #fff;
+        box-shadow: 0 0 0 1px #14614a;
+      }
+      .gathering-search-origin-marker-icon { display: flex; align-items: center; justify-content: center; }
+      .gathering-search-origin-marker-visual {
+        display: block;
+        width: 0.75rem;
+        height: 0.75rem;
+        border-radius: 50%;
+        background: #b4531c;
+        border: 2px solid #fff;
+        box-shadow: 0 0 0 1px #b4531c;
+      }
+      .gth-shop-detail-row { display: flex; flex-wrap: wrap; gap: 0.35rem 0.65rem; align-items: center; }
+      .gth-shop-detail { font-size: 0.6875rem; color: #4b564e; white-space: nowrap; }
+      .gth-shop-link {
+        display: inline-flex;
+        align-items: center;
+        min-height: 2.25rem;
+        padding: 0 0.75rem;
+        border: 1px solid #14614a;
+        border-radius: 0.5rem;
+        color: #14614a;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-decoration: none;
+        white-space: nowrap;
+      }
+      .gth-shop-link:hover { background: #f7fbf8; }
 
       /* Finalized view (Final.dc.html B-3, adr/0042) */
       .gth-final {
@@ -231,8 +293,19 @@
       .gth-final-when { font-size: 1.25rem; font-weight: 700; }
       .gth-final-shop { font-size: 1.25rem; font-weight: 700; }
       .gth-final-yours-row { font-size: 0.8125rem; }
-      .gth-final-approved { display: flex; flex-direction: column; gap: 0.2rem; }
-      .gth-final-approved-shop { font-size: 0.8125rem; }
+      .gth-final-approved { display: flex; flex-direction: column; gap: 0.3rem; }
+      .gth-final-shop-vote {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.5rem;
+        font-size: 0.8125rem;
+        padding: 0.2rem 0;
+        border-top: 1px solid #eef1ed;
+      }
+      .gth-final-shop-vote:first-of-type { border-top: 0; }
+      .gth-final-shop-vote-name { font-weight: 600; }
+      .gth-final-shop-vote-status { color: #4b564e; font-size: 0.75rem; white-space: nowrap; }
     </style>
   </head>
   <body>
@@ -252,9 +325,10 @@
       <div id="gathering-participant-app" data-participant-token="{{ token }}"></div>
     </div>
 
+    <script src="{% static 'dining_radar/web/vendor/leaflet/leaflet.js' %}"></script>
     {% comment %}
       Cache-busting query string on participant.js (FR-025).
     {% endcomment %}
-    <script src="{% static 'dining_radar/gathering/participant.js' %}?v=20260904b-readable-dates"></script>
+    <script src="{% static 'dining_radar/gathering/participant.js' %}?v=20260905-three-tier-vote-and-map"></script>
   </body>
 </html>

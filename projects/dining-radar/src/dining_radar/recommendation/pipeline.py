@@ -523,6 +523,25 @@ def walking_time_minutes(origin: Origin, candidate: NormalizedCandidate) -> int:
     )
 
 
+def distance_meters(origin: Origin, candidate: NormalizedCandidate) -> float:
+    """Public wrapper around ``_distance`` for cross-module ordering.
+
+    Added for ``dining_radar.gathering`` (adr/0044 decision 2,
+    ``gathering-scheduling-api.yaml``'s 2026-09-04 revision): the
+    participant-facing shop-vote list must order shops by *raw* distance
+    from the private search origin, ascending -- not by the rounded
+    ``walking_time_minutes`` value (which would tie same-minute shops
+    together) and not by any vote tally. ``_distance`` was previously only
+    ever called from within this module; this thin public wrapper lets
+    another module reuse the exact same calculation ``walking_time_minutes``
+    itself is built on, rather than duplicating the planar-approximation
+    formula a second time (the same single-source-of-truth discipline this
+    module's own module docstring already establishes for
+    ``walking_time_minutes``).
+    """
+    return _distance(origin, candidate)
+
+
 def walking_time_band(
     minutes: int, presets: Sequence[int] = WALKING_TIME_MAX_PRESET_MINUTES
 ) -> int | None:

@@ -38,6 +38,25 @@ class ScheduleResponseStatus(models.TextChoices):
     NOT_GOING = "NOT_GOING"
 
 
+class ShopVoteStatus(models.TextChoices):
+    """``components.schemas.ShopVoteStatus`` (gathering-scheduling-api.yaml, adr/0044).
+
+    Deliberately a distinct enum from ``ScheduleResponseStatus`` above, both
+    in values and in the display wording it carries (行きたい／行ってもいい／
+    むり, not 行ける／たぶん／むり) -- a shop vote expresses preference for a
+    shop, not schedule availability (ADR-0044 decision 1, 2026-09-04 human
+    decision). Replaces the retired boolean approve-any-number-of-shops model
+    this project shipped from adr/0040 until this decision; the prior
+    ``ShopVoteSubmission.approved_shop_ids`` data is not migrated (human
+    decision, ADR-0044 decision 5: production carried essentially no real
+    votes under that model, so no conversion is worth designing).
+    """
+
+    WANT_TO_GO = "WANT_TO_GO"
+    OK_TO_GO = "OK_TO_GO"
+    NOT_GOING = "NOT_GOING"
+
+
 class Gathering(models.Model):
     """One ランチ会. Owned by exactly one organizer (product-brief.md §5)."""
 
@@ -215,23 +234,29 @@ class ShortlistedShop(models.Model):
 
 
 class ShopVoteSubmission(models.Model):
-    """One participant's most recent, complete shop-vote submission (adr/0040).
+    """One participant's most recent, complete shop-vote submission (adr/0040/0044).
 
     ``setShopVotes`` replaces this participant's entire vote in one call (not
     a per-shop toggle, product-brief.md §2), so one row per
     ``ParticipantLink`` is enough -- there is no history of earlier
-    submissions to keep. ``approved_shop_ids`` stores raw shop id strings
-    (not a many-to-many to ``ShortlistedShop``) so a submission remains valid
-    even after the organizer removes and later re-adds the same shop id
-    under a new ``ShortlistedShop`` row (see that model's own docstring).
+    submissions to keep. ``votes`` is a ``{shopId: ShopVoteStatus}`` mapping
+    (adr/0044, replacing the retired boolean ``approved_shop_ids`` list --
+    not migrated, per ADR-0044 decision 5) storing raw shop id strings as
+    keys (not a many-to-many to ``ShortlistedShop``) so a submission remains
+    valid even after the organizer removes and later re-adds the same shop
+    id under a new ``ShortlistedShop`` row (see that model's own docstring).
+    A shop id absent from this mapping means "not yet answered" for that
+    shop specifically -- the same meaning absence from the prior
+    ``approved_shop_ids`` list had, now made explicit per-shop rather than
+    collapsing into a single boolean.
     """
 
     participant_link = models.OneToOneField(
         ParticipantLink, on_delete=models.CASCADE, related_name="shop_vote_submission"
     )
-    approved_shop_ids = models.JSONField(default=list)
+    votes = models.JSONField(default=dict)
     # Compared against ShortlistedShop.added_at to derive
-    # ParticipantShopVoteOption.yourApproval's "not yet answered" (null)
+    # ParticipantShopVoteOption.yourVote's "not yet answered" (null)
     # state (D7) -- updated (via auto_now) on every setShopVotes call,
     # including one that resubmits the same content.
     submitted_at = models.DateTimeField(auto_now=True)
