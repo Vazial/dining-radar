@@ -2068,6 +2068,77 @@ Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (
     （読むのみ）。真因が「参加者の設問の並びが得票に依存する」（orchestratorの未確認の観察）
     ではなかったため、その観察について契約変更の要否は判断していない——別途の検討課題として残す。
 
+16. **残っている間欠失敗の真因を2つ特定し修正した（2026-09-06、developer、ブランチ
+    `fix/participant-render-race`。項目15のDB修正後もorchestratorが67件中3件の失敗を実測——
+    症状は`gathering-schedule-question`が現れない系統[TDR-GTH-20・43相当]と、
+    `gathering-participant-name-status`が書き込み成功後も"false"のまま残る系統[TDR-GTH-16
+    相当]の2種類）。**
+
+    **真因A（参加者画面の応答の入れ違い）**: `page.route`で、schedule-response PUTを
+    「サーバへは即座に到達・処理させるが応答の返送だけを1.2秒遅らせる」よう細工し、待たずに直後へ
+    display-name PUTを撃つ使い捨てスクリプトを書いたところ、`gathering-participant-name-status`の
+    `data-participant-named`が確定的に`false`のまま固まることを再現した（自然発生の反復——40回・
+    200回——は一度も再現せず、この環境の低再現率は項目15と同じ）。`participant.js`の`applyResult`/
+    `loadView`は、複数の参加者向けリクエストの応答を発行順ではなく**到着順**にそのまま`state.view`
+    へ上書きしていた——display-name PUTの応答（新しい書き込みを含む）が先に届いて正しく描画された
+    後、より早く発行されていたschedule-response PUTの応答（display-name書き込みより前の状態を
+    反映）が遅れて届き、無条件に`state.view`を上書きしていた。**修正**: 全ての参加者向け呼び出し
+    （`loadView`/`answerScheduleQuestion`/`selectShopVote`/`submitDisplayName`）に世代番号ガード
+    （`requestSequence`/`beginRequest`/`isStaleResponse`）を追加し、発行時点より新しいリクエストが
+    既に発行されていれば、その応答を`state.view`/`render()`へ一切適用しない——`gathering.js`の
+    `tentativelySelectCandidateDate`が既に同じ形の場当たり的ガードを1箇所だけ持っていたので、それを
+    一般化した。修正後、同じ細工スクリプトで`named='true'`のまま保たれることを確認した。
+
+    **真因B（前任のDB修正が実際には効いていなかった）**: `manage.py test`を明示`--settings`無しで
+    実行する呼び方（=CIの`l4-acceptance`ジョブ本体・pytestの`DJANGO_SETTINGS_MODULE`既定値と同一）
+    では`settings_test.py`が使われる。ところが項目15のsqlite修正は`settings_acceptance.py`という
+    別モジュールにしか入っておらず、**そのモジュールは`manage.py`自身のルーティング（明示
+    `--settings`が無ければ`settings_test`を選ぶ）にもpytestの設定にも一度も選ばれない、実質使われて
+    いないファイルだった**——項目15の診断自体（LiveServerTestCaseがメモリsqliteの接続をスレッド間で
+    共有しsavepointスタックが壊れる）は正しかったが、直した場所が実際に実行される経路と食い違って
+    おり、CIや素の`manage.py test tests.acceptance`実行では何も直っていなかった。実測で確認: 修正前の
+    `settings_test.py`のまま`python manage.py test tests --settings=dining_radar.settings_test`を
+    実行し、`getParticipantView`からの素の非JSON HTTP 500（項目15が記録したのと同一の
+    `django.db.utils.DatabaseError: not an error`系トレースバック）を実際に再現した。**修正**:
+    sqlite強化設定（`TEST.NAME`を実ファイル・pid付きパスへ、`timeout=30`、
+    `init_command: "PRAGMA synchronous=OFF;"`）を`settings_test.py`側へ移し、`settings_acceptance.py`
+    は`settings_test`を再エクスポートするだけの薄いエイリアスにした（`--settings=dining_radar.
+    settings_acceptance`という呼び方が万一どこかに残っていても同じ修正済み設定を受け取るようにする
+    ため、削除はしなかった）。
+
+    **検証（すべてdeveloperが実行）**: L1（ruff check/format緑、CIが指定する12ファイルへの
+    `pytest`実行666件緑・6.45秒、カバレッジ98%［`--fail-under=90`通過。`settings_acceptance.py`は
+    薄いエイリアスのため0%のままだが後退ではない］）。JS単体テストとして新規
+    `tests/js_unit/participant_request_sequencer.test.js`を追加した——Node組み込みの`node:test`/
+    `node:assert`のみ（追加依存無し）で、`participant.js`が実際に出荷する該当ブロックを
+    `request-sequencer:start`/`:end`マーカーで検証時に逐語抽出して実行する4件が緑
+    （`node --test tests/js_unit/participant_request_sequencer.test.js`——手打ちで再実装した別コード
+    ではなく出荷コードそのものを検査する）。これは`adr/0014`が定めるcandidate.js向けの本格的な
+    jsdom単体検証層（未着手）を代替・拡張するものではなく、その層の対象外で自己完結する追加と
+    位置づけている。L2（`tests.test_structure`13件緑）。L3（`manage.py check`×3——
+    `settings_test`・`settings_acceptance`・`settings`のいずれも「0 silenced」）。L5
+    （`tests.ui_invariants`14件+10 subtests緑）。mutation testingは変更がJS
+    （`participant.js`、Python対象外）とsettings辞書リテラル（分岐なし）のみのため対象外と判断し
+    実行していない（項目15の同種判断を踏襲。Windows環境の既知の制約`WinError 206`も同様に再現し、
+    フル対象では実行不能なことも確認済み）。**CIと同一の呼び方
+    （`python manage.py test tests.acceptance --verbosity 1`、明示`--settings`無し）を、間を空けず
+    5回連続で実行し、5回とも66件全緑**（各回780〜783秒。1回目はさらに別プロセスで同じコマンドを
+    もう一系統同時に走らせ、2系統が競合する状態でも両方66件緑——orchestratorが報告した「主ツリー
+    では高頻度で失敗（直近5回中4回）」という負荷条件を模す意図）。JS/テンプレートを変更したため
+    キャッシュ回避文字列を更新した（`participant.js?v=20260906-stale-response-guard`、FR-025）。
+
+    **契約との食い違い**: 無し。`contracts/**`・`tests/acceptance/**`（`dsl/`・`steps/`含む）は
+    一切変更していない（読むのみ）。真因A・真因Bはいずれも実装・テスト基盤側の問題であり、契約の
+    記述と矛盾しない。
+
+    **気づいたが今回は対応しなかったこと**: `gathering.js`（幹事側画面）にも同種の「応答の到着順で
+    状態を上書きする」書き方をした関数が複数ある（`loadGathering`・`copyParticipantLink`・
+    `confirmDate`・`loadParticipantLinksOnly`・`fetchOpenShopListForShortlist`）。今回の実測で
+    参加者側（`participant.js`）にのみ確定的な不具合を再現・特定できたため、`gathering.js`側は
+    対象を広げず現状維持とした——推測で直すと予防的な変更の正しさの根拠が実測ではなく類推になる
+    （P-01の精神）と判断した。将来、幹事側で同種の間欠症状が観測された場合、同じ`requestSequence`
+    パターンを移植することを推奨する。
+
 11. **ローカルで画面を確かめる手順**（このスライスで何度も踏んだので残す）。
     - `python manage.py runserver 127.0.0.1:8741 --settings=dining_radar.settings_localdemo --noreload --insecure`
     - `settings_localdemo.py` と `localdemo.sqlite3` は**リポジトリに入れない**（`.gitignore` 済み、FR-027）。
