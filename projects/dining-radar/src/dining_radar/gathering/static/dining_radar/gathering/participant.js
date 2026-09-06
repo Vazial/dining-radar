@@ -100,6 +100,34 @@
  * own absent list). Human ruling (2026-09-06 chat): a short notice only,
  * no retry control -- reopening the link (a fresh page load) is the only
  * way to try again.
+ *
+ * 2026-09-06 fix (intermittent acceptance failures, e.g. TDR-GTH-05/16:
+ * gathering-participant-name-status observed "false" right after a
+ * display-name submission that the server had already accepted): every
+ * participant-facing call (loadView/answerScheduleQuestion/selectShopVote/
+ * submitDisplayName) hands its own full ParticipantView back and this file
+ * simply overwrote state.view with whichever response happened to *arrive*
+ * last -- not whichever request was *issued* last. Confirmed directly
+ * (throwaway Playwright repro, not committed): letting a schedule-response
+ * PUT reach and be processed by the server immediately, but deliberately
+ * delaying only the delivery of *its own response* back past a
+ * display-name PUT fired right after it (no wait in between, the way a
+ * real tap on a slow connection would), reproduced exactly this symptom --
+ * the display-name write had already committed and the later PUT's own
+ * response body did carry it, but the earlier-issued, later-arriving
+ * schedule-response PUT's response (computed before the display-name
+ * write happened) still unconditionally overwrote state.view once it
+ * finally arrived, reverting gathering-participant-name-status back to
+ * "false" with nothing left to correct it afterward. requestSequence/
+ * beginRequest/isStaleResponse below are a generation counter: each call
+ * records the sequence number in effect when *it* fires the request, and
+ * its own .then callback discards the result instead of touching
+ * state/render at all once a *newer* call has since been issued -- so the
+ * response tied to whichever request was issued last always governs the
+ * final render, regardless of which response happens to arrive last
+ * (gathering.js's tentativelySelectCandidateDate already used this same
+ * shape of guard, ad hoc, for one single call; this generalizes it to
+ * every participant-facing write plus the initial load).
  */
 (function () {
   "use strict";
@@ -120,6 +148,35 @@
     // participant-facing call (seedParticipantLinkServerError's own scope).
     loadFailure: false,
   };
+
+  // request-sequencer:start -- Stale-response guard (this file's module
+  // docstring, 2026-09-06 fix): every participant-facing request is
+  // assigned the sequence number current at the moment *it* is issued; its
+  // own callback compares that captured number against the *current*
+  // value below (which only ever advances, never resets) and does nothing
+  // at all once a newer request has since been issued -- discarding a
+  // late, now-superseded response rather than letting it revert
+  // state.view/render with older data than whatever the most recently
+  // issued request's own eventual response will carry.
+  //
+  // tests/js_unit/participant_request_sequencer.test.js extracts and
+  // executes this exact block verbatim (delimited by these
+  // "request-sequencer:start"/"request-sequencer:end" comments) to pin
+  // this behaviour with a real (Node-runnable, zero-dependency) unit test
+  // -- not a hand-copied reimplementation that could silently drift from
+  // what actually ships. Keep this block self-contained (no reference to
+  // anything outside it) so that extraction keeps working.
+  var requestSequence = 0;
+
+  function beginRequest() {
+    requestSequence += 1;
+    return requestSequence;
+  }
+
+  function isStaleResponse(sequence) {
+    return sequence !== requestSequence;
+  }
+  // request-sequencer:end
 
   function el(tag, attrs, children) {
     var node = document.createElement(tag);
@@ -356,7 +413,10 @@
     shopVoteMapInstance = map;
   }
 
-  function applyResult(result, onSuccess) {
+  function applyResult(sequence, result, onSuccess) {
+    if (isStaleResponse(sequence)) {
+      return;
+    }
     if (result.status === 200) {
       state.view = result.body;
       state.errorCode = null;
@@ -382,7 +442,11 @@
   ];
 
   function loadView() {
+    var sequence = beginRequest();
     requestJson("GET", participantUrl()).then(function (result) {
+      if (isStaleResponse(sequence)) {
+        return;
+      }
       if (result.status === 200) {
         state.view = result.body;
         state.errorCode = null;
@@ -409,9 +473,10 @@
   }
 
   function answerScheduleQuestion(candidateDateId, status) {
+    var sequence = beginRequest();
     requestJson("PUT", participantUrl() + "/responses/" + candidateDateId, { status: status }).then(
       function (result) {
-        applyResult(result);
+        applyResult(sequence, result);
       }
     );
   }
@@ -439,8 +504,9 @@
       .filter(function (entry) {
         return entry !== null;
       });
+    var sequence = beginRequest();
     requestJson("PUT", participantUrl() + "/shop-votes", { votes: votes }).then(function (result) {
-      applyResult(result);
+      applyResult(sequence, result);
     });
   }
 
@@ -453,9 +519,10 @@
     if (!displayName) {
       return;
     }
+    var sequence = beginRequest();
     requestJson("PUT", participantUrl() + "/display-name", { displayName: displayName }).then(
       function (result) {
-        applyResult(result, function () {
+        applyResult(sequence, result, function () {
           state.nameOpen = false;
         });
       }
