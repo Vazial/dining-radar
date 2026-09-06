@@ -1,4 +1,4 @@
-"""Thin Gherkin-to-DSL mappings for TDR-GTH-01 through TDR-GTH-41."""
+"""Thin Gherkin-to-DSL mappings for TDR-GTH-01 through TDR-GTH-42."""
 
 from __future__ import annotations
 
@@ -136,6 +136,9 @@ class GatheringSchedulingSteps:
 
     def link_is_seeded_as_rate_limited(self, link: dict[str, str]) -> None:
         self.dsl.seed_rate_limited_participant_link(link)
+
+    def link_is_seeded_to_fail_unexpectedly(self, link: dict[str, str]) -> None:
+        self.dsl.seed_participant_link_server_error(link)
 
     def participant_attempts_to_answer_expecting_rate_limit(
         self, candidate_date_id: str, status: str
@@ -307,6 +310,21 @@ class GatheringSchedulingSteps:
 
     def screen_has_no_forbidden_controls_or_disclosures(self) -> None:
         self.dsl.assert_gathering_screen_has_no_forbidden_surfaces()
+
+    def participant_sees_a_load_failure_notice(self) -> None:
+        self.dsl.assert_participant_load_failure_notice_is_shown()
+
+    def load_failure_hides_the_schedule_and_shop_questions(self) -> None:
+        self.dsl.assert_participant_load_failure_hides_questions()
+
+    def load_failure_has_no_retry_control(self) -> None:
+        self.dsl.assert_participant_load_failure_has_no_retry_control()
+
+    def load_failure_is_exclusive_of_other_outcomes(self) -> None:
+        self.dsl.assert_participant_load_failure_is_exclusive_of_other_outcomes()
+
+    def load_failure_discloses_no_technical_detail(self) -> None:
+        self.dsl.assert_participant_load_failure_discloses_no_technical_detail()
 
     def participant_token_is_not_persisted(self, link: dict[str, str]) -> None:
         self.dsl.assert_participant_token_not_persisted(link)

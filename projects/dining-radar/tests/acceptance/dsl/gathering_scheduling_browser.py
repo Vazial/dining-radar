@@ -31,6 +31,7 @@ import secrets
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlparse
 
 from django.test import SimpleTestCase
 from playwright.sync_api import Locator, Page, Response, expect
@@ -186,6 +187,12 @@ PARTICIPANT_NAME_INPUT = "gathering-participant-name-input"
 PARTICIPANT_NAME_SUBMIT = "gathering-participant-name-submit"
 PARTICIPANT_LINK_ERROR = "gathering-participant-link-error"
 LINK_ERROR_CODE_ATTR = "data-link-error-code"
+# unexpectedLoadFailureOutcome / loadFailure (browser-interface.yaml v0.8.0,
+# adr/0047, TDR-GTH-42). No attribute is defined for this element -- unlike
+# linkError's data-link-error-code, the contract fixes no failure taxonomy
+# here, only that the element exists and every other participant surface
+# does not.
+PARTICIPANT_LOAD_ERROR = "gathering-participant-load-error"
 
 # unavailableControls (both namespaces; gathering-scheduling-browser-interface.yaml).
 # Mirrors candidate_search_browser.py's ALLOWED_CONTROL_PURPOSES /
@@ -360,6 +367,24 @@ class GatheringSchedulingBrowserDsl:
             headers={"Content-Type": "application/json"},
         )
         assert_no_content(self.assertions, response, "seedRateLimitedParticipantLink")
+
+    def seed_participant_link_server_error(self, link: dict[str, str]) -> None:
+        """test-support-api.yaml 1.5.4's seedParticipantLinkServerError
+        (adr/0047 decision 4): makes the *next* getParticipantView call for
+        this token return an HTTP 500 that matches none of linkError's four
+        recognized ProblemResponse codes -- the state
+        unexpectedLoadFailureOutcome (TDR-GTH-42) requires, and one the
+        public boundary alone cannot produce (same exception class as
+        seed_expired_participant_link/seed_rate_limited_participant_link
+        above).
+        """
+        response = self.support.request(
+            "POST",
+            "/test-support/gathering-scheduling/participant-links/server-error",
+            data=json.dumps({"token": link["token"]}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        assert_no_content(self.assertions, response, "seedParticipantLinkServerError")
 
     # Sign-in (shared root entry point, same as candidate_search_browser.py) -
 
@@ -1669,6 +1694,108 @@ class GatheringSchedulingBrowserDsl:
     def assert_valid_participant_view_is_shown(self) -> None:
         assert_all_present(self.assertions, self.page, [PARTICIPANT_HEADER, SCHEDULE_QUESTION])
         assert_absent(self.assertions, self.page, PARTICIPANT_LINK_ERROR)
+
+    # unexpectedLoadFailureOutcome / loadFailure (TDR-GTH-42, adr/0047) -----
+
+    def assert_participant_load_failure_notice_is_shown(self) -> None:
+        """browserControlSurface.participantAnswer.loadFailure.requirement:
+        gathering-participant-load-error is present and carries some visible
+        text (the contract deliberately does not fix the exact Japanese
+        wording, only its meaning -- "loading failed, reopening later may
+        work" -- which is not itself mechanically checkable; see this
+        round's report).
+        """
+        notice = assert_present(self.assertions, self.page, PARTICIPANT_LOAD_ERROR)
+        self.assertions.assertNotEqual(notice.inner_text().strip(), "")
+
+    def assert_participant_load_failure_hides_questions(self) -> None:
+        """TDR-GTH-42 Then#2: "日程や店についての設問は示されない" --
+        unexpectedLoadFailureOutcome.absent lists both
+        gathering-schedule-question and gathering-shop-vote-question.
+        """
+        assert_all_absent(self.assertions, self.page, [SCHEDULE_QUESTION, SHOP_VOTE_QUESTION])
+
+    def assert_participant_load_failure_has_no_retry_control(self) -> None:
+        """TDR-GTH-42 Then#3: "やり直すための操作は示されない" ==
+        browserControlSurface.participantAnswer.loadFailure.noRetryControl
+        (human ruling 2026-09-06, presented alongside a rejected "add a
+        retry button" alternative): no purpose-declared control exists at
+        all. This is a stronger, scenario-specific check than
+        assert_gathering_screen_has_no_forbidden_surfaces' general "every
+        present control declares an allowed purpose" scan -- that scan would
+        only catch a retry control that omits data-gathering-control-purpose
+        entirely, not one that borrows an existing allowed purpose (e.g.
+        gathering-participant-link-recopy's) to slip past it. This instead
+        asserts the fact the contract actually states: the loadFailure
+        screen carries *no* operational control, full stop.
+        """
+        self.assertions.assertEqual(self.page.locator(GATHERING_FORM_CONTROL_SELECTOR).count(), 0)
+
+    def assert_participant_load_failure_is_exclusive_of_other_outcomes(self) -> None:
+        """browserEntry.participantAnswer.unexpectedLoadFailureOutcome
+        (adr/0047): validLinkOutcome, invalidLinkOutcome, and this outcome
+        are declared mutually exclusive and, together with each element's
+        own presenceRule, exhaustive -- opening a participant link always
+        yields exactly one of the three. This asserts every element the
+        other two outcomes require is absent whenever loadFailure applies:
+        the header and name-open control (validLinkOutcome/
+        invalidLinkOutcome), linkError itself (invalidLinkOutcome), and the
+        finalized decision summary (a fourth, decision-dependent surface
+        this contract's presenceRule chain could otherwise leave standing).
+        Mirrors assert_participant_link_error's own absence list for the
+        sibling invalidLinkOutcome, extended to cover the additional
+        surfaces this newer, broader exclusion names.
+        """
+        assert_all_absent(
+            self.assertions,
+            self.page,
+            [
+                PARTICIPANT_HEADER,
+                PARTICIPANT_NAME_OPEN,
+                PARTICIPANT_LINK_ERROR,
+                PARTICIPANT_DECISION,
+            ],
+        )
+
+    def assert_participant_load_failure_discloses_no_technical_detail(self) -> None:
+        """loadFailure.requirement's disclosure discipline (adr/0047): "It
+        must not disclose any technical or internal detail -- an HTTP
+        status code, an exception message or stack trace, a request/trace
+        identifier, a hostname, or any of
+        profiles.localAcceptance.syntheticDisclosureCanaries' values". The
+        canary-value half of this is already exercised by
+        assert_gathering_screen_has_no_forbidden_surfaces (reused by every
+        TDR-GTH-42 test alongside this call); this method exercises the
+        remainder, which no existing gathering-scheduling check covers.
+        The HTTP-status check is necessarily a heuristic (a bare 3-digit
+        4xx/5xx-shaped number in the visible text) rather than a proof that
+        no status code could ever leak in some other format -- the
+        contract's own wording ("an HTTP status code") does not define a
+        stricter observable than this.
+        """
+        notice = assert_present(self.assertions, self.page, PARTICIPANT_LOAD_ERROR)
+        visible_text = notice.inner_text()
+        self.assertions.assertNotRegex(visible_text, r"\b[45]\d{2}\b")
+        forbidden_substrings = [
+            "Traceback",
+            "traceback",
+            "Exception",
+            "exception",
+            "stack trace",
+            "Stack Trace",
+            "trace-id",
+            "traceId",
+            "trace_id",
+            "request-id",
+            "requestId",
+            "request_id",
+            "correlation-id",
+        ]
+        for forbidden in forbidden_substrings:
+            self.assertions.assertNotIn(forbidden, visible_text)
+        host = urlparse(self.base_url).hostname
+        if host:
+            self.assertions.assertNotIn(host, visible_text)
 
     # Shop-vote / finalized-decision (participant UI, TDR-GTH-28/29/30/34/37/
     # 39/41, adr/0042/0044/0045 -- three-tier vote, near-first stable order,
