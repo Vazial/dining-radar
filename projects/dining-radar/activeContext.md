@@ -2010,6 +2010,64 @@ Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (
 
     **契約との食い違い（FR-028）**: 無し。契約・ADR・feature本文のとおりに実装できた。
 
+15. **受け入れテストの間欠失敗（`gathering-schedule-question`が現れない）の真因を特定し修正した
+    （2026-09-06、developer、ブランチ`fix/intermittent-schedule-question`）。** 直前のスライス13
+    （2026-09-02、上のログの「合流検証」段落）で「1回目の実行で6件が失敗、developerが5回再現を
+    試みて再現せず、**環境要因（負荷による待ち時間切れ）と判断**」と記録されていたのは誤りだった
+    ——orchestratorが後日、他エージェントを止めた無負荷状態でも失敗することを確認して「負荷」説を
+    否定しており、今回はその依頼を受けて再調査した。
+
+    **捕まえた証拠**: Playwright越しの実失敗を14往復以上の全件実行で待ったが一度も再現しなかった
+    （このマシンではヒット率が低い）。かわりに、ブラウザを介さない**使い捨ての並行アクセス検査**
+    （`urllib`で`GET /participant-links/{token}`と`PUT .../responses/{id}`を30スレッドから同時に
+    叩くだけ、コミット前に削除）を書いて`settings_acceptance`の実際のライブサーバに向けたところ、
+    数回に1回、`django.request`ロガーへ次のトレースバックが出て**素の非JSON HTTP 500**が返ることを
+    直接再現した: `django.db.utils.DatabaseError: not an error`（`connection.savepoint_commit`内、
+    `services.set_schedule_response`の`ScheduleResponse.objects.update_or_create(...)`から）。
+
+    **真因**: 受け入れテストだけが使う`settings_acceptance`のsqlite `:memory:`データベースが原因
+    だった。Django自身の`LiveServerTestCase._make_connections_override`（`django/test/testcases.py`）
+    は`conn.is_in_memory_db()`のときに限り、開いている**唯一の接続オブジェクト**をThreadedWSGIServer
+    が起こす**すべてのリクエスト処理スレッドに共有**する（`:memory:`は接続ごとに別データベースに
+    なってしまうため）。この共有こそが壊れる——2つのリクエストが2つのスレッドで同時に処理され、
+    どちらも（`update_or_create`が内部で使う）SAVEPOINTを同じ接続上で開閉すると、片方の
+    savepointスタックがもう片方に壊される。返ってきた素の500（`linkError`の4コードのいずれとも
+    一致しない非JSON本文）は、まさに`browserControlSurface.participantAnswer`の
+    `unexpectedLoadFailureOutcome`（`adr/0047`）が契約どおり要求する分類——`participant.js`の
+    `loadView`は正しく`gathering-participant-load-error`だけを描き`gathering-schedule-question`
+    を一切組み立てない。つまり**参加者用JSの読み込み失敗処理（`adr/0047`）にもサーバ側の
+    `services.py`/`views.py`にもバグは無い**——本番はPostgreSQL（`settings.py`）でこの競合自体が
+    起きない。原因はこの受け入れ専用プロファイルが選んだsqlite設定そのものだった。
+
+    **修正**: `settings_acceptance.py`の`DATABASES["default"]["TEST"]["NAME"]`（Djangoのテスト
+    ランナーが実際に読むキーで、素朴に上書きした最初の版はトップレベルの`NAME`を直しただけで
+    効かず、同じ検査で再確認した）に、プロセスIDを含む一時ディレクトリ上の実ファイルパスを設定
+    した。実ファイルは`is_in_memory_db()`が偽になるため、`LiveServerTestCase`は接続共有を一切
+    行わず、各リクエストスレッドが独立した接続を持つ（Djangoの通常のスレッドローカル接続管理）。
+    実ファイル化だけだと今度はsqliteのfsync-per-commitでスイート全体が大幅に遅くなった（CPU時間は
+    低いまま数分間ブロック）ため、`OPTIONS`に`timeout: 30`（既定5秒の余裕を確保）と
+    `init_command: "PRAGMA synchronous=OFF;"`（テスト専用・毎回破棄するDBにクラッシュ耐性は不要）
+    も加えた。`settings_test.py`本体・`manage.py test tests`（L1単体）・本番`settings.py`は
+    無変更（このバグが起きるのは`StaticLiveServerTestCase`を使う受け入れプロファイルだけ）。
+
+    **検証（すべてdeveloperが実行）**: 修正後、`manage.py test tests.acceptance
+    --settings=dining_radar.settings_acceptance`を**間を空けずに3回連続実行し、3回とも66件
+    全緑**（785.2秒・785.9秒・788.2秒——修正前の`:memory:`基準と同等の所要時間、性能後退なし）。
+    上記の並行アクセス検査も同じ修正後設定で再実行し、致命的な破損（`not an error`／
+    `no such savepoint`）が0件になったことを確認（残るのは検査自身が意図的に起こす極端な同一行
+    多重書き込みでの通常の`database is locked`のみ——実際の受け入れスイートのシーケンシャルな
+    DSLフローでは起こりえない負荷）。L1（ruff check/format緑、単体666件緑、カバレッジ98%
+    ［`--fail-under=90`通過。`settings_acceptance.py`は0%のままだが本スライス以前から単体テストの
+    対象外で後退ではない］）。L2（`tests.test_structure`が上記666件に含まれ緑）。L3
+    （`manage.py check`×3——`settings_test`・`settings_acceptance`・`settings`のいずれも
+    「0 silenced」）。L5（`tests.ui_invariants`14件緑、JS/テンプレート無変更のため再確認のみ）。
+    JS/テンプレートを変更していないためキャッシュ回避文字列の更新（FR-025）は不要。mutation
+    testingは変更がsettings辞書リテラルのみ（分岐なし）で対象外と判断し実行していない。
+
+    **契約との食い違い**: 無し。`tests/acceptance/**`・`contracts/**`は一切変更していない
+    （読むのみ）。真因が「参加者の設問の並びが得票に依存する」（orchestratorの未確認の観察）
+    ではなかったため、その観察について契約変更の要否は判断していない——別途の検討課題として残す。
+
 11. **ローカルで画面を確かめる手順**（このスライスで何度も踏んだので残す）。
     - `python manage.py runserver 127.0.0.1:8741 --settings=dining_radar.settings_localdemo --noreload --insecure`
     - `settings_localdemo.py` と `localdemo.sqlite3` は**リポジトリに入れない**（`.gitignore` 済み、FR-027）。
@@ -2025,7 +2083,7 @@ Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (
 
 - Email delivery and SSO remain deferred; accounts stay invite-only and local. The custom-domain question is closed — a Route 53 subdomain fronts the service, recorded in ADR-0021's 2026-08-14 addendum.
 - Whether the "approved screen drives the test-infrastructure control-surface contract" pattern (ADR-0011, ADR-0013) should be generalized into a meta ADR beside `meta/adr/0023`, since other UI projects can hit the same friction. Architect raised this; drafting a meta ADR belongs to orchestrator (`meta/adr/0047`).
-- One L4 run failed intermittently and was never explained. Developer's hypothesis (concurrent file edits during the run) was never confirmed. It has not recurred.
+- One L4 run failed intermittently and was never explained. Developer's hypothesis (concurrent file edits during the run) was never confirmed; it may or may not be the same class of failure as the confirmed-and-fixed one below (Current state item 15) — never confirmed either way, and this specific incident has not recurred since.
 - Whether ADR-0020's harness should be generalized to the meta layer (a shared `meta/verification.md` revision and/or a reusable harness for other UI projects). ADR-0020 decision 10 deliberately scopes itself to this project as the human's chosen proving ground, and defers the generalization judgment to orchestrator once enough evidence accumulates (`meta/adr/0047`). The first evidence is in: the gate caught a real keyboard-activation defect on the slice that introduced it. Note that a meta-layer move would also have to answer how the same invariants reach `reservation-frontend`, whose stack (Playwright/TypeScript) differs from this project's (Playwright/Python), and that `meta/tools/**` is locked by `meta/adr/0046` so a shared harness there needs a human unlock.
 - **新規（2026-08-24、architect）**: 輪と徒歩の上限の連動を将来契約化するなら、フィルタチップの「選択中」状態を機械観測する属性（`data-selected` 相当）をこの契約に新設する設計判断が先に要る（`filterPanel.constraints` は現状これを散文でしか述べていない）。地図リボンの高さ・役割を将来契約化するなら、人間のリボン有り無し比較の結果と、それに応じた `ADR-0020` の対象拡張が先に要る。
 - **新規（2026-08-27、reviewer再監査）**: 徒歩圏の輪の分数ラベル（`bandLabel`）の検査は、**可視ラベルの分数の集合と輪の `data-walking-radius-minutes` の集合が一致すること**までしか証明していない（F1b、Medium）。値の集合が保たれたまま**輪とラベルの対応だけが入れ替わる欠陥**（5分の輪に「15分」と出る等）は検出できない。現在の実装は同一ループ内で半径とラベル文言を同じ変数から生成しているため発現しにくく、reviewerはマージ前必須のブロッカーとはしていない。**恒久的に閉じるには実装と契約の両方が要る**: ラベル要素に輪と相関する属性（`bandAttribute` と同名の値）を持たせ、それを `bandLabel` の Must として契約に載せる。architect の判断が要る。
