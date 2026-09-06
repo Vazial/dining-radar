@@ -1,4 +1,4 @@
-"""Thin Gherkin-to-DSL mappings for TDR-GTH-01 through TDR-GTH-42."""
+"""Thin Gherkin-to-DSL mappings for TDR-GTH-01 through TDR-GTH-43."""
 
 from __future__ import annotations
 
@@ -247,6 +247,28 @@ class GatheringSchedulingSteps:
 
     def candidate_dates_are_ordered_by_going_count_descending(self) -> None:
         self.dsl.assert_candidate_date_list_is_ordered_by_going_count_descending()
+
+    def candidate_date_order_snapshot(self) -> list[str]:
+        return self.dsl.capture_candidate_date_order()
+
+    def candidate_date_order_matches_start_at_order(self, candidate_date_isos: list[str]) -> None:
+        self.dsl.assert_candidate_date_order_matches_start_at_order(candidate_date_isos)
+
+    def candidate_date_order_is_unchanged(self, before: list[str]) -> None:
+        self.dsl.assert_candidate_date_order_unchanged(before)
+
+    def first_reachable_schedule_question_matches_start_at_order(
+        self, candidate_date_isos: list[str]
+    ) -> None:
+        self.dsl.assert_first_reachable_schedule_question_matches_start_at_order(
+            candidate_date_isos
+        )
+
+    def first_reachable_schedule_question_candidate_date(self) -> str:
+        return self.dsl.first_reachable_schedule_question_candidate_date_id()
+
+    def first_reachable_schedule_question_is_unchanged(self, before: str) -> None:
+        self.dsl.assert_first_reachable_schedule_question_unchanged(before)
 
     def unanswered_summary_is(
         self, *, total_issued: int, revoked: int, active_issued: int, unanswered: int

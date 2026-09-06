@@ -587,6 +587,31 @@ class GatheringSchedulingBrowserDsl:
         going_counts = [date["going"] for date in self._read_candidate_dates()]
         self.assertions.assertEqual(going_counts, sorted(going_counts, reverse=True))
 
+    def capture_candidate_date_order(self) -> list[str]:
+        return [date["id"] for date in self._read_candidate_dates()]
+
+    def _expected_candidate_date_order(self, start_at_isos: list[str]) -> list[str]:
+        return [self._candidate_date_id_by_start_at[iso] for iso in sorted(start_at_isos)]
+
+    def assert_candidate_date_order_matches_start_at_order(self, start_at_isos: list[str]) -> None:
+        """candidateDateList.orderingInvariant's tie-break (adr/0048, TDR-GTH-43):
+        every candidate date here ties at goingCount 0 (nobody has answered
+        yet), so the whole order collapses to startAt ascending. Checked
+        against the chronological order of the exact ISO strings this
+        scenario's own Given supplied -- not mere self-consistency against
+        the API's own claimed order the way TDR-GTH-08/37's near-order
+        checks work (this suite cannot recompute geography, but startAt is
+        data this suite itself chose, so it can independently recompute the
+        expected order).
+        """
+        self.assertions.assertEqual(
+            self.capture_candidate_date_order(),
+            self._expected_candidate_date_order(start_at_isos),
+        )
+
+    def assert_candidate_date_order_unchanged(self, before: list[str]) -> None:
+        self.assertions.assertEqual(self.capture_candidate_date_order(), before)
+
     def assert_candidate_date_tally(
         self, candidate_date_id: str, *, going: int, maybe: int, not_going: int
     ) -> None:
@@ -1545,6 +1570,33 @@ class GatheringSchedulingBrowserDsl:
         candidate_date_id = question.get_attribute(CANDIDATE_DATE_ID_ATTR)
         self.answer_schedule_question(candidate_date_id, status)
         return candidate_date_id
+
+    def first_reachable_schedule_question_candidate_date_id(self) -> str:
+        return wait_for_at_least_one(self.page, SCHEDULE_QUESTION).first.get_attribute(
+            CANDIDATE_DATE_ID_ATTR
+        )
+
+    def assert_first_reachable_schedule_question_matches_start_at_order(
+        self, start_at_isos: list[str]
+    ) -> None:
+        """participantAnswer.scheduleQuestion.orderingInvariant (adr/0048,
+        TDR-GTH-43): the reported production defect was this element
+        intermittently not found at all, because the one-at-a-time render
+        depends on scheduleQuestions' order being deterministic to reliably
+        reach a specific candidate date's question first
+        (gathering-scheduling-api.yaml's own scheduleQuestions description).
+        Same independent-recomputation rationale as
+        assert_candidate_date_order_matches_start_at_order above.
+        """
+        expected_first = self._expected_candidate_date_order(start_at_isos)[0]
+        self.assertions.assertEqual(
+            self.first_reachable_schedule_question_candidate_date_id(), expected_first
+        )
+
+    def assert_first_reachable_schedule_question_unchanged(self, before: str) -> None:
+        self.assertions.assertEqual(
+            self.first_reachable_schedule_question_candidate_date_id(), before
+        )
 
     def given_participant_link_with_one_answer(
         self, status: str = "GOING"

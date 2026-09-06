@@ -1,4 +1,4 @@
-"""JS-capable browser/API L4 runner for TDR-GTH-01 through TDR-GTH-42.
+"""JS-capable browser/API L4 runner for TDR-GTH-01 through TDR-GTH-43.
 
 gathering-scheduling-browser-interface.yaml's own profiles.localAcceptance
 marks only TDR-GTH-13 (token guessing is API-level fuzzing, not a browser
@@ -24,7 +24,13 @@ TDR-GTH-42 (adr/0047, 2026-09-06) adds a third, mutually exclusive
 participant-load outcome (browser-interface.yaml v0.8.0's
 unexpectedLoadFailureOutcome) alongside validLinkOutcome and
 invalidLinkOutcome, built with test-support-api.yaml 1.5.4's new
-seedParticipantLinkServerError seam.
+seedParticipantLinkServerError seam. TDR-GTH-43 (adr/0048, 2026-09-06) adds a
+deterministic-ordering regression check for candidate dates tied on
+goingCount, covering both organizerDashboard.candidateDateList and
+participantAnswer.scheduleQuestion (the latter's orderingInvariant is new to
+browser-interface.yaml v0.9.0 and has no separate .feature scenario of its
+own -- adr/0048 decision 3 declines a parallel scenario, so it is checked
+here as the same underlying defect this scenario already guards).
 """
 
 from __future__ import annotations
@@ -949,4 +955,51 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         # own developer-found gap) -- FR-030's repeated lesson is that the
         # cross-cutting check must be exercised against every new screen
         # state a round introduces.
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+
+    # TDR-GTH-43 (adr/0048, 2026-09-06): candidate dates tied on goingCount
+    # must render in a deterministic, reopen-stable order --------------------
+
+    def test_tdr_gth_43_candidate_date_order_is_stable_and_deterministic(self) -> None:
+        """TDR-GTH-43: 得票が同じ候補日でも、並び順は開くたびに変わらない.
+        Candidate dates are supplied out of chronological order at creation
+        time (30/3/15 days out) so a defect that reintroduced an insertion-
+        or creation-order tie-break would fail this assertion instead of
+        passing by coincidence -- adr/0048 replaced an undocumented
+        "implementation-chosen stable" tie-break with startAt ascending.
+        Also checks participantAnswer.scheduleQuestion (adr/0048 decision 2):
+        gathering-scheduling-api.yaml's own scheduleQuestions description
+        names this same fix as needed to reliably reach a specific candidate
+        date's question across repeated loads -- the participant-side shape
+        of the identical production defect (gathering-schedule-question
+        intermittently not found). Checking both surfaces from this one
+        scenario, rather than only its literal "幹事が…開き直す" wording,
+        follows the same beyond-the-literal-clause precedent
+        TDR-GTH-37 already set.
+        """
+        self._sign_in()
+        candidate_date_isos = [
+            days_from_now_iso(30),
+            days_from_now_iso(3),
+            days_from_now_iso(15),
+        ]
+        self.steps.organizer_has_a_scheduling_gathering("会43", candidate_date_isos)
+
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.candidate_date_order_matches_start_at_order(candidate_date_isos)
+        before_order = self.steps.candidate_date_order_snapshot()
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.candidate_date_order_is_unchanged(before_order)
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.candidate_date_order_is_unchanged(before_order)
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+
+        link = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link)
+        self.steps.first_reachable_schedule_question_matches_start_at_order(candidate_date_isos)
+        first_seen = self.steps.first_reachable_schedule_question_candidate_date()
+        self.steps.participant_opens_the_link(link)
+        self.steps.first_reachable_schedule_question_is_unchanged(first_seen)
+        self.steps.participant_opens_the_link(link)
+        self.steps.first_reachable_schedule_question_is_unchanged(first_seen)
         self.steps.screen_has_no_forbidden_controls_or_disclosures()
