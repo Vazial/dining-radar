@@ -326,11 +326,30 @@
 #   新しいseamを追加しない）を確認したが、今回の状態は公開操作を正しく呼ぶ限り決して作れないため、
 #   `seedExpiredParticipantLink`・`seedRateLimitedParticipantLink`と同種の例外として新設が要ると
 #   判断した。
+#
+# 2026-09-06 追補7 (architect、adr/0048。実測で判明した並び順の非決定性への対応。人間のチャット
+#   裁定を経ない、architectの技術判断による改訂である（`meta/adr/0064`の作法、`adr/0037`・
+#   `adr/0039`の先例に倣う）。contractVersion 0.8.0 -> 0.9.0):
+# - **同点時の並びを決定的にする**: `gathering-scheduling-api.yaml`が同じ日に確定させた決定的な
+#   二次キー（`adr/0048`）を、この契約の`orderingInvariant`へも反映した。`candidateDateList`
+#   （「実装が選ぶ安定順」という記述だった箇所を`startAt`昇順へ具体化した——同点で並びが実行の
+#   たびに変わる受け入れテストの失敗の直接の原因だった）・`organizerGatheringList.list`・
+#   `participantLinkList`（いずれも`id`昇順を追記）・`shortlistedShopVotes.list`（近い順、
+#   さらに`shopId`昇順を追記）・`participantAnswer.shopVoteQuestion`（生の距離が完全一致する
+#   まれなケースへの`shopId`昇順を追記）を改めた。`unavailableControls.forbiddenPurposesNote`の
+#   対応する記述も揃えて更新した。
+# - **`participantAnswer.scheduleQuestion`へ新規`orderingInvariant`を追加した**（これまで
+#   一度も存在しなかった）。一問一答の画面が「最初にどの候補日を出すか」は`ParticipantView.
+#   scheduleQuestions`の並びで決まるが、この並びを固定する記述がこの契約に無かったことが、
+#   受け入れテストの実行ごとの失敗（`gathering-schedule-question`が見つからない）の直接の
+#   原因である。
+# - 新規シナリオTDR-GTH-43を`profiles.localAcceptance.verifiesScenarios`へ追加した——得票が
+#   同数の候補日でも、並び順は開くたびに変わらないことを検査する。
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.8.0'
+contractVersion: '0.9.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -369,7 +388,8 @@ profiles:
        TDR-GTH-23, TDR-GTH-24, TDR-GTH-25, TDR-GTH-26, TDR-GTH-27,
        TDR-GTH-28, TDR-GTH-29, TDR-GTH-30, TDR-GTH-31, TDR-GTH-32,
        TDR-GTH-33, TDR-GTH-34, TDR-GTH-35, TDR-GTH-36, TDR-GTH-37,
-       TDR-GTH-38, TDR-GTH-39, TDR-GTH-40, TDR-GTH-41, TDR-GTH-42]
+       TDR-GTH-38, TDR-GTH-39, TDR-GTH-40, TDR-GTH-41, TDR-GTH-42,
+       TDR-GTH-43]
     notVerifiedHere:
       - scenario: TDR-GTH-13
         reason: >-
@@ -662,11 +682,16 @@ unavailableControls:
     decision 4's ban on organizer-chosen sort order), reused here rather than
     redefined. It currently constrains
     browserControlSurface.organizerDashboard.candidateDateList (fixed
-    goingCount-descending order, no sort toggle), participantLinkList (fixed
-    issuedAt-ascending order, no sort toggle -- ADR-0036 decision 7),
-    organizerGatheringList.list (fixed createdAt-descending order, no sort
+    goingCount-descending order, ties broken by startAt ascending, adr/0048,
+    no sort toggle), participantLinkList (fixed
+    issuedAt-ascending order, ties broken by id ascending, adr/0048, no sort
+    toggle -- ADR-0036 decision 7),
+    organizerGatheringList.list (fixed createdAt-descending order, ties
+    broken by id ascending, adr/0048, no sort
     toggle -- adr/0038), and shortlistedShopVotes.list (fixed
-    `wantToGoCount + okToGoCount`-descending order, no sort toggle --
+    `wantToGoCount + okToGoCount`-descending order, ties broken by distance
+    from the search origin ascending then shopId ascending, adr/0048, no
+    sort toggle --
     adr/0042/adr/0044; this is the shop-vote-tally list ADR-0036 design
     judgment 3 already anticipated when it generalized this category ahead
     of the list existing; gathering-scheduling-api.yaml renamed this
@@ -680,7 +705,9 @@ unavailableControls:
     by distance from the search origin, ascending -- changed 2026-09-05 from
     an in-progress draft's addedAt-ascending basis to match
     gathering-scheduling-api.yaml's own 2026-09-04 fix, adr/0044 decision
-    2 -- a fixed order with no sort toggle either way, same as every other
+    2, and 2026-09-06 to add a shopId-ascending tie-break for the raw
+    distance itself, adr/0048 -- a fixed order with no sort toggle either
+    way, same as every other
     list here). `secondary-condition` is reused from the same source
     contract for the same reason: this product's existing "no auxiliary
     condition controls beyond the declared filter/sort model" principle
@@ -724,7 +751,8 @@ browserControlSurface:
       orderingInvariant: >-
         DOM order of gathering-list-item children equals
         GatheringListResponse.gatherings' order (createdAt descending,
-        新しい順, gathering-scheduling-api.yaml) at all times. No control in
+        新しい順, ties broken by id ascending, adr/0048,
+        gathering-scheduling-api.yaml) at all times. No control in
         this list may claim the forbidden manual-ordering purpose (see
         unavailableControls above).
       item:
@@ -960,9 +988,16 @@ browserControlSurface:
       testId: gathering-candidate-date-list
       orderingInvariant: >-
         DOM order of gathering-candidate-date children equals
-        Gathering.candidateDates' order (goingCount descending,
-        implementation-chosen stable tie-break, gathering-scheduling-api.yaml)
-        at all times. No control in this list may claim the forbidden
+        Gathering.candidateDates' order (goingCount descending, ties broken
+        by startAt ascending, adr/0048, gathering-scheduling-api.yaml) at
+        all times. **Fixed 2026-09-06 (adr/0048)**: this entry previously
+        described the tie-break as "implementation-chosen stable", which a
+        production defect exposed as non-deterministic in practice --
+        candidate dates submitted in the same createGathering call could
+        share an identical creation timestamp, so the implementation's own
+        stable-sort guarantee had nothing stable to sort by, and the
+        rendered order varied across otherwise-identical acceptance runs.
+        No control in this list may claim the forbidden
         manual-ordering purpose (see unavailableControls above).
       candidateDate:
         testId: gathering-candidate-date
@@ -1324,7 +1359,13 @@ browserControlSurface:
           merely "OK with" should count toward "how many people can make
           it" the same as an enthusiastic "want to go" -- an in-progress
           draft had instead ordered by `wantToGoCount` alone, which this
-          revision corrects). No control in this list may claim the
+          revision corrects). **Ties broken 2026-09-06 (adr/0048)** by
+          distance from the private search origin ascending (near-first,
+          matching participantAnswer.shopVoteQuestion's own basis below),
+          then by shopId ascending -- `addedAt`, this list's earlier
+          implicit tie-break, is not usable alone because every shop set by
+          the same setShortlistedShops call shares one identical `addedAt`
+          value. No control in this list may claim the
           forbidden manual-ordering purpose (already generalized to cover
           this list without a contract edit, ADR-0036 design judgment 3 /
           this file's forbiddenPurposesNote).
@@ -1488,6 +1529,7 @@ browserControlSurface:
       orderingInvariant: >-
         DOM order of gathering-participant-link-item children equals
         listParticipantLinks' response order (issuedAt ascending, 発行順,
+        ties broken by id ascending, adr/0048,
         gathering-scheduling-api.yaml). Revoked links remain present in this
         list (see item.attributes.revoked below) -- they are never removed
         from the DOM by this contract, only marked. No control in this list
@@ -1702,6 +1744,21 @@ browserControlSurface:
         validLinkOutcome does not separately restate this condition (fixed
         2026-09-04, adr/0043, after the two entries were found to
         contradict each other post-FINALIZED).
+      orderingInvariant: >-
+        Added 2026-09-06 (adr/0048) -- this contract had never fixed the
+        order ParticipantView.scheduleQuestions renders in, even though
+        cardinality below permits a progressive, one-at-a-time flow whose
+        very first reachable element depends on that order. The order in
+        which each gathering-schedule-question becomes reachable (whether
+        all render simultaneously or one at a time) equals
+        ParticipantView.scheduleQuestions' order -- goingCount descending,
+        ties broken by startAt ascending (gathering-scheduling-api.yaml).
+        This was a real, observed production defect, not a theoretical
+        gap: candidate dates created in the same createGathering call could
+        tie on both goingCount and the implementation's prior, undocumented
+        tie-break, so which candidate date's question a participant reached
+        first varied across otherwise-identical acceptance runs of the same
+        gathering.
       cardinality: >-
         This contract does not fix whether every CandidateDate renders
         simultaneously or progressively (a wizard-style one-at-a-time flow,
@@ -1838,7 +1895,12 @@ browserControlSurface:
         setShortlistedShops replaces it with a newly reset addedAt (D7);
         `addedAt` remains the basis for `yourVote`'s "not yet answered"
         gating (D7) -- only this order's basis changed, not that gating.
-        No control in this list may claim the forbidden manual-ordering
+        **A tie in the raw distance itself is broken by shopId ascending
+        (2026-09-06, adr/0048)**, mirroring gathering-scheduling-api.yaml's
+        own ParticipantView.shopVoteQuestions description -- no such tie
+        has been observed in practice, but this closes the same class of
+        gap adr/0048 closes for every other tie-prone ordering in this
+        contract. No control in this list may claim the forbidden manual-ordering
         purpose (see unavailableControls above). TDR-GTH-37 verifies this
         directly: recording this list's shopId order, then casting a vote,
         then asserting the order is unchanged.

@@ -217,9 +217,9 @@
 # - **店の投票を三段階にする**（人間裁定、日程回答と同じ手触り「行ける・たぶん・むり」）:
 #   `ParticipantShopVoteOption.yourApproval`（boolean、null許容）を`yourVote`
 #   （新設`ShopVoteStatus`、null許容）へ置き換えた。`ShortlistedShop.approvalCount`を
-#   `goingCount`/`maybeCount`/`notGoingCount`（`CandidateDate`と同型の3値内訳）へ置き換えた
-#   ——`respondedParticipantCount`（D7の店ごと分母）はそのまま維持し、常に3値の合計に等しい
-#   という不変条件を明記した。`SetShopVotesRequest.approvedShopIds`（文字列配列、包含=承認）を
+#   `goingCount`/`maybeCount`から`wantToGoCount`/`okToGoCount`（`CandidateDate`と同型の3値内訳）へ
+#   置き換えた——`respondedParticipantCount`（D7の店ごと分母）はそのまま維持し、常に3値の合計に
+#   等しいという不変条件を明記した。`SetShopVotesRequest.approvedShopIds`（文字列配列、包含=承認）を
 #   `votes`（`{shopId, status}`の配列、この参加者の現在の完全な回答集合を置き換える）へ置き換えた
 #   ——`setShopVotes`のパス・operationId自体は変更していない（既存の「クリックのたびに現在の
 #   全回答を送り直す」呼び出し形を維持し、browser-interface側の`securityObservations`・
@@ -314,10 +314,28 @@
 #   （`gathering-scheduling-browser-interface.yaml`）側の`finalizedView.decision.shopVote`の
 #   対応する改訂・`gathering-scheduling.feature`のTDR-GTH-34拡張と同じPRで行う——詳細は
 #   `adr/0046`の未決事項節を参照する。
+#
+# 2026-09-06 追補6 (architect、adr/0048。実測で判明した並び順の非決定性への対応。version
+#   0.8.0 -> 0.9.0):
+# - **同点時の並びを決定的にする**: `Gathering.candidateDates`（`goingCount`降順）・
+#   `Gathering.shortlistedShops`（`wantToGoCount + okToGoCount`降順）・`listParticipantLinks`
+#   （`issuedAt`昇順）・`listGatherings`（`createdAt`降順）はいずれも一次キーが同点になり得るが、
+#   `CandidateDate.created_at`・`ShortlistedShop.added_at`はいずれも`auto_now_add`であり、
+#   実測により、同一リクエスト内で作られた複数件のレコードが完全に同一の`created_at`/`added_at`
+#   値を持つことが判明した（Windowsの時刻分解能に由来）。この一覧は「同点は実装が選ぶ安定順」と
+#   記述していたが、その安定順の基準自体が同点で定まらず、受け入れテストの実行のたびに並びが
+#   異なる不具合を招いていた。本追補は各一覧に決定的な二次キーを明記する（`adr/0048`参照）——
+#   `candidateDates`は`startAt`昇順、`shortlistedShops`は検索基点からの距離昇順（さらに
+#   `shopId`昇順）、`listParticipantLinks`は`id`昇順、`listGatherings`は`id`昇順。いずれも
+#   既存のフィールドを流用するだけで、新しいフィールドやマイグレーションは追加しない。
+#   `ParticipantView.scheduleQuestions`の並び順はこれまで本ファイルが一度も明記していなかった
+#   ——`Gathering.candidateDates`と同じ並び（`goingCount`降順、同点は`startAt`昇順）であることを
+#   今回明記した。これは受け入れテストの実行ごとの失敗（`gathering-schedule-question`が見つからない）
+#   の直接の原因であり、本追補の主眼である。
 openapi: 3.0.3
 info:
   title: Dining Radar Gathering Scheduling API
-  version: 0.8.0
+  version: 0.9.0
   description: >-
     Lets an authenticated organizer list their gatherings, create a gathering
     with candidate dates, add further candidate dates while scheduling, issue
@@ -364,8 +382,14 @@ info:
     by adr/0044, extended to include never-answered shops 2026-09-05, human
     chat decision, adr/0046) -- never another participant's answers or
     votes; no further schedule response, shop vote, or link issuance is
-    accepted (GATHERING_FINALIZED). This contract now covers the full
-    "会の作成と日程調整・店の絞り込み連携・承認投票・確定" scope (adr/0040
+    accepted (GATHERING_FINALIZED). Every list this contract exposes that
+    can tie on its primary sort key now also names a deterministic
+    secondary key, closing a production defect where two records created in
+    the same request (e.g. every candidate date submitted in one
+    createGathering call) could share an identical creation timestamp and
+    therefore sort unpredictably across reads (adr/0048). This contract now
+    covers the full "会の作成と日程調整・店の絞り込み連携・承認投票・確定"
+    scope (adr/0040
     merges what adr/0035 decision 2 had originally split into 4 slices, per
     explicit 2026-09-03 human decision; adr/0041 records a further round of
     6 human decisions the same day, P1-P6; adr/0042 adds the
@@ -379,7 +403,10 @@ info:
     adr/0045 extends adr/0025 decision 1's search-origin disclosure from the
     authenticated organizer screen to this unauthenticated participant
     screen; adr/0046 resolves whether a never-answered shop appears in the
-    finalized retrospective, 2026-09-05 human chat decision). The gathering
+    finalized retrospective, 2026-09-05 human chat decision; adr/0048 gives
+    every tie-prone ordering a deterministic secondary key, an architect
+    technical judgment made from measured evidence rather than a human chat
+    decision). The gathering
     never persists provider-derived shop attributes (name, genre, location,
     walking time, seating/smoking/budget tier, provider page, hours,
     images); "open shop" counts, previews, and shortlisted-shop displays
@@ -397,9 +424,11 @@ info:
     adr/0042-adopt-shortlist-vote-finalize-browser-interface-contract.md,
     adr/0044-move-shop-voting-to-three-tiers-stabilize-participant-order-and-add-shop-map-details.md,
     adr/0045-extend-search-origin-disclosure-to-the-participants-signed-link-screen.md,
-    and
     adr/0046-close-the-three-tier-vote-map-and-regular-holiday-gaps-in-the-browser-interface.md
-    (this revision, open item 3).
+    (open item 3),
+    and
+    adr/0048-add-deterministic-tie-breaks-to-gathering-list-orderings.md
+    (this revision).
 servers:
   - url: https://app.example.invalid
     description: >-
@@ -1685,9 +1714,15 @@ components:
         single `approvalCount`; an in-progress draft of this schema had
         instead ordered by `wantToGoCount` alone, which this revision
         corrects -- the human decision explicitly combines both positive
-        tiers, not either alone); no manual reorder control exists
-        (unavailableControls.forbiddenPurposes' manual-ordering category
-        already covers this list, adr/0042 -- see
+        tiers, not either alone), ties broken by distance from the private
+        search origin ascending (near-first, the same vote-independent
+        basis ParticipantView.shopVoteQuestions already uses, adr/0044,
+        adr/0048), and any remaining tie broken by `shopId` ascending --
+        `addedAt`, this schema's earlier implicit tie-break, is not usable
+        alone because every shop set by the same setShortlistedShops call
+        shares one identical `addedAt` value (adr/0048); no manual reorder
+        control exists (unavailableControls.forbiddenPurposes' manual-
+        ordering category already covers this list, adr/0042 -- see
         gathering-scheduling-browser-interface.yaml). This schema carries
         its own display fields (rather than reusing LiveProjectedShop)
         because it additionally requires `addedAt` and the three-tier
@@ -1804,16 +1839,24 @@ components:
           format: date-time
           description: >-
             When createGathering created this gathering. listGatherings
-            orders its array by this field descending (新しい順, adr/0038).
-            Never changes after creation.
+            orders its array by this field descending (新しい順, adr/0038),
+            ties broken by `id` ascending (adr/0048 -- two gatherings
+            created at the exact same instant would otherwise sort
+            arbitrarily on every read). Never changes after creation.
         candidateDates:
           type: array
           items:
             $ref: '#/components/schemas/CandidateDate'
           description: >-
             Ordered by goingCount descending (product-brief.md §2: "行ける
-            人が多い順"); ties are an implementation-chosen stable order this
-            schema does not fix.
+            人が多い順"), ties broken by `startAt` ascending (早い日が先,
+            adr/0048). This schema previously left ties as "an
+            implementation-chosen stable order"; that was found in
+            production to be non-deterministic in practice -- `created_at`,
+            the field the implementation actually used, is set by
+            `auto_now_add` and can be identical for every candidate date
+            submitted in the same createGathering call, at this database's
+            timestamp resolution.
         totalIssuedParticipantLinks:
           type: integer
           minimum: 0
@@ -1902,7 +1945,9 @@ components:
           description: >-
             Empty until the organizer calls setShortlistedShops at least
             once. Ordered by `wantToGoCount + okToGoCount` descending --
-            行ける人が多い順 (see ShortlistedShop; changed 2026-09-04,
+            行ける人が多い順, ties broken as ShortlistedShop's own
+            description specifies (near-first by distance, then `shopId`
+            ascending, adr/0048) (see ShortlistedShop; changed 2026-09-04,
             adr/0044, human decision, from the retired single
             `approvalCount`; an in-progress draft had instead ordered by
             `wantToGoCount` alone, which this revision corrects). May become
@@ -1932,7 +1977,8 @@ components:
             $ref: '#/components/schemas/Gathering'
           description: >-
             Every gathering this organizer organizes, ordered by createdAt
-            descending (新しい順, adr/0038). Empty when the organizer has
+            descending (新しい順, adr/0038), ties broken by `id` ascending
+            (adr/0048). Empty when the organizer has
             none yet (Entry.dc.html E-1b's empty state is a client-side
             rendering of this empty array).
     InProgressGatheringCountResponse:
@@ -2191,7 +2237,11 @@ components:
           format: date-time
           description: >-
             When issueParticipantLinks created this link. listParticipantLinks
-            orders its array by this field ascending (発行順).
+            orders its array by this field ascending (発行順), ties broken by
+            `id` ascending (adr/0048 -- a single issueParticipantLinks call
+            with count greater than 1, headroom this contract has never
+            exercised via the approved screen, would otherwise create
+            several links sharing one identical `issuedAt` value).
         hasResponded:
           type: boolean
           description: >-
@@ -2443,6 +2493,15 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ParticipantScheduleQuestion'
+          description: >-
+            Same set and order as Gathering.candidateDates -- goingCount
+            descending, ties broken by startAt ascending (adr/0048). This
+            order was previously left undocumented on this field; the
+            browser-interface contract's one-question-at-a-time rendering
+            (gathering-scheduling-browser-interface.yaml's scheduleQuestion)
+            depends on it being deterministic to reliably reach a specific
+            candidate date's question across repeated loads of the same
+            unchanged gathering.
         confirmedCandidateDate:
           type: string
           format: date-time
@@ -2475,7 +2534,13 @@ components:
             draft of this schema had instead ordered by each shop's
             `addedAt` ascending, which also achieves stability but not the
             human-specified near-order; this revision replaces that with
-            distance so both properties hold at once. `addedAt` remains the
+            distance so both properties hold at once. A tie in the raw
+            distance itself (e.g. two shops recorded at the exact same
+            coordinates) is broken by `shopId` ascending (adr/0048) --
+            closing the same class of gap this contract closes for
+            candidateDates/shortlistedShops/participant links/the gathering
+            list, though no such tie has been observed in practice.
+            `addedAt` remains the
             basis for `yourVote`'s "not yet answered" gating (D7) -- only
             this array's *order* changed. Remains present (not reset to
             null) once phase is FINALIZED, so a participant who never
@@ -2540,8 +2605,9 @@ components:
                 such a shop instead of the shop being omitted). Ordered the
                 same way shopVoteQuestions was ordered at the moment of
                 finalization (nearest-first by distance from the search
-                origin, adr/0044) -- this contract does not require
-                re-deriving a different order here.
+                origin, ties broken by shopId ascending, adr/0044/adr/0048)
+                -- this contract does not require re-deriving a different
+                order here.
           description: >-
             Null until phase is FINALIZED; non-null and unchanged
             thereafter (adr/0040, D1 2026-08-30: "確定後、参加者には決定
