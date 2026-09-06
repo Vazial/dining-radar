@@ -193,12 +193,18 @@ def get_gathering(organizer: AbstractBaseUser, gathering_id: object) -> Gatherin
 
 
 def list_gatherings(organizer: AbstractBaseUser) -> list[Gathering]:
-    """``listGatherings`` (adr/0038): every gathering this organizer organizes, createdAt降順.
+    """``listGatherings`` (adr/0038): every gathering this organizer organizes, createdAt降順,
+    ties broken by ``id`` ascending (adr/0048).
 
     Includes every phase, including FINALIZED -- there is no delete
-    operation (ADR-0035 decision 1's D4).
+    operation (ADR-0035 decision 1's D4). Two gatherings created at the
+    exact same instant (a rare but not impossible race, since
+    ``create_gathering`` places no uniqueness constraint on ``created_at``)
+    would otherwise sort arbitrarily on every read -- ``order_by`` is
+    explicit about both keys rather than relying on ``Gathering.Meta
+    .ordering``.
     """
-    return list(Gathering.objects.filter(organizer=organizer).order_by("-created_at"))
+    return list(Gathering.objects.filter(organizer=organizer).order_by("-created_at", "id"))
 
 
 def count_in_progress_gatherings(organizer: AbstractBaseUser) -> int:
@@ -277,7 +283,9 @@ def issue_participant_links(
 def list_participant_links(
     organizer: AbstractBaseUser, gathering_id: object
 ) -> tuple[Gathering, list[ParticipantLink]]:
-    """``listParticipantLinks``: every link issued for this gathering, 発行順."""
+    """``listParticipantLinks``: every link issued for this gathering, 発行順 (``issued_at``
+    ascending), ties broken by ``id`` ascending (adr/0048, ``ParticipantLink.Meta.ordering``).
+    """
     gathering = _get_owned_gathering(organizer, gathering_id)
     return gathering, list(gathering.participant_links.all())
 
@@ -321,13 +329,20 @@ class CandidateDateTally:
 
 
 def candidate_dates_with_tallies(gathering: Gathering) -> list[CandidateDateTally]:
-    """``Gathering.candidateDates``, ordered goingCount descending.
+    """``Gathering.candidateDates``, ordered goingCount descending, ties broken by
+    ``startAt`` ascending (adr/0048).
 
-    The tie-break (implementation-chosen, the contract does not fix one) is
-    creation order: ``Gathering.candidate_dates`` is already ordered by
-    ``created_at`` ascending (``CandidateDate.Meta.ordering``), and Python's
-    ``list.sort`` is stable (including under ``reverse=True``), so members
-    tied on ``going_count`` keep that creation order.
+    This previously relied on Python's ``list.sort`` being stable
+    (including under ``reverse=True``) plus ``Gathering.candidate_dates``
+    already being ordered by ``created_at`` ascending
+    (``CandidateDate.Meta.ordering``) to keep tied members in creation
+    order. That was found in production to be non-deterministic in
+    practice: every candidate date submitted in the same ``createGathering``
+    call can share one identical ``auto_now_add`` value at this database's
+    timestamp resolution, so there was nothing stable for the stable sort to
+    preserve. The sort key below is explicit instead -- ``(-going_count,
+    start_at)`` -- and no longer depends on the queryset's own iteration
+    order at all.
     """
     candidate_dates = list(gathering.candidate_dates.all())
     counts: dict[uuid.UUID, Counter] = defaultdict(Counter)
@@ -346,7 +361,7 @@ def candidate_dates_with_tallies(gathering: Gathering) -> list[CandidateDateTall
         )
         for candidate_date in candidate_dates
     ]
-    tallies.sort(key=lambda tally: tally.going_count, reverse=True)
+    tallies.sort(key=lambda tally: (-tally.going_count, tally.candidate_date.start_at))
     return tallies
 
 
@@ -548,8 +563,14 @@ class ShortlistedShopTally:
     responded_participant_count: int
 
 
-def shortlisted_shops_with_tallies(gathering: Gathering) -> list[ShortlistedShopTally]:
-    """``Gathering.shortlistedShops``, ordered ``wantToGoCount + okToGoCount`` descending.
+def shortlisted_shops_with_tallies(
+    gathering: Gathering,
+    shop_lookup: dict | None = None,
+    origin: Origin | None = None,
+) -> list[ShortlistedShopTally]:
+    """``Gathering.shortlistedShops``, ordered ``wantToGoCount + okToGoCount`` descending,
+    ties broken by distance from ``origin`` ascending (near-first), then ``shop_id``
+    ascending (adr/0048).
 
     Changed 2026-09-04 (adr/0044 decision 3, human decision: 行ける人が多い順
     means the sum of the two positive tiers, not either alone) from the
@@ -565,11 +586,21 @@ def shortlisted_shops_with_tallies(gathering: Gathering) -> list[ShortlistedShop
     count toward one shop's denominator while not counting toward
     another's, even from the same submission. A shop just added by a
     shortlist replacement starts every count at 0 even if every participant
-    already voted on the previous shortlist. The tie-break on an equal sum
-    is ``added_at`` ascending (``ShortlistedShop.Meta.ordering``, preserved
-    by Python's stable sort), mirroring ``candidate_dates_with_tallies``'s
-    own creation-order tie-break.
+    already voted on the previous shortlist.
+
+    The tie-break on an equal sum was previously ``added_at`` ascending
+    (``ShortlistedShop.Meta.ordering``, preserved by Python's stable sort),
+    mirroring ``candidate_dates_with_tallies``'s own (then-)creation-order
+    tie-break -- found in production to have the same non-determinism:
+    every shop set by the same ``setShortlistedShops`` call shares one
+    identical ``added_at`` value at this database's timestamp resolution.
+    ``shop_lookup``/``origin`` are optional (``None``/omitted when the
+    caller has no live population resolved, e.g. because this gathering has
+    no shortlisted shops yet) -- omitting them collapses the distance
+    tie-break to always-``None``, leaving only the final ``shop_id``
+    safety net.
     """
+    shop_lookup = shop_lookup or {}
     shops = list(gathering.shortlisted_shops.all())
     submissions = list(
         ShopVoteSubmission.objects.filter(participant_link__gathering=gathering).values_list(
@@ -597,7 +628,17 @@ def shortlisted_shops_with_tallies(gathering: Gathering) -> list[ShortlistedShop
                 responded_participant_count=responded,
             )
         )
-    tallies.sort(key=lambda tally: tally.want_to_go_count + tally.ok_to_go_count, reverse=True)
+
+    def _sort_key(tally: ShortlistedShopTally) -> tuple:
+        distance = _shop_distance_or_none(tally.shortlisted_shop, shop_lookup, origin)
+        return (
+            -(tally.want_to_go_count + tally.ok_to_go_count),
+            distance is None,
+            distance if distance is not None else 0.0,
+            tally.shortlisted_shop.shop_id,
+        )
+
+    tallies.sort(key=_sort_key)
     return tallies
 
 
@@ -644,9 +685,9 @@ def _shop_distance_or_none(
     population (ADR-0034 decision 6 never persists a shop's coordinates, so
     a shop's continued presence at all can change between reads). Both are
     genuinely rare, unmeasured edge cases no TDR-GTH scenario exercises;
-    callers push a ``None`` distance to the end of the nearest-first order
-    (developer discretion, FR-028 -- reported not resolved) rather than
-    fabricate a plausible-looking distance.
+    callers push a ``None`` distance to the end of the nearest-first order,
+    breaking any tie among such shops by ``shop_id`` ascending (adr/0048)
+    rather than fabricate a plausible-looking distance.
     """
     if origin is None:
         return None
@@ -659,7 +700,8 @@ def _shop_distance_or_none(
 def shortlisted_shops_nearest_first(
     gathering: Gathering, shop_lookup: dict, origin: Origin | None
 ) -> list[ShortlistedShop]:
-    """``Gathering.shortlistedShops``, ordered nearest-first from ``origin`` (adr/0044 decision 2).
+    """``Gathering.shortlistedShops``, ordered nearest-first from ``origin`` (adr/0044 decision 2),
+    a tie in the raw distance itself broken by ``shop_id`` ascending (adr/0048).
 
     Shared by ``participant_shop_vote_options`` (``ParticipantView.
     shopVoteQuestions``) and ``participant_decision_shop_votes``
@@ -670,14 +712,26 @@ def shortlisted_shops_nearest_first(
     its own location and the origin -- never on vote counts -- which is what
     lets this order stay stable as votes are cast (the production defect
     ADR-0044 fixes: the participant list had previously reused the
-    organizer-facing, vote-count-ordered list instead). Python's stable sort
-    keeps every unresolvable shop (``_shop_distance_or_none`` returning
-    ``None``) at the end, in their original (``added_at`` ascending) order
-    among themselves.
+    organizer-facing, vote-count-ordered list instead).
+
+    Every unresolvable shop (``_shop_distance_or_none`` returning ``None``)
+    still sorts to the end, but any tie -- among resolvable shops sharing an
+    identical raw distance, *and* among unresolvable shops sharing ``None``
+    -- is now broken by ``shop_id`` ascending rather than relying on
+    Python's stable sort to preserve ``added_at`` ascending order: every
+    shop set by the same ``setShortlistedShops`` call shares one identical
+    ``added_at`` value at this database's timestamp resolution, the same
+    class of gap adr/0048 closes elsewhere in this module.
     """
     shops = list(gathering.shortlisted_shops.all())
     decorated = [(shop, _shop_distance_or_none(shop, shop_lookup, origin)) for shop in shops]
-    decorated.sort(key=lambda pair: (pair[1] is None, pair[1] if pair[1] is not None else 0.0))
+    decorated.sort(
+        key=lambda pair: (
+            pair[1] is None,
+            pair[1] if pair[1] is not None else 0.0,
+            pair[0].shop_id,
+        )
+    )
     return [shop for shop, _distance in decorated]
 
 
@@ -707,7 +761,7 @@ def participant_shop_vote_options(
     """
     tallies_by_shop_id = {
         tally.shortlisted_shop.shop_id: tally
-        for tally in shortlisted_shops_with_tallies(link.gathering)
+        for tally in shortlisted_shops_with_tallies(link.gathering, shop_lookup, origin)
     }
     submission = ShopVoteSubmission.objects.filter(participant_link=link).first()
     options = []

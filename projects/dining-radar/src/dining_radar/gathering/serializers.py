@@ -39,17 +39,23 @@ def serialize_candidate_date(tally: services.CandidateDateTally, gathering: Gath
 def serialize_gathering(gathering: Gathering) -> dict:
     tallies = services.candidate_dates_with_tallies(gathering)
     responded_count, anonymous_count = services.response_summary(gathering)
-    shortlisted_tallies = services.shortlisted_shops_with_tallies(gathering)
+    # Gated on votingStartedAt (not on the shortlisted-shops tally list
+    # itself, adr/0048) -- the tally list's own tie-break now needs
+    # shop_lookup/origin to sort by distance, so resolving them can no
+    # longer wait until after the tallies are computed. votingStartedAt
+    # non-null and shortlistedShops non-empty are the same condition (see
+    # that field's own schema description), so this mirrors
+    # serialize_participant_view's identical gate.
+    voting_started = gathering.voting_started_at is not None
     # Resolved once per request and reused for every shortlisted shop's
     # display fields (adr/0044's location/walkingTimeMinutes/providerPageUrl)
     # rather than triggering one real provider fetch per shop.
-    population_source = services.resolve_population_source() if shortlisted_tallies else None
+    population_source = services.resolve_population_source() if voting_started else None
     origin = population_source[1] if population_source is not None else None
     shop_lookup = (
-        services.shop_lookup_for_gathering(gathering, population_source)
-        if shortlisted_tallies
-        else {}
+        services.shop_lookup_for_gathering(gathering, population_source) if voting_started else {}
     )
+    shortlisted_tallies = services.shortlisted_shops_with_tallies(gathering, shop_lookup, origin)
     return {
         "id": str(gathering.id),
         "title": gathering.title,

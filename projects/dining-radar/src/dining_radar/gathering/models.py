@@ -124,13 +124,24 @@ class CandidateDate(models.Model):
         Gathering, on_delete=models.CASCADE, related_name="candidate_dates"
     )
     start_at = models.DateTimeField()
-    # Not part of the public schema; used only for a stable creation-order
-    # tie-break under Gathering.candidateDates' goingCount-descending sort
-    # (the contract leaves the tie-break to implementation discretion).
+    # Not part of the public schema. Retained for audit only -- it is no
+    # longer an ordering key (adr/0048): every candidate date submitted in
+    # the same createGathering call can share one identical `auto_now_add`
+    # value at this database's timestamp resolution, which a production
+    # defect exposed as a non-deterministic Gathering.candidateDates tie-
+    # break (services.candidate_dates_with_tallies now sorts explicitly by
+    # (going_count descending, start_at ascending) instead of relying on
+    # this field plus Python's stable sort).
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ["created_at"]
+        # Ties on the contract's own tie-break (start_at) do not occur in
+        # practice -- add_candidate_date/create_gathering both reject a
+        # second candidate date sharing an exact start_at on the same
+        # gathering (DuplicateCandidateDateError) -- but this ordering is
+        # cosmetic/query-default only; the actual API-facing order is always
+        # produced by services.candidate_dates_with_tallies' explicit sort.
+        ordering = ["start_at"]
 
 
 class ParticipantLink(models.Model):
@@ -175,7 +186,14 @@ class ParticipantLink(models.Model):
     server_error_once = models.BooleanField(default=False)
 
     class Meta:
-        ordering = ["issued_at"]
+        # `id` ascending breaks a tie on `issued_at` (adr/0048) -- a single
+        # issue_participant_links call with count > 1 gives every link it
+        # creates one identical auto_now_add value at this database's
+        # timestamp resolution, the same class of gap adr/0048 closes for
+        # CandidateDate/ShortlistedShop/Gathering. list_participant_links
+        # relies on this Meta.ordering (a plain `.all()`, no explicit
+        # order_by) rather than an explicit service-layer sort.
+        ordering = ["issued_at", "id"]
 
     @property
     def has_responded(self) -> bool:
@@ -229,10 +247,18 @@ class ShortlistedShop(models.Model):
     shop_id = models.CharField(max_length=500)
     # ShortlistedShop.addedAt: reset to "now" whenever this shop id is newly
     # added or re-added after removal (adr/0040). The basis for D7's
-    # per-shop denominator (respondedParticipantCount).
+    # per-shop denominator (respondedParticipantCount). Not an ordering key
+    # (adr/0048) -- every shop set by the same setShortlistedShops call
+    # shares one identical value at this database's timestamp resolution;
+    # services.shortlisted_shops_with_tallies/shortlisted_shops_nearest_first
+    # both sort explicitly (distance ascending, then shop_id ascending)
+    # instead.
     added_at = models.DateTimeField()
 
     class Meta:
+        # Cosmetic/query-default only, same caveat as CandidateDate.Meta
+        # above -- the API-facing order always comes from the explicit sorts
+        # in services.py.
         ordering = ["added_at"]
         constraints = [
             models.UniqueConstraint(

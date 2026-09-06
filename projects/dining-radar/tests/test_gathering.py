@@ -36,6 +36,7 @@ from dining_radar.gathering.models import (
     ShopVoteSubmission,
     ShortlistedShop,
 )
+from dining_radar.recommendation.pipeline import NormalizedCandidate, Origin
 from dining_radar.suggestions import acceptance_state
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -323,12 +324,57 @@ class CandidateDateTalliesServiceTests(TestCase):
         self.assertEqual(tallies[0].going_count, 2)
         self.assertEqual(tallies[1].going_count, 1)
 
-    def test_ties_keep_creation_order(self):
+    def test_ties_are_broken_by_start_at_ascending_not_creation_order(self):
+        """adr/0048: the tie-break is startAt ascending, not "creation order".
+
+        ``self.low``/``self.high`` are created in start_at-ascending order in
+        ``setUp`` (so this alone would not distinguish the two bases). Here a
+        third, later-created candidate date has an *earlier* start_at than
+        both, and a fourth, earliest-created one has the *latest* start_at --
+        proving the observed order tracks start_at, not creation sequence.
+        """
+        earliest_start_but_created_last = CandidateDate.objects.create(
+            gathering=self.gathering, start_at=self.low.start_at - timedelta(days=10)
+        )
+        latest_start_but_created_first = CandidateDate.objects.create(
+            gathering=self.gathering, start_at=self.high.start_at + timedelta(days=10)
+        )
+
         tallies = services.candidate_dates_with_tallies(self.gathering)
 
         self.assertEqual(
-            [tally.candidate_date.id for tally in tallies], [self.low.id, self.high.id]
+            [tally.candidate_date.id for tally in tallies],
+            [
+                earliest_start_but_created_last.id,
+                self.low.id,
+                self.high.id,
+                latest_start_but_created_first.id,
+            ],
         )
+
+    def test_ties_are_deterministic_even_when_created_at_collides(self):
+        """The production defect adr/0048 fixes: every candidate date created in
+        the same ``createGathering`` call can share one identical
+        ``auto_now_add`` value at this database's timestamp resolution, which
+        left the prior creation-order tie-break with nothing stable to sort
+        by. Forcing an exact collision here and re-running the same query
+        twice must still produce the same, startAt-ascending order both
+        times.
+        """
+        CandidateDate.objects.filter(gathering=self.gathering).update(created_at=timezone.now())
+        self.assertEqual(len({cd.created_at for cd in self.gathering.candidate_dates.all()}), 1)
+
+        first_run = [
+            tally.candidate_date.id
+            for tally in services.candidate_dates_with_tallies(self.gathering)
+        ]
+        second_run = [
+            tally.candidate_date.id
+            for tally in services.candidate_dates_with_tallies(self.gathering)
+        ]
+
+        self.assertEqual(first_run, [self.low.id, self.high.id])
+        self.assertEqual(first_run, second_run)
 
     def test_counts_every_status_independently(self):
         link_going = self._link()
@@ -500,6 +546,23 @@ class ParticipantLinkLifecycleServiceTests(TestCase):
         self.assertEqual(len(links), 2)
         self.assertLessEqual(links[0].issued_at, links[1].issued_at)
 
+    def test_ties_are_broken_by_id_ascending(self):
+        """adr/0048: a single issueParticipantLinks call with count > 1 (headroom
+        this contract has never exercised via the approved screen, ADR-0048's
+        own words) gives every link it creates one identical ``issued_at``
+        value at this database's timestamp resolution -- deterministic,
+        repeatable ordering must still hold.
+        """
+        _gathering, links = services.issue_participant_links(self.user, self.gathering.id, 3)
+        self.assertEqual(len({link.issued_at for link in links}), 1)
+        expected_order = sorted(link.id for link in links)
+
+        _g1, first_run = services.list_participant_links(self.user, self.gathering.id)
+        _g2, second_run = services.list_participant_links(self.user, self.gathering.id)
+
+        self.assertEqual([link.id for link in first_run], expected_order)
+        self.assertEqual([link.id for link in first_run], [link.id for link in second_run])
+
 
 # --- services: gathering list / in-progress count (adr/0038) ----------------
 
@@ -527,6 +590,27 @@ class ListGatheringsServiceTests(TestCase):
         result = services.list_gatherings(self.user)
 
         self.assertEqual([gathering.id for gathering in result], [second.id, first.id])
+
+    def test_ties_are_broken_by_id_ascending(self):
+        """adr/0048: two gatherings sharing an identical ``created_at`` (the
+        same collision ``test_ordered_by_created_at_descending`` above must
+        route around) still sort deterministically, and the same way across
+        repeated reads.
+        """
+        now = timezone.now()
+        first = services.create_gathering(self.user, "1つめ", [now])
+        second = services.create_gathering(self.user, "2つめ", [now])
+        Gathering.objects.filter(pk__in=[first.pk, second.pk]).update(created_at=now)
+        self.assertEqual(
+            len({g.created_at for g in Gathering.objects.filter(pk__in=[first.pk, second.pk])}), 1
+        )
+        expected_order = sorted([first.id, second.id])
+
+        first_run = [gathering.id for gathering in services.list_gatherings(self.user)]
+        second_run = [gathering.id for gathering in services.list_gatherings(self.user)]
+
+        self.assertEqual(first_run, expected_order)
+        self.assertEqual(first_run, second_run)
 
     def test_includes_a_finalized_gathering(self):
         gathering = services.create_gathering(self.user, "会", [timezone.now()])
@@ -1384,7 +1468,8 @@ class ParticipantShopVoteOptionsServiceTests(GatheringSelectingShopServiceTestCa
 
 
 class ShortlistedShopsNearestFirstServiceTests(GatheringSelectingShopServiceTestCase):
-    """The unresolvable-shop fallback ordering (developer discretion, FR-028).
+    """The unresolvable-shop fallback ordering (developer discretion, FR-028;
+    the *ordering basis* for this fallback is adr/0048, shop_id ascending).
 
     Covers ``_shop_distance_or_none``'s two ``None``-returning branches: no
     resolved search origin at all (a provider outage), and a shop id no
@@ -1393,24 +1478,28 @@ class ShortlistedShopsNearestFirstServiceTests(GatheringSelectingShopServiceTest
     projection is never persisted).
     """
 
-    def test_every_shop_pushed_to_the_end_in_original_order_when_origin_is_none(self):
+    def test_every_shop_pushed_to_the_end_ordered_by_shop_id_when_origin_is_none(self):
         services.set_shortlisted_shops(self.user, self.gathering.id, self.open_shop_ids[0:3])
         shop_lookup, _origin = self.shop_lookup_and_origin()
+        # All three shops share one identical added_at value (one
+        # setShortlistedShops call) -- confirming this is what makes the old
+        # "stable sort preserves added_at order" fallback meaningless, and
+        # exactly the class of gap adr/0048 closes.
+        self.assertEqual(
+            len(
+                {shop.added_at for shop in ShortlistedShop.objects.filter(gathering=self.gathering)}
+            ),
+            1,
+        )
 
         ordered = services.shortlisted_shops_nearest_first(self.gathering, shop_lookup, None)
 
         # Every shop is equally unresolvable (no origin to measure distance
-        # from at all) -- Python's stable sort keeps the original
-        # (added_at ascending) order among them, the same fallback order
-        # this function's own docstring documents.
+        # from at all) -- adr/0048: the tie-break is shop_id ascending, not
+        # whatever order the queryset happened to return.
         self.assertEqual(
             [shop.shop_id for shop in ordered],
-            [
-                shop.shop_id
-                for shop in ShortlistedShop.objects.filter(gathering=self.gathering).order_by(
-                    "added_at"
-                )
-            ],
+            sorted(self.open_shop_ids[0:3]),
         )
 
     def test_a_shop_missing_from_the_lookup_sorts_after_every_resolvable_shop(self):
@@ -1429,6 +1518,72 @@ class ShortlistedShopsNearestFirstServiceTests(GatheringSelectingShopServiceTest
         self.assertEqual(ordered[-1].shop_id, self.open_shop_ids[1])
         self.assertEqual(
             {shop.shop_id for shop in ordered[:-1]}, {self.open_shop_ids[0], self.open_shop_ids[2]}
+        )
+
+    def _dummy_candidate(
+        self, shop_id: str, latitude: float, longitude: float
+    ) -> NormalizedCandidate:
+        return NormalizedCandidate(
+            name="dummy",
+            genre="dummy",
+            description=None,
+            regular_holiday=None,
+            total_seats=None,
+            non_smoking_status=None,
+            card_payment_available=None,
+            budget_average=None,
+            latitude=latitude,
+            longitude=longitude,
+            provider_page_url=shop_id,
+        )
+
+    def test_a_true_distance_tie_is_broken_by_shop_id_ascending(self):
+        """adr/0048: two shops recorded at the exact same coordinates (raw
+        distance genuinely tied, not merely both unresolvable) are still
+        ordered deterministically.
+        """
+        services.set_shortlisted_shops(self.user, self.gathering.id, self.open_shop_ids[0:2])
+        origin = Origin(latitude=35.0, longitude=135.0)
+        shop_lookup = {
+            shop_id: self._dummy_candidate(shop_id, 35.001, 135.001)
+            for shop_id in self.open_shop_ids[0:2]
+        }
+
+        ordered = services.shortlisted_shops_nearest_first(self.gathering, shop_lookup, origin)
+
+        self.assertEqual([shop.shop_id for shop in ordered], sorted(self.open_shop_ids[0:2]))
+
+    def test_organizer_facing_tally_list_breaks_a_vote_tie_by_distance_then_shop_id(self):
+        """adr/0048 decision 3: Gathering.shortlistedShops' own tie-break (equal
+        wantToGoCount + okToGoCount) is distance ascending, then shop_id
+        ascending -- not addedAt, which every shop set by the same
+        setShortlistedShops call shares identically.
+        """
+        services.set_shortlisted_shops(self.user, self.gathering.id, self.open_shop_ids[0:2])
+        origin = Origin(latitude=35.0, longitude=135.0)
+        nearer, farther = sorted(self.open_shop_ids[0:2])
+        shop_lookup = {
+            nearer: self._dummy_candidate(nearer, 35.0001, 135.0001),
+            farther: self._dummy_candidate(farther, 35.01, 135.01),
+        }
+
+        tallies = services.shortlisted_shops_with_tallies(self.gathering, shop_lookup, origin)
+
+        self.assertEqual([tally.shortlisted_shop.shop_id for tally in tallies], [nearer, farther])
+
+    def test_organizer_facing_tally_list_true_distance_tie_falls_back_to_shop_id(self):
+        services.set_shortlisted_shops(self.user, self.gathering.id, self.open_shop_ids[0:2])
+        origin = Origin(latitude=35.0, longitude=135.0)
+        shop_lookup = {
+            shop_id: self._dummy_candidate(shop_id, 35.001, 135.001)
+            for shop_id in self.open_shop_ids[0:2]
+        }
+
+        tallies = services.shortlisted_shops_with_tallies(self.gathering, shop_lookup, origin)
+
+        self.assertEqual(
+            [tally.shortlisted_shop.shop_id for tally in tallies],
+            sorted(self.open_shop_ids[0:2]),
         )
 
 
