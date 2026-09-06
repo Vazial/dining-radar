@@ -1356,11 +1356,19 @@ class GatheringSchedulingBrowserDsl:
         shops_by_id = {shop["shopId"]: shop for shop in preview["previewShops"]}
         assert_present(self.assertions, self.page, OPEN_SHOP_MAP)
         marker_nodes = wait_for_at_least_one(self.page, OPEN_SHOP_MAP_MARKER)
-        marker_ids = {
+        marker_ids = [
             marker_nodes.nth(index).get_attribute(SHOP_ID_ATTR)
             for index in range(marker_nodes.count())
-        }
-        self.assertions.assertEqual(marker_ids, {item["shopId"] for item in items})
+        ]
+        item_ids = [item["shopId"] for item in items]
+        # Reviewer audit Major#1 (candidate_search_browser.py's
+        # assert_cards_and_map_show_current_proposal precedent): a set
+        # comparison alone cannot tell a duplicated marker plus a missing one
+        # apart from a correct 1-to-1 correlation, nor detect a marker count
+        # that simply differs from the item count -- sorted-list equality
+        # catches both, and the explicit no-duplicates check catches the rest.
+        self.assertions.assertEqual(sorted(marker_ids), sorted(item_ids))
+        self.assertions.assertEqual(len(marker_ids), len(set(marker_ids)))
         for item in items:
             shop_id = item["shopId"]
             row = self._open_shop_list_item_locator(shop_id)
@@ -1707,15 +1715,28 @@ class GatheringSchedulingBrowserDsl:
         """Fixed 2026-09-05 (adr/0044): three-tier tally, replacing the retired
         single data-approval-count -- mirrors this same shop's organizer-
         facing ShortlistedShop tally exactly (gathering-scheduling-api.yaml's
-        own invariant).
+        own invariant). wantToGoCount + okToGoCount + notGoingCount must
+        always equal respondedCount, same invariant its twin
+        assert_shortlisted_shop_tally already checks here too, not only
+        trusted (reviewer audit Minor#1).
         """
         question = self._shop_vote_question_locator(shop_id)
         tally = question.locator(f'[data-testid="{SHOP_VOTE_TALLY}"]')
         expect(tally).to_have_count(1)
-        self.assertions.assertEqual(tally.get_attribute(WANT_TO_GO_COUNT_ATTR), str(want_to_go))
-        self.assertions.assertEqual(tally.get_attribute(OK_TO_GO_COUNT_ATTR), str(ok_to_go))
-        self.assertions.assertEqual(tally.get_attribute(NOT_GOING_COUNT_ATTR), str(not_going))
-        self.assertions.assertEqual(tally.get_attribute(RESPONDED_COUNT_ATTR), str(responded))
+        actual_want_to_go = tally.get_attribute(WANT_TO_GO_COUNT_ATTR)
+        actual_ok_to_go = tally.get_attribute(OK_TO_GO_COUNT_ATTR)
+        actual_not_going = tally.get_attribute(NOT_GOING_COUNT_ATTR)
+        actual_responded = tally.get_attribute(RESPONDED_COUNT_ATTR)
+        self.assertions.assertEqual(actual_want_to_go, str(want_to_go))
+        self.assertions.assertEqual(actual_ok_to_go, str(ok_to_go))
+        self.assertions.assertEqual(actual_not_going, str(not_going))
+        self.assertions.assertEqual(actual_responded, str(responded))
+        self.assertions.assertEqual(
+            int(require(actual_want_to_go, "want-to-go count missing"))
+            + int(require(actual_ok_to_go, "ok-to-go count missing"))
+            + int(require(actual_not_going, "not-going count missing")),
+            int(require(actual_responded, "responded count missing")),
+        )
 
     def attempt_set_schedule_response_via_api(
         self, link: dict[str, str], candidate_date_id: str, status: str
@@ -1768,14 +1789,21 @@ class GatheringSchedulingBrowserDsl:
         }
         assert_present(self.assertions, self.page, SHOP_VOTE_MAP)
         marker_nodes = wait_for_at_least_one(self.page, SHOP_VOTE_MAP_MARKER)
-        marker_ids = {
+        marker_ids = [
             marker_nodes.nth(index).get_attribute(SHOP_ID_ATTR)
             for index in range(marker_nodes.count())
-        }
-        question_ids = {
+        ]
+        question_ids = [
             nodes.nth(index).get_attribute(SHOP_ID_ATTR) for index in range(nodes.count())
-        }
-        self.assertions.assertEqual(marker_ids, question_ids)
+        ]
+        # Reviewer audit Major#1 (same fix as
+        # assert_open_shop_list_shows_map_and_shop_details above): sorted-list
+        # equality plus an explicit no-duplicates check, matching
+        # candidate_search_browser.py's assert_cards_and_map_show_current_
+        # proposal precedent -- a set comparison alone would pass even if a
+        # marker were duplicated while a different shop's marker were missing.
+        self.assertions.assertEqual(sorted(marker_ids), sorted(question_ids))
+        self.assertions.assertEqual(len(marker_ids), len(set(marker_ids)))
         for index in range(nodes.count()):
             question = nodes.nth(index)
             shop_id = question.get_attribute(SHOP_ID_ATTR)
