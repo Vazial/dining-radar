@@ -611,6 +611,33 @@ class ParticipantAccessServiceTests(TestCase):
         # A one-shot flag: the *next* request must succeed again.
         services.get_participant_view(self.link.token)
 
+    def test_server_error_seeded_link_is_rejected_exactly_once(self):
+        """adr/0047: ``seedParticipantLinkServerError`` mirrors
+        ``seedRateLimitedParticipantLink``'s one-shot shape, but only for
+        ``getParticipantView`` (this seam's own scope)."""
+        services.seed_participant_link_server_error(self.link.token)
+
+        with self.assertRaises(services.ParticipantLinkServerErrorSeededError):
+            services.get_participant_view(self.link.token)
+
+        # A one-shot flag: the *next* request must succeed again.
+        services.get_participant_view(self.link.token)
+
+    def test_server_error_seed_takes_priority_over_a_durable_link_state(self):
+        """The seeded one-shot failure fires even for a token that is also
+        durably expired -- it is consumed first, so the durable state only
+        surfaces on the *next* call (mirrors _authorize_participant_link's
+        own revoked-before-expired-before-rate-limited ordering rationale:
+        each check is independent and does not suppress the others)."""
+        services.seed_expired_participant_link(self.link.token)
+        services.seed_participant_link_server_error(self.link.token)
+
+        with self.assertRaises(services.ParticipantLinkServerErrorSeededError):
+            services.get_participant_view(self.link.token)
+
+        with self.assertRaises(services.LinkExpiredError):
+            services.get_participant_view(self.link.token)
+
     def test_set_schedule_response_records_the_answer(self):
         services.set_schedule_response(
             self.link.token, self.candidate_date.id, ScheduleResponseStatus.GOING
@@ -700,6 +727,10 @@ class TestSupportSeamServiceTests(TestCase):
     def test_seed_rate_limited_participant_link_rejects_an_unknown_token(self):
         with self.assertRaises(services.LinkNotFoundError):
             services.seed_rate_limited_participant_link("unknown-token")
+
+    def test_seed_participant_link_server_error_rejects_an_unknown_token(self):
+        with self.assertRaises(services.LinkNotFoundError):
+            services.seed_participant_link_server_error("unknown-token")
 
 
 # --- open-shop preview (shares test-support-api.yaml's population seam) -----
@@ -2908,6 +2939,40 @@ class ParticipantViewApiTests(GatheringOrganizerTestCase):
         self.assertEqual(response.json()["code"], "LINK_RATE_LIMITED")
         self.assertTrue(response.has_header("Retry-After"))
 
+    def test_server_error_seeded_link_is_a_bare_500_with_no_body(self):
+        """adr/0047, TDR-GTH-42: deliberately not a ``ProblemResponse`` --
+        no ``code``, no ``message`` -- so this failure carries none of
+        linkError's four recognized codes by construction, and the browser
+        has nothing technical to accidentally surface from this response."""
+        Client().post(
+            "/test-support/gathering-scheduling/participant-links/server-error",
+            data=json.dumps({"token": self.token}),
+            content_type="application/json",
+        )
+
+        response = self.participant_client.get(
+            reverse("gathering:participant-view", kwargs={"token": self.token})
+        )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.content, b"")
+
+    def test_server_error_seed_only_affects_the_next_getParticipantView_call(self):
+        Client().post(
+            "/test-support/gathering-scheduling/participant-links/server-error",
+            data=json.dumps({"token": self.token}),
+            content_type="application/json",
+        )
+        self.participant_client.get(
+            reverse("gathering:participant-view", kwargs={"token": self.token})
+        )
+
+        response = self.participant_client.get(
+            reverse("gathering:participant-view", kwargs={"token": self.token})
+        )
+
+        self.assertEqual(response.status_code, 200)
+
     def test_set_schedule_response_no_csrf_token_required(self):
         response = self.participant_client.put(
             reverse(
@@ -3051,20 +3116,36 @@ class ParticipantViewApiTests(GatheringOrganizerTestCase):
 
 
 class TestSupportGatheringApiTests(GatheringOrganizerTestCase):
-    """These three seams have no ``app_name``/reverse name (mirrors every
+    """These four seams have no ``app_name``/reverse name (mirrors every
     other ``test_support`` route this project already tests by literal path,
     see ``tests/test_test_support.py``)."""
 
     RESET_PATH = "/test-support/gathering-scheduling-state"
     EXPIRE_PATH = "/test-support/gathering-scheduling/participant-links/expire"
     RATE_LIMIT_PATH = "/test-support/gathering-scheduling/participant-links/rate-limit"
+    SERVER_ERROR_PATH = "/test-support/gathering-scheduling/participant-links/server-error"
 
     @override_settings(ROOT_URLCONF="dining_radar.urls", ACCEPTANCE_TEST_SUPPORT=False)
     def test_routes_are_not_registered_in_the_standard_production_urlconf(self):
-        for path in (self.RESET_PATH, self.EXPIRE_PATH, self.RATE_LIMIT_PATH):
+        paths = (self.RESET_PATH, self.EXPIRE_PATH, self.RATE_LIMIT_PATH, self.SERVER_ERROR_PATH)
+        for path in paths:
             with self.subTest(path=path):
                 response = Client().delete(path)
                 self.assertEqual(response.status_code, 404)
+
+    @override_settings(ACCEPTANCE_TEST_SUPPORT=False)
+    def test_server_error_seam_is_acceptance_only_even_under_the_acceptance_urlconf(self):
+        """adr/0047's own instruction: guard this seam the same way the
+        existing two guard themselves (``_acceptance_only``) -- a 404, not a
+        204, when ``ACCEPTANCE_TEST_SUPPORT`` is off, regardless of which
+        urlconf is mounted."""
+        response = Client().post(
+            self.SERVER_ERROR_PATH,
+            data=json.dumps({"token": "unknown-token"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 404)
 
     def test_reset_endpoint_deletes_every_gathering(self):
         self.create_gathering_via_api()
@@ -3126,6 +3207,32 @@ class TestSupportGatheringApiTests(GatheringOrganizerTestCase):
 
         self.assertEqual(response.status_code, 204)
         self.assertTrue(ParticipantLink.objects.get(token=token).rate_limited_once)
+
+    def test_seed_participant_link_server_error_rejects_an_unknown_token(self):
+        response = Client().post(
+            self.SERVER_ERROR_PATH,
+            data=json.dumps({"token": "unknown-token"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_seed_participant_link_server_error_flags_the_named_token(self):
+        payload = self.create_gathering_via_api()
+        issue_response = self.post_json(
+            reverse("gathering:participant-links", kwargs={"gathering_id": payload["id"]}),
+            {"count": 1},
+        )
+        token = issue_response.json()["issuedLinks"][0]["token"]
+
+        response = Client().post(
+            self.SERVER_ERROR_PATH,
+            data=json.dumps({"token": token}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertTrue(ParticipantLink.objects.get(token=token).server_error_once)
 
 
 # --- API error-branch coverage: unauthenticated / CSRF / malformed / 404 ----
@@ -3594,6 +3701,109 @@ class LiveProjectedShopFallbackSerializerTests(SimpleTestCase):
                 "providerPageUrl": "missing-shop-id",
             },
         )
+
+
+# --- participant load-failure notice (adr/0047, TDR-GTH-42) ----------------
+
+
+class ParticipantLoadFailureSourceTests(SimpleTestCase):
+    """Guards the fix for the bug adr/0047 documents: this screen's
+    ``getParticipantView`` call had no error handling at all, so an
+    unrecognized response (a network failure, an unparsable body, or a
+    response carrying none of ``linkError``'s four recognized codes) left
+    the page blank -- no question, no error surface, no explanation
+    (this file's own module docstring history for the full account).
+
+    ``tests/ui_invariants``/``tests/acceptance`` exercise the *rendered*
+    behavior through a real browser; these source-level checks are the
+    complement ``DateTimeLocalConversionSourceTests`` above already
+    establishes as this project's convention for a bug a Django-test-client
+    reproduction cannot see (a JS-only code path).
+    """
+
+    def test_request_json_never_lets_a_promise_reject(self):
+        source = PARTICIPANT_JS.read_text(encoding="utf-8")
+        self.assertIn(
+            "function requestJson(method, url, body) {",
+            source,
+            "requestJson's own signature moved or was renamed",
+        )
+        # Both failure sources -- response.json() rejecting (an unparsable
+        # body) and fetch() itself rejecting (a network-level failure) --
+        # must be caught, not left to propagate as a rejected promise.
+        self.assertIn("response.json().then(", source)
+        self.assertIn(".catch(function () {", source)
+        self.assertIn("return { status: null, body: null };", source)
+
+    def test_load_view_classifies_every_outcome_before_the_recognized_link_error_codes(self):
+        source = PARTICIPANT_JS.read_text(encoding="utf-8")
+        self.assertIn("function loadView() {", source)
+        self.assertIn("var RECOGNIZED_LINK_ERROR_CODES = [", source)
+        for code in ("LINK_NOT_FOUND", "LINK_EXPIRED", "LINK_REVOKED", "LINK_RATE_LIMITED"):
+            self.assertIn(f'"{code}",', source)
+        self.assertIn("state.loadFailure = true;", source)
+        self.assertIn("state.loadFailure = false;", source)
+
+    def test_render_shows_only_the_load_error_element_and_nothing_else(self):
+        """unexpectedLoadFailureOutcome's own absent list (adr/0047): every
+        other participant-facing element must stay absent, so render()'s
+        loadFailure branch must return before building any of them."""
+        source = PARTICIPANT_JS.read_text(encoding="utf-8")
+        render_index = source.index("function render() {")
+        branch_index = source.index("if (state.loadFailure) {", render_index)
+        return_index = source.index("return;", branch_index)
+        children_index = source.index("var children = [];", render_index)
+        self.assertLess(
+            branch_index,
+            children_index,
+            "the loadFailure branch must be checked before any other surface is built",
+        )
+        self.assertLess(
+            return_index,
+            children_index,
+            "the loadFailure branch must return before falling through to the rest of render()",
+        )
+
+    def test_load_error_surface_declares_no_operational_control(self):
+        """Human ruling 2026-09-06 (loadFailure.noRetryControl): no
+        purpose-declared control inside gathering-participant-load-error."""
+        source = PARTICIPANT_JS.read_text(encoding="utf-8")
+        function_index = source.index("function renderLoadFailure() {")
+        function_end = source.index("\n  }", function_index)
+        function_source = source[function_index:function_end]
+
+        self.assertIn("gathering-participant-load-error", function_source)
+        self.assertNotIn("data-gathering-control-purpose", function_source)
+        self.assertNotIn("addEventListener", function_source)
+
+    def test_load_error_visible_text_discloses_no_technical_detail(self):
+        """adr/0047 decision 3: no HTTP status code, exception message,
+        trace/request identifier, hostname, or synthetic disclosure canary
+        anywhere in this element's own rendering code."""
+        source = PARTICIPANT_JS.read_text(encoding="utf-8")
+        function_index = source.index("function renderLoadFailure() {")
+        function_end = source.index("\n  }", function_index)
+        function_source = source[function_index:function_end]
+
+        for forbidden in (
+            "result.status",
+            "result.body",
+            "response.status",
+            "trace",
+            "Trace",
+            "stack",
+            "Stack",
+            "hostname",
+            # profiles.localAcceptance.syntheticDisclosureCanaries
+            # (gathering-scheduling-browser-interface.yaml).
+            "synthetic-private-origin-never-disclose.invalid",
+            "synthetic-provider-internals-never-disclose",
+        ):
+            self.assertNotIn(
+                forbidden,
+                function_source,
+                f"renderLoadFailure must not reference {forbidden!r}",
+            )
 
 
 # --- static source regressions (orchestrator合流 findings, 2026-09-02) ------

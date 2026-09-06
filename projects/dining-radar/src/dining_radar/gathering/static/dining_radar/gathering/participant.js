@@ -76,6 +76,30 @@
  * the finalized shortlist, including one this participant never answered
  * (status: null, "答えないまま締まりました" -- adr/0046 open item 3,
  * 2026-09-05 human chat decision).
+ *
+ * 2026-09-06 addition (adr/0047, TDR-GTH-42, contract v0.8.0): this screen's
+ * getParticipantView call had no error handling at all -- an unrecognized
+ * response (a network failure that never reached the server, a body this
+ * client could not parse, or a response carrying none of linkError's four
+ * recognized ProblemResponse codes) left requestJson's promise chain
+ * rejected with nothing caught, so applyResult/render never ran and the
+ * page stayed exactly as the server template first rendered it (an empty
+ * mount point) -- no question, no error surface, no explanation, matching
+ * this ADR's own bug report exactly. requestJson below now never rejects
+ * (a transport-level failure or an unparsable body resolves to a sentinel
+ * result instead of throwing); loadView -- the initial getParticipantView
+ * call only, matching this ADR's own scope and seedParticipantLinkServerError's
+ * own scope (it seeds only the next getParticipantView call, not
+ * setScheduleResponse/setShopVotes/setParticipantDisplayName) -- classifies
+ * that result into exactly one of validLinkOutcome/invalidLinkOutcome/
+ * unexpectedLoadFailureOutcome and sets state.loadFailure accordingly.
+ * render() branches on state.loadFailure before building anything else,
+ * the same way it already branches on state.view.decision for
+ * finalizedView, so gathering-participant-load-error is the *only* element
+ * this screen ever renders in that state (unexpectedLoadFailureOutcome's
+ * own absent list). Human ruling (2026-09-06 chat): a short notice only,
+ * no retry control -- reopening the link (a fresh page load) is the only
+ * way to try again.
  */
 (function () {
   "use strict";
@@ -91,6 +115,10 @@
     view: null,
     errorCode: null,
     nameOpen: false,
+    // adr/0047, TDR-GTH-42: true exactly when unexpectedLoadFailureOutcome
+    // applies -- set only by loadView below, never by any other
+    // participant-facing call (seedParticipantLinkServerError's own scope).
+    loadFailure: false,
   };
 
   function el(tag, attrs, children) {
@@ -120,11 +148,30 @@
     if (body !== undefined) {
       options.body = JSON.stringify(body);
     }
-    return fetch(url, options).then(function (response) {
-      return response.json().then(function (responseBody) {
-        return { status: response.status, body: responseBody };
+    // adr/0047: this promise chain must never reject -- a rejected promise
+    // here previously left applyResult/render uncalled entirely (this
+    // file's own module docstring history), which is exactly the blank-
+    // page bug TDR-GTH-42 covers. A network-level failure (fetch itself
+    // rejects) or an unparsable body (response.json() rejects, e.g.
+    // seedParticipantLinkServerError's empty-or-non-conforming 500)
+    // resolves to a sentinel result instead -- status: null marks "never
+    // reached the server at all"; body: null marks "reached the server
+    // but the body could not be parsed" (a real HTTP status is still
+    // reported in that second case).
+    return fetch(url, options)
+      .then(function (response) {
+        return response.json().then(
+          function (responseBody) {
+            return { status: response.status, body: responseBody };
+          },
+          function () {
+            return { status: response.status, body: null };
+          }
+        );
+      })
+      .catch(function () {
+        return { status: null, body: null };
       });
-    });
   }
 
   // --- shared-date-formatting BEGIN (identical copy in gathering.js; keep both in sync) ---
@@ -322,9 +369,42 @@
     render();
   }
 
+  // browserEntry.participantAnswer's own three, mutually exclusive,
+  // exhaustive outcomes for opening a participant link (adr/0047):
+  // validLinkOutcome (200), invalidLinkOutcome (one of these four
+  // recognized ProblemResponse codes), or unexpectedLoadFailureOutcome
+  // (every other case).
+  var RECOGNIZED_LINK_ERROR_CODES = [
+    "LINK_NOT_FOUND",
+    "LINK_EXPIRED",
+    "LINK_REVOKED",
+    "LINK_RATE_LIMITED",
+  ];
+
   function loadView() {
     requestJson("GET", participantUrl()).then(function (result) {
-      applyResult(result);
+      if (result.status === 200) {
+        state.view = result.body;
+        state.errorCode = null;
+        state.loadFailure = false;
+      } else if (
+        result.body &&
+        RECOGNIZED_LINK_ERROR_CODES.indexOf(result.body.code) !== -1
+      ) {
+        // invalidLinkOutcome: linkError already covers this meaningful,
+        // explicit rejection.
+        state.view = null;
+        state.errorCode = result.body.code;
+        state.loadFailure = false;
+      } else {
+        // unexpectedLoadFailureOutcome (adr/0047, TDR-GTH-42): a
+        // transport-level failure, an unparsable body, or a response
+        // carrying none of linkError's four recognized codes.
+        state.view = null;
+        state.errorCode = null;
+        state.loadFailure = true;
+      }
+      render();
     });
   }
 
@@ -874,8 +954,36 @@
     );
   }
 
+  /**
+   * unexpectedLoadFailureOutcome's own required surface
+   * (browserControlSurface.participantAnswer.loadFailure, adr/0047,
+   * TDR-GTH-42). Its visible text conveys only that loading failed and
+   * that reopening the link later may work -- never an HTTP status code,
+   * an exception message, a request/trace identifier, or a hostname (this
+   * function reads nothing from the failed response at all, so there is
+   * nothing technical here to leak). No purpose-declared control is
+   * rendered here -- human ruling 2026-09-06: the notice alone, no retry
+   * button (loadFailure.noRetryControl).
+   */
+  function renderLoadFailure() {
+    return el(
+      "div",
+      { "data-testid": "gathering-participant-load-error", class: "gth-load-error" },
+      ["うまく読み込めませんでした。時間をおいて開き直してください。"]
+    );
+  }
+
   function render() {
     root.innerHTML = "";
+    if (state.loadFailure) {
+      // unexpectedLoadFailureOutcome's own absent list (adr/0047): every
+      // other participant-facing element -- header, schedule question,
+      // name-open, linkError, shop-vote question, decision -- stays
+      // absent, mirroring the finalizedView branch's own dedicated-
+      // branch style below rather than gating each element individually.
+      root.appendChild(el("div", { class: "gth-app" }, [renderLoadFailure()]));
+      return;
+    }
     var children = [];
     var shopVoteMapPending = null;
     if (state.view) {

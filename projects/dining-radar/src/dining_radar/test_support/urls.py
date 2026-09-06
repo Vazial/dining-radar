@@ -31,4 +31,9 @@ urlpatterns = [
         views.gathering_seed_rate_limited_participant_link,
         name="gathering-participant-link-rate-limit",
     ),
+    path(
+        "gathering-scheduling/participant-links/server-error",
+        views.gathering_seed_participant_link_server_error,
+        name="gathering-participant-link-server-error",
+    ),
 ]

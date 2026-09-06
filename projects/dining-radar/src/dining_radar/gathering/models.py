@@ -165,6 +165,14 @@ class ParticipantLink(models.Model):
     # regardless of which of the three participant-facing operations it is
     # (adr/0037). Never set by any public operation.
     rate_limited_once = models.BooleanField(default=False)
+    # test-support-api.yaml's seedParticipantLinkServerError (adr/0047,
+    # 1.5.4): a one-shot flag consumed by the very next getParticipantView
+    # call for this token only -- narrower than rate_limited_once above,
+    # which applies to any of the three participant-facing operations
+    # (this seam's own operationId summary: "Force the next
+    # getParticipantView call ... to fail unrecognizably"). Never set by
+    # any public operation.
+    server_error_once = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["issued_at"]

@@ -1913,6 +1913,67 @@ Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (
    `gathering.js`・`gathering_create.js`・`gathering_list.js`のキャッシュ回避文字列を更新した
    （FR-025）。
 
+14. **参加者画面の読み込み失敗に短いお知らせを実装した（2026-09-06、developer、`adr/0047`・
+    `TDR-GTH-42`）。** ブランチ`impl/participant-load-failure`、基点は
+    `origin/integrate/gathering-three-tier`（`8d57607`）。契約（`gathering-scheduling-browser-
+    interface.yaml` v0.8.0の`unexpectedLoadFailureOutcome`/`loadFailure`、`test-support-api.yaml`
+    v1.5.4の`seedParticipantLinkServerError`）・ADR-0047・`gathering-scheduling.feature`の
+    `TDR-GTH-42`はいずれも既に本ブランチの基点に合流済みで、architectが用意した契約に沿って実装した
+    だけであり、今回は契約変更を伴っていない。
+
+    **バグの実体**: `participant.js`の`requestJson`が`fetch().then(r => r.json())`のみで、
+    `response.json()`のreject（本文が空・非JSON）にも`fetch()`自体のreject（ネットワーク断）にも
+    `.catch`が無かった。`loadView()`の`.then`が一度も呼ばれないため`applyResult`/`render()`が発火
+    せず、画面はサーバが最初に返した空のマウント要素のまま——ADR-0047が報告した「真っ白」の直接原因。
+
+    **実装**: `requestJson`をpromiseが決して reject しない形に直した（`response.json()`のreject→
+    `{status, body: null}`、`fetch()`のreject→`{status: null, body: null}`のsentinelへ正規化）。
+    `loadView()`を新設し、結果を`validLinkOutcome`（200）／`invalidLinkOutcome`（`linkError`の4つの
+    既知コードのいずれか）／`unexpectedLoadFailureOutcome`（それ以外すべて）の3つへ排他的に分類、
+    `state.loadFailure`を立てる。`render()`は`state.loadFailure`を最初に分岐し、真なら
+    `gathering-participant-load-error`だけを描画して即returnする（他の要素は一切構築しない——
+    設問・エラー面・名前操作のいずれも出ない）。可視文言は「うまく読み込めませんでした。時間を
+    おいて開き直してください。」（ADR-0047の趣旨どおり、正確な日本語は裁量）。操作は置いていない
+    （`data-gathering-control-purpose`無し、`<button>`無し——人間裁定どおり）。技術的な内部情報
+    （HTTPステータス・例外・トレースID・ホスト名）は表示ロジックが失敗レスポンスの中身を一切読まない
+    構造にしたことで構造的に漏れない。
+
+    **サーバ側**: `ParticipantLink.server_error_once`（一発flag、`rate_limited_once`と同型だが
+    `getParticipantView`だけに効く——seamの仕様どおり）をマイグレーション`0004`で追加。
+    `services.get_participant_view`が消費・`services.seed_participant_link_server_error`が新設。
+    `views.participant_view`は`ParticipantLinkServerErrorSeededError`を裸の`HTTP 500`（本文なし、
+    `ProblemResponse`ではない——意図的に`linkError`の4コードのいずれとも一致しない形）で返す。
+    `test_support/views.py`/`urls.py`に`seedParticipantLinkServerError`のエンドポイントを、既存2
+    seamと同じ`_acceptance_only()`ガード方式で新設した。
+
+    **検証（すべてdeveloperが実行）**: L1（ruff check/format緑、単体637件+98 subtests緑
+    ［`-k "not acceptance"`］、カバレッジ96%［`coverage report --fail-under=90`通過、
+    `test_support/views.py`の未到達行は既存2seamの400分岐と同型の既存ギャップで今回の後退ではない
+    ことを行番号で確認済み］、`manage.py makemigrations --check`差分なし）。mutation testingは
+    Windowsの既知の制約（`WinError 206`、コマンドライン長超過——`tests/test_gathering.py`
+    フル+`tests/test_test_support.py`を同時に渡すと発生）に当たったため、変更ファイル単位で分割して
+    実行した: `services.py`+`views.py`を対象に`tests/test_gathering.py`単体で271/271ゼロ生存
+    （100%）、`test_support/views.py`を対象に関連クラス（`ParticipantViewApiTests`・
+    `TestSupportGatheringApiTests`・`ParticipantEndpointGuardTests`）+`tests/test_test_support.py`
+    で78/78ゼロ生存（100%）——`tools/check_mutation_score.py`は100.00%（必要80.00%）と報告。
+    L2（構造13件+17 subtests）/L3（境界181件、`manage.py check`×3——`settings_test`・
+    `settings_acceptance`・`settings`（`DJANGO_SECRET_KEY`付与）のいずれも「0 silenced」）緑。
+    L4（`manage.py test tests.acceptance`）は**既存65件全緑のまま**（767秒、tester領分の
+    `TDR-GTH-42`のstepは本ブランチに無い——契約どおり）。L5（`tests/ui_invariants`）は14件+10
+    subtests全緑（candidate.js無変更）。`participant.js`のキャッシュ回避文字列を`?v=20260906-
+    load-failure-notice`へ更新した（FR-025）。
+
+    **実測（Playwright、使い捨てスクリプトでコミット前に削除）**: 有効なリンクを開く→ヘッダーが
+    出る（ベースライン）→`seedParticipantLinkServerError`を叩く（204）→同じリンクを開き直す→
+    `gathering-participant-load-error`が出現し可視文言は「うまく読み込めませんでした。時間を
+    おいて開き直してください。」→`gathering-participant-header`/`-schedule-question`/
+    `-name-open`/`-link-error`/`-shop-vote-question`/`-decision`のいずれも0件（DOM上に存在しない）
+    →お知らせの中に`<button>`は0個→お知らせ要素自身の`outerHTML`に`500`/`Traceback`/`Exception`/
+    `trace`/`hostname`/両canary文字列のいずれも含まれない→もう一度同じリンクを開くとヘッダーが
+    正常に戻る（一発flagの消費を確認）。
+
+    **契約との食い違い（FR-028）**: 無し。契約・ADR・feature本文のとおりに実装できた。
+
 11. **ローカルで画面を確かめる手順**（このスライスで何度も踏んだので残す）。
     - `python manage.py runserver 127.0.0.1:8741 --settings=dining_radar.settings_localdemo --noreload --insecure`
     - `settings_localdemo.py` と `localdemo.sqlite3` は**リポジトリに入れない**（`.gitignore` 済み、FR-027）。

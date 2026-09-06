@@ -119,6 +119,14 @@ class LinkRateLimitedError(Exception):
     """``LINK_RATE_LIMITED``: this token exceeded the allowed request frequency."""
 
 
+class ParticipantLinkServerErrorSeededError(Exception):
+    """Acceptance-only: ``seedParticipantLinkServerError`` (adr/0047) consumed
+    this one-shot flag on the very next ``getParticipantView`` call. Carries no
+    ``ProblemResponse`` code -- it models a failure this product's own code
+    cannot itself produce (this is why it is not one of the ``Link*Error``
+    classes above, none of which corresponds to it)."""
+
+
 class GatheringFinalizedError(Exception):
     """``GATHERING_FINALIZED``: no further schedule response is accepted."""
 
@@ -782,8 +790,23 @@ def _authorize_participant_link(link: ParticipantLink) -> None:
 
 
 def get_participant_view(token: str) -> ParticipantLink:
-    """``getParticipantView``."""
+    """``getParticipantView``.
+
+    Checks the acceptance-only ``server_error_once`` seed (adr/0047) before
+    ``_authorize_participant_link``'s revoked/expired/rate-limited checks --
+    it models a failure this product's own code cannot itself produce (the
+    seam's own doc: "a transport-level failure ... not a change to the
+    link's own status"), so it takes priority over every real, durable link
+    state rather than being folded into that shared helper (contrast with
+    rate_limited_once, which participant_link's docstring already gates
+    through _authorize_participant_link because every one of the three
+    participant-facing operations may consume it).
+    """
     link = _get_participant_link_by_token(token)
+    if link.server_error_once:
+        link.server_error_once = False
+        link.save(update_fields=["server_error_once"])
+        raise ParticipantLinkServerErrorSeededError
     _authorize_participant_link(link)
     return link
 
@@ -855,3 +878,14 @@ def seed_rate_limited_participant_link(token: str) -> None:
         raise LinkNotFoundError from error
     link.rate_limited_once = True
     link.save(update_fields=["rate_limited_once"])
+
+
+def seed_participant_link_server_error(token: str) -> None:
+    """``seedParticipantLinkServerError`` (adr/0047). Rejects an unknown token
+    like the public API would."""
+    try:
+        link = ParticipantLink.objects.get(token=token)
+    except ParticipantLink.DoesNotExist as error:
+        raise LinkNotFoundError from error
+    link.server_error_once = True
+    link.save(update_fields=["server_error_once"])

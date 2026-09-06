@@ -191,6 +191,23 @@
         font-size: 0.8125rem;
       }
 
+      /* unexpectedLoadFailureOutcome (adr/0047, TDR-GTH-42): the sole
+         element rendered in this state (render()'s own early-return
+         branch), so it is styled more like a standalone card than
+         gathering-participant-link-error above (which always appears
+         alongside a still-rendered header/question/name-control). Reuses
+         the same disclosure-discipline colors as that element. */
+      .gth-load-error {
+        margin: 1.75rem 1rem;
+        padding: 1.1rem 1rem;
+        border-radius: 0.75rem;
+        background: #fff0ed;
+        color: #982c22;
+        font-size: 0.875rem;
+        line-height: 1.6;
+        text-align: center;
+      }
+
       /* Approval-voting surface (Vote.dc.html B-2, adr/0042; three-tier +
          map/detail fields adr/0044/0045, 2026-09-05) */
       .gth-vote-section {
@@ -329,6 +346,6 @@
     {% comment %}
       Cache-busting query string on participant.js (FR-025).
     {% endcomment %}
-    <script src="{% static 'dining_radar/gathering/participant.js' %}?v=20260905-three-tier-vote-and-map"></script>
+    <script src="{% static 'dining_radar/gathering/participant.js' %}?v=20260906-load-failure-notice"></script>
   </body>
 </html>

@@ -37,7 +37,7 @@ import json
 from datetime import datetime
 
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.middleware.csrf import CsrfViewMiddleware
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
@@ -586,9 +586,22 @@ def finalize(request, gathering_id):
 
 @require_GET
 def participant_view(request, token):
-    """``GET /participant-links/{token}``: ``getParticipantView``."""
+    """``GET /participant-links/{token}``: ``getParticipantView``.
+
+    ``ParticipantLinkServerErrorSeededError`` (adr/0047,
+    ``seedParticipantLinkServerError``) is answered with a bare 500 and no
+    body -- deliberately not a ``ProblemResponse`` (no ``code``, no
+    ``message``): this models a failure this product's own code cannot
+    itself produce through the public boundary, so it carries none of
+    linkError's four recognized codes by construction. The browser's own
+    ``gathering-participant-load-error`` requirement treats an empty body
+    and a non-conforming body identically (adr/0047 decision 4), so this
+    view does not need to pick one specific non-conforming shape either.
+    """
     try:
         link = services.get_participant_view(token)
+    except services.ParticipantLinkServerErrorSeededError:
+        return HttpResponse(status=500)
     except (
         services.LinkNotFoundError,
         services.LinkExpiredError,

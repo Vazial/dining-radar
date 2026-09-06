@@ -271,3 +271,18 @@ def gathering_seed_rate_limited_participant_link(request):
     except gathering_services.LinkNotFoundError:
         return HttpResponse(status=404)
     return HttpResponse(status=204)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def gathering_seed_participant_link_server_error(request):
+    """``seedParticipantLinkServerError`` (test-support-api.yaml 1.5.4, adr/0047)."""
+    _acceptance_only()
+    token = _gathering_participant_link_token(request)
+    if token is None:
+        return HttpResponse(status=400)
+    try:
+        gathering_services.seed_participant_link_server_error(token)
+    except gathering_services.LinkNotFoundError:
+        return HttpResponse(status=404)
+    return HttpResponse(status=204)
