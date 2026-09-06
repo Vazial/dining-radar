@@ -672,6 +672,89 @@
   overflow-wrap: anywhere;
 }
 
+/* --- shop map + detail fields + three-tier tallies (adr/0044/0045/0046) -- */
+
+.gth-shop-map {
+  width: 100%;
+  height: 12.5rem;
+  box-sizing: border-box;
+  border: 1px solid #dfe4de;
+  border-radius: 0.625rem;
+  overflow: hidden;
+  background: #eaf0ea;
+}
+
+.gathering-open-shop-map-marker-icon,
+.gathering-shop-vote-map-marker-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.gathering-open-shop-map-marker-visual,
+.gathering-shop-vote-map-marker-visual {
+  display: block;
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 50%;
+  background: #14614a;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #14614a;
+}
+.gathering-search-origin-marker-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.gathering-search-origin-marker-visual {
+  display: block;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  background: #b4531c;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #b4531c;
+}
+
+.gth-shop-detail-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.75rem;
+  align-items: center;
+}
+.gth-shop-detail {
+  font-size: 0.6875rem;
+  color: #4b564e;
+  white-space: nowrap;
+}
+.gth-shop-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.25rem;
+  padding: 0 0.75rem;
+  border: 1px solid #14614a;
+  border-radius: 0.5rem;
+  color: #14614a;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.gth-shop-link:hover {
+  background: #f7fbf8;
+}
+
+.gth-shop-tally-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.9rem;
+  font-size: 0.75rem;
+  color: #4b564e;
+}
+.gth-shop-tally-row b {
+  color: #17201b;
+  font-weight: 700;
+}
+
 .gth-link-list {
   display: flex;
   flex-direction: column;

@@ -53,16 +53,29 @@
  *
  * 2026-09-04 addition (adr/0042, contract v0.5): the approval-voting
  * surface (shopVoteQuestion, Vote.dc.html B-2) and the finalized view
- * (finalizedView, Final.dc.html B-3). Unlike shortlistSelection's pending/
- * apply model on the organizer dashboard, shopVoteQuestion's checkbox has
- * **no pending state of its own** -- each toggle immediately calls
- * setShopVotes with the complete updated approvedShopIds (Vote.dc.html:
- * "選ぶとその場で保存されます", no separate submit button). Once
- * ParticipantView.decision becomes non-null, finalizedView **replaces**
- * scheduleQuestion/shopVoteQuestion/progress/nameControl's open+submit
- * entirely rather than coexisting with them (this contract's own
- * replacesQuestionSurfaces/noOperations clauses) -- render() branches on
- * `state.view.decision` before building anything else.
+ * (finalizedView, Final.dc.html B-3). Once ParticipantView.decision becomes
+ * non-null, finalizedView **replaces** scheduleQuestion/shopVoteQuestion/
+ * progress/nameControl's open+submit entirely rather than coexisting with
+ * them (this contract's own replacesQuestionSurfaces/noOperations clauses)
+ * -- render() branches on `state.view.decision` before building anything
+ * else.
+ *
+ * 2026-09-05 addition (adr/0044/0045/0046, contract v0.7.0): shopVoteQuestion
+ * moved from a single toggling checkbox to a three-tier
+ * WANT_TO_GO/OK_TO_GO/NOT_GOING selection (voteOptions), mirroring
+ * scheduleQuestion.responseOptions' own three-sibling-button shape exactly.
+ * Still **no pending state of its own** -- each activation immediately calls
+ * setShopVotes with this shop's new status plus every other currently-
+ * rendered shop's own currently-held vote (Vote.dc.html: "選ぶとその場で
+ * 保存されます", no separate submit button) -- see selectShopVote below. Also
+ * added: a shared map (shopVoteMap, gathering-shop-vote-map) showing every
+ * rendered shop's pin plus the private search origin (adr/0045), and 5
+ * per-shop detail fields (walking time / capacity / non-smoking / dinner
+ * budget / provider page link, adr/0044). finalizedView's decision.shopVote
+ * (renamed from decision.approvedShop) now carries one entry per shop among
+ * the finalized shortlist, including one this participant never answered
+ * (status: null, "答えないまま締まりました" -- adr/0046 open item 3,
+ * 2026-09-05 human chat decision).
  */
 (function () {
   "use strict";
@@ -151,6 +164,151 @@
     return "/participant-links/" + encodeURIComponent(token);
   }
 
+  // 2026-09-05 addition (adr/0044/0046): the coarse tier vocabularies also
+  // used by web/static/dining_radar/web/candidate.js and by gathering.js's
+  // own organizer-facing copy -- duplicated here (no shared module system
+  // exists in this codebase; every other small utility, e.g. el()/
+  // requestJson()/the date formatter above, is already duplicated the same
+  // way).
+  var CAPACITY_TIER_LABELS = { SMALL: "少なめ", MEDIUM: "標準", LARGE: "多め" };
+  var NON_SMOKING_LABELS = { FULL: "全席禁煙", PARTIAL: "一部禁煙", NONE: "禁煙席なし" };
+  var BUDGET_TIER_LABELS = { LOW: "低", MID: "中", HIGH: "高" };
+
+  // adr/0044, TDR-GTH-39: the 5 detail fields shown per shop on this
+  // screen's shopVoteQuestion (walking time / capacity / non-smoking /
+  // dinner budget / provider page link) -- field-for-field the same
+  // information gathering.js's own renderOpenShopDetailFields shows on the
+  // organizer's shortlistSelection list, with this screen's own test-id
+  // prefix.
+  function renderShopVoteDetailFields(question) {
+    return [
+      el(
+        "span",
+        {
+          "data-testid": "gathering-shop-vote-question-walking-time",
+          class: "gth-shop-detail",
+        },
+        ["徒歩 約" + question.walkingTimeMinutes + "分"]
+      ),
+      el(
+        "span",
+        {
+          "data-testid": "gathering-shop-vote-question-capacity-tier",
+          class: "gth-shop-detail",
+        },
+        [question.capacityTier ? CAPACITY_TIER_LABELS[question.capacityTier] : "情報なし"]
+      ),
+      el(
+        "span",
+        {
+          "data-testid": "gathering-shop-vote-question-non-smoking",
+          class: "gth-shop-detail",
+        },
+        [question.nonSmokingStatus ? NON_SMOKING_LABELS[question.nonSmokingStatus] : "情報なし"]
+      ),
+      el(
+        "span",
+        {
+          "data-testid": "gathering-shop-vote-question-dinner-budget",
+          class: "gth-shop-detail",
+        },
+        [
+          question.dinnerBudgetTier
+            ? "予算感 " + BUDGET_TIER_LABELS[question.dinnerBudgetTier]
+            : "情報なし",
+        ]
+      ),
+      el(
+        "a",
+        {
+          "data-testid": "gathering-shop-vote-question-provider-page-link",
+          href: question.providerPageUrl,
+          target: "_blank",
+          rel: "noopener noreferrer",
+          class: "gth-shop-link",
+        },
+        ["店のページを見る"]
+      ),
+    ];
+  }
+
+  // adr/0044/0045, TDR-GTH-39/41: the participant's shared map
+  // (gathering-shop-vote-map/-marker), plus the private search origin
+  // marker (gathering-search-origin-marker, adr/0045 -- the extension of
+  // ADR-0025 decision 1's disclosure to this unauthenticated screen). This
+  // map's own marker/origin test ids are distinct from both candidate.js's
+  // (candidate-map-marker/candidate-origin-marker,
+  // unavailableControls.forbiddenTestIds) and gathering.js's own organizer-
+  // facing map (gathering-open-shop-map-marker) -- see this file's own
+  // module docstring history for why a shared JS module is not used here.
+  var shopVoteMapInstance = null;
+
+  function initializeShopVoteMap(container, items, searchOrigin) {
+    if (shopVoteMapInstance) {
+      shopVoteMapInstance.remove();
+      shopVoteMapInstance = null;
+    }
+    if (!window.L || !container) {
+      return;
+    }
+    var map = window.L.map(container, { attributionControl: false });
+    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+    }).addTo(map);
+    var latLngs = items.map(function (item) {
+      return [item.location.latitude, item.location.longitude];
+    });
+    var boundsLatLngs = latLngs.slice();
+    if (searchOrigin) {
+      boundsLatLngs.push([searchOrigin.latitude, searchOrigin.longitude]);
+    }
+    if (boundsLatLngs.length > 0) {
+      map.fitBounds(window.L.latLngBounds(boundsLatLngs), { padding: [24, 24] });
+    } else {
+      map.setView([0, 0], 2);
+    }
+    items.forEach(function (item, index) {
+      var icon = window.L.divIcon({
+        className: "gathering-shop-vote-map-marker-icon",
+        html: '<span class="gathering-shop-vote-map-marker-visual"></span>',
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+      });
+      // keyboard: false -- these pins are display-only (the actual vote is
+      // cast via the three vote buttons below, not by clicking a pin); no
+      // ADR-0020-decision-4(c)-style keyboard-operability requirement
+      // exists for this screen's map.
+      var marker = window.L.marker(latLngs[index], { icon: icon, keyboard: false });
+      marker.addTo(map);
+      var markerEl = marker.getElement();
+      if (!markerEl) {
+        return;
+      }
+      markerEl.setAttribute("data-testid", "gathering-shop-vote-map-marker");
+      markerEl.setAttribute("data-shop-id", item.shopId);
+    });
+    if (searchOrigin) {
+      var originIcon = window.L.divIcon({
+        className: "gathering-search-origin-marker-icon",
+        html: '<span class="gathering-search-origin-marker-visual"></span>',
+        iconSize: [20, 20],
+        iconAnchor: [10, 10],
+      });
+      var originMarker = window.L.marker([searchOrigin.latitude, searchOrigin.longitude], {
+        icon: originIcon,
+        keyboard: false,
+        alt: "検索基点",
+      });
+      originMarker.addTo(map);
+      var originEl = originMarker.getElement();
+      if (originEl) {
+        originEl.setAttribute("data-testid", "gathering-search-origin-marker");
+        originEl.setAttribute("aria-label", "検索基点");
+      }
+    }
+    shopVoteMapInstance = map;
+  }
+
   function applyResult(result, onSuccess) {
     if (result.status === 200) {
       state.view = result.body;
@@ -178,29 +336,32 @@
     );
   }
 
-  function toggleShopVote(shopId) {
-    // shopVoteQuestion.selectOption.requiredOutcome: immediately calls
-    // setShopVotes with the complete updated approvedShopIds (every
-    // currently-checked gathering-shop-vote-question among those
-    // rendered) -- not a pending/submit model, unlike the organizer's
-    // shortlistSelection. Computed from the *current* view so a toggle
-    // flips exactly the targeted shop and leaves every other shop's
-    // approval as-is.
-    var approvedShopIds = (state.view.shopVoteQuestions || [])
-      .filter(function (question) {
-        if (question.shopId === shopId) {
-          return question.yourApproval !== true;
-        }
-        return question.yourApproval === true;
-      })
+  function selectShopVote(shopId, status) {
+    // shopVoteQuestion.voteOptions.requiredOutcome (adr/0044, three-tier):
+    // immediately calls setShopVotes with a votes array containing
+    // {shopId, status} for this shop plus this participant's currently-held
+    // vote for every other currently-rendered shop -- not a pending/submit
+    // model, unlike the organizer's shortlistSelection. Computed from the
+    // *current* view so this activation sets exactly the targeted shop's
+    // status and leaves every other shop's vote as-is; a shop with no
+    // currently-held vote (yourVote still null/"not yet answered") is
+    // omitted from the array entirely, not forced into any status
+    // (SetShopVotesRequest's own "a shop omitted here is left not yet
+    // answered" rule).
+    var votes = (state.view.shopVoteQuestions || [])
       .map(function (question) {
-        return question.shopId;
+        var value = question.shopId === shopId ? status : question.yourVote;
+        if (value === null || value === undefined) {
+          return null;
+        }
+        return { shopId: question.shopId, status: value };
+      })
+      .filter(function (entry) {
+        return entry !== null;
       });
-    requestJson("PUT", participantUrl() + "/shop-votes", { approvedShopIds: approvedShopIds }).then(
-      function (result) {
-        applyResult(result);
-      }
-    );
+    requestJson("PUT", participantUrl() + "/shop-votes", { votes: votes }).then(function (result) {
+      applyResult(result);
+    });
   }
 
   function openNameControl() {
@@ -472,10 +633,39 @@
    * decision is still null (render() only calls this from the non-decision
    * branch, so the decision check itself lives there).
    */
+  var VOTE_VALUES = ["WANT_TO_GO", "OK_TO_GO", "NOT_GOING"];
+  var VOTE_LABELS = { WANT_TO_GO: "行きたい", OK_TO_GO: "行ってもいい", NOT_GOING: "むり" };
+
+  // shopVoteQuestion.voteOptions (adr/0044, restructured 2026-09-05):
+  // mirrors responseOptionButtons above exactly -- three sibling buttons
+  // sharing one operational purpose (gathering-shop-vote-select), each
+  // immediately calling selectShopVote on activation.
+  function voteOptionButtons(question) {
+    return VOTE_VALUES.map(function (value) {
+      var option = el(
+        "button",
+        {
+          type: "button",
+          "data-testid": "gathering-shop-vote-option",
+          "data-gathering-control-purpose": "gathering-shop-vote-select",
+          "data-vote-value": value,
+          "aria-pressed": question.yourVote === value ? "true" : "false",
+          class:
+            "gth-opt gth-opt--compact" + (question.yourVote === value ? " gth-opt--on" : ""),
+        },
+        [VOTE_LABELS[value]]
+      );
+      option.addEventListener("click", function () {
+        selectShopVote(question.shopId, value);
+      });
+      return option;
+    });
+  }
+
   function renderShopVoteTally(question) {
     if (question.tally === null || question.tally === undefined) {
       // product-brief.md §2's "answer first, then see others" rule, applied
-      // per shop (TDR-GTH-29) -- absent exactly when yourApproval is
+      // per shop (TDR-GTH-29) -- absent exactly when yourVote is
       // "UNANSWERED".
       return null;
     }
@@ -483,41 +673,34 @@
       "div",
       {
         "data-testid": "gathering-shop-vote-tally",
-        "data-approval-count": question.tally.approvalCount,
+        "data-want-to-go-count": question.tally.wantToGoCount,
+        "data-ok-to-go-count": question.tally.okToGoCount,
+        "data-not-going-count": question.tally.notGoingCount,
         "data-responded-count": question.tally.respondedParticipantCount,
         class: "gth-vote-tally",
       },
-      [el("b", {}, [String(question.tally.approvalCount)]), "人が行ってもいいと回答"]
+      [
+        el("span", {}, [VOTE_LABELS.WANT_TO_GO + " ", el("b", {}, [String(question.tally.wantToGoCount)])]),
+        el("span", {}, [VOTE_LABELS.OK_TO_GO + " ", el("b", {}, [String(question.tally.okToGoCount)])]),
+        el("span", {}, [VOTE_LABELS.NOT_GOING + " ", el("b", {}, [String(question.tally.notGoingCount)])]),
+      ]
     );
   }
 
   function renderShopVoteQuestion(question) {
-    var yourApprovalValue =
-      question.yourApproval === null
-        ? "UNANSWERED"
-        : question.yourApproval
-          ? "true"
-          : "false";
-    var checkbox = el(
-      "input",
-      {
-        type: "checkbox",
-        "data-testid": "gathering-shop-vote-select",
-        "data-gathering-control-purpose": "gathering-shop-vote-select",
-        checked: question.yourApproval === true,
-      },
-      []
+    var yourVoteValue = question.yourVote === null ? "UNANSWERED" : question.yourVote;
+    var detailRow = el(
+      "div",
+      { class: "gth-shop-detail-row" },
+      renderShopVoteDetailFields(question)
     );
-    checkbox.addEventListener("click", function () {
-      toggleShopVote(question.shopId);
-    });
-
-    var children = [checkbox, el("span", { class: "gth-vote-name" }, [question.name])];
+    var children = [el("span", { class: "gth-vote-name" }, [question.name]), detailRow];
+    children.push(el("div", { class: "gth-vote-options" }, voteOptionButtons(question)));
     var tally = renderShopVoteTally(question);
     if (tally) {
       children.push(tally);
     } else {
-      children.push(el("span", { class: "gth-vote-mask" }, ["あなたが選ぶと票が見えます"]));
+      children.push(el("span", { class: "gth-vote-mask" }, ["あなたが答えると票が見えます"]));
     }
 
     return el(
@@ -525,7 +708,7 @@
       {
         "data-testid": "gathering-shop-vote-question",
         "data-shop-id": question.shopId,
-        "data-your-approval": yourApprovalValue,
+        "data-your-vote": yourVoteValue,
         class: "gth-vote-row",
       },
       children
@@ -536,35 +719,72 @@
     if (!state.view.shopVoteQuestions) {
       return null;
     }
-    return el(
+    // gathering-shop-vote-map (adr/0044/0045, TDR-GTH-39/41): one shared
+    // map, appended to the live DOM by render() below before this map is
+    // initialized (see initializeShopVoteMap's own module-docstring
+    // precedent).
+    var mapContainer = el(
+      "div",
+      { "data-testid": "gathering-shop-vote-map", class: "gth-shop-map" },
+      []
+    );
+    var node = el(
       "div",
       { class: "gth-vote-section" },
-      [el("div", { class: "gth-vote-heading" }, ["行ってもいい店をぜんぶ選んでください"])].concat(
+      [el("div", { class: "gth-vote-heading" }, ["お店に投票してください"]), mapContainer].concat(
         state.view.shopVoteQuestions.map(renderShopVoteQuestion)
       )
     );
+    return {
+      node: node,
+      mapContainer: mapContainer,
+      items: state.view.shopVoteQuestions,
+      searchOrigin: state.view.searchOrigin,
+    };
   }
+
+  // finalizedView.decision.shopVote's statusValues (adr/0044/0046): the
+  // three real ShopVoteStatus values plus the null-to-sentinel "UNANSWERED"
+  // ("答えないまま締まりました", adr/0046 open item 3, 2026-09-05 human chat
+  // decision) -- the same null-to-sentinel convention
+  // scheduleQuestion.yourResponseValues/shopVoteQuestion.yourVoteValues
+  // already use.
+  var VOTE_STATUS_LABELS = {
+    WANT_TO_GO: "行きたい",
+    OK_TO_GO: "行ってもいい",
+    NOT_GOING: "むり",
+    UNANSWERED: "答えないまま締まりました",
+  };
 
   /**
    * Final.dc.html B-3 -- the decision plus this participant's own
-   * retrospective record (P5, adr/0041/adr/0042). Never another
-   * participant's data (decision.yourApprovedShops is this participant's
-   * own approvals only, gathering-scheduling-api.yaml adr/0041).
+   * retrospective record (P5, adr/0041/adr/0042; generalized to the
+   * three-tier vote 2026-09-05, adr/0044; extended the same day to include
+   * a never-answered shop, adr/0046). Never another participant's data
+   * (decision.yourShopVotes is this participant's own votes only,
+   * gathering-scheduling-api.yaml adr/0041/adr/0044).
    */
   function renderFinalizedView() {
     var decision = state.view.decision;
     var yourScheduleResponseValue =
       decision.yourScheduleResponse === null ? "UNANSWERED" : decision.yourScheduleResponse;
 
-    var approvedShopEls = decision.yourApprovedShops.map(function (shop) {
+    var shopVoteEls = decision.yourShopVotes.map(function (entry) {
+      var voteStatusValue = entry.status === null ? "UNANSWERED" : entry.status;
       return el(
         "div",
         {
-          "data-testid": "gathering-participant-decision-approved-shop",
-          "data-shop-id": shop.shopId,
-          class: "gth-final-approved-shop",
+          "data-testid": "gathering-participant-decision-shop-vote",
+          "data-shop-id": entry.shop.shopId,
+          "data-vote-status": voteStatusValue,
+          class: "gth-final-shop-vote",
         },
-        [shop.name]
+        [
+          el("span", { class: "gth-final-shop-vote-name" }, [entry.shop.name]),
+          el("span", { class: "gth-final-shop-vote-status" }, [
+            VOTE_STATUS_LABELS[voteStatusValue],
+          ]),
+        ]
       );
     });
 
@@ -580,7 +800,9 @@
       [
         el("div", { class: "gth-final-badge" }, ["決まりました"]),
         el("div", { class: "gth-final-when-lb" }, ["日時"]),
-        el("div", { class: "gth-final-when" }, [formatGatheringDateTime(decision.confirmedCandidateDate)]),
+        el("div", { class: "gth-final-when" }, [
+          formatGatheringDateTime(decision.confirmedCandidateDate),
+        ]),
         el("div", { class: "gth-final-shop-lb" }, ["お店"]),
         el("div", { class: "gth-final-shop" }, [decision.shop.name]),
         el("div", { class: "gth-final-yours-lb" }, ["あなたの記録"]),
@@ -595,8 +817,8 @@
         el(
           "div",
           { class: "gth-final-approved" },
-          [el("div", { class: "gth-final-approved-lb" }, ["あなたが「行ってもいい」と選んだ店"])].concat(
-            approvedShopEls
+          [el("div", { class: "gth-final-approved-lb" }, ["店ごとのあなたの回答"])].concat(
+            shopVoteEls
           )
         ),
         el("p", { class: "gth-fine" }, [
@@ -655,6 +877,7 @@
   function render() {
     root.innerHTML = "";
     var children = [];
+    var shopVoteMapPending = null;
     if (state.view) {
       if (state.view.decision) {
         // finalizedView (adr/0042): replaces scheduleQuestion/
@@ -690,7 +913,8 @@
         }
         var shopVoteSection = renderShopVoteSection();
         if (shopVoteSection) {
-          body.push(shopVoteSection);
+          body.push(shopVoteSection.node);
+          shopVoteMapPending = shopVoteSection;
         }
         var nextPanel = renderNextPanel(remainingCount, state.view.phase);
         if (nextPanel) {
@@ -706,6 +930,17 @@
       children.push(renderError());
     }
     root.appendChild(el("div", { class: "gth-app" }, children));
+
+    // The map container above must already be attached to the live DOM
+    // before Leaflet initializes it (see initializeShopVoteMap's own
+    // module-docstring precedent, gathering.js's initializeOpenShopMap).
+    if (shopVoteMapPending) {
+      initializeShopVoteMap(
+        shopVoteMapPending.mapContainer,
+        shopVoteMapPending.items,
+        shopVoteMapPending.searchOrigin
+      );
+    }
   }
 
   loadView();

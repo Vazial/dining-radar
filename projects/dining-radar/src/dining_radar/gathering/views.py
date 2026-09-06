@@ -44,7 +44,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
 from . import services
-from .models import ScheduleResponseStatus
+from .models import ScheduleResponseStatus, ShopVoteStatus
 from .serializers import (
     serialize_gathering,
     serialize_issued_participant_link,
@@ -61,6 +61,7 @@ from .serializers import (
 # REJECTED-vs-domain-error split.
 
 _SCHEDULE_RESPONSE_STATUSES = frozenset(status.value for status in ScheduleResponseStatus)
+_SHOP_VOTE_STATUSES = frozenset(status.value for status in ShopVoteStatus)
 _MAX_ISSUE_COUNT = 200
 _RATE_LIMIT_RETRY_AFTER_SECONDS = 30
 
@@ -287,6 +288,31 @@ def _parse_shop_id(raw: object) -> str:
     return raw
 
 
+def _parse_shop_votes(raw: object) -> list[tuple[str, str]]:
+    """Structural shape only (a list of ``{shopId, status}`` objects).
+
+    Duplicate ``shopId``s and membership in the current shortlist are both
+    ``INVALID_SHOP_SELECTION`` domain errors raised by
+    ``dining_radar.gathering.services`` (mirrors ``_parse_shop_id_list``'s
+    own split), not ``REQUEST_REJECTED`` -- see this module's header
+    comment.
+    """
+    if not isinstance(raw, list):
+        raise MalformedRequestError
+    parsed = []
+    for item in raw:
+        if not isinstance(item, dict) or set(item) != {"shopId", "status"}:
+            raise MalformedRequestError
+        shop_id = item["shopId"]
+        status = item["status"]
+        if not isinstance(shop_id, str) or not shop_id:
+            raise MalformedRequestError
+        if status not in _SHOP_VOTE_STATUSES:
+            raise MalformedRequestError
+        parsed.append((shop_id, status))
+    return parsed
+
+
 # --- organizer JSON API (organizerSession + CSRF) ---------------------------
 
 
@@ -376,12 +402,12 @@ def open_shop_preview(request, gathering_id, candidate_date_id):
     if not request.user.is_authenticated:
         return _problem(*_AUTHENTICATION_REQUIRED)
     try:
-        candidate_date, population = services.preview_open_shops_for_candidate_date(
+        candidate_date, population, origin = services.preview_open_shops_for_candidate_date(
             request.user, gathering_id, candidate_date_id
         )
     except (services.GatheringNotFoundError, services.CandidateDateNotFoundError) as error:
         return _organizer_error_response(error)
-    return JsonResponse(serialize_open_shop_preview(candidate_date, population), status=200)
+    return JsonResponse(serialize_open_shop_preview(candidate_date, population, origin), status=200)
 
 
 @csrf_exempt
@@ -605,14 +631,14 @@ def shop_votes(request, token):
     """``PUT /participant-links/{token}/shop-votes``: ``setShopVotes``."""
     try:
         body = _read_body(request)
-        if set(body) != {"approvedShopIds"}:
+        if set(body) != {"votes"}:
             raise MalformedRequestError
-        approved_shop_ids = _parse_shop_id_list(body["approvedShopIds"])
+        votes = _parse_shop_votes(body["votes"])
     except MalformedRequestError:
         return _problem(*_REQUEST_REJECTED)
 
     try:
-        link = services.set_shop_votes(token, approved_shop_ids)
+        link = services.set_shop_votes(token, votes)
     except (
         services.LinkNotFoundError,
         services.LinkExpiredError,

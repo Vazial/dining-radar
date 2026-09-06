@@ -87,6 +87,17 @@
     FINALIZED: "確定",
   };
 
+  // 2026-09-05 addition (adr/0044/0046): three-tier shop-vote display labels
+  // and the coarse tier vocabularies also used by
+  // web/static/dining_radar/web/candidate.js -- duplicated here (no shared
+  // module system exists in this codebase; every other small utility is
+  // already duplicated the same way, see this file's own date-formatting
+  // block below).
+  var VOTE_LABELS = { WANT_TO_GO: "行きたい", OK_TO_GO: "行ってもいい", NOT_GOING: "むり" };
+  var CAPACITY_TIER_LABELS = { SMALL: "少なめ", MEDIUM: "標準", LARGE: "多め" };
+  var NON_SMOKING_LABELS = { FULL: "全席禁煙", PARTIAL: "一部禁煙", NONE: "禁煙席なし" };
+  var BUDGET_TIER_LABELS = { LOW: "低", MID: "中", HIGH: "高" };
+
   var state = {
     gathering: null,
     participantLinks: [],
@@ -237,6 +248,99 @@
         return { status: response.status, body: responseBody };
       });
     });
+  }
+
+  // adr/0044, TDR-GTH-38: the organizer's open-shop-list map
+  // (gathering-open-shop-map/-marker). Borrows the Leaflet/OSM convention
+  // web/static/dining_radar/web/candidate.js already established for the
+  // lunch-candidate screen's own map, but with this contract's own,
+  // distinct test ids (unavailableControls.forbiddenTestIds forbids
+  // reusing candidate-map/candidate-map-marker). Shows only each shop's own
+  // pin -- never the private search origin or a walking-radius ring
+  // (adr/0044 decision 4 scopes this specific screen's map to shops only).
+  var openShopMapInstance = null;
+
+  function initializeOpenShopMap(container, items) {
+    if (openShopMapInstance) {
+      openShopMapInstance.remove();
+      openShopMapInstance = null;
+    }
+    if (!window.L || !container) {
+      return;
+    }
+    var map = window.L.map(container, { attributionControl: false });
+    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+    }).addTo(map);
+    var latLngs = items.map(function (item) {
+      return [item.location.latitude, item.location.longitude];
+    });
+    if (latLngs.length > 0) {
+      map.fitBounds(window.L.latLngBounds(latLngs), { padding: [24, 24] });
+    } else {
+      map.setView([0, 0], 2);
+    }
+    items.forEach(function (item, index) {
+      var icon = window.L.divIcon({
+        className: "gathering-open-shop-map-marker-icon",
+        html: '<span class="gathering-open-shop-map-marker-visual"></span>',
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+      });
+      // keyboard: false -- this map's markers are display-only pins (the
+      // actual shortlist selection happens via the checkbox below each
+      // list item, not by clicking a pin); no ADR-0020-decision-4(c)-style
+      // keyboard-operability requirement exists for this screen's map.
+      var marker = window.L.marker(latLngs[index], { icon: icon, keyboard: false });
+      marker.addTo(map);
+      var markerEl = marker.getElement();
+      if (!markerEl) {
+        return;
+      }
+      markerEl.setAttribute("data-testid", "gathering-open-shop-map-marker");
+      markerEl.setAttribute("data-shop-id", item.shopId);
+    });
+    openShopMapInstance = map;
+  }
+
+  // adr/0044, TDR-GTH-38: the 5 detail fields (walking time / capacity /
+  // non-smoking / dinner budget / provider page link) shown per shop on
+  // both this organizer list and (a differently-prefixed copy)
+  // participant.js's shopVoteQuestion.
+  function renderOpenShopDetailFields(item) {
+    return [
+      el(
+        "span",
+        { "data-testid": "gathering-open-shop-list-item-walking-time", class: "gth-shop-detail" },
+        ["徒歩 約" + item.walkingTimeMinutes + "分"]
+      ),
+      el(
+        "span",
+        { "data-testid": "gathering-open-shop-list-item-capacity-tier", class: "gth-shop-detail" },
+        [item.capacityTier ? CAPACITY_TIER_LABELS[item.capacityTier] : "情報なし"]
+      ),
+      el(
+        "span",
+        { "data-testid": "gathering-open-shop-list-item-non-smoking", class: "gth-shop-detail" },
+        [item.nonSmokingStatus ? NON_SMOKING_LABELS[item.nonSmokingStatus] : "情報なし"]
+      ),
+      el(
+        "span",
+        { "data-testid": "gathering-open-shop-list-item-dinner-budget", class: "gth-shop-detail" },
+        [item.dinnerBudgetTier ? "予算感 " + BUDGET_TIER_LABELS[item.dinnerBudgetTier] : "情報なし"]
+      ),
+      el(
+        "a",
+        {
+          "data-testid": "gathering-open-shop-list-item-provider-page-link",
+          href: item.providerPageUrl,
+          target: "_blank",
+          rel: "noopener noreferrer",
+          class: "gth-shop-link",
+        },
+        ["店のページを見る"]
+      ),
+    ];
   }
 
   function gatheringUrl() {
@@ -766,6 +870,7 @@
     checkbox.addEventListener("click", function () {
       toggleShortlistPending(item.shopId);
     });
+    var detailRow = el("div", { class: "gth-shop-detail-row" }, renderOpenShopDetailFields(item));
     return el(
       "div",
       {
@@ -779,6 +884,7 @@
         el("div", { class: "gth-shop-body" }, [
           el("span", { class: "gth-shop-name" }, [item.name]),
           el("span", { class: "gth-shop-genre" }, [item.genre]),
+          detailRow,
         ]),
       ]
     );
@@ -786,6 +892,11 @@
 
   function renderShortlistSelection() {
     var previewShops = state.openShopList ? state.openShopList.previewShops : [];
+    var mapContainer = el(
+      "div",
+      { "data-testid": "gathering-open-shop-map", class: "gth-shop-map" },
+      []
+    );
     var list = el(
       "div",
       {
@@ -812,16 +923,18 @@
     );
     submit.addEventListener("click", submitShortlist);
 
-    return el("div", { class: "gth-pane" }, [
+    var node = el("div", { class: "gth-pane" }, [
       el("div", { class: "gth-pane-head" }, [
         "開いている店から選ぶ",
         el("span", { class: "gth-pane-sub" }, [
           (state.openShopList ? state.openShopList.openShopCount : 0) + "件・1件から選べます",
         ]),
       ]),
+      mapContainer,
       list,
       submit,
     ]);
+    return { node: node, mapContainer: mapContainer, items: previewShops };
   }
 
   // --- adr/0042: shortlistedShopVotes (Organizer.dc.html 状態②) ------------
@@ -830,16 +943,26 @@
     var attrs = {
       "data-testid": "gathering-shortlisted-shop-item",
       "data-shop-id": shop.shopId,
-      "data-approval-count": shop.approvalCount,
+      "data-want-to-go-count": shop.wantToGoCount,
+      "data-ok-to-go-count": shop.okToGoCount,
+      "data-not-going-count": shop.notGoingCount,
       "data-responded-count": shop.respondedParticipantCount,
       class: "gth-shop-row gth-shop-row--vote",
     };
+    // TDR-GTH-40: the three-tier breakdown, denominator = respondedParticipantCount
+    // (adr/0044 -- this section deliberately carries no map/detail fields,
+    // see this file's own module docstring history and adr/0046 decision 2).
+    var tallyRow = el("div", { class: "gth-shop-tally-row" }, [
+      el("span", {}, [VOTE_LABELS.WANT_TO_GO + " ", el("b", {}, [String(shop.wantToGoCount)])]),
+      el("span", {}, [VOTE_LABELS.OK_TO_GO + " ", el("b", {}, [String(shop.okToGoCount)])]),
+      el("span", {}, [VOTE_LABELS.NOT_GOING + " ", el("b", {}, [String(shop.notGoingCount)])]),
+      el("span", {}, [String(shop.respondedParticipantCount) + "人中"]),
+    ]);
     var children = [
       el("span", { class: "gth-shop-rank" }, [String(index + 1)]),
-      el("div", { class: "gth-shop-body" }, [el("span", { class: "gth-shop-name" }, [shop.name])]),
-      el("div", { class: "gth-shop-votes" }, [
-        el("b", {}, [String(shop.approvalCount)]),
-        "人 / " + shop.respondedParticipantCount + "人中",
+      el("div", { class: "gth-shop-body" }, [
+        el("span", { class: "gth-shop-name" }, [shop.name]),
+        tallyRow,
       ]),
     ];
     if (state.gathering.phase === "SELECTING_SHOP") {
@@ -877,7 +1000,9 @@
     var paneChildren = [
       el("div", { class: "gth-pane-head" }, [
         "お店の候補",
-        el("span", { class: "gth-pane-sub" }, ["並び: 行ってもいい人が多い順"]),
+        el("span", { class: "gth-pane-sub" }, [
+          "並び: 「行きたい」＋「行ってもいい」の合計が多い順",
+        ]),
       ]),
       list,
     ];
@@ -1094,8 +1219,11 @@
 
     var sections = [header, schedulePane];
 
+    var openShopMapPending = null;
     if (shortlistSelectionVisible()) {
-      sections.push(renderShortlistSelection());
+      var shortlistSelection = renderShortlistSelection();
+      sections.push(shortlistSelection.node);
+      openShopMapPending = shortlistSelection;
     }
 
     if (state.gathering.votingStartedAt !== null) {
@@ -1119,6 +1247,14 @@
     );
 
     root.appendChild(el("div", { class: "gth-dash" }, sections));
+
+    // The map container above must already be attached to the live DOM
+    // before Leaflet initializes it (its own size/tile layout otherwise
+    // measures a detached, zero-size node) -- see initializeOpenShopMap's
+    // own module-docstring precedent (candidate.js's initializeMap).
+    if (openShopMapPending) {
+      initializeOpenShopMap(openShopMapPending.mapContainer, openShopMapPending.items);
+    }
   }
 
   loadGathering();
