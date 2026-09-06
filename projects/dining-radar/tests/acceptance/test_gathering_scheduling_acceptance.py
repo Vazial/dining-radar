@@ -800,6 +800,9 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         suite cannot read src/** or the synthetic population's coordinates).
         The stability clause ("投票しても変わらない") is fully verifiable:
         the DOM order recorded before a vote must equal the order after it.
+        The invariant text also names votes cast by other participants
+        (reviewer audit Minor#2), so a second participant's vote is checked
+        too, not only this participant's own.
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
@@ -812,6 +815,14 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.shop_vote_question_order_matches_participant_view(link)
         before_order = self.steps.shop_vote_question_order_snapshot()
         self.steps.participant_answers_shop_vote(shops[0], "WANT_TO_GO")
+        self.steps.shop_vote_question_order_is_unchanged(before_order)
+        # Reviewer audit Minor#2: another participant voting must not move
+        # this participant's order either -- reopen this link (fresh page
+        # load) after a different participant votes on a different shop.
+        other_link = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(other_link)
+        self.steps.participant_answers_shop_vote(shops[1], "OK_TO_GO")
+        self.steps.participant_opens_the_link(link)
         self.steps.shop_vote_question_order_is_unchanged(before_order)
 
     def test_tdr_gth_38_organizer_sees_map_and_shop_details_while_selecting(self) -> None:
@@ -896,3 +907,8 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         link = self.steps.a_participant_link_is_issued()
         self.steps.participant_opens_the_link(link)
         self.steps.shop_vote_map_shows_search_origin_marker()
+        # Reviewer audit Minor#3: this test introduces the search-origin
+        # marker itself, so it must call the cross-cutting check directly
+        # rather than rely on TDR-GTH-39's incidental coverage of the same
+        # screen-state gating (shopVoteMap's votingStartedAt presenceRule).
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
