@@ -1,4 +1,4 @@
-"""JS-capable browser/API L4 runner for TDR-GTH-01 through TDR-GTH-41.
+"""JS-capable browser/API L4 runner for TDR-GTH-01 through TDR-GTH-42.
 
 gathering-scheduling-browser-interface.yaml's own profiles.localAcceptance
 marks only TDR-GTH-13 (token guessing is API-level fuzzing, not a browser
@@ -20,6 +20,11 @@ screen and the participant's vote screen (the latter also gaining a
 search-origin marker). TDR-GTH-28/29/30/31/32/33/34 below are rewritten to
 match -- their .feature scenario bodies are unchanged (per the contract's own
 header comment), but every browser/API interaction they drive changed shape.
+TDR-GTH-42 (adr/0047, 2026-09-06) adds a third, mutually exclusive
+participant-load outcome (browser-interface.yaml v0.8.0's
+unexpectedLoadFailureOutcome) alongside validLinkOutcome and
+invalidLinkOutcome, built with test-support-api.yaml 1.5.4's new
+seedParticipantLinkServerError seam.
 """
 
 from __future__ import annotations
@@ -911,4 +916,37 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         # marker itself, so it must call the cross-cutting check directly
         # rather than rely on TDR-GTH-39's incidental coverage of the same
         # screen-state gating (shopVoteMap's votingStartedAt presenceRule).
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+
+    # TDR-GTH-42 (adr/0047, 2026-09-06): a participant screen that fails to
+    # load unrecognizably shows a short notice instead of rendering blank --
+
+    def test_tdr_gth_42_participant_load_failure_shows_a_short_notice(self) -> None:
+        """TDR-GTH-42: 参加者画面の読み込みに失敗すると短いお知らせが示される.
+        Given a valid signed link (a_participant_link_is_issued mirrors
+        TDR-GTH-14/15/19's own Given shape); the seam under test
+        (seedParticipantLinkServerError) makes only the *next*
+        getParticipantView call fail unrecognizably, so opening the link
+        once is the trigger for "画面の読み込みに失敗する". This is a
+        distinct outcome from invalidLinkOutcome (TDR-GTH-14/19's
+        LINK_EXPIRED/LINK_REVOKED) -- asserting mutual exclusivity against
+        every surface those two outcomes require, not only the two the
+        scenario body names (設問), is what actually exercises
+        unexpectedLoadFailureOutcome's own "mutually exclusive and
+        exhaustive" declaration.
+        """
+        self._sign_in()
+        self.steps.organizer_has_a_scheduling_gathering("会42", [days_from_now_iso(3)])
+        link = self.steps.a_participant_link_is_issued()
+        self.steps.link_is_seeded_to_fail_unexpectedly(link)
+        self.steps.participant_opens_the_link(link)
+        self.steps.participant_sees_a_load_failure_notice()
+        self.steps.load_failure_hides_the_schedule_and_shop_questions()
+        self.steps.load_failure_has_no_retry_control()
+        self.steps.load_failure_is_exclusive_of_other_outcomes()
+        self.steps.load_failure_discloses_no_technical_detail()
+        # This is a new participant screen state (blank-until-now, adr/0047's
+        # own developer-found gap) -- FR-030's repeated lesson is that the
+        # cross-cutting check must be exercised against every new screen
+        # state a round introduces.
         self.steps.screen_has_no_forbidden_controls_or_disclosures()
