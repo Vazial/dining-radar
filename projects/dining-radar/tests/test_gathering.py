@@ -549,12 +549,21 @@ class ParticipantLinkLifecycleServiceTests(TestCase):
     def test_ties_are_broken_by_id_ascending(self):
         """adr/0048: a single issueParticipantLinks call with count > 1 (headroom
         this contract has never exercised via the approved screen, ADR-0048's
-        own words) gives every link it creates one identical ``issued_at``
+        own words) can give every link it creates one identical ``issued_at``
         value at this database's timestamp resolution -- deterministic,
-        repeatable ordering must still hold.
+        repeatable ordering must still hold even when that tie is forced
+        explicitly rather than left to the database's own clock resolution
+        (coarse enough on some platforms to collide on its own, fine enough
+        on others -- e.g. Linux's higher-resolution clock -- that
+        ``bulk_create``'s per-row ``auto_now_add`` calls land on distinct
+        values instead; see ``ParticipantLink.Meta.ordering``'s own note).
         """
         _gathering, links = services.issue_participant_links(self.user, self.gathering.id, 3)
-        self.assertEqual(len({link.issued_at for link in links}), 1)
+        ParticipantLink.objects.filter(pk__in=[link.pk for link in links]).update(
+            issued_at=links[0].issued_at
+        )
+        tied_links = ParticipantLink.objects.filter(pk__in=[link.pk for link in links])
+        self.assertEqual(len({link.issued_at for link in tied_links}), 1)
         expected_order = sorted(link.id for link in links)
 
         _g1, first_run = services.list_participant_links(self.user, self.gathering.id)
