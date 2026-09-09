@@ -228,13 +228,50 @@
 #   同じ扱い）。
 # - `version`を1.5.3→1.5.4へ、`info.description`のシナリオ範囲表記を
 #   「TDR-GTH-01 through TDR-GTH-42」へ揃えた。
+#
+# 2026-09-09 追補5 (architect、adr/0049・adr/0050。会モードの母集団絞り込み・カレンダー複数登録・
+#   会の削除への対応。唯一の論点は、候補画面の会モードが「決まった日に開いている店」で母集団を絞る
+#   機能を、受け入れテストが決定的に駆動できるかどうかだった):
+# - **結論: 新しいseamは要らない**（adr/0037決定3と同じ筋）。
+#   `candidate-search-api.yaml`の`proposeCandidates`は、`gatheringId`が有効なとき
+#   （adr/0049決定1）、`gathering-scheduling-api.yaml`が既に確立している同じ曜日照合を
+#   サーバー内部の関数呼び出しとして再利用する——同じ1つの非公開母集団（この`test-support-api.yaml`が
+#   `CandidateProposalAcceptanceState`で制御する母集団）を、2つの契約ファイルの2つの操作
+#   （`previewOpenShopsForCandidateDate`と、会モード時の`proposeCandidates`）が読むだけであり、
+#   母集団を二重に持たない（adr/0049決定1本文の明記どおり）。したがって、既存の
+#   `GATHERING_OPEN_SHOP_WEEKDAY_MATCH`モードを選んだ状態で、公開境界
+#   （createGathering・addCandidateDates・confirmCandidateDate）で組み立てた会のIDを
+#   `proposeCandidates`の`gatheringId`へ渡せば、TDR-CS-17（トグルでの追加・除外）・TDR-CS-18
+#   （会モードでの絞り込み）・TDR-CS-19（5件上限）・TDR-GTH-44（同、gathering-scheduling.feature
+#   側の記述）・TDR-GTH-45（5件上限、同）のいずれも決定的に駆動できる——このモードが確定させている
+#   曜日ごとの既知件数（月5/火5/水4/木6/金6/土6/日5、うち木・金・土は6件全店が開いているため5件到達
+#   後の6件目拒否を検査できる）をそのまま使う。
+# - **`addCandidateDates`・`deleteGathering`も新しいseamを要らない**（adr/0037決定1と同じ理由）。
+#   いずれも公開境界だけで組み立てられる——`addCandidateDates`はバッチでも単なる
+#   `POST .../candidate-dates:batch`呼び出しであり、`CANDIDATE_DATE_NOT_IN_FUTURE`・
+#   `DUPLICATE_CANDIDATE_DATE`のいずれも通常のリクエストで再現できる（サーバー時計を偽装する必要が
+#   ない——「今日」の判定はacceptance実行時の実際の日付を基準に、確実に過去・確実に未来の日付を
+#   選んで構築すれば足りる）。`deleteGathering`も同様、公開の`DELETE /gatherings/{gatheringId}`を
+#   呼ぶだけで`TDR-GTH-48`（削除後に一覧から消える・参加者リンクがLINK_NOT_FOUNDになる）を検査
+#   できる——待てない実時間経過も、閾値到達も要らない（`seedExpiredParticipantLink`・
+#   `seedRateLimitedParticipantLink`・`seedParticipantLinkServerError`が対応する2種類の例外とは
+#   性質が異なる）。
+# - `setCandidateProposalAcceptanceState`/`resetCandidateProposalAcceptanceState`の
+#   `x-acceptance-scenarios`へTDR-CS-17/18/19・TDR-GTH-44/45を追加した（`GATHERING_OPEN_SHOP_
+#   WEEKDAY_MATCH`を無変更のまま再利用する、TDR-GTH-26/27/38/39と同じ扱い）。
+#   `CandidateProposalAcceptanceState.mode`の同モードの説明文にもこの再利用を追記した。
+# - `resetGatheringSchedulingAcceptanceState`の`x-acceptance-scenarios`へTDR-GTH-44/45/46/47/48・
+#   TDR-CS-17/18/19を追加した——後者3つは`candidate-search.feature`のシナリオだが、会の作成・
+#   確定を伴うため、他のTDR-GTHシナリオと同じくこのリセットの対象に含める（会データが
+#   `candidate-search`側のシナリオを跨いで残ることを防ぐ）。
+# - `version`を1.5.4→1.5.5へ、`info.description`のシナリオ範囲表記を更新した。
 openapi: 3.0.3
 info:
   title: Dining Radar acceptance test-support API
-  version: 1.5.4
+  version: 1.5.5
   description: >-
     Acceptance-only setup and reset seams for TDR-AUTH-01 through TDR-AUTH-07,
-    TDR-CS-00 through TDR-CS-16, and TDR-GTH-01 through TDR-GTH-42.
+    TDR-CS-00 through TDR-CS-19, and TDR-GTH-01 through TDR-GTH-48.
     Browser actions and outcomes under test must use the public same-origin
     authentication, candidate-search, and gathering-scheduling boundaries;
     these operations are only for deterministic Given state and scenario
@@ -245,10 +282,18 @@ info:
     unrecognized/non-conforming failure, adr/0047) and for the population
     TDR-GTH's open-shop-count feature shares with TDR-CS. This also holds for
     the shortlist/vote/finalize scenarios TDR-GTH-26 through TDR-GTH-36 add
-    (ADR-0040/0041/0042) and for TDR-GTH-37 through TDR-GTH-41 add
+    (ADR-0040/0041/0042), for TDR-GTH-37 through TDR-GTH-41 add
     (adr/0044/0045, a stable participant shop order, a three-tier vote, shop
     map/detail information, and the participant-screen search-origin
-    disclosure) -- none of them required a new seam.
+    disclosure), and for the gathering-mode/calendar-batch/deletion scenarios
+    TDR-CS-17 through TDR-CS-19 and TDR-GTH-44 through TDR-GTH-48 add
+    (adr/0049/0050) -- none of them required a new seam either, since
+    candidate-search-api.yaml's own gatheringId-narrowed proposeCandidates
+    reuses this file's existing GATHERING_OPEN_SHOP_WEEKDAY_MATCH population
+    unchanged (adr/0049 decision 1's server-internal reuse, mirroring adr/0037
+    decision 3's reasoning), and addCandidateDates/deleteGathering are both
+    fully reachable through gathering-scheduling-api.yaml's own public
+    boundary (adr/0037 decision 1's same default).
 paths:
   /test-support/candidate-proposals/state:
     put:
@@ -275,12 +320,22 @@ paths:
         candidate-search-api.yaml has required these fields non-null under
         every mode since adr/0025, well before this round). TDR-GTH-41
         (adr/0045) does not select a mode here -- see this file's
-        2026-09-05 header addendum for why.
+        2026-09-05 header addendum for why. A TDR-CS-17/18/19/TDR-GTH-44/45
+        scenario (adr/0049, 2026-09-09) likewise selects
+        GATHERING_OPEN_SHOP_WEEKDAY_MATCH here, then calls
+        candidate-search-api.yaml's proposeCandidates with a gatheringId
+        obtained from a gathering built through gathering-scheduling-api.
+        yaml's public boundary -- no new seam or seed data was needed, since
+        that gatheringId-narrowed request reuses this same population via a
+        server-internal function call rather than a second,
+        independently-controlled population (adr/0049 decision 1; this
+        file's 2026-09-09 header addendum).
       x-acceptance-scenarios:
         [TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05, TDR-CS-06,
          TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12, TDR-CS-13,
-         TDR-CS-14, TDR-CS-15, TDR-CS-16, TDR-GTH-08, TDR-GTH-09,
-         TDR-GTH-26, TDR-GTH-27, TDR-GTH-38, TDR-GTH-39]
+         TDR-CS-14, TDR-CS-15, TDR-CS-16, TDR-CS-17, TDR-CS-18, TDR-CS-19,
+         TDR-GTH-08, TDR-GTH-09, TDR-GTH-26, TDR-GTH-27, TDR-GTH-38,
+         TDR-GTH-39, TDR-GTH-44, TDR-GTH-45]
       requestBody:
         required: true
         content:
@@ -304,8 +359,9 @@ paths:
       x-acceptance-scenarios:
         [TDR-CS-00, TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05,
          TDR-CS-06, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12,
-         TDR-CS-13, TDR-CS-14, TDR-CS-15, TDR-CS-16, TDR-GTH-08, TDR-GTH-09,
-         TDR-GTH-26, TDR-GTH-27, TDR-GTH-38, TDR-GTH-39]
+         TDR-CS-13, TDR-CS-14, TDR-CS-15, TDR-CS-16, TDR-CS-17, TDR-CS-18,
+         TDR-CS-19, TDR-GTH-08, TDR-GTH-09, TDR-GTH-26, TDR-GTH-27,
+         TDR-GTH-38, TDR-GTH-39, TDR-GTH-44, TDR-GTH-45]
       responses:
         '204':
           description: Candidate-proposal acceptance state is reset.
@@ -430,11 +486,16 @@ paths:
         testing. It does not read, write, or reset provider data,
         candidate-search acceptance state (see
         resetCandidateProposalAcceptanceState/setCandidateProposalAcceptanceState
-        for that separate domain, which TDR-GTH-08/09/26/27/38/39 also depend
-        on), private runtime settings, runtime secrets, or organizer
-        accounts. Call before each TDR-GTH scenario to keep scenarios
-        independent (mirrors resetAuthenticationAcceptanceState's role for
-        TDR-AUTH).
+        for that separate domain, which TDR-GTH-08/09/26/27/38/39/44/45 and
+        TDR-CS-17/18/19 also depend on), private runtime settings, runtime
+        secrets, or organizer accounts. Call before each TDR-GTH scenario to
+        keep scenarios independent (mirrors resetAuthenticationAcceptanceState's
+        role for TDR-AUTH). **Also called before TDR-CS-17/18/19 (adr/0049,
+        2026-09-09)** even though those are candidate-search.feature
+        scenarios -- they build and confirm a real gathering through this
+        same public boundary to exercise candidate-search-api.yaml's
+        gathering mode, so leftover gathering state from a prior scenario
+        must not survive into them either.
       x-acceptance-scenarios:
         [TDR-GTH-01, TDR-GTH-02, TDR-GTH-03, TDR-GTH-04, TDR-GTH-05,
          TDR-GTH-06, TDR-GTH-07, TDR-GTH-08, TDR-GTH-09, TDR-GTH-10,
@@ -444,7 +505,8 @@ paths:
          TDR-GTH-26, TDR-GTH-27, TDR-GTH-28, TDR-GTH-29, TDR-GTH-30,
          TDR-GTH-31, TDR-GTH-32, TDR-GTH-33, TDR-GTH-34, TDR-GTH-35,
          TDR-GTH-36, TDR-GTH-37, TDR-GTH-38, TDR-GTH-39, TDR-GTH-40,
-         TDR-GTH-41, TDR-GTH-42]
+         TDR-GTH-41, TDR-GTH-42, TDR-GTH-44, TDR-GTH-45, TDR-GTH-46,
+         TDR-GTH-47, TDR-GTH-48, TDR-CS-17, TDR-CS-18, TDR-CS-19]
       responses:
         '204':
           description: Gathering-scheduling acceptance state is reset. No response body is returned.
@@ -845,6 +907,18 @@ components:
             rendered, a property every mode already guarantees independently
             of which mode is selected (see this schema's own top-level
             description above and the searchOrigin property below).
+            **Reused again 2026-09-09 (adr/0049 decision 1) for TDR-CS-17/
+            18/19 and TDR-GTH-44/45**: candidate-search-api.yaml's
+            proposeCandidates, when called with a gatheringId whose
+            gathering has a confirmed candidate date, narrows its own
+            population by this exact same weekday-matching function, called
+            server-internally rather than through a second,
+            independently-controlled population (adr/0049 decision 1) --
+            this mode's per-weekday counts above (5/5/4/6/6/6/5) apply
+            identically whether read through gathering-scheduling-api.
+            yaml's previewOpenShopsForCandidateDate or through this
+            gatheringId-narrowed proposeCandidates, and no additional seed
+            data was needed for either round.
         randomSeed:
           type: integer
           nullable: true

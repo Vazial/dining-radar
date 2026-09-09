@@ -2226,8 +2226,11 @@ components:
             candidate-search-api.yaml's `GatheringContext` exposes in
             gathering mode (adr/0049 decision 1) -- the two contracts
             express the same limit independently rather than through a
-            shared reference, since OpenAPI 3.0 schemas cannot `$ref` across
-            files portably in this project's toolchain.
+            shared reference, because this project's convention is to
+            write a cross-file reference as prose rather than a literal
+            OpenAPI `$ref` (not because OpenAPI 3.0 itself forbids a
+            `$ref` across files -- see this project's other contracts for
+            the same prose-reference convention applied elsewhere).
         finalizedShopId:
           type: string
           nullable: true
