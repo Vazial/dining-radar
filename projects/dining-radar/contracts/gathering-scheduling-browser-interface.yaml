@@ -399,6 +399,8 @@
 #   いずれも本ラウンドで本文を変更していない）が要求する形を引き続き満たす。
 #   この2つの入力面を統一するかどうかは人間の確認を要する未決事項として
 #   本ファイル内（organizerGatheringCreate.candidateDateRow.note）に申し送った。
+#   **2026-09-09、この統一は2回目の人間裁定で決着した——下記2026-09-09追補9・
+#   adr/0051を参照。**
 # - **可視性規則の反転**（adr/0050決定2）:
 #   `scheduleQuestion.tally`・`shopVoteQuestion.tally`の`presenceRule`を
 #   「回答の有無に関わらず常にpresent」へ改めた——TDR-GTH-12・29の全面改訂に
@@ -426,11 +428,36 @@
 #   同点処理を含む既存の全順序が既に一意の先頭を決めるため、新しい同点判定は
 #   持ち込まない。`finalizeSelect`（幹事が確定用に選んでいる店）とは独立の
 #   属性である。
+#
+# 2026-09-09 追補9 (architect、adr/0051。追補8が申し送った未決事項の決着。2026-09-09チャット
+#   選択肢UIによる2回目の人間裁定「両方カレンダーにする。会をつくるときも、あとから足すときも
+#   同じカレンダーの複数選択」。contractVersion 0.10.0 -> 0.11.0):
+# - **`organizerGatheringCreate.candidateDateRow`を廃し、`addCandidateDateForm`と同じ形の
+#   カレンダー複数選択へ揃える**（adr/0051決定1）: 行の追加・削除
+#   （`gathering-create-add-candidate-date-row`・`gathering-create-remove-candidate-date-row`、
+#   1行ごとの`gathering-create-candidate-date-input`）を全廃し、この画面専用のカレンダー
+#   （`gathering-create-candidate-date-calendar`の`gathering-create-candidate-date-day`セル、
+#   新設purpose`gathering-create-candidate-date-day-select`）を新設した。2つの画面で同じtest id
+#   は共有しない——E-2とA①は別のDOM位置に別々にレンダリングされる別要素であり、統一するのは
+#   「同じ入力の形」であって「同じDOM要素」ではない（adr/0051決定1の設計判断）。
+# - **候補日1つ以上・明日以降のみの性質は変えない**（ADR-0035決定1・D10、adr/0049決定3、
+#   adr/0051決定2）: `gathering-create-submit`のdisabledStateを、選択済みの
+#   `gathering-create-candidate-date-day`が1件以上かどうかで判定する形へ書き換えた。
+#   カレンダーの日セルの非活性規則（今日以前は選べない）もこの画面へ明記し、TDR-GTH-47
+#   （Given節「幹事が会をつくろうとしている」）がこの画面からも観測できるようにした。
+# - `unavailableControls.valueEntryControlTestIds`から`gathering-create-candidate-date-input`
+#   を外し（カレンダーの日セルは操作的コントロール）、`allowedPurposes`から
+#   `gathering-create-add-candidate-date-row`・`gathering-create-remove-candidate-date-row`を
+#   削除して`gathering-create-candidate-date-day-select`を追加した（adr/0051決定3）。
+#   `browserActions.createGathering`のinputsを日セルへ差し替えた。
+# - `gathering-scheduling.feature`は変更していない——TDR-GTH-01/22/23/46/47はいずれも業務の
+#   言葉（入力手段を指定しない）で書かれており、本ラウンドは入力手段だけを変えるため本文を
+#   書き換える理由がない（adr/0051の検証の申告を参照）。
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.10.0'
+contractVersion: '0.11.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -661,8 +688,8 @@ unavailableControls:
       1. its test id appears in valueEntryControlTestIds below, and
       2. browserControlSurface documents, by test id, which operational
          control's requiredOutcome names this field as a value it consumes
-         (e.g. organizerGatheringCreate.nameInput/candidateDateRow.dateInput
-         are consumed by organizerGatheringCreate.submit.requiredOutcome;
+         (e.g. organizerGatheringCreate.nameInput is consumed by
+         organizerGatheringCreate.submit.requiredOutcome;
          participantAnswer.nameControl.input is consumed by
          nameControl.submit.requiredOutcome).
     A native input/textarea meeting forbiddenFormControlCategories above
@@ -679,18 +706,18 @@ unavailableControls:
     before (e.g. every existing allowedPurposes entry that is a *-select or
     *-toggle purpose remains unaffected by this clause; this is why every
     checkbox/radio this contract defines -- gathering-add-candidate-date-day
-    (2026-09-09, adr/0049), gathering-finalize-shop-select,
+    (2026-09-09, adr/0049), gathering-create-candidate-date-day (2026-09-09,
+    adr/0051, replacing the retired gathering-create-candidate-date-row/
+    addRow/removeRow), gathering-finalize-shop-select,
     gathering-shop-vote-option -- has its own allowedPurposes entry below
     rather than being treated as a value-entry control).
   valueEntryControlTestIds:
-    [gathering-create-name-input, gathering-create-candidate-date-input,
-     gathering-participant-name-input]
+    [gathering-create-name-input, gathering-participant-name-input]
   valueEntryControlTestIdsNote: >-
-    Three value-entry controls are exempt under operationalControlScope
+    Two value-entry controls are exempt under operationalControlScope
     above, each traceable to exactly one consuming operational control's
-    requiredOutcome: gathering-create-name-input and
-    gathering-create-candidate-date-input (organizerGatheringCreate.submit),
-    and gathering-participant-name-input
+    requiredOutcome: gathering-create-name-input
+    (organizerGatheringCreate.submit) and gathering-participant-name-input
     (participantAnswer.nameControl.submit). **gathering-add-candidate-date-
     input is retired 2026-09-09 (adr/0049 decision 3)** along with the
     single-date addCandidateDateForm it belonged to -- the replacement
@@ -700,14 +727,19 @@ unavailableControls:
     this clause draws" precedent gathering-open-shop-select already
     established before its own 2026-09-09 retirement), so they declare the
     new gathering-add-candidate-date-day-select purpose instead of
-    appearing in this list. gathering-participant-name-input existed since
-    this contract's original 2026-08-30 draft but had no structured
-    browserControlSurface entry of its own (only prose mentioning it) --
-    ADR-0039 brought it under the same discipline retroactively rather than
-    leaving it "not yet caught by the cross-cutting check" by accident. Any
-    future value-entry control this contract adds must be listed here and
-    traced to its consuming operational control the same way, or it remains
-    subject to the general purpose-declaration requirement.
+    appearing in this list. **gathering-create-candidate-date-input is
+    retired the same day, by a second, later round of chat decisions
+    (adr/0051)**, for the identical reason -- organizerGatheringCreate's own
+    replacement calendar day cells (gathering-create-candidate-date-day)
+    declare gathering-create-candidate-date-day-select instead.
+    gathering-participant-name-input existed since this contract's original
+    2026-08-30 draft but had no structured browserControlSurface entry of
+    its own (only prose mentioning it) -- ADR-0039 brought it under the
+    same discipline retroactively rather than leaving it "not yet caught by
+    the cross-cutting check" by accident. Any future value-entry control
+    this contract adds must be listed here and traced to its consuming
+    operational control the same way, or it remains subject to the general
+    purpose-declaration requirement.
   formControlExemptTestIds:
     [gathering-shop-vote-map, gathering-shop-vote-map-marker,
      gathering-search-origin-marker,
@@ -741,8 +773,8 @@ unavailableControls:
      gathering-schedule-response-select, gathering-participant-name-open,
      gathering-participant-name-submit, gathering-participant-link-recopy,
      gathering-participant-link-revoke, gathering-create-open,
-     gathering-list-item-open, gathering-create-add-candidate-date-row,
-     gathering-create-remove-candidate-date-row, gathering-create-submit,
+     gathering-list-item-open, gathering-create-candidate-date-day-select,
+     gathering-create-submit,
      gathering-create-cancel, gathering-shortlist-open,
      gathering-finalize-shop-select, gathering-finalize-submit,
      gathering-shop-vote-select, gathering-delete-open,
@@ -786,6 +818,17 @@ unavailableControls:
     organizerDashboard.shopSelectionEntry (adr/0049 decision 1) and its
     requiredOutcome now navigates to candidate-search-browser-interface.
     yaml's gatheringMode instead of reopening the retired shortlistSelection.
+  allowedPurposesNoteAdr0051: >-
+    Two purposes changed (adr/0051, 2026-09-09, a second, later round of
+    chat decisions on the same date). Removed:
+    gathering-create-add-candidate-date-row and
+    gathering-create-remove-candidate-date-row (organizerGatheringCreate's
+    own retired row-based add/remove controls). Added:
+    gathering-create-candidate-date-day-select (organizerGatheringCreate's
+    own replacement calendar day cell -- a distinct test id and purpose
+    from addCandidateDateForm's gathering-add-candidate-date-day-select --
+    see organizerGatheringCreate.calendar below for why the two screens do
+    not share one test id despite sharing the same input shape).
   forbiddenPurposes:
     - manual-ordering
     - secondary-condition
@@ -937,11 +980,13 @@ browserControlSurface:
     description: >-
       The gathering-creation screen (Entry.dc.html E-2, adr/0038). Fills the
       second gap the human found in production ("会をつくる画面が無い").
-      Supports TDR-GTH-01 (now browser-verifiable) and TDR-GTH-23.
+      Supports TDR-GTH-01 (now browser-verifiable), TDR-GTH-23, and
+      TDR-GTH-47 (adr/0051: this screen's calendar also enforces 明日以降
+      のみ, the same rule addCandidateDateForm.calendar.dayCell.disabledState
+      already enforces there).
     requiredTestIds:
       nameInput: gathering-create-name-input
-      candidateDateRow: gathering-create-candidate-date-row
-      addRow: gathering-create-add-candidate-date-row
+      calendar: gathering-create-candidate-date-calendar
       submit: gathering-create-submit
       cancel: gathering-create-cancel
     nameInput:
@@ -954,86 +999,103 @@ browserControlSurface:
         unavailableControls.operationalControlScope (ADR-0039) -- its value
         is consumed by submit.requiredOutcome below, which is this field's
         documented consuming operational control.
-    candidateDateRow:
-      testId: gathering-create-candidate-date-row
-      cardinality: >-
-        one-or-more-elements-sharing-this-test-id -- exactly one row is
-        present when the screen first opens (Entry.dc.html E-2's "1つめ"
-        row); addRow appends further rows.
-      dateInput:
-        testId: gathering-create-candidate-date-input
-        valueEntryControl: >-
-          Exempt from allGatheringScreenFormControlsMustDeclarePurpose per
-          unavailableControls.operationalControlScope (ADR-0039) -- its
-          value is consumed by submit.requiredOutcome below.
+    calendar:
+      testId: gathering-create-candidate-date-calendar
+      description: >-
+        **Replaces candidateDateRow 2026-09-09 (adr/0051, a second,
+        same-day human chat decision following this file's own 2026-09-09
+        追補8 note, which had left this screen's row-based input
+        unresolved)**: the row-based add/remove-row input this screen
+        previously exposed (candidateDateRow, its per-row dateInput,
+        addRow, removeRow) is retired. This screen now uses a multi-select
+        calendar of the same shape addCandidateDateForm.calendar below
+        already defines (adr/0049 decision 3) -- same day-cell attributes,
+        same "明日以降のみ" disabled-day rule, same "12:00始まり" UI aid --
+        but as this screen's own, distinct element (its own test id, not
+        shared with addCandidateDateForm.calendar). See dayCell below for
+        why the two screens do not share one test id despite sharing one
+        input shape.
       note: >-
-        This contract requires each row to expose enough input to produce
-        one valid ISO-8601 date-time value for
-        CandidateDateInput.startAt -- format: date-time already requires a
-        time component (see gathering-scheduling-api.yaml's
-        CandidateDateInput, adr/0038), so time input is required, not
-        optional, resolving designer's open question in Entry.dc.html/
-        AddDate.dc.html. Whether the row collects date and time via one
-        merged input or two separate inputs (in which case the second uses
-        a `-time-input` suffix, designer's own naming proposal) is a UI
-        implementation choice this contract does not fix; either shape
-        remains covered by the same dateInput valueEntryControl exemption
-        above, since it is the same field regardless of how many DOM
-        elements implement it. **Open question flagged 2026-09-09 (adr/0049
-        decision 3, not decided by this round)**: gathering-scheduling-api.
-        yaml's own header comment states the calendar input surface is
-        shared by both this creation screen (E-2) and the add-candidate-date
-        screen (A①, candidateDateList.addCandidateDateForm below, which this
-        same round did replace with a multi-select calendar). This round's
-        request named only addCandidateDateForm; this row-based
-        create/add/remove-row shape is therefore left unchanged here.
-        Whether organizerGatheringCreate should also adopt the calendar
-        (retiring candidateDateRow/addRow/removeRow in favor of the same
-        gathering-add-candidate-date-day cells) is an open design question
-        this contract does not resolve -- reported rather than decided
-        (FR-028 convention).
-      addRow:
-        testId: gathering-create-add-candidate-date-row
-        purpose: gathering-create-add-candidate-date-row
-        requiredOutcome: >-
-          Activating it appends one new gathering-create-candidate-date-row
-          (Entry.dc.html's "候補日を足す" within E-2).
-      removeRow:
-        testId: gathering-create-remove-candidate-date-row
-        purpose: gathering-create-remove-candidate-date-row
-        cardinality: zero-or-more-elements-sharing-this-test-id
-        presenceRule: >-
-          Absent on a row exactly when it is the only remaining row (a
-          gathering cannot be created with zero candidate dates, ADR-0035
-          decision 1 / D10) -- Entry.dc.html shows this exact rule (the
-          "1つめ" row has no remove control, later rows do). Present on
-          every other row.
-        requiredOutcome: >-
-          Activating it removes that specific
-          gathering-create-candidate-date-row from the DOM.
+        This contract does not fix the calendar's rendered month range,
+        week-start convention, markup, or specific library, mirroring
+        addCandidateDateForm.calendar.note above -- library selection
+        remains developer's choice (adr/0049 decision 3, adr/0051 decision
+        1). It fixes only the day-cell surface below and
+        submit.requiredOutcome's consumption of it.
+      dayCell:
+        testId: gathering-create-candidate-date-day
+        cardinality: one-or-more-elements-sharing-this-test-id
+        attributes:
+          date: data-date
+          selected: data-selected
+        requirement: >-
+          Same shape as addCandidateDateForm.calendar.dayCell above:
+          data-date is an ISO-8601 date string (YYYY-MM-DD, no time
+          component) identifying the calendar day this cell represents;
+          data-selected is "true"/"false", reflecting this cell's current
+          pending-selection state (client-side only, not yet submitted).
+          Multiple cells may simultaneously carry data-selected="true"
+          (multi-select, TDR-GTH-01's "2つ以上の候補日"). This is a
+          distinct test id from gathering-add-candidate-date-day
+          (architect design judgment, adr/0051 decision 1) -- the two
+          screens render separate DOM elements (an independent creation
+          screen versus an inline dashboard form) whose post-submit
+          behavior differs (this screen's submit creates the gathering and
+          leaves the screen per submit.requiredOutcome below;
+          addCandidateDateForm's submit stays open for another entry), so
+          sharing one test id across both would attach two different
+          requiredOutcome contracts to the same observed element.
+        disabledState: >-
+          Carries the native disabled state for any day whose data-date is
+          today or earlier by the server's clock (adr/0049 decision 3's
+          "明日以降のみ" rule, mirrored client-side here exactly as
+          addCandidateDateForm.calendar.dayCell.disabledState mirrors it
+          there; the API's CANDIDATE_DATE_NOT_IN_FUTURE rejection remains
+          the authoritative enforcement, TDR-GTH-47). A disabled day cell
+          can never carry data-selected="true".
+        select:
+          purpose: gathering-create-candidate-date-day-select
+          requiredOutcome: >-
+            Activating an enabled gathering-create-candidate-date-day
+            toggles its own data-selected between "true" and "false".
+            This is client-side pending selection only -- it calls no
+            public operation (createGathering has not been called yet).
+            submit.disabledState below reflects the current count of
+            "true" day cells.
     submit:
       testId: gathering-create-submit
       purpose: gathering-create-submit
       disabledState: >-
         Carries the native disabled state whenever gathering-create-name-
-        input is empty, or every gathering-create-candidate-date-row lacks a
-        complete valid date-time value (ADR-0035 decision 1's "候補日1つ以上"
-        requirement, mirrored client-side; the API itself is the
-        authoritative enforcement -- this disabledState is a UX affordance,
-        not a substitute for server-side validation). Same disable-at-the-
-        boundary convention as confirmDate.disabledState.
+        input is empty, or fewer than 1 gathering-create-candidate-date-day
+        currently has data-selected="true" (ADR-0035 decision 1's "候補日
+        1つ以上" requirement / D10, mirrored client-side the same way
+        addCandidateDateForm.submit.disabledState mirrors
+        AddCandidateDatesRequest's minItems: 1, adr/0051 decision 2 --
+        the API itself is the authoritative enforcement, this disabledState
+        is a UX affordance, not a substitute for server-side validation).
+        Same disable-at-the-boundary convention as confirmDate.disabledState.
       requiredOutcome: >-
         Activating it (while not disabled) calls createGathering with
         title (consumed from gathering-create-name-input) and
-        candidateDates (consumed from every gathering-create-candidate-
-        date-row's dateInput) built from the current rows (TDR-GTH-01). On
-        success, the new gathering subsequently appears in
+        candidateDates built from every gathering-create-candidate-date-day
+        whose data-selected is "true" (each producing one
+        CandidateDateInput; this contract does not fix or require a way to
+        edit each selected day's time-of-day separately from the
+        calendar's own default, adr/0049 decision 3's "12:00始まり" UI aid
+        -- same non-fixed treatment as
+        addCandidateDateForm.submit.requiredOutcome's identical clause).
+        On success, the new gathering subsequently appears in
         organizerGatheringList.list (createdAt descending places it first).
         This contract does not fix the immediate post-submit destination
-        screen. On a DUPLICATE_CANDIDATE_DATE rejection (adr/0038, two rows
-        sharing the same date-time value), the screen remains on
-        organizerGatheringCreate with every row's entered value intact --
-        no gathering is created and no row is cleared.
+        screen. On a whole-batch DUPLICATE_CANDIDATE_DATE rejection
+        (adr/0038, two selected days sharing the same date-time value), the
+        screen remains on organizerGatheringCreate with every day cell's
+        data-selected unchanged and the name input's value intact -- no
+        gathering is created. On a whole-batch CANDIDATE_DATE_NOT_IN_FUTURE
+        rejection (TDR-GTH-47), the same: the screen remains present with
+        every day cell's data-selected unchanged and the name input's value
+        intact, and no gathering is created.
     cancel:
       testId: gathering-create-cancel
       purpose: gathering-create-cancel
@@ -2336,8 +2398,8 @@ browserActions:
     success:
       requiredOutcome: browserControlSurface.organizerGatheringList.createOpen.requiredOutcome
   createGathering:
-    inputs: [gathering-create-name-input, gathering-create-candidate-date-row,
-             gathering-create-candidate-date-input, gathering-create-submit]
+    inputs: [gathering-create-name-input, gathering-create-candidate-date-day,
+             gathering-create-submit]
     success:
       requiredOutcome: browserControlSurface.organizerGatheringCreate.submit.requiredOutcome
   cancelGatheringCreate:
