@@ -279,8 +279,39 @@
 #   cardPaymentCautionの既存presenceRule（cardPaymentAvailableがfalseの場合にだけ存在する）が
 #   既に強制しており、本ファイルの変更を要しない。
 # - contractVersionを1.6.0から1.7.0へ上げる。
+#
+# 2026-09-09 追補 (architect、adr/0049。2026-09-08の人間裁定8件のうち画面構成に関わる3件
+# （裁定1・裁定6・裁定7）への対応。前段のarchitectがADR本体で確定させた仕様を、本段が本ファイルへ
+# 反映した。contractVersionを1.7.0から1.8.0へ上げる):
+# - **会モードの観測面を新設する**（adr/0049決定1、2026-09-08人間裁定「1枚目の画面の存在価値が
+#   なくなってない？」への対応）: 新規トップレベル節`gatheringMode`を新設する（下記）。会モードは
+#   `candidate-search-api.yaml`の`proposeCandidates`が`gatheringId`を受け取り、応答の
+#   `gatheringContext`が非nullになったときに成立する——本ファイルはこの成立条件をpresenceRuleとして
+#   観測する。カードへ「この会に入れる」トグル（新規purpose`candidate-card-gathering-toggle`、
+#   `allowedPurposes`へ追加）を追加し、`gathering-scheduling-api.yaml`の`setShortlistedShops`を
+#   直接呼ぶ——新しい書き込みエンドポイントは本ファイル側に増やさない（書き込みは会の契約が持つと
+#   いう決定1の原則）。5件到達後の未選択カードのトグルは非活性にする（決定8）。旧
+#   `organizerDashboard.shortlistSelection`（`gathering-scheduling-browser-interface.yaml`側）は
+#   全廃されるため、この画面が店選びの唯一の入口になる。
+# - **PCを2カラムへ戻す**（adr/0049決定4、2026-09-08人間裁定「微妙。右に地図で一覧左とかじゃ
+#   なかったっけ」）: `renderModes.mapPrimaryLayout`（送りボタン・件数カウンタを伴う地図全面デッキ、
+#   adr/0031）を退役させ、専有のtest idを持たない`twoColumnLayout`へ置き換える——adr/0023が
+#   TDR-CS-07の再提案test idを死んだモードとして残さず削除したのと同じ流儀で、
+#   `candidate-deck-previous`/`-next`とそれらのbrowserActions（pageDeckPrevious/Next）を完全に
+#   削除する（非推奨のまま残さない）。`unavailableControls.allowedPurposes`から
+#   `candidate-deck-page-previous`/`-next`を削除する。`candidate-deck-position`は
+#   `mapPrimaryTouchLayout`（モバイル）専有として残る。カードの圧縮を戻す件（決定4後段）は契約
+#   変更を要しない——`cardDataAttributes.cardPaymentCaution`の既存presenceRuleが唯一の関連Mustで
+#   あり、この規則自体は2カラムでも変わらず適用される（架空の新Mustを追加しない、adr/0049決定4）。
+# - **モバイルのカードは1枚ずつきっちり止まる**（adr/0049決定5、2026-09-08人間裁定「スワイプが
+#   途中で止まって見切れる症状を直す」）: `deckNavigation.swipeSurface`へ、指を離した位置によらず
+#   常にちょうど1枚のカードが完全に見える状態で止まることを要求する記述を追加する。実装手段
+#   （scroll-snap等）は契約として固定しない——結果だけを固定する。`deckNavigation.position`の
+#   `data-deck-visible-start`/`-end`が、`mapPrimaryTouchLayout`が保持する限り常に等しい
+#   （`visibleStart == visibleEnd`）という新しい制約をこの属性の記述へ加える——「1枚だけが見えて
+#   いる」ことを間接的に示す既存の仕組みを維持する。
 
-contractVersion: '1.7.0'
+contractVersion: '1.8.0'
 kind: acceptance-browser-interface
 scope: candidate-search
 profiles:
@@ -290,7 +321,8 @@ profiles:
     verifiesScenarios:
       [TDR-CS-00, TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05,
        TDR-CS-06, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12,
-       TDR-CS-13, TDR-CS-14, TDR-CS-15, TDR-CS-16]
+       TDR-CS-13, TDR-CS-14, TDR-CS-15, TDR-CS-16, TDR-CS-17, TDR-CS-18,
+       TDR-CS-19]
     invariant:
       - The profile is isolated and must never be selected by a public deployment.
       - Candidate state is supplied only through contracts/test-support-api.yaml.
@@ -322,7 +354,16 @@ browserEntry:
     absent: [candidate-budget-tier-note, candidate-filter-genre-overflow,
              candidate-filter-pending-note,
              candidate-filter-apply, candidate-filter-revert,
-             candidate-manual-ordering]
+             candidate-manual-ordering, candidate-gathering-mode-band,
+             candidate-card-gathering-toggle]
+    note: >-
+      This is the ordinary (non-gathering) authenticated entry, reached
+      without a gatheringId (see gatheringMode below for the distinct
+      gathering-mode entry, reached instead from
+      gathering-scheduling-browser-interface.yaml's
+      gathering-shortlist-open, adr/0049 decision 1) -- gatheringMode's
+      test ids are therefore absent here, added to this outcome's absent
+      list by adr/0049.
 
 renderModes:
   description: >-
@@ -336,28 +377,47 @@ renderModes:
     listPrimaryLayout (a pre-adr/0031 list-primary mobile layout with an
     open/close map sheet, candidate-map-open / candidate-map-sheet-close)
     and mapPrimaryLayout (a map-primary desktop layout with a button-paged
-    card deck). adr/0033 retires listPrimaryLayout: the human decision that
+    card deck). adr/0033 retired listPrimaryLayout: the human decision that
     made mobile widths map-primary too (2026-08-29) means no width selects
     listPrimaryLayout's two test ids any longer, so this contract no longer
     defines them (mirrors how TDR-CS-07's reproposal test ids were removed
     outright, not kept as a dead mode, when adr/0023 retired that feature).
-    adr/0033 adds mapPrimaryTouchLayout in listPrimaryLayout's place, so
-    this section still names exactly two mutually exclusive modes -- both
-    are now map-primary, differing only in how their deck is paged (buttons
-    vs a swipe gesture; see browserControlSurface.proposal.deckNavigation
-    below).
-  mapPrimaryLayout:
+    adr/0033 added mapPrimaryTouchLayout in listPrimaryLayout's place, so
+    this section named exactly two mutually exclusive modes -- both
+    map-primary, differing only in how their deck was paged (buttons vs a
+    swipe gesture). adr/0049 decision 4 (2026-09-08 human decision: "微妙。
+    右に地図で一覧左とかじゃなかったっけ") retires mapPrimaryLayout in turn,
+    for the same reason and in the same style adr/0033 retired
+    listPrimaryLayout -- the desktop deck's paged, map-primary layout is
+    replaced by twoColumnLayout (a plain side-by-side list-and-map layout
+    with no deck paging, since all up to 5 cards fit in one column at
+    once). This section still names exactly two mutually exclusive modes --
+    twoColumnLayout (desktop, no deck) and mapPrimaryTouchLayout (mobile,
+    swipe-paged deck, unchanged by this revision) -- but they are no longer
+    both map-primary: twoColumnLayout shows the full card list beside the
+    map rather than overlaying a deck on top of it (see
+    browserControlSurface.proposal.deckNavigation below for what
+    twoColumnLayout no longer needs).
+  twoColumnLayout:
     exclusiveWith: mapPrimaryTouchLayout
-    testIds: [candidate-deck-previous, candidate-deck-next]
+    testIds: []
     note: >-
-      The pointer-driven desktop layout (adr/0031; human decision
-      2026-08-28: decision7=案A, decision8=案あ). candidate-deck-position is
-      no longer listed here: adr/0033 moved it out of both modes'
-      exclusivity arrays because it is common to both currently-named modes
-      (see deckNavigation.position.presenceRule, which states its condition
-      directly instead of relying on this array).
+      The desktop, side-by-side list-and-map layout (adr/0049 decision 4,
+      2026-09-08 human decision, replacing mapPrimaryLayout's map-primary,
+      button-paged deck). This mode owns no test id of its own -- unlike
+      mapPrimaryLayout before it, which owned candidate-deck-previous/-next
+      -- because showing all up to 5 cards as a plain list needs no paging
+      control and no swipe surface. Its testIds array is empty by design;
+      renderModes.invariant's mutual-exclusivity property still holds for
+      this mode (vacuously for its own, empty test id set, and
+      non-vacuously in requiring mapPrimaryTouchLayout's
+      candidate-deck-swipe-surface to be absent while this mode holds).
+      candidate-deck-position is likewise absent while this mode holds (see
+      deckNavigation.position.presenceRule below) -- it is no longer common
+      to both named modes as it was under adr/0033, because a plain list
+      has nothing for a position counter to describe.
   mapPrimaryTouchLayout:
-    exclusiveWith: mapPrimaryLayout
+    exclusiveWith: twoColumnLayout
     testIds: [candidate-deck-swipe-surface]
     note: >-
       The touch-driven mobile layout (adr/0033; human decision 2026-08-29:
@@ -368,7 +428,12 @@ renderModes:
       in the DOM but visually minimized -- and the human chose the former
       because the latter would leave a button in the DOM that an automated
       test can press but an organizer cannot (see adr/0033's 検討した代替案
-      for the full reasoning).
+      for the full reasoning). Unchanged by adr/0049 -- decision 4 (PC
+      two-column) and decision 5 (mobile deck stops on exactly one card,
+      see deckNavigation.swipeSurface below) both leave this mode's own
+      name, exclusivity, and testIds untouched; adr/0049 decision 4's
+      "mapPrimaryTouchLayout" mentions above are only for contrast with
+      the retired desktop mode.
   invariant: >-
     Exactly one of the two named modes holds for the current render at any
     time. A test id listed under one mode is present only while that mode
@@ -376,12 +441,14 @@ renderModes:
     separately obeys its own requirements elsewhere in this contract
     (allowedPurposes, requiredOutcome, presenceRule, etc.) while its mode
     holds; renderModes adds only the mutual-exclusivity property, not new
-    per-element behavior. candidate-deck-position is present under both
-    currently-named modes (deckNavigation.position.presenceRule) and is
-    therefore not itself a member of either mode's testIds array above --
-    the "absent while the other mode holds" clause applies to each mode's
-    own listed test ids, not to an element this contract states is common
-    to multiple modes.
+    per-element behavior. candidate-deck-position is present only while
+    mapPrimaryTouchLayout holds (deckNavigation.position.presenceRule) --
+    unlike under adr/0033, it is not a member of twoColumnLayout's testIds
+    array, and twoColumnLayout's own testIds array may be empty (adr/0049
+    decision 4): a mode with no exclusive test ids of its own still
+    participates in this exclusivity property, which then holds vacuously
+    for that mode's own (empty) set and non-vacuously for the other mode's
+    test ids being absent while this mode holds.
   verificationAllocation:
     L4: >-
       Acceptance drives the browser at this contract's single fixed test
@@ -398,20 +465,25 @@ renderModes:
       adr/0031's revision (human ruling 2026-08-28: add the width gate now
       rather than after the layout ships) -- adds invariant (f) to
       adr/0020 decision 4's frozen set for exactly this: that the correct
-      mode holds at each tested width, using listPrimaryLayout as the
-      narrow-width expectation and mapPrimaryLayout as the wide-width
-      expectation. adr/0033 does not edit adr/0032's text (P-06), but
-      changes what (f)'s narrow-width expectation now means in practice:
-      since listPrimaryLayout no longer exists, the narrow-width member of
-      (f)'s developer-maintained viewport set must now expect
-      mapPrimaryTouchLayout's test ids present and mapPrimaryLayout's test
-      ids absent, mirroring the same present/absent structure (f) already
-      had -- only which named mode narrow widths expect has changed. The
-      width value itself still lives in that L5 test, not in this contract
-      (adr/0032 decision 2, unchanged by adr/0033). Each tested width is
-      still checked on an independent page load; the implementation is not
-      required to switch modes on a live resize without a re-render
-      (adr/0032 decision 3, unchanged).
+      mode holds at each tested width, originally using listPrimaryLayout
+      as the narrow-width expectation and mapPrimaryLayout as the
+      wide-width expectation. adr/0033 does not edit adr/0032's text (P-06),
+      but changed what (f)'s narrow-width expectation meant in practice
+      once listPrimaryLayout no longer existed: the narrow-width member of
+      (f)'s developer-maintained viewport set must expect
+      mapPrimaryTouchLayout's test ids present and the wide-width member's
+      test ids absent, mirroring the same present/absent structure (f)
+      already had -- only which named mode narrow widths expect changed.
+      adr/0049 decision 4 (2026-09-08) changes (f)'s wide-width expectation
+      in the same way, without editing adr/0032's or adr/0033's text
+      (P-06): the wide-width member of (f)'s viewport set must now expect
+      twoColumnLayout (no deck test ids at all) rather than
+      mapPrimaryLayout's candidate-deck-previous/-next present. The width
+      value itself still lives in that L5 test, not in this contract
+      (adr/0032 decision 2, unchanged). Each tested width is still checked
+      on an independent page load; the implementation is not required to
+      switch modes on a live resize without a re-render (adr/0032 decision
+      3, unchanged).
 
 browserControlSurface:
   proposal:
@@ -500,6 +572,11 @@ browserControlSurface:
           must not be labeled with this test id unless cardPaymentAvailable
           is actually false for that candidate** -- no new contract text is
           needed to enforce this, since this presenceRule already does.
+          **The same holds for the 2026-09-08 card-density restoration**
+          (adr/0049 decision 4, twoColumnLayout no longer compresses card
+          density the way mapPrimaryLayout's map-primary deck did) -- this
+          presenceRule is again the sole relevant constraint and again
+          needs no new text to keep applying (adr/0049 decision 4).
       cardPaymentValueState:
         attribute: data-card-payment-value-state
         values: [provided, unavailable]
@@ -557,9 +634,9 @@ browserControlSurface:
         whichever 5 candidates selection returns; it is unaffected by
         shownPoolPriority's selection-stage partitioning (adr/0024), which
         happens before this re-ordering, not after it. Deck paging
-        (deckNavigation below, adr/0031, adr/0033) never changes this order
-        -- it only windows which already-ordered cards are currently
-        visible.
+        (deckNavigation below, adr/0033, mapPrimaryTouchLayout only as of
+        adr/0049 decision 4) never changes this order -- it only windows
+        which already-ordered cards are currently visible.
       verificationAllocation:
         L1: >-
           Pure recommendation tests independently prove that each confirmed
@@ -645,32 +722,48 @@ browserControlSurface:
           required by test-support-api.yaml's randomSeed.
     deckNavigation:
       description: >-
-        Applies while renderModes.mapPrimaryLayout or
-        renderModes.mapPrimaryTouchLayout holds (adr/0031, adr/0033). The
-        paging controls and position counter for the card deck overlaid on
-        the map, in both the pointer-driven desktop layout (mapPrimaryLayout:
-        previousControl/nextControl buttons, human decision 2026-08-28:
-        decision7=案A, decision8=案あ) and the touch-driven mobile layout
-        (mapPrimaryTouchLayout: swipeSurface, human decision 2026-08-29:
-        mobile becomes map-primary too, and its deck is paged by a
-        horizontal swipe gesture instead of buttons). Card content, order,
-        and count are otherwise governed by displayOrdering and
+        Applies while renderModes.mapPrimaryTouchLayout holds (adr/0033;
+        narrowed from also applying to mapPrimaryLayout by adr/0049 decision
+        4, which retired that mode's button-paged deck in favor of
+        twoColumnLayout's plain, unpaged list -- see renderModes above). The
+        paging control and position counter for the card deck overlaid on
+        the map in the touch-driven mobile layout only (mapPrimaryTouchLayout:
+        swipeSurface, human decision 2026-08-29: mobile is map-primary and
+        its deck is paged by a horizontal swipe gesture). Card content,
+        order, and count are otherwise governed by displayOrdering and
         cardDataAttributes above; this section adds only the
-        windowing/paging observation the deck needs.
-      previousControl: {testId: candidate-deck-previous, purpose: candidate-deck-page-previous}
-      nextControl: {testId: candidate-deck-next, purpose: candidate-deck-page-next}
+        windowing/paging observation the mobile deck needs. twoColumnLayout
+        needs no such observation -- it shows every card of the response at
+        once (adr/0049 decision 4).
       swipeSurface:
         testId: candidate-deck-swipe-surface
         presenceRule: >-
           Present exactly once whenever renderModes.mapPrimaryTouchLayout
-          holds; absent whenever renderModes.mapPrimaryLayout holds
-          (adr/0033). It is a container element that bounds where a paging
-          swipe gesture may begin (see browserActions.pageDeckSwipeForward/
-          Backward below), not a form control -- it carries no button/input
-          role and is not itself subject to
+          holds; absent whenever renderModes.twoColumnLayout holds
+          (retitled from mapPrimaryLayout by adr/0049 decision 4; the
+          presence/absence rule itself is unchanged by that retitling). It
+          is a container element that bounds where a paging swipe gesture
+          may begin (see browserActions.pageDeckSwipeForward/Backward
+          below), not a form control -- it carries no button/input role and
+          is not itself subject to
           unavailableControls.allCandidateScreenFormControlsMustDeclarePurpose,
-          unlike previousControl/nextControl above. It needs no
+          unlike a form-control-shaped element would be. It needs no
           allowedPurposes entry for this reason.
+        stopBehavior: >-
+          Regardless of where the user's finger leaves the surface, the
+          gesture always settles with exactly one full card centered and
+          completely visible within the surface -- never a partial card at
+          either edge (adr/0049 decision 5, 2026-09-08 human decision:
+          "スワイプが途中で止まって見切れる症状を直す"). This is a Must on
+          the observable result only; the implementation technique (e.g. CSS
+          scroll-snap, a JavaScript settle animation, or any other means) is
+          an implementation choice this contract does not fix, mirroring
+          how the gesture's direction-reading and step size are already left
+          unfixed below. See deckNavigation.position's valueShape below for
+          how this result is expressed through
+          data-deck-visible-start/-end, and pageDeckSwipeForward/Backward's
+          requiredOutcome for how a completed gesture's before/after window
+          reflects it.
       position:
         testId: candidate-deck-position
         attributes:
@@ -686,33 +779,25 @@ browserControlSurface:
           post-selection display count, at most 5 -- independent of
           filterPanel.matchCountObservation's pending-population count).
           1 <= visibleStart <= visibleEnd <= total always holds while
-          candidate-deck-position is present.
+          candidate-deck-position is present. Because
+          deckNavigation.swipeSurface's stopBehavior always settles on
+          exactly one full card (adr/0049 decision 5), visibleStart always
+          equals visibleEnd while candidate-deck-position is present (it is
+          present only while renderModes.mapPrimaryTouchLayout holds, see
+          presenceRule below) -- this equality is the machine-observable,
+          indirect proof that "exactly one card is visible", since this
+          contract does not otherwise measure rendered card geometry
+          (mirrors how deckNavigation.orderingInvariant already keeps L5's
+          rendered-geometry concerns out of L4).
         presenceRule: >-
-          Present exactly once whenever renderModes.mapPrimaryLayout or
-          renderModes.mapPrimaryTouchLayout holds -- the only two
-          currently-named renderModes as of adr/0033, which retired
-          listPrimaryLayout (mirrors how the retired list-primary layout
-          never needed a position counter, since its full card list was
-          visible without paging). Because every currently-named mode is
-          deck-bearing, this element is in practice always present at every
-          render this contract currently describes; the conditional wording
-          is kept so a future renderModes addition that does not bear a
-          deck would correctly leave it absent.
-      disabledState: >-
-        Applies only to previousControl/nextControl, which exist only while
-        renderModes.mapPrimaryLayout holds: candidate-deck-previous carries
-        the native disabled state exactly when data-deck-visible-start
-        equals "1"; candidate-deck-next carries it exactly when
-        data-deck-visible-end equals data-deck-total. This mirrors
-        filterPanel.matchCountObservation.zeroState's existing
-        disabled-not-absent convention for a boundary condition.
-        renderModes.mapPrimaryTouchLayout has no button affordance and
-        therefore no native disabled state to observe (adr/0033): a
-        continuous drag gesture has no third "disabled" state the way a
-        discrete button does, so the same boundary property (cannot page
-        past either end) is expressed instead as a no-op requirement on the
-        gesture's outcome -- see
-        browserActions.pageDeckSwipeForward/Backward's boundaryOvershoot.
+          Present exactly once whenever renderModes.mapPrimaryTouchLayout
+          holds; absent whenever renderModes.twoColumnLayout holds (adr/0049
+          decision 4 retired the desktop paged deck this element used to
+          also describe under mapPrimaryLayout -- a plain, unpaged list of
+          up to 5 cards has no position within a window to count. This
+          mirrors how the retired list-primary layout, before adr/0033,
+          never needed a position counter either, since its full card list
+          was likewise visible without paging).
       orderingInvariant: >-
         Paging changes only which already-ordered cards are within the
         visible window; it never changes displayOrdering's card order,
@@ -723,7 +808,10 @@ browserControlSurface:
         this revision. Selecting a card or marker does not page the deck by
         itself except as required by browserActions.selectMarker's
         deckVisibility clause. pageDeckSwipeForward/Backward (adr/0033)
-        obey the same restriction as pageDeckPrevious/Next.
+        obey the same restriction (the button-driven pageDeckNext/Previous
+        obeyed it too while they existed, adr/0031-0033; adr/0049 decision 4
+        retired them along with mapPrimaryLayout, since twoColumnLayout has
+        no deck to page).
     mapObservations:
       fitStateAttribute: {testId: candidate-map, attribute: data-map-fit-state, value: displayed-candidates}
       tileProviderAttribute: {testId: candidate-map, attribute: data-map-tile-provider, value: openstreetmap-standard}
@@ -1030,81 +1118,84 @@ browserControlSurface:
       - candidate-filter-revert replaces pending with applied, keeps the panel open, changes neither the currently displayed candidates nor applied filters, and performs no public operation.
       - candidate-search-again is disabled while pending differs from applied, and is re-enabled only after candidate-filter-revert or a completed proposal rendering makes pending equal applied.
       - No free-text input control exists for genre, budget, walking-time-max, or any other filter; every filter control is a closed selection (checkbox or toggle) over a server-supplied or fixed enum vocabulary.
-  shownCandidateMemory:
-    storage: sessionStorage
-    key: dining-radar:shown-provider-page-urls
-    scope: >-
-      Tab-lifetime only, and never longer than expiry.maxAge (adr/0024
-      decision 4, as amended by decision 4 item 8, 2026-08-14 addendum).
-      Survives a same-tab reload or in-tab navigation within this origin;
-      cleared when the tab or window closes, or when the browser clears
-      site data for this origin. Never sent to, or readable by, any other
-      origin, and never mirrored to localStorage, a cookie, or any storage
-      that outlives the tab.
-    valueShape: >-
-      A JSON array of {url, storedAt} pairs, deduplicated by url (the
-      newest storedAt wins when the same url is added again); storedAt is
-      a timestamp recorded, using the browser's own local clock, at the
-      moment url was added. Element order carries no meaning.
-    expiry:
-      maxAge: 20 hours
-      regulatoryCeiling: 24 hours
-      rationale: >-
-        Hot Pepper's terms of service require any cache remaining "on or
-        within the user's application" to be updated or deleted within 24
-        hours absent a more specific published rule (quoted and cited in
-        adr/0024 decision 4 item 8; adr/0018 first quoted this same clause
-        on 2026-08-09). "On or within the application" covers browser-side
-        retention, not only server-side retention -- adr/0024 decision 6
-        corrects an earlier, narrower reading that had treated this as a
-        server-only concern. maxAge is fixed below the regulatory ceiling
-        (20 of the permitted 24 hours) to absorb clock skew and processing
-        delay without depending on implementation precision to stay
-        compliant.
-      rule: >-
-        Every read of this key -- both when constructing a request's
-        shownProviderPageUrls (requestRule) and when applying updateRule
-        after a response -- first discards any entry whose storedAt is
-        older than maxAge, using the browser's current local time, and
-        writes back only the surviving entries. A discarded entry is
-        removed from the stored set itself, not merely skipped for one
-        read. This can only shrink shownProviderPageUrls, which can only
-        enlarge the not-yet-shown partition proposal.shownPoolPriority
-        reasons about; it never violates that invariant's three
-        set-membership properties.
-      verificationNote: >-
-        Expiry is entirely browser-local: the server never receives or
-        reasons about entry ages, only whatever shownProviderPageUrls array
-        the browser currently sends (adr/0024 decision 4). Deterministic
-        acceptance testing does not require a
-        contracts/test-support-api.yaml seam for this; it seeds an
-        already-stale sessionStorage entry directly (a storedAt older than
-        maxAge for a known providerPageUrl, e.g. one returned by
-        test-support-api.yaml's SHOWN_POOL_PRIORITY mode) through the
-        browser layer before the next action, then asserts that entry is
-        absent from the outgoing request's shownProviderPageUrls and that
-        its candidate is once again treated as not-yet-shown.
-    updateRule: >-
-      After every successful /candidate-proposals response, the browser
-      first prunes expired entries per expiry.rule, then adds that
-      response's candidates' providerPageUrl values (each with a fresh
-      storedAt) to the surviving set. If the response's shownPoolExhausted
-      is true, the browser clears the entire existing set (expired or not)
-      before adding them, so the values just added become the sole content
-      of a fresh cycle.
-    requestRule: >-
-      Every /candidate-proposals request (initialProposal, applyFilters,
-      searchAgain) first prunes expired entries per expiry.rule, then
-      includes the surviving set's url values (not their storedAt) as
-      shownProviderPageUrls, or omits the property when the surviving set
-      is empty.
-    disclosure: >-
-      The server never receives, stores, or logs this key, its raw
-      sessionStorage contents, or any storedAt timestamp, outside the one
-      shownProviderPageUrls request field (url values only, no timestamp)
-      it is copied into for the duration of one request (adr/0024 decision
-      4; see also candidate-search-api.yaml's Candidate.providerPageUrl and
-      CandidateProposalRequest.shownProviderPageUrls descriptions).
+  gatheringMode:
+    description: >-
+      The consolidated shop-selection surface for a gathering (adr/0049
+      decision 1, 2026-09-08 human decision: "1枚目の画面の存在価値が
+      なくなってない？（重複しているように思える）" -- retiring
+      gathering-scheduling-browser-interface.yaml's
+      organizerDashboard.shortlistSelection, a separate, narrower
+      shop-checklist screen, in favor of this already-full-featured screen).
+      This screen is reached in gathering mode by navigating from
+      gathering-scheduling-browser-interface.yaml's
+      gathering-shortlist-open (the organizer's "店を絞りなおす"/"5件を
+      差し替える" action) carrying a gatheringId; this contract does not fix
+      the exact navigation mechanism (e.g. a URL query parameter) the same
+      way it does not fix viewport breakpoints elsewhere. Whichever
+      mechanism is used, the resulting initialProposal (and every
+      applyFilters/searchAgain while this screen remains in gathering mode)
+      carries that same gatheringId in its request (see
+      candidate-search-api.yaml's CandidateProposalRequest.gatheringId).
+      Gathering mode is observable exactly through response.gatheringContext
+      being non-null (candidate-search-api.yaml) -- every test id below is
+      gated on that same condition, not on a separate contract-level "mode"
+      flag.
+    requiredTestIds:
+      band: candidate-gathering-mode-band
+      cardToggle: candidate-card-gathering-toggle
+    band:
+      testId: candidate-gathering-mode-band
+      attributes:
+        shortlistedCount: data-gathering-shortlisted-count
+        maxShortlisted: data-gathering-max-shortlisted
+      presenceRule: >-
+        Present exactly once when response.gatheringContext is non-null;
+        absent when it is null (the ordinary, non-gathering screen -- see
+        authenticatedInitialOutcome.absent above, which adr/0049 adds this
+        test id to). This is the always-on, non-togglable "いまの条件"
+        condition line (adr/0049 decision 1: "8/27 (水) に開いている店")
+        -- unlike every filterPanel control, it has no pending/applied
+        state and no control to turn it off, because gathering mode's
+        open-on-the-confirmed-date restriction is not one of the organizer's
+        optional filters. Its visible text must disclose
+        response.gatheringContext.confirmedCandidateDate in a
+        human-readable form; the exact wording/date format is an
+        implementation choice this contract does not fix, mirroring
+        walkingTimeEstimateWording and budgetTierNoteObservation's existing
+        content-only Musts. Its two attributes are decimal integer strings
+        equal to response.gatheringContext.shortlistedShopCount and
+        .maxShortlistedShops respectively (the "入れた店 3 / 5" band); both
+        update after every successful toggleCardGatheringShortlist call
+        (below), since that call's response carries a fresh
+        gatheringContext.
+    cardToggle:
+      testId: candidate-card-gathering-toggle
+      purpose: candidate-card-gathering-toggle
+      attribute: data-gathering-shortlisted
+      values: [true, false]
+      presenceRule: >-
+        Present on every candidate-card exactly when response.
+        gatheringContext is non-null; absent on every card when it is null
+        (adr/0049 decision 1). Its attribute value equals that card's
+        Candidate.isShortlisted exactly ("true" or "false" as a string) --
+        this is the observable signal for the "この会に入れました"/"この会
+        に入れる" toggle-label distinction; the exact visible label wording
+        is an implementation choice this contract does not fix.
+      disabledState: >-
+        Disabled exactly when data-gathering-shortlisted="false" and
+        response.gatheringContext.shortlistedShopCount is greater than or
+        equal to .maxShortlistedShops (adr/0049 decision 8: the organizer
+        has already reached the 5-shop cap, and this card is not one of the
+        5). A card whose data-gathering-shortlisted="true" remains enabled
+        regardless of the count, so removing a shortlisted shop to choose a
+        different one is never blocked. This mirrors deckNavigation.
+        disabledState's established convention elsewhere in this contract's
+        history and gathering-scheduling-browser-interface.yaml's own
+        gathering-schedule-response-select precedent: boundary conditions
+        disable, they do not remove the element.
+    toggleRequiredOutcome: >-
+      See browserActions.toggleCardGatheringShortlist below for what
+      activating cardToggle does.
   unavailableControls:
     forbiddenFormControlCategories:
       [select, input, textarea, checkbox, radio, range, combobox, listbox,
@@ -1122,7 +1213,7 @@ browserControlSurface:
        candidate-filter-card-payment-toggle, candidate-filter-budget-tier-selection,
        candidate-filter-walking-time-max-selection,
        candidate-filter-apply, candidate-filter-revert, candidate-search-again,
-       candidate-deck-page-previous, candidate-deck-page-next,
+       candidate-card-gathering-toggle,
        auth-sign-out, auth-password-change-open, auth-account-menu-toggle]
     forbiddenPurposes:
       [sort, manual-ordering, free-text-search, search-origin,
@@ -1207,9 +1298,12 @@ browserControlSurface:
       "secondary-condition" and "filter", which adr/0015 relied on to
       justify representing IZAKAYA_BAR_INCLUDED as a "concept" rather than a
       toggle. That reasoning no longer applies once filters are the primary
-      operation. Deck paging (deckNavigation, adr/0031, adr/0033) is
-      likewise not a manual-ordering capability -- see
-      deckNavigation.orderingInvariant.
+      operation. Deck paging (deckNavigation, adr/0033, mapPrimaryTouchLayout
+      only as of adr/0049 decision 4) is likewise not a manual-ordering
+      capability -- see deckNavigation.orderingInvariant. Toggling a
+      candidate onto or off a gathering's shortlist (gatheringMode.cardToggle,
+      adr/0049 decision 1) is likewise not a manual-ordering capability --
+      it changes gathering membership, not display order.
   empty:
     requiredTestIds: [candidate-no-results]
     absent: [candidate-proposal-cards, candidate-map]
@@ -1251,7 +1345,10 @@ browserActions:
         otherwise {shownProviderPageUrls: <the surviving shownCandidateMemory
         url values>} (adr/0024 decision 4, decision 4 item 8) -- for example
         after a same-tab reload that already accumulated shown candidates.
-        `filters` is always omitted or empty on this trigger.
+        `filters` is always omitted or empty on this trigger. When this
+        screen was reached in gathering mode (gatheringMode above, adr/0049
+        decision 1), the request additionally carries the same `gatheringId`
+        the navigation into this screen supplied.
       normalizedAppliedFilters:
         {genres: [], includeIzakayaBar: false, nonSmokingOnly: false,
          cardPaymentOnly: false, budgetTiers: [], walkingTimeMaxMinutes: null}
@@ -1264,6 +1361,14 @@ browserActions:
                candidate-filter-pending-note, candidate-filter-apply,
                candidate-filter-revert]
       shownCandidateMemoryUpdate: satisfies-shownCandidateMemory.updateRule-for-this-response
+    gatheringModeErrors: >-
+      When the initial request carries a `gatheringId` that
+      candidate-search-api.yaml rejects (404 GATHERING_NOT_FOUND, 409
+      GATHERING_NOT_IN_SELECTING_SHOP_PHASE, or 409 GATHERING_FINALIZED,
+      adr/0049 decision 1), this contract does not fix a distinct render
+      state beyond problem above -- the same candidate-proposal-problem/
+      candidate-proposal-problem-guidance surface applies, carrying that
+      response's code and message.
   selectCard:
     input: candidate-card
     requiredOutcome:
@@ -1277,49 +1382,21 @@ browserActions:
       matchingCardAttribute: {attribute: data-selection-state, value: selected}
       allOtherCardsAndMarkers: {attribute: data-selection-state, value: unselected}
       deckVisibility: >-
-        While renderModes.mapPrimaryLayout or renderModes.mapPrimaryTouchLayout
-        holds (adr/0033 generalizes this from mapPrimaryLayout alone), the
-        selected candidate's card is within candidate-deck-position's
-        visible window (visibleStart <= its 1-based displayOrdering position
-        <= visibleEnd) immediately after this action -- the deck pages
-        itself to reveal it if it was previously outside the window. Not
-        applicable while neither named renderMode holds (there is currently
-        no such render, since listPrimaryLayout was retired by adr/0033;
-        this clause is kept in case a future non-deck-bearing mode is
-        added). This closes a gap decision5 (no separate map-side info
-        panel; the deck itself is the only place candidate detail is shown,
-        human decision 2026-08-28 keeps this conclusion) did not need to
-        state under the prior side-panel layout, and is what keeps
-        decision5's conclusion true under the deck layout (adr/0031),
-        including its mobile/touch variant (adr/0033).
-  pageDeckNext:
-    input: candidate-deck-next
-    precondition: renderModes.mapPrimaryLayout-holds-and-data-deck-visible-end-is-less-than-data-deck-total
-    requiredOutcome:
-      visibleWindow: >-
-        data-deck-visible-start strictly increases and data-deck-visible-end
-        does not decrease; data-deck-visible-end never exceeds
-        data-deck-total afterward. The step size (one card, one full window,
-        etc.) is an implementation choice this contract does not fix.
-      unaffected: [cardsAndMarkersSet, dataCandidateRefValues,
-                   dataSelectionStateValues, appliedFilters, pendingFilters,
-                   conditionSummary]
-      publicOperation: none
-  pageDeckPrevious:
-    input: candidate-deck-previous
-    precondition: renderModes.mapPrimaryLayout-holds-and-data-deck-visible-start-is-greater-than-1
-    requiredOutcome:
-      visibleWindow: >-
-        data-deck-visible-end strictly decreases and data-deck-visible-start
-        does not increase; data-deck-visible-start never falls below 1
-        afterward. The step size mirrors pageDeckNext's; this contract does
-        not mandate that the two use the same implementation value, only
-        that each independently obeys the boundary and monotonicity rules
-        above.
-      unaffected: [cardsAndMarkersSet, dataCandidateRefValues,
-                   dataSelectionStateValues, appliedFilters, pendingFilters,
-                   conditionSummary]
-      publicOperation: none
+        While renderModes.mapPrimaryTouchLayout holds, the selected
+        candidate's card is within candidate-deck-position's visible window
+        (visibleStart <= its 1-based displayOrdering position <= visibleEnd)
+        immediately after this action -- the deck pages itself to reveal it
+        if it was previously outside the window. While
+        renderModes.twoColumnLayout holds (adr/0049 decision 4, replacing
+        mapPrimaryLayout), every card is simultaneously visible in the
+        single unpaged list, so this clause is trivially satisfied -- there
+        is no window to page. This closes a gap decision5 (no separate
+        map-side info panel; the deck/list itself is the only place
+        candidate detail is shown, human decision 2026-08-28 keeps this
+        conclusion, reconfirmed for twoColumnLayout by adr/0049 decision 4)
+        did not need to state under the original side-panel layout, and is
+        what keeps decision5's conclusion true under both the touch-deck
+        layout (adr/0033) and the two-column layout (adr/0049).
   pageDeckSwipeForward:
     input: candidate-deck-swipe-surface
     precondition: renderModes.mapPrimaryTouchLayout-holds
@@ -1332,24 +1409,28 @@ browserActions:
       the two horizontal directions is forward and pageDeckSwipeBackward's
       is the opposite direction). The distance threshold that counts as a
       completed paging gesture, as opposed to a tap or an aborted drag, is
-      an implementation choice this contract does not fix, mirroring how
-      pageDeckNext/Previous do not fix step size.
+      an implementation choice this contract does not fix.
     requiredOutcome:
       visibleWindow: >-
-        Same shape as pageDeckNext's requiredOutcome.visibleWindow:
-        data-deck-visible-start strictly increases and data-deck-visible-end
-        does not decrease; data-deck-visible-end never exceeds
-        data-deck-total afterward. Applies only when the gesture completes
-        while data-deck-visible-end is less than data-deck-total before the
-        gesture; see boundaryOvershoot for the other case.
+        data-deck-visible-start strictly increases by exactly the same
+        amount data-deck-visible-end strictly increases by, so the two
+        remain equal to each other afterward, per deckNavigation.position's
+        one-card-visible invariant (adr/0049 decision 5: the gesture always
+        settles on exactly one full card, never a partial one); neither
+        value exceeds data-deck-total afterward. Applies only when the
+        gesture completes while data-deck-visible-end is less than
+        data-deck-total before the gesture; see boundaryOvershoot for the
+        other case.
       boundaryOvershoot: >-
         When data-deck-visible-end already equals data-deck-total before
         the gesture, completing the gesture is a no-op on the visible
         window: it must not error, must not start a public operation, and
         start/end/total must be unchanged afterward. mapPrimaryTouchLayout
-        has no disabledState affordance (deckNavigation.disabledState does
-        not apply to it), so this no-op requirement is the continuous-
-        gesture analogue of pageDeckNext's precondition guard.
+        has no disabled-button affordance to observe (there is no
+        deckNavigation.previousControl/nextControl in this contract; the
+        desktop button-paged deck those elements belonged to, mapPrimaryLayout,
+        was retired by adr/0049 decision 4), so this no-op requirement is
+        the continuous-gesture's own boundary rule.
       unaffected: [cardsAndMarkersSet, dataCandidateRefValues,
                    dataSelectionStateValues, appliedFilters, pendingFilters,
                    conditionSummary]
@@ -1360,22 +1441,23 @@ browserActions:
         sequence (e.g. a pointer/mouse down-move-up sequence, or an
         equivalent touch-event dispatch) at coordinates inside
         candidate-deck-swipe-surface's bounding box, then asserts
-        requiredOutcome through the same before/after DOM comparison
-        pageDeckNext/Previous already use. **This is a synthetic gesture
-        dispatched directly into the browser's input pipeline, not contact
-        from a real touchscreen or a human finger** -- it proves the code
-        path that pages the deck fires; it does not prove a human finger can
-        physically perform the gesture on a real device (e.g. past an
-        occluding element, or with a hit target too small to reliably
-        start a drag on). activeContext.md's G1 (a synthetic click on
-        candidate-map-marker proves the code path fires, not that a human
-        finger can reach and activate the real element) already accepts
-        this class of limitation for click-style activation; adr/0033
-        extends the identical, already-accepted limitation to a drag-style
-        gesture for the first time in this contract, and records that
-        extension explicitly here rather than leaving it implicit. This
-        does not narrow or widen G1's existing scope for click-style
-        activation, and it does not claim to close G1 for gestures either.
+        requiredOutcome through a before/after DOM comparison. **This is a
+        synthetic gesture dispatched directly into the browser's input
+        pipeline, not contact from a real touchscreen or a human finger**
+        -- it proves the code path that pages the deck fires; it does not
+        prove a human finger can physically perform the gesture on a real
+        device (e.g. past an occluding element, or with a hit target too
+        small to reliably start a drag on). activeContext.md's G1 (a
+        synthetic click on candidate-map-marker proves the code path fires,
+        not that a human finger can reach and activate the real element)
+        already accepts this class of limitation for click-style
+        activation; adr/0033 extended the identical, already-accepted
+        limitation to a drag-style gesture for the first time in this
+        contract, and this remains unchanged by adr/0049's later retirement
+        of the button-driven pageDeckNext/Previous actions that used to be
+        cited alongside this gesture. This does not narrow or widen G1's
+        existing scope for click-style activation, and it does not claim to
+        close G1 for gestures either.
   pageDeckSwipeBackward:
     input: candidate-deck-swipe-surface
     precondition: renderModes.mapPrimaryTouchLayout-holds
@@ -1385,12 +1467,13 @@ browserActions:
       what is and is not fixed.
     requiredOutcome:
       visibleWindow: >-
-        Same shape as pageDeckPrevious's requiredOutcome.visibleWindow:
-        data-deck-visible-end strictly decreases and data-deck-visible-start
-        does not increase; data-deck-visible-start never falls below 1
-        afterward. Applies only when the gesture completes while
-        data-deck-visible-start is greater than "1" before the gesture; see
-        boundaryOvershoot for the other case.
+        data-deck-visible-end strictly decreases by exactly the same amount
+        data-deck-visible-start strictly decreases by, so the two remain
+        equal to each other afterward, per deckNavigation.position's
+        one-card-visible invariant (adr/0049 decision 5); data-deck-visible-start
+        never falls below 1 afterward. Applies only when the gesture
+        completes while data-deck-visible-start is greater than "1" before
+        the gesture; see boundaryOvershoot for the other case.
       boundaryOvershoot: >-
         When data-deck-visible-start already equals "1" before the gesture,
         completing the gesture is a no-op on the visible window, for the
@@ -1465,7 +1548,9 @@ browserActions:
         filters-object-reflecting-pending-panel-control-state, plus
         shownProviderPageUrls from the surviving (post-expiry-pruning)
         shownCandidateMemory set (omitted when empty) (adr/0024 decision 4,
-        decision 4 item 8).
+        decision 4 item 8), plus the same `gatheringId` initialProposal
+        carried when this screen is in gathering mode (adr/0049 decision 1
+        -- filtering does not leave or re-enter gathering mode).
     success:
       requiredOutcome:
         cards: exactly-current-success-response-candidates
@@ -1524,7 +1609,8 @@ browserActions:
         filters-object-semantically-equal-after-default-normalization-to-the-currently-applied-one,
         plus shownProviderPageUrls from the surviving (post-expiry-pruning)
         shownCandidateMemory set (omitted when empty) (adr/0024 decision 4,
-        decision 4 item 8).
+        decision 4 item 8), plus the same `gatheringId` initialProposal
+        carried when this screen is in gathering mode (adr/0049 decision 1).
       defaultEquivalence: >-
         When the applied conditions are the defaults, the initial `{}` body,
         `{filters: {}}`, and a fully expanded default filters object are
@@ -1590,6 +1676,49 @@ browserActions:
       fields; it is a pure navigation to
       gathering-scheduling-browser-interface.yaml's
       browserEntry.organizerGatheringList (adr/0038).
+  toggleCardGatheringShortlist:
+    input: candidate-card-gathering-toggle
+    precondition: >-
+      response.gatheringContext-is-non-null-and-cardToggle-is-not-disabled
+      (gatheringMode.cardToggle.disabledState above)
+    publicOperation:
+      crossContractReference:
+        file: contracts/gathering-scheduling-api.yaml
+        operationId: setShortlistedShops
+        method: PUT
+        path: /gatherings/{gatheringId}/shortlisted-shops
+      requestBody: >-
+        The complete replacement shopIds array (adr/0049 decision 1): the
+        gathering's current shortlistedShops' shopId values (as reflected by
+        every candidate-card's data-gathering-shortlisted="true" at the
+        moment of activation) with this card's Candidate.shopId added (if it
+        was "false") or removed (if it was "true"). This action never calls
+        candidate-search-api.yaml's own /candidate-proposals -- it is the
+        first browserAction in this contract whose publicOperation targets a
+        different contract's endpoint (mirrors gatheringEntry's
+        crossContractReference for reads, extended here to a write).
+    requiredOutcome:
+      cardToggle: >-
+        This card's data-gathering-shortlisted flips to the opposite value
+        (adr/0049 decision 1); every other currently-displayed card's
+        data-gathering-shortlisted is unaffected by this call, since
+        setShortlistedShops' response reflects only this gathering's
+        shortlist membership, not this screen's own candidate population.
+      band: >-
+        gatheringMode.band's shortlistedCount/maxShortlisted attributes
+        update to reflect the response gathering's new
+        shortlistedShops.length/5 (adr/0049 decision 1).
+      unaffected: [cardsAndMarkersSet, dataCandidateRefValues,
+                   dataSelectionStateValues, appliedFilters, pendingFilters,
+                   conditionSummary, mapViewport]
+    errorOutcome: >-
+      A rejected call (400 INVALID_SHOP_SELECTION, 401
+      AUTHENTICATION_REQUIRED, 404 GATHERING_NOT_FOUND, or 409
+      GATHERING_NOT_IN_SELECTING_SHOP_PHASE/GATHERING_FINALIZED,
+      gathering-scheduling-api.yaml) leaves cardToggle and band unchanged
+      from their pre-activation values; this contract does not fix a
+      distinct visible error surface for this action beyond that
+      no-op-on-failure guarantee.
 
 disclosureObservations:
   responseSurfaces:
@@ -1619,7 +1748,11 @@ gatheringEntry:
     (Handoff.dc.html option B, human decision 2026-09-01, adr/0038). This is
     the first point where this screen's contract references a resource
     (in-progress gathering count) that is not part of
-    candidate-search-api.yaml -- see crossContractReference below.
+    candidate-search-api.yaml -- see crossContractReference below. Distinct
+    from gatheringMode above: this section is the ordinary screen's entry
+    point into the gathering feature (list of gatherings); gatheringMode is
+    what this same screen becomes once already inside one gathering's shop
+    selection (adr/0049 decision 1).
   requiredTestIds:
     entry: candidate-gathering-entry
   entry:

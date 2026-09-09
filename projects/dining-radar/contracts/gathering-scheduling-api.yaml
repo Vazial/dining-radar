@@ -67,6 +67,7 @@
 # - **会の一覧**（`listGatherings`）を新設する。幹事の入口画面（Entry.dc.html E-1）であり、
 #   「新しい順」（`createdAt`降順）に並ぶ。`Gathering`へ`createdAt`（新規必須フィールド）を追加した
 #   ——一覧の並び順に必要になったため。削除操作は追加しない（D4＝案A、2026-08-30裁定、維持）。
+#   **2026-09-09、D4はadr/0050決定4により置き換わった——下記追補7を参照。**
 # - **候補日の重複防止**（architectの設計判断、人間裁定の対象外——designerが「契約が定めていない」と
 #   申し送っていた2点のうちの1つ）: 同じ会に同一`startAt`（日時が完全一致）の候補日を重ねて追加
 #   しようとすると`DUPLICATE_CANDIDATE_DATE`で拒否する。`createGathering`のリクエスト内の重複
@@ -149,7 +150,8 @@
 # 2026-09-03 追補2 (architect、ADR-0041。人間裁定6件、P1〜P6、2026-09-03チャット選択肢UI):
 # - **P1（確認のみ）**: 5件選定は幹事ダッシュボード内で完結する（案A）。`setShortlistedShops`・
 #   `previewOpenShopsForCandidateDate`の再利用という既存API設計は、この前提とすでに整合して
-#   いた——スキーマ変更は無い。
+#   いた——スキーマ変更は無い。**2026-09-09、P1の前提（幹事ダッシュボード内で完結する）はadr/0049
+#   決定1により置き換わった——下記追補7を参照。setShortlistedShops自体の形状は変わらない。**
 # - **P2（最小1件、境界の明記）**: `SetShortlistedShopsRequest.shopIds`の下限は起草時から
 #   `minItems: 1`であり、この値が人間裁定により正式に確定した（起草時のarchitect判断が、後発の
 #   人間裁定と一致していたことになる）。`InvalidShopSelection`の説明文へ、0件・6件超のいずれも
@@ -168,7 +170,8 @@
 #   （まだ答えていない店・明示的に選ばなかった店は含めない）。表示用の店情報は新設の共有スキーマ
 #   `LiveProjectedShop`へ切り出し、`decision.shop`とあわせて再利用する。TDR-GTH-34へこの観測を
 #   追加した。**2026-09-04、承認投票が三段階へ改まったことに伴い、`yourApprovedShops`は
-#   `yourShopVotes`へ置き換わった——下記2026-09-04追補3を参照。**
+#   `yourShopVotes`へ置き換わった——下記2026-09-04追補3を参照。2026-09-09、`yourShopVotes`は
+#   adr/0050決定3により削除された——下記追補7を参照。`yourScheduleResponse`は維持される。**
 # - **P6（既決事項の決着）**: `ADR-0040`未決事項1（product-brief.md §2の「局面を進める3操作」
 #   という文言と、3値のままの`GatheringPhase`enumの食い違い、FR-028）が、この裁定で決着した——
 #   §2を「局面を進める操作は2つ（この日にする・確定する）。『この5件で投票する』は幹事の重要操作
@@ -191,7 +194,8 @@
 #   具体的な観測面を必要とする段になり、この先送りは実装不能な仕様になることが判明したため、
 #   `OpenShopPreviewItem`へ`shopId`（必須）を追加し、先送りの記述を削除した。これは今回の
 #   designer材料・人間裁定のいずれにも起因しない、architect自身が契約起草の過程で見つけた
-#   実装可能性の穴の修正である（FR-028として報告する）。
+#   実装可能性の穴の修正である（FR-028として報告する）。**2026-09-09、`OpenShopPreviewItem`
+#   自体・`previewShops`はいずれもadr/0049決定1・2により削除された——下記追補7を参照。**
 #
 # 2026-09-04 追補2 (architect、ADR-0043。developerが実装中に発見した契約の自己矛盾、FR-028):
 # - `browserEntry.participantAnswer.validLinkOutcome`と`scheduleQuestion.presenceRule`
@@ -313,7 +317,8 @@
 #   前の回答しか無い）。並び順（近い順、adr/0044決定2）は変更しない。この決着はブラウザ契約
 #   （`gathering-scheduling-browser-interface.yaml`）側の`finalizedView.decision.shopVote`の
 #   対応する改訂・`gathering-scheduling.feature`のTDR-GTH-34拡張と同じPRで行う——詳細は
-#   `adr/0046`の未決事項節を参照する。
+#   `adr/0046`の未決事項節を参照する。**2026-09-09、`ParticipantDecisionShopVote`・
+#   `decision.yourShopVotes`はいずれもadr/0050決定3により削除された——下記追補7を参照。**
 #
 # 2026-09-06 追補6 (architect、adr/0048。実測で判明した並び順の非決定性への対応。version
 #   0.8.0 -> 0.9.0):
@@ -332,25 +337,77 @@
 #   ——`Gathering.candidateDates`と同じ並び（`goingCount`降順、同点は`startAt`昇順）であることを
 #   今回明記した。これは受け入れテストの実行ごとの失敗（`gathering-schedule-question`が見つからない）
 #   の直接の原因であり、本追補の主眼である。
+#
+# 2026-09-09 追補7 (architect、adr/0049・adr/0050。2026-09-08〜09の人間裁定8件+実機フィードバック
+#   への対応（adr/0049）と、可視性規則の反転・確定後の記録の簡素化・会の削除（adr/0050）。version
+#   0.9.0 -> 0.10.0。前段のarchitectがADR本体で確定させた仕様を、本段が本ファイルへ反映した）:
+# - **候補日のバッチ登録**（adr/0049決定3）: 単数形`addCandidateDate`
+#   （`POST /gatherings/{gatheringId}/candidate-dates`）を廃止し、複数形`addCandidateDates`
+#   （`POST /gatherings/{gatheringId}/candidate-dates:batch`）へ新設・置き換えた。新設
+#   `AddCandidateDatesRequest`は`CreateGatheringRequest.candidateDates`と同じ形状（1件以上の
+#   配列）。バッチ内・既存分との重複は全体拒否（`DUPLICATE_CANDIDATE_DATE`、部分成功は行わない）。
+#   新エラー`CANDIDATE_DATE_NOT_IN_FUTURE`を追加し、今日・過去日を含むバッチも全体拒否する——この
+#   検査は`createGathering`にも同じ形で適用する。「終わりの時刻」（12:00–13:00の既定値）は
+#   `CandidateDateInput`へ追加しない——この製品のどの機能も終わりの時刻を消費しないため、UI側の
+#   入力補助にとどめる（architectの判断、adr/0049決定3、P-02/P-05の精神）。
+# - **日程を聞いている段階の店プレビューを件数だけにする**（adr/0049決定2）:
+#   `CandidateDateOpenShopPreview`から`previewShops`を削除し、`candidateDateId`・`openShopCount`
+#   だけを残した。`OpenShopPreviewItem`スキーマ自体を削除した（非推奨のまま残さない——この契約は
+#   まだDRAFTであり、店の一覧を表示する役目を負う画面がこの一本化の後もう1つも無くなるため）。
+#   `previewOpenShopsForCandidateDate`操作自体は残す——件数だけを返す軽い問い合わせとして
+#   引き続き使う。
+# - **店選びをランチ候補画面へ一本化**（adr/0049決定1）: 幹事ダッシュボード内の店選び一覧
+#   （`shortlistSelection`、ブラウザ契約側）を廃止し、`candidate-search-api.yaml`の
+#   `proposeCandidates`が新設の`gatheringId`を受け取る「会モード」へ一本化した。
+#   `setShortlistedShops`はそのまま再利用する（書き込みは引き続き会の契約が持つ）——本ファイルの
+#   このエンドポイント自体のスキーマ・意味論は変更していない。変わるのは「どの画面から呼ぶか」
+#   だけである。関連する説明文（呼び出し元・母集団の出どころ）を更新した。
+# - **可視性規則の反転**（adr/0050決定2）: `ParticipantScheduleQuestion.tally`・
+#   `ParticipantShopVoteOption.tally`を、既存の`openShopCount`と同じ「常に非null」（`required`
+#   へ追加、`nullable: true`を除去）へ改めた——回答の有無に関わらず、他の参加者の集計が見える。
+#   元の規則が置かれた理由（先行回答が後続を誘導しかねない）は正しいまま消さずに記録する——人間は
+#   「日程・店の重なりが分かれば合わせられる」という調整上の利点を優先する判断を明示的に下した。
+# - **確定後の記録の簡素化**（adr/0050決定3）: `ParticipantView.decision`から`yourShopVotes`
+#   （投票にかけられた店それぞれへの自分の回答の一覧）を削除した——`yourScheduleResponse`
+#   （確定した開催日への自分自身の回答、1行）は維持する。この一覧専用だった
+#   `ParticipantDecisionShopVote`スキーマも削除した。ADR-0041のP5・ADR-0044・ADR-0046が
+#   積み重ねてきたこの部分の設計を、人間が実物を見て「あなたの回答は見れても別に意味ないかも」と
+#   評したことにより打ち切る（P-06に従い各ADR本体は書き換えない）。
+# - **会を削除できるようにする**（adr/0050決定4、D4「削除操作は置かない」の差し替え）: 新設
+#   `DELETE /gatherings/{gatheringId}`（`operationId: deleteGathering`）。3局面
+#   （SCHEDULING/SELECTING_SHOP/FINALIZED）のいずれでも受理し、候補日・日程回答・店の投票・
+#   参加者リンク・参加者が名乗った表示名を含め、その会を完全に消す（取り消し不可）。削除された
+#   会の参加者リンクは、以後`getParticipantView`が既存の`LINK_NOT_FOUND`を返す（トークン失効の
+#   専用の仕組みは要らない——会のレコードごと消えるため）。新しい公開エラーコードは増やさない。
+#   `listGatherings`の「削除操作は無い」という記述はこの決定により置き換わった。保持期間・自動
+#   削除方針そのものは引き続き未決（product-brief.md §8）。
 openapi: 3.0.3
 info:
   title: Dining Radar Gathering Scheduling API
-  version: 0.9.0
+  version: 0.10.0
   description: >-
     Lets an authenticated organizer list their gatherings, create a gathering
-    with candidate dates, add further candidate dates while scheduling, issue
-    signed participant links, list/recopy/revoke previously issued links
-    (recopy and revoke remain available even after finalization, P4,
-    adr/0041 -- only new issuance is blocked), confirm one candidate date
-    once schedule responses have arrived, shortlist 1 to 5 open shops from
-    within the same organizer dashboard and start voting (P1, adr/0041),
-    replace that shortlist while keeping kept shops' votes, and finalize one
-    date/shop pair -- from the shops open on the confirmed date, ordered by
-    the combined count of participants willing to go (WANT_TO_GO plus
-    OK_TO_GO, descending, adr/0044). Lets a participant holding a signed
-    link answer per-date availability (GOING/MAYBE/NOT_GOING) without an
-    account, optionally attach a display name at any time, change any
-    answer at any time, and once shop voting has started, answer each
+    with candidate dates, add further candidate dates in a batch while
+    scheduling (addCandidateDates, adr/0049 decision 3, replacing a retired
+    singular addCandidateDate; both this operation and createGathering reject
+    a candidate date that is today or in the past), issue signed participant
+    links, list/recopy/revoke previously issued links (recopy and revoke
+    remain available even after finalization, P4, adr/0041 -- only new
+    issuance is blocked), permanently delete a gathering regardless of its
+    phase (deleteGathering, adr/0050 decision 4, superseding this file's
+    original "no delete operation" decision, D2026-08-30), confirm one
+    candidate date once schedule responses have arrived, replace the
+    shortlist of shops open for voting while keeping kept shops' votes (this
+    call is now made from the lunch-candidate screen's gathering mode in
+    candidate-search-api.yaml rather than from a screen within this
+    contract's own organizer dashboard, adr/0049 decision 1 -- the operation
+    and its 1-to-5-entry, complete-replacement shape are unchanged), and
+    finalize one date/shop pair -- from the shops open on the confirmed
+    date, ordered by the combined count of participants willing to go
+    (WANT_TO_GO plus OK_TO_GO, descending, adr/0044). Lets a participant
+    holding a signed link answer per-date availability (GOING/MAYBE/NOT_GOING)
+    without an account, optionally attach a display name at any time, change
+    any answer at any time, and once shop voting has started, answer each
     currently shortlisted shop with a three-tier WANT_TO_GO/OK_TO_GO/
     NOT_GOING vote of its own -- 行きたい／行ってもいい／むり, a distinct
     vocabulary from schedule availability's 行ける／たぶん／むり, since a
@@ -361,41 +418,47 @@ info:
     anyone else, because a shop's distance from that origin does not depend
     on its votes (adr/0044's fix for a production defect where the
     participant list re-sorted itself after every vote using the
-    organizer-facing vote-count order). Every shop the organizer's
-    shortlist screen and the participant's vote screen show carries the
-    same map/detail information the lunch-candidate screen shows --
-    location, an estimated walking time, a coarse seating-scale reference,
-    a non-smoking reference, a coarse dinner-budget reference, and a link
-    to the shop's own provider page (adr/0044, 2026-09-04 human decision)
-    -- computed live from the same private search origin on every read,
-    never persisted (adr/0034 decision 6). Once shop voting has started,
-    the participant's own map also shows this same private search origin
-    as a marker, the same disclosure ADR-0025 decision 1 already made to
-    the authenticated organizer screen, now extended to this
+    organizer-facing vote-count order). Every candidate date's and shortlisted
+    shop's aggregate tally is visible to a participant at all times, whether
+    or not this participant has answered that item yet (adr/0050 decision 2,
+    2026-09-08/09 human decision, reversing this contract's original
+    "answer first, then see others" rule -- the original rule's rationale,
+    that an early answer could bias later ones, is not retracted; the human
+    chose to prioritize letting participants see how others are answering so
+    they can converge on a date or shop the group is already leaning toward).
+    Every shop the organizer's shortlist and the participant's vote screen
+    show carries the same map/detail information the lunch-candidate screen
+    shows -- location, an estimated walking time, a coarse seating-scale
+    reference, a non-smoking reference, a coarse dinner-budget reference, and
+    a link to the shop's own provider page (adr/0044, 2026-09-04 human
+    decision) -- computed live from the same private search origin on every
+    read, never persisted (adr/0034 decision 6). Once shop voting has
+    started, the participant's own map also shows this same private search
+    origin as a marker, the same disclosure ADR-0025 decision 1 already made
+    to the authenticated organizer screen, now extended to this
     unauthenticated, signed-link screen (adr/0045, 2026-09-04 human
-    decision). Once the organizer finalizes, both organizer and
-    participant see the decision only, including the participant's own
-    retrospective schedule answer and this participant's own answer for
-    every shop among the finalized shortlist -- including a shop this
-    participant never got a chance to vote on, shown with a null status
-    rather than omitted (P5, adr/0041, generalized to the three-tier model
-    by adr/0044, extended to include never-answered shops 2026-09-05, human
-    chat decision, adr/0046) -- never another participant's answers or
-    votes; no further schedule response, shop vote, or link issuance is
-    accepted (GATHERING_FINALIZED). Every list this contract exposes that
-    can tie on its primary sort key now also names a deterministic
-    secondary key, closing a production defect where two records created in
-    the same request (e.g. every candidate date submitted in one
-    createGathering call) could share an identical creation timestamp and
-    therefore sort unpredictably across reads (adr/0048). This contract now
-    covers the full "会の作成と日程調整・店の絞り込み連携・承認投票・確定"
-    scope (adr/0040
-    merges what adr/0035 decision 2 had originally split into 4 slices, per
-    explicit 2026-09-03 human decision; adr/0041 records a further round of
-    6 human decisions the same day, P1-P6; adr/0042 adds the
-    browser-interface contract and a self-audited
-    OpenShopPreviewItem.shopId fix needed to make it implementable; adr/0044
-    responds to three points of production field feedback -- a
+    decision). Once the organizer finalizes, both organizer and participant
+    see the decision only, including the participant's own retrospective
+    schedule answer (P5, adr/0041) -- never another participant's answers;
+    a per-shop retrospective (yourShopVotes) existed from P5 through version
+    0.9.0 but was retired by adr/0050 decision 3, since decision 2's
+    visibility reversal already lets every participant see every shop's live
+    tally at any time, including after finalization, via the unchanged
+    shopVoteQuestions array -- no further schedule response, shop vote, or
+    link issuance is accepted (GATHERING_FINALIZED). Every list this
+    contract exposes that can tie on its primary sort key also names a
+    deterministic secondary key, closing a production defect where two
+    records created in the same request (e.g. every candidate date submitted
+    in one createGathering call) could share an identical creation timestamp
+    and therefore sort unpredictably across reads (adr/0048). This contract
+    now covers the full "会の作成と日程調整・店の絞り込み連携・承認投票・
+    確定・会の削除" scope (adr/0040 merges what adr/0035 decision 2 had
+    originally split into 4 slices, per explicit 2026-09-03 human decision;
+    adr/0041 records a further round of 6 human decisions the same day,
+    P1-P6; adr/0042 adds the browser-interface contract and a self-audited
+    OpenShopPreviewItem.shopId fix needed to make it implementable
+    (this field, and the schema itself, were later removed by adr/0049);
+    adr/0044 responds to three points of production field feedback -- a
     nearest-first, vote-independent participant shop order, a distinctly
     worded three-tier vote in place of the original
     approve-any-number-of-shops model, and map/detail information on both
@@ -403,14 +466,21 @@ info:
     adr/0045 extends adr/0025 decision 1's search-origin disclosure from the
     authenticated organizer screen to this unauthenticated participant
     screen; adr/0046 resolves whether a never-answered shop appears in the
-    finalized retrospective, 2026-09-05 human chat decision; adr/0048 gives
-    every tie-prone ordering a deterministic secondary key, an architect
-    technical judgment made from measured evidence rather than a human chat
-    decision). The gathering
-    never persists provider-derived shop attributes (name, genre, location,
-    walking time, seating/smoking/budget tier, provider page, hours,
-    images); "open shop" counts, previews, and shortlisted-shop displays
-    are all recomputed from the private candidate population on every read
+    finalized retrospective, 2026-09-05 human chat decision (later retired
+    by adr/0050 decision 3 along with the retrospective itself); adr/0048
+    gives every tie-prone ordering a deterministic secondary key, an
+    architect technical judgment made from measured evidence rather than a
+    human chat decision; adr/0049 consolidates shop selection into the
+    lunch-candidate screen's gathering mode, narrows this file's open-shop
+    preview to a count only, and batches candidate-date creation behind a
+    future-only date check, per 2026-09-08 human decisions on a full
+    production walkthrough; adr/0050 reverses the schedule/shop tally
+    visibility rule, drops the finalized per-shop retrospective, and adds
+    full gathering deletion, per 2026-09-08/09 human decisions). The
+    gathering never persists provider-derived shop attributes (name, genre,
+    location, walking time, seating/smoking/budget tier, provider page,
+    hours, images); "open shop" counts and shortlisted-shop displays are all
+    recomputed from the private candidate population on every read
     (adr/0034 decision 6). DRAFT: this contract version is not yet
     human-approved; see
     adr/0035-scope-the-gathering-scheduling-slice-and-record-2026-08-30-decisions.md,
@@ -426,8 +496,10 @@ info:
     adr/0045-extend-search-origin-disclosure-to-the-participants-signed-link-screen.md,
     adr/0046-close-the-three-tier-vote-map-and-regular-holiday-gaps-in-the-browser-interface.md
     (open item 3),
+    adr/0048-add-deterministic-tie-breaks-to-gathering-list-orderings.md,
+    adr/0049-consolidate-shop-selection-into-the-candidate-screen-and-add-a-calendar-and-two-column-desktop.md,
     and
-    adr/0048-add-deterministic-tie-breaks-to-gathering-list-orderings.md
+    adr/0050-reverse-participant-visibility-simplify-the-finalized-record-and-allow-gathering-deletion.md
     (this revision).
 servers:
   - url: https://app.example.invalid
@@ -443,9 +515,11 @@ paths:
       description: >-
         The organizer's entry point (Entry.dc.html E-1, adr/0038). Ordered by
         `createdAt` descending (新しい順). Includes gatherings in every phase,
-        including FINALIZED -- there is no delete operation (D4, 2026-08-30
-        decision, unchanged) and finalized gatherings remain visible for
-        reference. An organizer with zero gatherings receives an empty array
+        including FINALIZED -- finalized gatherings remain visible for
+        reference, and only an explicit deleteGathering call removes a
+        gathering from this list entirely (adr/0050 decision 4, superseding
+        this file's original "no delete operation" decision, D4,
+        2026-08-30). An organizer with zero gatherings receives an empty array
         (the empty-state screen, Entry.dc.html E-1b, is a pure client-side
         rendering of that empty array, not a distinct API state).
       security:
@@ -471,7 +545,11 @@ paths:
         separate operation (issueParticipantLinks). Rejects the request with
         DUPLICATE_CANDIDATE_DATE if `candidateDates` contains two or more
         entries with the exact same `startAt` (adr/0038, architect design
-        judgment -- see this file's 2026-09-01 header comment).
+        judgment -- see this file's 2026-09-01 header comment). Rejects the
+        request with CANDIDATE_DATE_NOT_IN_FUTURE if any `candidateDates`
+        entry's `startAt` date (time excluded) is today or earlier -- only
+        tomorrow or later is accepted (adr/0049 decision 3, 2026-09-08 human
+        decision, applied identically to addCandidateDates below).
       security:
         - organizerSession: []
       parameters:
@@ -490,7 +568,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/Gathering'
         '400':
-          $ref: '#/components/responses/RequestRejected'
+          description: >-
+            Either general request validation failed (REQUEST_REJECTED) or
+            one or more `candidateDates` entries is today or in the past
+            (CANDIDATE_DATE_NOT_IN_FUTURE, adr/0049 decision 3); the `code`
+            field distinguishes the two.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemResponse'
+              examples:
+                requestRejected:
+                  value:
+                    code: REQUEST_REJECTED
+                    message: The request could not be accepted. Refresh the page and try again.
+                dateNotInFuture:
+                  value:
+                    code: CANDIDATE_DATE_NOT_IN_FUTURE
+                    message: Candidate dates must be tomorrow or later.
         '401':
           $ref: '#/components/responses/AuthenticationRequired'
         '409':
@@ -530,9 +625,8 @@ paths:
         が3つの顔を持つ") -- schedule tallies and link-management counters
         while SCHEDULING, shortlisted-shop vote tallies once shortlisted
         (SELECTING_SHOP, adr/0040), and the finalized date/shop once
-        FINALIZED. Shop shortlisting itself happens from within this same
-        dashboard response/screen, not a separate one (P1, adr/0041). This
-        contract does not split these into separate endpoints per phase.
+        FINALIZED. This contract does not split these into separate
+        endpoints per phase.
       security:
         - organizerSession: []
       parameters:
@@ -551,18 +645,74 @@ paths:
           $ref: '#/components/responses/AuthenticationRequired'
         '404':
           $ref: '#/components/responses/GatheringNotFound'
-  /gatherings/{gatheringId}/candidate-dates:
-    post:
-      operationId: addCandidateDate
-      summary: Add one more candidate date while the gathering is scheduling
+    delete:
+      operationId: deleteGathering
+      summary: Permanently and irreversibly delete a gathering
       description: >-
-        Only accepted while the gathering's phase is SCHEDULING
-        (product-brief.md §2: the organizer may add candidate dates until
-        choosing one). Once the gathering has moved to SELECTING_SHOP or
-        FINALIZED, this operation is rejected. Rejects the request with
-        DUPLICATE_CANDIDATE_DATE if `startAt` exactly matches an existing
-        candidate date already on this gathering (adr/0038, architect design
-        judgment).
+        The organizer's explicit "この会を削除する" operation
+        (Organizer.dc.html A-del, adr/0050 decision 4, 2026-09-09 human
+        decision, replacing this file's original D4 "no delete operation"
+        decision of 2026-08-30). Accepted regardless of `phase` -- SCHEDULING,
+        SELECTING_SHOP, and FINALIZED gatherings may all be deleted (the
+        motivation for deletion is, if anything, strongest once a gathering
+        is finalized and no longer needed). Deletes the gathering and every
+        record derived from it -- candidate dates, schedule responses, shop
+        votes, participant links, and any participant-attached display
+        names -- in full; this cannot be undone by this contract (no
+        undelete/restore operation exists). After a successful call,
+        `getGathering`/`listGatherings` no longer include this gathering
+        (a later `getGathering` for the same id returns GATHERING_NOT_FOUND,
+        the same existing code used for an id that never existed), and every
+        participant token previously issued for this gathering causes
+        `getParticipantView` to return LINK_NOT_FOUND (the same existing code
+        used for a token that was never issued) -- no new public error code
+        is introduced for either case, and no separate token-invalidation
+        mechanism exists, because the gathering record itself, which every
+        token's validity depends on, is gone. How long an undeleted gathering
+        is retained, or whether one is ever deleted automatically, remains
+        unspecified by this contract (product-brief.md §8) -- this operation
+        only lets the organizer delete one explicitly.
+      security:
+        - organizerSession: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/GatheringId'
+      responses:
+        '204':
+          description: >-
+            The gathering and everything derived from it has been
+            permanently deleted. No response body.
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '404':
+          $ref: '#/components/responses/GatheringNotFound'
+  /gatherings/{gatheringId}/candidate-dates:batch:
+    post:
+      operationId: addCandidateDates
+      summary: Add one or more candidate dates while the gathering is scheduling
+      description: >-
+        Replaces the retired singular addCandidateDate (adr/0049 decision 3,
+        2026-09-08 human decision: candidate dates are chosen from a
+        multi-select calendar and submitted together in one call, rather
+        than one browser-standard date input submitted repeatedly). Only
+        accepted while the gathering's phase is SCHEDULING (product-brief.md
+        §2: the organizer may add candidate dates until choosing one). Once
+        the gathering has moved to SELECTING_SHOP or FINALIZED, this
+        operation is rejected. Rejects the entire batch with
+        DUPLICATE_CANDIDATE_DATE if any `candidateDates` entry's `startAt`
+        duplicates an existing candidate date already on this gathering, or
+        duplicates another entry within the same batch -- no partial success
+        is offered (adr/0049 decision 3: a batch that adds some of the
+        selected dates and silently drops others would leave the organizer
+        needing to work out which ones failed). Rejects the entire batch with
+        CANDIDATE_DATE_NOT_IN_FUTURE if any entry's `startAt` date (time
+        excluded) is today or earlier -- only tomorrow or later is accepted,
+        the same check createGathering applies (adr/0049 decision 3). This
+        operation does not accept, and this contract does not otherwise
+        persist, an end time for a candidate date -- the calendar UI's
+        12:00-13:00 default display is a UI-only input aid, not a value this
+        API receives or a gathering-record field (adr/0049 decision 3: no
+        feature this product offers consumes an end time).
       security:
         - organizerSession: []
       parameters:
@@ -573,14 +723,33 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CandidateDateInput'
+              $ref: '#/components/schemas/AddCandidateDatesRequest'
       responses:
         '201':
-          description: The updated gathering, including the newly added candidate date.
+          description: The updated gathering, including every newly added candidate date.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Gathering'
+        '400':
+          description: >-
+            Either general request validation failed (REQUEST_REJECTED) or
+            one or more `candidateDates` entries is today or in the past
+            (CANDIDATE_DATE_NOT_IN_FUTURE, adr/0049 decision 3); the `code`
+            field distinguishes the two.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemResponse'
+              examples:
+                requestRejected:
+                  value:
+                    code: REQUEST_REJECTED
+                    message: The request could not be accepted. Refresh the page and try again.
+                dateNotInFuture:
+                  value:
+                    code: CANDIDATE_DATE_NOT_IN_FUTURE
+                    message: Candidate dates must be tomorrow or later.
         '401':
           $ref: '#/components/responses/AuthenticationRequired'
         '404':
@@ -588,9 +757,11 @@ paths:
         '409':
           description: >-
             Either the gathering is not in the SCHEDULING phase
-            (GatheringNotInSchedulingPhase) or `startAt` duplicates an
-            existing candidate date (DuplicateCandidateDate); the `code`
-            field distinguishes the two.
+            (GatheringNotInSchedulingPhase) or one or more `candidateDates`
+            entries duplicates an existing candidate date or another entry
+            in the same batch (DuplicateCandidateDate, whole-batch
+            rejection, adr/0049 decision 3); the `code` field distinguishes
+            the two.
           content:
             application/json:
               schema:
@@ -603,25 +774,27 @@ paths:
                 duplicate:
                   value:
                     code: DUPLICATE_CANDIDATE_DATE
-                    message: This candidate date has already been added.
+                    message: One or more candidate dates duplicate an existing or submitted date.
   /gatherings/{gatheringId}/candidate-dates/{candidateDateId}/open-shop-preview:
     get:
       operationId: previewOpenShopsForCandidateDate
-      summary: Preview shops open on one candidate date, without changing gathering state
+      summary: Preview the count of shops open on one candidate date, without changing gathering state
       description: >-
         Supports the "simultaneous decision" flow (adr/0035 decision 1 item
         1, human addition 2026-08-30): the organizer may tentatively
         cross-check a candidate date against shop availability before
-        choosing it. Also reused, unchanged, once the gathering has moved to
-        SELECTING_SHOP to browse the confirmed date's open-shop population
-        before calling setShortlistedShops, from within the same organizer
-        dashboard (P1, adr/0041; adr/0040) -- this operation was already
-        generic over any candidateDateId and phase, so no new endpoint or
-        separate screen was needed for that later purpose. Calling this
-        operation never advances the gathering's phase and never records
-        which date, if any, the organizer is tentatively looking at -- the
-        tentative selection is client-side UI state only. The population
-        considered is the same private search origin used by
+        choosing it, seeing a count only -- this operation no longer returns
+        a shop list (adr/0049 decision 2, 2026-09-08 human decision, retiring
+        the previously returned `previewShops` item list and the
+        `OpenShopPreviewItem` schema entirely). Shop *selection* itself now
+        happens exclusively from the lunch-candidate screen's gathering mode
+        in candidate-search-api.yaml (adr/0049 decision 1) -- this operation
+        is no longer the surface a shop-selection screen browses from, and
+        remains only as a lightweight, phase-generic count query. Calling
+        this operation never advances the gathering's phase and never
+        records which date, if any, the organizer is tentatively looking at
+        -- the tentative selection is client-side UI state only. The
+        population considered is the same private search origin used by
         candidate-search-api.yaml with default filters only
         (includeIzakayaBar=false, no organizer-narrowing filters yet, since
         shop narrowing has not started -- adr/0035 decision 2 slice
@@ -636,7 +809,7 @@ paths:
         - $ref: '#/components/parameters/CandidateDateId'
       responses:
         '200':
-          description: The open-shop count and a nearest-first preview subset.
+          description: The open-shop count only (adr/0049 decision 2).
           content:
             application/json:
               schema:
@@ -858,39 +1031,51 @@ paths:
       summary: Set (or replace) the shortlist of shops open for voting
       description: >-
         The "この5件で投票する" / "5件を差し替える" operation (product-brief.md
-        §2, Organizer.dc.html state②; adr/0040). Performed from within the
-        same organizer dashboard used for the rest of this phase, not a
-        separate screen (P1, human decision 2026-09-03, adr/0041 --
-        confirms this contract's existing design, which never introduced a
-        separate endpoint or screen concept for shortlisting). Replaces the
-        entire shortlist with `shopIds` (1 to 5 entries -- the lower bound
-        of 1 was an architect judgment at drafting time and was confirmed
-        by human decision P2, 2026-09-03, adr/0041 -- each drawn from the
-        same open-shop population previewOpenShopsForCandidateDate exposes
-        for the confirmed candidate date). The first successful call sets
-        `Gathering.votingStartedAt` (previously null) and starts voting;
-        this call **does not itself advance `Gathering.phase`** -- phase
-        remains SELECTING_SHOP before and after every call to this
-        operation (see GatheringPhase's description; this was reported as
-        an FR-028 tension against product-brief.md §2's original wording at
-        drafting time and was resolved by human decision P6, 2026-09-03,
-        adr/0041 -- §2 itself has since been revised to match). A shop id
-        already present in the previous shortlist keeps its `addedAt` and
-        vote tallies (D7: "残した店の票はそのまま引き継がれます"); a newly
-        added shop id starts with `addedAt` set to now and every tally at
-        zero, and is "not yet answered" (`yourVote: null`) for every
-        participant who last submitted setShopVotes before this call (D7:
-        "新しく入れた店は、すでに投票した人には未回答のまま残ります"). A shop
-        id present before this call but absent from `shopIds` is dropped
-        from the shortlist entirely, along with its vote history --
-        re-adding the same shop id in a later call is treated as a
-        brand-new entry (architect design judgment, simplicity;
-        product-brief.md and the reviewed canvases do not require
-        preserving a removed shop's history). No filter/narrowing controls
-        (genre, walking time, etc.) apply to this shortlist or its
-        underlying open-shop population (P3, human decision 2026-09-03,
-        adr/0041 -- confirms this contract already had no such controls; no
-        schema change).
+        §2, Organizer.dc.html state②; adr/0040). Called from the
+        lunch-candidate screen's gathering mode (candidate-search-api.yaml's
+        proposeCandidates with a `gatheringId`, adr/0049 decision 1,
+        2026-09-08 human decision) rather than from a screen within this
+        contract's own organizer dashboard -- P1's 2026-09-03 premise
+        (shortlisting completes inside the organizer dashboard) is
+        superseded by adr/0049 decision 1, which retired that dashboard
+        screen (`gathering-scheduling-browser-interface.yaml`'s
+        `shortlistSelection`) in favor of the existing lunch-candidate
+        screen; this operation's own shape and semantics (complete-
+        replacement PUT) are unchanged -- only which screen calls it
+        changed. Replaces the entire shortlist with `shopIds` (1 to 5
+        entries -- the lower bound of 1 was an architect judgment at
+        drafting time and was confirmed by human decision P2, 2026-09-03,
+        adr/0041 -- each drawn from the same open-shop population
+        candidate-search-api.yaml's gathering mode exposes for the confirmed
+        candidate date, adr/0049 decision 1; this population was previously
+        browsed via previewOpenShopsForCandidateDate before that
+        operation's shape narrowed to a count only, adr/0049 decision 2).
+        The first successful call sets `Gathering.votingStartedAt`
+        (previously null) and starts voting; this call **does not itself
+        advance `Gathering.phase`** -- phase remains SELECTING_SHOP before
+        and after every call to this operation (see GatheringPhase's
+        description; this was reported as an FR-028 tension against
+        product-brief.md §2's original wording at drafting time and was
+        resolved by human decision P6, 2026-09-03, adr/0041 -- §2 itself has
+        since been revised to match). A shop id already present in the
+        previous shortlist keeps its `addedAt` and vote tallies (D7: "残した
+        店の票はそのまま引き継がれます"); a newly added shop id starts with
+        `addedAt` set to now and every tally at zero, and is "not yet
+        answered" (`yourVote: null`) for every participant who last
+        submitted setShopVotes before this call (D7: "新しく入れた店は、すでに
+        投票した人には未回答のまま残ります"). A shop id present before this
+        call but absent from `shopIds` is dropped from the shortlist
+        entirely, along with its vote history -- re-adding the same shop id
+        in a later call is treated as a brand-new entry (architect design
+        judgment, simplicity; product-brief.md and the reviewed canvases do
+        not require preserving a removed shop's history). No filter/
+        narrowing controls (genre, walking time, etc.) apply to this
+        shortlist itself once set (P3, human decision 2026-09-03, adr/0041
+        -- confirms this contract already had no such controls; no schema
+        change) -- the browsing screen that builds `shopIds` may itself
+        apply the organizer's usual candidate-search filters plus the
+        gathering-mode open-on-date filter (adr/0049 decision 1), but this
+        endpoint's own request shape accepts only opaque shop ids.
       security:
         - organizerSession: []
       parameters:
@@ -1009,38 +1194,50 @@ paths:
         No organizer session is required; the path `token` itself is the
         sole credential (adr/0035 decision 4). Every candidate date carries
         an `openShopCount` regardless of whether this participant has
-        answered it yet (D6, 2026-08-30) -- this is a distinct, unconditional
-        field from `tally`, which is present only once this participant has
-        answered that specific candidate date (product-brief.md §2's
-        "answer first, then see others" rule; adr/0035 decision 1 item D6
-        does not gate `openShopCount` the same way). `shopVoteQuestions` is
-        null until the organizer has started voting (Gathering.
-        votingStartedAt non-null, adr/0040); once non-null, each entry
-        mirrors setShopVotes' own "answer first, then see others" gating
-        for its own tally, independent of the schedule questions' gating.
-        **`shopVoteQuestions`' array order is nearest-first (each shop's
-        distance from the private search origin, ascending) and never
-        changes as votes are cast, by this participant or anyone else**
-        (adr/0044, 2026-09-04: fixes a production defect where this array
-        reused the organizer-facing vote-count order, which reordered on
-        every vote; see `shopVoteQuestions`' own schema description for why
-        distance, rather than the `addedAt` an in-progress draft of this
+        answered it yet (D6, 2026-08-30), and, as of adr/0050 decision 2
+        (2026-09-08/09 human decision), also carries a `tally` unconditionally
+        -- other participants' schedule-response and shop-vote counts are
+        visible whether or not this participant has answered that item yet.
+        This reverses product-brief.md §2's original "answer first, then see
+        others" rule, which this file's `tally` fields enforced from
+        drafting through version 0.9.0 (the original rule's rationale, that
+        an early answer could bias later answers, is not retracted by this
+        reversal; the human explicitly chose to prioritize letting
+        participants see how others are answering, e.g. so the group can
+        converge on a date or shop it is already leaning toward).
+        `shopVoteQuestions` is null until the organizer has started voting
+        (Gathering.votingStartedAt non-null, adr/0040); once non-null, each
+        entry's `tally` is likewise always present, independent of
+        `yourVote`. **`shopVoteQuestions`' array order is nearest-first
+        (each shop's distance from the private search origin, ascending) and
+        never changes as votes are cast, by this participant or anyone
+        else** (adr/0044, 2026-09-04: fixes a production defect where this
+        array reused the organizer-facing vote-count order, which reordered
+        on every vote; see `shopVoteQuestions`' own schema description for
+        why distance, rather than the `addedAt` an in-progress draft of this
         contract had used, is the ordering basis). `searchOrigin` is null
         under the same gating as `shopVoteQuestions` -- non-null once shop
         voting has started, extending ADR-0025 decision 1's search-origin
         disclosure to this unauthenticated screen (adr/0045). `decision` is
         null until `phase` is FINALIZED, at which point it holds the
         finalized candidate date, shop, and this participant's own
-        retrospective schedule answer and this participant's own answer for
-        every shop among the finalized shortlist, including one this
-        participant never got a chance to vote on (null status rather than
-        omitted, 2026-09-05, adr/0046) -- never another participant's
-        answers or votes (adr/0040, extended by P5/adr/0041, generalized to
-        the three-tier vote model by adr/0044, and extended to never-
-        answered shops by adr/0046). Once the organizer has revoked this
-        link (ADR-0036 decision 7), this operation returns `LINK_REVOKED`
-        instead, regardless of whether the token would otherwise still be
-        within its validity period.
+        retrospective schedule answer (adr/0040, extended by P5/adr/0041) --
+        never another participant's answers. A per-shop retrospective
+        (`yourShopVotes`, generalized to the three-tier vote model by
+        adr/0044 and extended to never-answered shops by adr/0046) existed
+        here from P5 through version 0.9.0 but was retired by adr/0050
+        decision 3 (2026-09-09 human decision: "あなたの回答は見れても別に
+        意味ないかも") -- decision 2's visibility reversal already lets a
+        participant see every shortlisted shop's live tally at any time,
+        including after finalization, via the unchanged `shopVoteQuestions`
+        array, which remains present post-finalization. Once the organizer
+        has revoked this link (ADR-0036 decision 7), this operation returns
+        `LINK_REVOKED` instead, regardless of whether the token would
+        otherwise still be within its validity period; once the organizer
+        has deleted the entire gathering (deleteGathering, adr/0050 decision
+        4), this operation returns `LINK_NOT_FOUND` instead, the same
+        existing code used for a token that was never issued, since the
+        gathering record every token's validity depends on no longer exists.
       parameters:
         - $ref: '#/components/parameters/ParticipantToken'
       responses:
@@ -1293,7 +1490,11 @@ components:
             code: REQUEST_REJECTED
             message: The request could not be accepted. Refresh the page and try again.
     GatheringNotFound:
-      description: No gathering exists with the given id, or it does not belong to this organizer.
+      description: >-
+        No gathering exists with the given id, it does not belong to this
+        organizer, or it was previously deleted via deleteGathering
+        (adr/0050 decision 4 -- deletion reuses this existing code rather
+        than introducing a new one).
       content:
         application/json:
           schema:
@@ -1365,11 +1566,12 @@ components:
             message: One or more selected shops are not valid for this gathering.
     DuplicateCandidateDate:
       description: >-
-        The candidate date being added exactly matches (same `startAt`) a
+        A candidate date being added exactly matches (same `startAt`) a
         candidate date already present -- either elsewhere in the same
-        createGathering request, or already persisted on this gathering for
-        addCandidateDate (adr/0038, architect design judgment; not part of
-        the 2026-09-01 human decisions).
+        createGathering/addCandidateDates request, or already persisted on
+        this gathering (adr/0038, architect design judgment; extended to
+        addCandidateDates' batch shape by adr/0049 decision 3, which rejects
+        the entire batch rather than partially succeeding).
       content:
         application/json:
           schema:
@@ -1377,6 +1579,19 @@ components:
           example:
             code: DUPLICATE_CANDIDATE_DATE
             message: This candidate date has already been added.
+    CandidateDateNotInFuture:
+      description: >-
+        One or more candidate dates is today or in the past (adr/0049
+        decision 3, 2026-09-08 human decision); only tomorrow or later is
+        accepted. Applied by both createGathering and addCandidateDates,
+        each rejecting the entire request/batch when this occurs.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemResponse'
+          example:
+            code: CANDIDATE_DATE_NOT_IN_FUTURE
+            message: Candidate dates must be tomorrow or later.
     ParticipantLinkNotFound:
       description: No participant link exists with the given linkId for this gathering.
       content:
@@ -1408,7 +1623,12 @@ components:
             code: PARTICIPANT_LINK_REVOKED
             message: This link has already been revoked.
     LinkNotFound:
-      description: The token does not correspond to any issued participant link.
+      description: >-
+        The token does not correspond to any issued participant link, or the
+        gathering it was issued for was deleted via deleteGathering
+        (adr/0050 decision 4 -- deletion reuses this existing code rather
+        than introducing a new one; no separate token-invalidation mechanism
+        exists).
       content:
         application/json:
           schema:
@@ -1492,6 +1712,10 @@ components:
         two phase-advancing operations plus one important-but-non-advancing
         one, matching this enum -- see Gathering.votingStartedAt/
         shortlistedShops for how voting's own start is represented instead.
+        Deleting a gathering (deleteGathering, adr/0050 decision 4) is
+        accepted regardless of this enum's current value and removes the
+        gathering entirely, rather than being represented as a further enum
+        value or transition.
     ScheduleResponseStatus:
       type: string
       enum: [GOING, MAYBE, NOT_GOING]
@@ -1532,7 +1756,15 @@ components:
             never accepted a date-only value, which already settles
             designer's open question (AddDate.dc.html, adr/0038) of whether
             time should be required: it always has been, by this existing
-            field's type.
+            field's type. Must be strictly after the server's current date
+            (time excluded) -- today and past dates are rejected with
+            CANDIDATE_DATE_NOT_IN_FUTURE by both createGathering and
+            addCandidateDates (adr/0049 decision 3, 2026-09-08 human
+            decision; the date boundary itself, i.e. which server timezone
+            "today" is evaluated in, is an implementation choice this
+            contract does not fix, matching this contract's other
+            unspecified time boundaries such as link-expiry and rate-limit
+            thresholds).
     CreateGatheringRequest:
       type: object
       additionalProperties: false
@@ -1553,7 +1785,30 @@ components:
             contract does not expose a persisted zero-date state (see this
             file's header comment; confirmed by D10). No two entries may
             share the exact same `startAt` (DUPLICATE_CANDIDATE_DATE,
-            adr/0038).
+            adr/0038), and no entry's `startAt` date may be today or earlier
+            (CANDIDATE_DATE_NOT_IN_FUTURE, adr/0049 decision 3) -- the same
+            two checks addCandidateDates applies to a later batch.
+    AddCandidateDatesRequest:
+      type: object
+      additionalProperties: false
+      required: [candidateDates]
+      properties:
+        candidateDates:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/CandidateDateInput'
+          description: >-
+            One or more candidate dates to add in a single call (adr/0049
+            decision 3, 2026-09-08 human decision, replacing the retired
+            singular addCandidateDate request shape). Same shape as
+            CreateGatheringRequest.candidateDates, reused rather than
+            duplicated (adr/0049 decision 3). Rejected as a whole
+            (DUPLICATE_CANDIDATE_DATE) if any entry's `startAt` duplicates
+            an existing candidate date already on this gathering or another
+            entry within this same batch -- no partial success is offered.
+            Rejected as a whole (CANDIDATE_DATE_NOT_IN_FUTURE) if any
+            entry's `startAt` date (time excluded) is today or earlier.
     CandidateDate:
       type: object
       required: [id, startAt, goingCount, maybeCount, notGoingCount, isConfirmed]
@@ -1646,18 +1901,21 @@ components:
       additionalProperties: false
       description: >-
         A minimal, live, non-persisted shop projection (ADR-0034 decision
-        6) shared by ParticipantView.decision's `shop` and
-        `yourShopVotes[].shop` fields (adr/0041, extended by adr/0044). Only
+        6) used by ParticipantView.decision's `shop` field (adr/0041). Only
         `shopId` is durable; every display field is refetched on every
-        read, the same discipline OpenShopPreviewItem and ShortlistedShop
-        already establish -- this schema exists so `decision`'s shop-shaped
-        fields do not each repeat the same display properties inline.
+        read, the same discipline ShortlistedShop already establishes --
+        this schema exists so `decision`'s shop-shaped field does not repeat
+        the same display properties inline as ShortlistedShop.
         `location`/`walkingTimeMinutes`/`providerPageUrl` were added
         2026-09-04 (adr/0044) alongside the same addition to
-        OpenShopPreviewItem, ShortlistedShop, and ParticipantShopVoteOption
-        -- a participant reaching the finalized decision has already seen
-        these same values for this same shop during voting (shopVoteQuestion),
-        so their presence here is not a new disclosure.
+        ShortlistedShop and ParticipantShopVoteOption -- a participant
+        reaching the finalized decision has already seen these same values
+        for this same shop during voting (shopVoteQuestion), so their
+        presence here is not a new disclosure. This schema previously also
+        backed `ParticipantDecisionShopVote.shop` (the per-shop finalized
+        retrospective); that field and its sole consumer, `yourShopVotes`,
+        were retired by adr/0050 decision 3 -- this schema's remaining use
+        is `decision.shop` alone.
       properties:
         shopId:
           type: string
@@ -1706,8 +1964,7 @@ components:
         One shop the organizer has shortlisted for voting (adr/0040,
         Organizer.dc.html state②). A live, non-persisted projection --
         only `shopId` is stored; every display field is refetched from the
-        provider population on every read, the same pattern
-        OpenShopPreviewItem already establishes (ADR-0034 decision 6).
+        provider population on every read (ADR-0034 decision 6).
         Ordered within Gathering.shortlistedShops by
         `wantToGoCount + okToGoCount` descending -- 行ける人が多い順
         (changed 2026-09-04, adr/0044, human decision, from the retired
@@ -1732,10 +1989,16 @@ components:
         shopId:
           type: string
           description: >-
-            The same opaque provider shop identifier
-            OpenShopPreviewItem.shopId uses (adr/0042 -- the organizer
-            builds setShortlistedShops' shopIds from the shopId attributes
-            it reads off the open-shop preview it browsed).
+            An opaque provider shop identifier, the same one
+            candidate-search-api.yaml's `Candidate.shopId` carries in
+            gathering mode (adr/0049 decision 1, 2026-09-08 human decision).
+            The organizer builds setShortlistedShops' `shopIds` from the
+            `shopId` values on the lunch-candidate cards they toggled "この
+            会に入れる" on, from that same screen -- this replaces the
+            retired organizer-dashboard shop-selection screen
+            (`OpenShopPreviewItem.shopId`, adr/0042), whose schema was
+            deleted by adr/0049 decision 2 once no screen browsed it any
+            longer.
         addedAt:
           type: string
           format: date-time
@@ -1958,7 +2221,13 @@ components:
             in fact requires minItems: 1 (P2, confirmed 2026-09-03,
             adr/0041), so in practice this array cannot be emptied again
             once non-empty; documented here for completeness of the
-            field's own nullability story).
+            field's own nullability story). 5, this array's own upper
+            bound, is also the `maxShortlistedShops` constant
+            candidate-search-api.yaml's `GatheringContext` exposes in
+            gathering mode (adr/0049 decision 1) -- the two contracts
+            express the same limit independently rather than through a
+            shared reference, since OpenAPI 3.0 schemas cannot `$ref` across
+            files portably in this project's toolchain.
         finalizedShopId:
           type: string
           nullable: true
@@ -1993,68 +2262,9 @@ components:
             The count of this organizer's gatherings whose phase is
             SCHEDULING or SELECTING_SHOP. FINALIZED gatherings are excluded
             (adr/0038, designer's judgment carried into this contract).
-    OpenShopPreviewItem:
-      type: object
-      required:
-        [shopId, name, genre, capacityTier, nonSmokingStatus,
-         dinnerBudgetTier, location, walkingTimeMinutes, providerPageUrl]
-      additionalProperties: false
-      description: >-
-        A live, non-persisted projection of one shop for the organizer's
-        same-decision preview (adr/0034 decision 6: the gathering does not
-        store this data; it is refetched on every open-shop-preview call).
-        Uses the same coarse, tier-based vocabulary as
-        candidate-search-api.yaml's Candidate schema (ADR-0019) -- not the
-        raw seat counts shown in the designer's non-approved exploratory
-        canvas (adr/0035 decision 5's scope: that canvas is an input, not an
-        approved design). `shopId` was added 2026-09-04 (adr/0042,
-        architect self-audit, not part of any human decision that round) --
-        drafting-time versions of this schema left the item display-only,
-        deferring how a client would correlate a previewed row with the
-        shopId it later submits to setShortlistedShops; once
-        gathering-scheduling-browser-interface.yaml needed a concrete
-        checkbox-to-shopId observation for PickFive.dc.html, this
-        deferral turned out to make the approved screen unimplementable,
-        so this field was added rather than left open any longer.
-        `location`/`walkingTimeMinutes`/`providerPageUrl` were added
-        2026-09-04 (adr/0044, human decision: show the same map/detail
-        information the lunch-candidate screen shows, on both the
-        organizer's shortlist-selection screen and the participant's vote
-        screen -- this schema also backs the shortlist-selection screen,
-        adr/0040's header comment on previewOpenShopsForCandidateDate's
-        reuse).
-      properties:
-        shopId:
-          type: string
-        name:
-          type: string
-        genre:
-          type: string
-        capacityTier:
-          type: string
-          nullable: true
-          enum: [SMALL, MEDIUM, LARGE]
-        nonSmokingStatus:
-          type: string
-          nullable: true
-          enum: [FULL, PARTIAL, NONE]
-        dinnerBudgetTier:
-          type: string
-          nullable: true
-          enum: [LOW, MID, HIGH]
-        location:
-          $ref: '#/components/schemas/ShopLocation'
-        walkingTimeMinutes:
-          type: integer
-          minimum: 0
-          description: Same computation and caveats as LiveProjectedShop.walkingTimeMinutes.
-        providerPageUrl:
-          type: string
-          format: uri
-          description: Same field as LiveProjectedShop.providerPageUrl, for this same shop.
     CandidateDateOpenShopPreview:
       type: object
-      required: [candidateDateId, openShopCount, previewShops]
+      required: [candidateDateId, openShopCount]
       additionalProperties: false
       properties:
         candidateDateId:
@@ -2072,27 +2282,14 @@ components:
             Adopting this weekday-based matching for the gathering scope was
             confirmed by human decision 2026-08-30 (adr/0035 decision 6,
             option A) -- it does not judge national holidays, business
-            hours, or a specific date's actual opening.
-        previewShops:
-          type: array
-          maxItems: 10
-          items:
-            $ref: '#/components/schemas/OpenShopPreviewItem'
-          description: >-
-            A nearest-first subset of the open shops for this candidate
-            date. The exact number shown is a UI-implementation detail this
-            schema does not fix (same pattern as candidate-search-api.
-            yaml's display cap); `openShopCount` is the authoritative
-            total. Once the gathering reaches SELECTING_SHOP, this same
-            array (now with each item's `shopId`, adr/0042, and its
-            `location`/`walkingTimeMinutes`/`providerPageUrl`, adr/0044) is
-            also what the organizer's shortlist-selection surface renders
-            and chooses from (PickFive.dc.html) -- when `openShopCount`
-            exceeds `previewShops.length`, the excess shops are not
-            reachable through this contract's selection surface in this
-            slice; this is a known, unmeasured scale limitation
-            PickFive.dc.html itself flags ("母集団が多い日の見え方は描いて
-            いない"), not resolved here.
+            hours, or a specific date's actual opening. This schema
+            previously also carried `previewShops`, a nearest-first subset
+            of `OpenShopPreviewItem` entries; both were removed by adr/0049
+            decision 2 (2026-09-08 human decision: "日程を聞いている段階の
+            店は件数だけ") -- this operation is now count-only, and no
+            screen browses a shop list from it any longer (shop selection
+            moved to the lunch-candidate screen's gathering mode, adr/0049
+            decision 1).
     SetShortlistedShopsRequest:
       type: object
       additionalProperties: false
@@ -2113,7 +2310,12 @@ components:
             value. Must contain no duplicates (`uniqueItems`) and every id
             must belong to the confirmed candidate date's open-shop
             population, or the request is rejected with
-            INVALID_SHOP_SELECTION.
+            INVALID_SHOP_SELECTION. As of adr/0049 decision 1, these ids are
+            the `shopId` values the organizer toggled "この会に入れる" on
+            from the lunch-candidate screen's gathering mode
+            (candidate-search-api.yaml's `Candidate.shopId`), rather than
+            ids read off this file's own (now count-only)
+            previewOpenShopsForCandidateDate response.
     ParticipantShopVoteEntry:
       type: object
       additionalProperties: false
@@ -2293,7 +2495,7 @@ components:
             refresh without a second request.
     ParticipantScheduleQuestion:
       type: object
-      required: [candidateDateId, startAt, openShopCount, yourResponse]
+      required: [candidateDateId, startAt, openShopCount, yourResponse, tally]
       additionalProperties: false
       properties:
         candidateDateId:
@@ -2307,9 +2509,9 @@ components:
           description: >-
             "この日に開いている店 N件" (D6, 2026-08-30). Always present
             regardless of whether this participant has answered this
-            candidate date -- unlike `tally` below, it is not gated by the
-            "answer first, then see others" rule. No shop name or other
-            shop attribute is included (D6 explicitly limits this to a
+            candidate date -- like `tally` below since adr/0050 decision 2,
+            it is not gated by any "answer first" rule. No shop name or
+            other shop attribute is included (D6 explicitly limits this to a
             count).
         yourResponse:
           $ref: '#/components/schemas/ScheduleResponseStatus'
@@ -2317,7 +2519,6 @@ components:
           description: Null when this participant has not yet answered this candidate date.
         tally:
           type: object
-          nullable: true
           required: [goingCount, maybeCount, notGoingCount]
           additionalProperties: false
           properties:
@@ -2331,10 +2532,15 @@ components:
               type: integer
               minimum: 0
           description: >-
-            Null until `yourResponse` is non-null for this same candidate
-            date (product-brief.md §2: other participants' answers are
-            visible only after answering yourself, applied per candidate
-            date, TDR-GTH-12). Once present, mirrors the organizer-facing
+            Always present, regardless of whether `yourResponse` is null for
+            this same candidate date (adr/0050 decision 2, 2026-09-08/09
+            human decision, reversing product-brief.md §2's original "answer
+            first, then see others" rule, which gated this field on
+            `yourResponse` being non-null from drafting through version
+            0.9.0, TDR-GTH-12). The original rule's rationale -- that an
+            early answer could bias later ones -- is not retracted; the
+            human explicitly chose to let participants coordinate on how
+            others are answering instead. Mirrors the organizer-facing
             CandidateDate counts for this same candidate date.
     ParticipantShopVoteOption:
       type: object
@@ -2347,10 +2553,9 @@ components:
         One currently shortlisted shop, from this participant's point of
         view (adr/0040, Vote.dc.html). Mirrors ShortlistedShop's live-
         projected display fields (ADR-0034 decision 6) but exposes only
-        this participant's own answer and a gated aggregate tally, never
-        the shop's addedAt or other participants' identities.
-        `location`/`walkingTimeMinutes`/`providerPageUrl` were added
-        2026-09-04 (adr/0044, human decision: show the same map/detail
+        this participant's own answer, never other participants'
+        identities. `location`/`walkingTimeMinutes`/`providerPageUrl` were
+        added 2026-09-04 (adr/0044, human decision: show the same map/detail
         information the lunch-candidate screen shows on this screen too).
         Whether extending this disclosure to this unauthenticated,
         signed-link-only surface needed re-examination against ADR-0025's
@@ -2404,7 +2609,6 @@ components:
             resets addedAt and therefore can make this null again).
         tally:
           type: object
-          nullable: true
           required: [wantToGoCount, okToGoCount, notGoingCount, respondedParticipantCount]
           additionalProperties: false
           properties:
@@ -2421,59 +2625,18 @@ components:
               type: integer
               minimum: 0
           description: >-
-            Null exactly when `yourVote` is null for this same shop
-            (product-brief.md §2's "answer first, then see others" rule,
+            Always present, regardless of whether `yourVote` is null for
+            this same shop (adr/0050 decision 2, 2026-09-08/09 human
+            decision, reversing product-brief.md §2's original "answer
+            first, then see others" rule, which gated this field on
+            `yourVote` being non-null from adr/0040 through version 0.9.0,
             applied per shop the same way ParticipantScheduleQuestion.tally
-            applies it per candidate date, TDR-GTH-12's precedent extended
-            to shop voting). Once present, mirrors this same shop's
-            organizer-facing ShortlistedShop.wantToGoCount/okToGoCount/
-            notGoingCount/respondedParticipantCount exactly (changed
-            2026-09-04, adr/0044, from the retired single approvalCount).
-    ParticipantDecisionShopVote:
-      type: object
-      required: [shop, status]
-      additionalProperties: false
-      description: >-
-        Added 2026-09-04 (adr/0044), replacing the retired
-        `yourApprovedShops` (an array of only-approved LiveProjectedShop
-        entries). One entry per shop among Gathering.shortlistedShops at
-        the moment of finalization -- **including a shop this participant
-        never got a chance to vote on** (changed 2026-09-05, human chat
-        decision, adr/0046 open item 3 resolved: the finalized participant
-        screen must show "答えないまま締まりました" for such a shop, so a
-        participant can tell a shop they never answered apart from one
-        that simply was not shortlisted at all). The prior revision
-        excluded a no-answer shop entirely (yourVote null); this revision
-        instead carries `status: null` for it -- the same null-means-not-
-        yet-answered convention ParticipantShopVoteOption.yourVote already
-        uses pre-finalization. For a shop this participant did answer, this
-        schema carries the actual three-tier `status` chosen rather than
-        filtering to a single "approved" bucket, since the three-tier model
-        has no single bucket that unambiguously corresponds to the retired
-        boolean "approved". This mirrors `yourScheduleResponse` below
-        (which reports the answer's value, not only a subset of favorable
-        answers) and more completely satisfies the human's stated intent
-        ("投票後に振りかえられる", a personal retrospective of what this
-        participant actually said) -- the model this replaces silently
-        dropped a NOT_GOING-equivalent answer from this retrospective, and
-        the model before that dropped a never-answered shop from it
-        entirely; neither omission survives in this revision.
-      properties:
-        shop:
-          $ref: '#/components/schemas/LiveProjectedShop'
-        status:
-          $ref: '#/components/schemas/ShopVoteStatus'
-          nullable: true
-          description: >-
-            Null exactly when this participant's yourVote for this shop was
-            still null at the moment of finalization (never answered, or
-            answered before this shop's most recent addedAt) -- the same
-            gating ParticipantShopVoteOption.yourVote already applies to
-            this same shop pre-finalization (changed 2026-09-05, human chat
-            decision, adr/0046 open item 3: 答えなかった店も並べ、答えな
-            かったと分かる形にする -- the prior revision omitted such a
-            shop from this array entirely instead of carrying a null
-            status).
+            was gated per candidate date, TDR-GTH-29). Mirrors this same
+            shop's organizer-facing ShortlistedShop.wantToGoCount/
+            okToGoCount/notGoingCount/respondedParticipantCount exactly
+            (field names changed 2026-09-04, adr/0044, from the retired
+            single approvalCount; visibility changed 2026-09-08/09,
+            adr/0050 decision 2).
     ParticipantView:
       type: object
       required:
@@ -2545,7 +2708,8 @@ components:
             this array's *order* changed. Remains present (not reset to
             null) once phase is FINALIZED, so a participant who never
             checked before finalization can still see how the shops they
-            were asked about looked; see `decision` below for the
+            were asked about looked, including every other participant's
+            tally (adr/0050 decision 2); see `decision` below for the
             authoritative finalized answer.
         searchOrigin:
           $ref: '#/components/schemas/SearchOriginLocation'
@@ -2563,8 +2727,7 @@ components:
         decision:
           type: object
           nullable: true
-          required: [confirmedCandidateDate, shop, yourScheduleResponse,
-                     yourShopVotes]
+          required: [confirmedCandidateDate, shop, yourScheduleResponse]
           additionalProperties: false
           properties:
             confirmedCandidateDate:
@@ -2588,47 +2751,35 @@ components:
                 could make it on the day that was chosen. Null if this
                 participant never answered that specific candidate date.
                 Never another participant's answer.
-            yourShopVotes:
-              type: array
-              items:
-                $ref: '#/components/schemas/ParticipantDecisionShopVote'
-              description: >-
-                Added by human decision P5 (2026-09-03, adr/0041) as
-                `yourApprovedShops`; generalized to the three-tier vote
-                model 2026-09-04 (adr/0044) and renamed accordingly. Carries
-                one entry for every shop among Gathering.shortlistedShops at
-                the moment of finalization, whether or not this participant
-                ever answered it (changed 2026-09-05, human chat decision,
-                adr/0046 open item 3 resolved -- the prior revision
-                excluded a never-answered shop entirely; see
-                ParticipantDecisionShopVote for why `status` is null for
-                such a shop instead of the shop being omitted). Ordered the
-                same way shopVoteQuestions was ordered at the moment of
-                finalization (nearest-first by distance from the search
-                origin, ties broken by shopId ascending, adr/0044/adr/0048)
-                -- this contract does not require re-deriving a different
-                order here.
           description: >-
             Null until phase is FINALIZED; non-null and unchanged
             thereafter (adr/0040, D1 2026-08-30: "確定後、参加者には決定
             内容だけが見えます"). Extended by human decision P5 (2026-09-03,
             adr/0041) to also include this participant's own retrospective
-            record (yourScheduleResponse, yourShopVotes) -- explicitly
-            never another participant's answers or votes, per the human's
-            stated intent ("投票後に振りかえられる", not a disclosure of
-            others' choices). This is the sole content this contract
-            expects a finalized-gathering screen to need beyond the
-            gathering's title -- scheduleQuestions/shopVoteQuestions remain
-            in the response for historical reference (this participant's
-            own past answers, in their original per-candidate-date/per-shop
-            shape), but gathering-scheduling-browser-interface.yaml's
-            finalizedView (adr/0042) fully replaces both surfaces with the
-            flat `decision` summary rather than rendering them alongside it
-            -- resolving this schema's own previously-open note ("left to
-            that later contract, ADR-0013 order") in favor of replacement,
-            not coexistence. No further mutation is accepted regardless
-            (setScheduleResponse/setShopVotes both reject with
-            GATHERING_FINALIZED once phase is FINALIZED).
+            schedule answer (yourScheduleResponse) -- explicitly never
+            another participant's answers, per the human's stated intent
+            ("投票後に振りかえられる", not a disclosure of others' choices).
+            **`yourShopVotes` (this participant's own per-shop retrospective,
+            added by the same P5 decision and generalized to the three-tier
+            model by adr/0044) was retired by adr/0050 decision 3**
+            (2026-09-09 human decision: "あなたの回答は見れても別に意味
+            ないかも") -- `ParticipantDecisionShopVote`, the schema this
+            array alone used, is deleted along with it. This is the sole
+            content this contract expects a finalized-gathering screen to
+            need beyond the gathering's title -- scheduleQuestions/
+            shopVoteQuestions remain in the response for historical
+            reference (this participant's own past answers, in their
+            original per-candidate-date/per-shop shape, and, since adr/0050
+            decision 2, every other participant's tally too, visible at any
+            time including post-finalization), but gathering-scheduling-
+            browser-interface.yaml's finalizedView (adr/0042) fully replaces
+            both surfaces with the flat `decision` summary rather than
+            rendering them alongside it -- resolving this schema's own
+            previously-open note ("left to that later contract, ADR-0013
+            order") in favor of replacement, not coexistence. No further
+            mutation is accepted regardless (setScheduleResponse/
+            setShopVotes both reject with GATHERING_FINALIZED once phase is
+            FINALIZED).
     ProblemResponse:
       type: object
       required: [code, message]
@@ -2641,6 +2792,7 @@ components:
              CANDIDATE_DATE_NOT_FOUND, GATHERING_NOT_IN_SCHEDULING_PHASE,
              GATHERING_NOT_IN_SELECTING_SHOP_PHASE, SHOP_VOTING_NOT_STARTED,
              INVALID_SHOP_SELECTION, DUPLICATE_CANDIDATE_DATE,
+             CANDIDATE_DATE_NOT_IN_FUTURE,
              PARTICIPANT_LINK_NOT_FOUND, PARTICIPANT_LINK_ALREADY_ANSWERED,
              PARTICIPANT_LINK_REVOKED, LINK_NOT_FOUND, LINK_EXPIRED,
              LINK_REVOKED, LINK_RATE_LIMITED, GATHERING_FINALIZED]
