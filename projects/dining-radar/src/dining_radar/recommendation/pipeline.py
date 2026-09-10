@@ -300,7 +300,11 @@ def open_shop_population(
     contract's open-shop preview/count (an empty preview and a `0`
     ``openShopCount`` are both valid, honest answers here). Returned in
     nearest-first order, matching
-    ``CandidateDateOpenShopPreview.previewShops``'s own ordering requirement.
+    ``CandidateDateOpenShopPreview``'s own nearest-first requirement -- the
+    schema's own ``previewShops`` item list was retired 2026-09-09 (adr/0049
+    decision 2, count-only now), but this function's nearest-first ordering
+    is unchanged and still used by ``candidate-search-api.yaml``'s gathering
+    mode (adr/0049 decision 1) via ``is_confirmed_closed_on_weekday``.
     """
     deduped = _dedupe(candidates)
     default_population = filter_candidates(deduped, CandidateFilters(), origin)
@@ -935,6 +939,7 @@ def build_proposal(
     *,
     random_source: random.Random,
     shown_provider_page_urls: Collection[str] = (),
+    exclude_closed_on_weekday: int | None = None,
 ) -> Proposal:
     """The complete adr/0023/adr/0024/adr/0025 decision pipeline for one request.
 
@@ -947,8 +952,30 @@ def build_proposal(
     for display via ``order_confirmed_then_unconfirmed`` (decision 4 step 6).
     ``origin`` is also carried straight through onto ``Proposal.search_origin``
     (adr/0025 decision 1) for the browser's map marker.
+
+    ``exclude_closed_on_weekday`` (adr/0049 decision 1, gathering mode): when
+    not ``None``, every candidate ``is_confirmed_closed_on_weekday`` confirms
+    closed on that weekday is dropped from the population *before* any other
+    step in this pipeline runs -- including ``available_genres`` and the
+    izakaya/bar fallback -- so gathering mode's "open on the confirmed
+    candidate date" restriction narrows the same eligible population every
+    other filter/selection step already reasons about, rather than being
+    layered on afterward as a second, independent population (adr/0049
+    decision 1's "母集団を二重に持たない" requirement). This reuses
+    ``is_confirmed_closed_on_weekday`` -- the identical function
+    ``gathering-scheduling-api.yaml``'s own open-shop preview/count already
+    calls -- as a same-process function call, not a network contract
+    coupling.
     """
     deduped = _dedupe(candidates)
+    if exclude_closed_on_weekday is not None:
+        deduped = [
+            candidate
+            for candidate in deduped
+            if not is_confirmed_closed_on_weekday(
+                candidate.regular_holiday, exclude_closed_on_weekday
+            )
+        ]
     genres = available_genres(deduped, filters.include_izakaya_bar)
     population, izakaya_bar_fallback_applied = apply_izakaya_bar_fallback(deduped, filters, origin)
     selected, shown_pool_exhausted = select_with_shown_priority(

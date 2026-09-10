@@ -57,11 +57,6 @@ PARTICIPANT_LINK_VALIDITY_DAYS = 90
 SHORTLIST_MIN_SHOPS = 1
 SHORTLIST_MAX_SHOPS = 5
 
-# CandidateDateOpenShopPreview.previewShops: "maxItems: 10" (a nearest-first
-# subset for organizer preview only; openShopCount is the authoritative
-# total, not derived by counting this capped list).
-OPEN_SHOP_PREVIEW_MAX_ITEMS = 10
-
 # Distinguishes "no source argument supplied" (resolve one) from an
 # explicitly passed ``None`` ("resolution already failed upstream; do not
 # retry the provider fetch") in `open_shop_population_for_candidate_date`.
@@ -84,10 +79,24 @@ class DuplicateCandidateDateError(Exception):
     """``DUPLICATE_CANDIDATE_DATE`` (adr/0038): this exact ``startAt`` already exists here.
 
     Raised by ``create_gathering`` when two or more entries in the same
-    request share an exact ``startAt``, and by ``add_candidate_date`` when
-    the new ``startAt`` exactly matches a candidate date already persisted
-    on this gathering. This is architect's own design judgment (adr/0038
-    header comment), not one of the 2026-09-01 human decisions.
+    request share an exact ``startAt``, and by ``add_candidate_dates`` when
+    any entry's ``startAt`` exactly matches a candidate date already
+    persisted on this gathering, or another entry within the same batch
+    (adr/0049 decision 3: whole-batch rejection, no partial success). This is
+    architect's own design judgment (adr/0038 header comment), not one of the
+    2026-09-01 human decisions.
+    """
+
+
+class CandidateDateNotInFutureError(Exception):
+    """``CANDIDATE_DATE_NOT_IN_FUTURE`` (adr/0049 decision 3): a candidate date's own
+    calendar day is today or earlier by the server's clock.
+
+    Raised by both ``create_gathering`` and ``add_candidate_dates`` -- every
+    entry's ``startAt`` date (time excluded) must be tomorrow or later;
+    raised for the whole request/batch even when only one entry violates
+    this (no partial success, mirroring ``DuplicateCandidateDateError``'s own
+    whole-request rejection).
     """
 
 
@@ -164,18 +173,43 @@ def _get_participant_link(gathering: Gathering, link_id: object) -> ParticipantL
         raise ParticipantLinkNotFoundError from error
 
 
+def _reject_dates_not_in_future(start_ats: Sequence[datetime]) -> None:
+    """Raise ``CandidateDateNotInFutureError`` if any date is today or earlier.
+
+    adr/0049 decision 3, 2026-09-08 human decision ("選べるのは明日以降のみ"):
+    compares each ``start_at``'s own calendar day (server local time, time
+    excluded) against the server's current calendar day -- "today" and every
+    past date are rejected; only tomorrow or later is accepted. Applied
+    identically by ``create_gathering`` and ``add_candidate_dates`` (the
+    same ADR decision's own text: "この検査はcreateGathering・
+    addCandidateDatesの両方に適用する"). The date boundary itself (which
+    server timezone "today" is evaluated in) is an implementation choice the
+    contract does not fix -- this uses Django's configured local timezone
+    (``timezone.localtime``), the same basis
+    ``open_shop_population_for_candidate_date`` already uses for its own
+    weekday computation.
+    """
+    today = timezone.localtime(timezone.now()).date()
+    for start_at in start_ats:
+        if timezone.localtime(start_at).date() <= today:
+            raise CandidateDateNotInFutureError
+
+
 def create_gathering(
     organizer: AbstractBaseUser, title: str, candidate_date_start_ats: Sequence[datetime]
 ) -> Gathering:
     """``createGathering``: a gathering always starts in SCHEDULING with >=1 date.
 
-    Raises ``DuplicateCandidateDateError`` (adr/0038) if
-    ``candidate_date_start_ats`` itself contains two entries sharing the
+    Raises ``CandidateDateNotInFutureError`` (adr/0049 decision 3) if any
+    entry's own calendar day is today or earlier, checked before the
+    duplicate check below. Raises ``DuplicateCandidateDateError`` (adr/0038)
+    if ``candidate_date_start_ats`` itself contains two entries sharing the
     exact same instant -- checked before any row is written, so a rejected
     request never creates a partial gathering. Aware-datetime equality
     already normalizes across timezone offsets representing the same
     instant, matching ``startAt``'s own "exact same date-time" wording.
     """
+    _reject_dates_not_in_future(candidate_date_start_ats)
     if len(set(candidate_date_start_ats)) != len(candidate_date_start_ats):
         raise DuplicateCandidateDateError
     with transaction.atomic():
@@ -219,21 +253,47 @@ def count_in_progress_gatherings(organizer: AbstractBaseUser) -> int:
     ).count()
 
 
-def add_candidate_date(
-    organizer: AbstractBaseUser, gathering_id: object, start_at: datetime
-) -> tuple[Gathering, CandidateDate]:
-    """``addCandidateDate``: only accepted while phase is SCHEDULING.
+def add_candidate_dates(
+    organizer: AbstractBaseUser, gathering_id: object, start_ats: Sequence[datetime]
+) -> tuple[Gathering, list[CandidateDate]]:
+    """``addCandidateDates`` (adr/0049 decision 3): a batch, only while phase is SCHEDULING.
 
-    Raises ``DuplicateCandidateDateError`` (adr/0038) if ``start_at``
-    exactly matches a candidate date already persisted on this gathering.
+    Replaces the retired singular ``add_candidate_date``. Raises
+    ``CandidateDateNotInFutureError`` (adr/0049 decision 3) if any entry's
+    own calendar day is today or earlier. Raises
+    ``DuplicateCandidateDateError`` if any entry's ``start_at`` duplicates a
+    candidate date already persisted on this gathering, or another entry
+    within the same batch -- the whole batch is rejected either way, with no
+    partial success (checked before any row is written).
     """
     gathering = _get_owned_gathering(organizer, gathering_id)
     if gathering.phase != GatheringPhase.SCHEDULING:
         raise GatheringNotInSchedulingPhaseError
-    if gathering.candidate_dates.filter(start_at=start_at).exists():
+    _reject_dates_not_in_future(start_ats)
+    if len(set(start_ats)) != len(start_ats):
         raise DuplicateCandidateDateError
-    candidate_date = CandidateDate.objects.create(gathering=gathering, start_at=start_at)
-    return gathering, candidate_date
+    existing = set(gathering.candidate_dates.values_list("start_at", flat=True))
+    if existing & set(start_ats):
+        raise DuplicateCandidateDateError
+    with transaction.atomic():
+        candidate_dates = CandidateDate.objects.bulk_create(
+            CandidateDate(gathering=gathering, start_at=start_at) for start_at in start_ats
+        )
+    return gathering, candidate_dates
+
+
+def delete_gathering(organizer: AbstractBaseUser, gathering_id: object) -> None:
+    """``deleteGathering`` (adr/0050 decision 4): permanent, irreversible, any phase.
+
+    Deletes the gathering and every record derived from it -- candidate
+    dates, schedule responses, shop votes, participant links, and any
+    participant-attached display names -- via the models' own ``CASCADE``
+    foreign keys (``dining_radar.gathering.models``). Accepted regardless of
+    ``phase``. Raises ``GatheringNotFoundError`` (reused, unchanged -- no new
+    public error code) if this organizer has no such gathering.
+    """
+    gathering = _get_owned_gathering(organizer, gathering_id)
+    gathering.delete()
 
 
 def confirm_candidate_date(
@@ -447,11 +507,15 @@ def preview_open_shops_for_candidate_date(
 ) -> tuple[CandidateDate, list[NormalizedCandidate], Origin | None]:
     """``previewOpenShopsForCandidateDate``. Never advances gathering phase.
 
-    Also returns the private search origin the population was computed from
-    (``None`` only on a provider outage) so the caller can project each
-    ``OpenShopPreviewItem.location``/``walkingTimeMinutes`` (adr/0044) --
-    resolved once here and reused for every item, rather than re-resolving
-    per item.
+    Narrowed to a count-only query 2026-09-09 (adr/0049 decision 2) -- the
+    caller (``dining_radar.gathering.serializers.serialize_open_shop_preview``)
+    now reads only ``len(population)`` and no longer projects any per-item
+    display field, since the ``OpenShopPreviewItem`` schema it used to feed
+    was deleted along with the browser screen that browsed it (shop
+    selection moved to ``candidate-search-api.yaml``'s gathering mode,
+    adr/0049 decision 1). Still returns the full population and its origin
+    (rather than just a count) because ``organizer_dashboard``'s existing
+    call sites do not need changing to stop asking for them.
     """
     gathering = _get_owned_gathering(organizer, gathering_id)
     candidate_date = _get_candidate_date(gathering, candidate_date_id)
@@ -782,38 +846,6 @@ def participant_shop_vote_options(
             )
         )
     return options
-
-
-@dataclass(frozen=True)
-class ParticipantDecisionShopVote:
-    """One ``ParticipantDecisionShopVote`` entry (``ParticipantView.decision.yourShopVotes``)."""
-
-    shortlisted_shop: ShortlistedShop
-    status: str | None
-
-
-def participant_decision_shop_votes(
-    link: ParticipantLink, shop_lookup: dict, origin: Origin | None
-) -> list[ParticipantDecisionShopVote]:
-    """Every shop among ``Gathering.shortlistedShops`` at finalization, nearest-first.
-
-    Includes a shop this participant never voted on (``status: None``,
-    "答えないまま締まりました") -- changed 2026-09-05, human chat decision,
-    adr/0046 open item 3: the prior revision omitted such a shop from this
-    array entirely. Ordered the same way ``shopVoteQuestions`` was ordered
-    (nearest-first, adr/0044) via the same ``shortlisted_shops_nearest_first``
-    helper ``participant_shop_vote_options`` uses, so the two orderings can
-    never diverge.
-    """
-    submission = ShopVoteSubmission.objects.filter(participant_link=link).first()
-    votes = []
-    for shop in shortlisted_shops_nearest_first(link.gathering, shop_lookup, origin):
-        if submission is None or submission.submitted_at < shop.added_at:
-            status = None
-        else:
-            status = (submission.votes or {}).get(shop.shop_id)
-        votes.append(ParticipantDecisionShopVote(shortlisted_shop=shop, status=status))
-    return votes
 
 
 def _get_participant_link_by_token(token: str) -> ParticipantLink:

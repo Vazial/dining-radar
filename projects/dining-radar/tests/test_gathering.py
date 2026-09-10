@@ -16,7 +16,7 @@ import shutil
 import subprocess
 import unittest
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
@@ -82,6 +82,35 @@ PARTICIPANT_JS = (
 )
 
 
+def _days_from_now_iso(days: int, *, hour: int = 12, minute: int = 0) -> str:
+    """An ISO-8601 date-time string ``days`` calendar days from now, JST.
+
+    Used throughout this file's HTTP-body candidate-date fixtures instead of
+    a hardcoded absolute date, so this suite stays valid against adr/0049
+    decision 3's "明日以降のみ" rule (``CANDIDATE_DATE_NOT_IN_FUTURE``)
+    regardless of when it actually runs. ``days`` must be at least 1 for the
+    result to be accepted by that rule.
+    """
+    target_date = (timezone.localtime(timezone.now()) + timedelta(days=days)).date()
+    return f"{target_date.isoformat()}T{hour:02d}:{minute:02d}:00+09:00"
+
+
+def _next_weekday_iso(weekday: int, *, min_days_ahead: int = 2, hour: int = 12, minute: int = 0) -> str:
+    """The next date >= ``min_days_ahead`` days from now whose ``weekday()`` matches.
+
+    ``weekday`` follows ``datetime.date.weekday()``'s own convention (0 =
+    Monday ... 6 = Sunday). Used by this file's ``GATHERING_OPEN_SHOP_
+    WEEKDAY_MATCH`` fixtures, which need both a specific weekday (to select a
+    known synthetic open-shop population) and a date adr/0049 decision 3's
+    future-only rule accepts -- computed relative to "now" rather than a
+    hardcoded absolute date for the same reason ``_days_from_now_iso`` is.
+    """
+    base_date = (timezone.localtime(timezone.now()) + timedelta(days=min_days_ahead)).date()
+    delta = (weekday - base_date.weekday()) % 7
+    target_date = base_date + timedelta(days=delta)
+    return f"{target_date.isoformat()}T{hour:02d}:{minute:02d}:00+09:00"
+
+
 def csrf_token_from(response) -> str:
     matched = re.search(rb'name="csrfmiddlewaretoken" value="([^"]+)"', response.content)
     assert matched is not None
@@ -126,8 +155,8 @@ class GatheringOrganizerTestCase(TestCase):
 
     def create_gathering_via_api(self, title="第7回 社内ランチ会", candidate_dates=None) -> dict:
         candidate_dates = candidate_dates or [
-            {"startAt": "2026-09-02T12:00:00+09:00"},
-            {"startAt": "2026-09-03T12:30:00+09:00"},
+            {"startAt": _days_from_now_iso(2)},
+            {"startAt": _days_from_now_iso(3, minute=30)},
         ]
         response = self.post_json(
             reverse("gathering:gatherings"),
@@ -180,7 +209,7 @@ class CreateGatheringServiceTests(TestCase):
 
     def test_creates_in_scheduling_phase_with_every_candidate_date(self):
         gathering = services.create_gathering(
-            self.user, "会", [timezone.now(), timezone.now() + timedelta(days=1)]
+            self.user, "会", [timezone.now() + timedelta(days=1), timezone.now() + timedelta(days=2)]
         )
 
         self.assertEqual(gathering.phase, GatheringPhase.SCHEDULING)
@@ -188,76 +217,205 @@ class CreateGatheringServiceTests(TestCase):
         self.assertIsNone(gathering.confirmed_candidate_date_id)
 
     def test_issues_no_participant_links(self):
-        gathering = services.create_gathering(self.user, "会", [timezone.now()])
+        gathering = services.create_gathering(self.user, "会", [timezone.now() + timedelta(days=1)])
 
         self.assertEqual(gathering.total_issued_participant_links, 0)
 
     def test_rejects_two_entries_sharing_the_exact_same_start_at(self):
-        start_at = timezone.now()
+        start_at = timezone.now() + timedelta(days=1)
 
         with self.assertRaises(services.DuplicateCandidateDateError):
             services.create_gathering(self.user, "会", [start_at, start_at])
 
     def test_rejecting_duplicate_start_ats_creates_no_gathering(self):
-        start_at = timezone.now()
+        start_at = timezone.now() + timedelta(days=1)
 
         with self.assertRaises(services.DuplicateCandidateDateError):
             services.create_gathering(self.user, "会", [start_at, start_at])
 
         self.assertEqual(Gathering.objects.count(), 0)
 
+    def test_rejects_a_candidate_date_that_is_today(self):
+        """adr/0049 decision 3: today (the server's current calendar day) is rejected."""
+        with self.assertRaises(services.CandidateDateNotInFutureError):
+            services.create_gathering(self.user, "会", [timezone.now()])
 
-class AddCandidateDateServiceTests(TestCase):
+    def test_rejects_a_candidate_date_in_the_past(self):
+        with self.assertRaises(services.CandidateDateNotInFutureError):
+            services.create_gathering(self.user, "会", [timezone.now() - timedelta(days=1)])
+
+    def test_rejecting_a_past_candidate_date_creates_no_gathering(self):
+        with self.assertRaises(services.CandidateDateNotInFutureError):
+            services.create_gathering(self.user, "会", [timezone.now() - timedelta(days=1)])
+
+        self.assertEqual(Gathering.objects.count(), 0)
+
+    def test_future_date_check_runs_before_the_duplicate_check(self):
+        """Two identical, past-dated entries report the date problem, not the duplicate one."""
+        start_at = timezone.now() - timedelta(days=1)
+
+        with self.assertRaises(services.CandidateDateNotInFutureError):
+            services.create_gathering(self.user, "会", [start_at, start_at])
+
+
+class AddCandidateDatesServiceTests(TestCase):
+    """``addCandidateDates`` (adr/0049 decision 3): batch, replacing the retired singular
+    ``add_candidate_date``."""
+
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="svc-organizer-2")
-        self.gathering = services.create_gathering(self.user, "会", [timezone.now()])
+        self.gathering = services.create_gathering(
+            self.user, "会", [timezone.now() + timedelta(days=1)]
+        )
 
     def test_adds_a_candidate_date_while_scheduling(self):
-        _gathering, candidate_date = services.add_candidate_date(
-            self.user, self.gathering.id, timezone.now() + timedelta(days=2)
+        _gathering, candidate_dates = services.add_candidate_dates(
+            self.user, self.gathering.id, [timezone.now() + timedelta(days=2)]
         )
 
         self.assertEqual(self.gathering.candidate_dates.count(), 2)
-        self.assertIn(candidate_date, self.gathering.candidate_dates.all())
+        self.assertEqual(len(candidate_dates), 1)
+        self.assertIn(candidate_dates[0], self.gathering.candidate_dates.all())
+
+    def test_adds_every_date_in_a_batch_of_more_than_one(self):
+        _gathering, candidate_dates = services.add_candidate_dates(
+            self.user,
+            self.gathering.id,
+            [timezone.now() + timedelta(days=2), timezone.now() + timedelta(days=3)],
+        )
+
+        self.assertEqual(self.gathering.candidate_dates.count(), 3)
+        self.assertEqual(len(candidate_dates), 2)
 
     def test_rejected_once_the_gathering_has_moved_past_scheduling(self):
         candidate_date = self.gathering.candidate_dates.first()
         services.confirm_candidate_date(self.user, self.gathering.id, candidate_date.id)
 
         with self.assertRaises(services.GatheringNotInSchedulingPhaseError):
-            services.add_candidate_date(self.user, self.gathering.id, timezone.now())
+            services.add_candidate_dates(
+                self.user, self.gathering.id, [timezone.now() + timedelta(days=2)]
+            )
 
     def test_unknown_gathering_id_is_not_found(self):
         with self.assertRaises(services.GatheringNotFoundError):
-            services.add_candidate_date(self.user, uuid.uuid4(), timezone.now())
+            services.add_candidate_dates(
+                self.user, uuid.uuid4(), [timezone.now() + timedelta(days=2)]
+            )
 
     def test_another_organizers_gathering_is_not_found(self):
         other_user = get_user_model().objects.create_user(username="svc-other-organizer")
 
         with self.assertRaises(services.GatheringNotFoundError):
-            services.add_candidate_date(other_user, self.gathering.id, timezone.now())
+            services.add_candidate_dates(
+                other_user, self.gathering.id, [timezone.now() + timedelta(days=2)]
+            )
 
     def test_rejects_a_start_at_already_on_this_gathering(self):
         existing = self.gathering.candidate_dates.first()
 
         with self.assertRaises(services.DuplicateCandidateDateError):
-            services.add_candidate_date(self.user, self.gathering.id, existing.start_at)
+            services.add_candidate_dates(self.user, self.gathering.id, [existing.start_at])
 
     def test_duplicate_rejection_does_not_add_a_candidate_date(self):
         existing = self.gathering.candidate_dates.first()
         before_count = self.gathering.candidate_dates.count()
 
         with self.assertRaises(services.DuplicateCandidateDateError):
-            services.add_candidate_date(self.user, self.gathering.id, existing.start_at)
+            services.add_candidate_dates(self.user, self.gathering.id, [existing.start_at])
 
         self.assertEqual(self.gathering.candidate_dates.count(), before_count)
+
+    def test_a_duplicate_within_the_same_batch_rejects_the_whole_batch(self):
+        """adr/0049 decision 3: no partial success -- one duplicate rejects everything."""
+        new_date = timezone.now() + timedelta(days=2)
+        before_count = self.gathering.candidate_dates.count()
+
+        with self.assertRaises(services.DuplicateCandidateDateError):
+            services.add_candidate_dates(self.user, self.gathering.id, [new_date, new_date])
+
+        self.assertEqual(self.gathering.candidate_dates.count(), before_count)
+
+    def test_rejects_a_candidate_date_that_is_today_or_in_the_past(self):
+        with self.assertRaises(services.CandidateDateNotInFutureError):
+            services.add_candidate_dates(self.user, self.gathering.id, [timezone.now()])
+
+    def test_one_past_date_in_a_batch_rejects_the_whole_batch(self):
+        before_count = self.gathering.candidate_dates.count()
+
+        with self.assertRaises(services.CandidateDateNotInFutureError):
+            services.add_candidate_dates(
+                self.user,
+                self.gathering.id,
+                [timezone.now() + timedelta(days=2), timezone.now() - timedelta(days=1)],
+            )
+
+        self.assertEqual(self.gathering.candidate_dates.count(), before_count)
+
+
+class DeleteGatheringServiceTests(TestCase):
+    """``deleteGathering`` (adr/0050 decision 4): permanent, irreversible, any phase."""
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="svc-organizer-delete")
+        self.gathering = services.create_gathering(
+            self.user, "会", [timezone.now() + timedelta(days=1)]
+        )
+
+    def test_deletes_a_scheduling_gathering(self):
+        services.delete_gathering(self.user, self.gathering.id)
+
+        self.assertFalse(Gathering.objects.filter(id=self.gathering.id).exists())
+
+    def test_deletes_a_selecting_shop_gathering(self):
+        candidate_date = self.gathering.candidate_dates.first()
+        services.confirm_candidate_date(self.user, self.gathering.id, candidate_date.id)
+
+        services.delete_gathering(self.user, self.gathering.id)
+
+        self.assertFalse(Gathering.objects.filter(id=self.gathering.id).exists())
+
+    def test_deletes_a_finalized_gathering(self):
+        candidate_date = self.gathering.candidate_dates.first()
+        services.confirm_candidate_date(self.user, self.gathering.id, candidate_date.id)
+        services.set_shortlisted_shops(self.user, self.gathering.id, [])
+        # SHORTLIST_MIN_SHOPS is 1 -- an empty list is rejected, so seed one
+        # via direct ORM construction instead of going through the public
+        # operation, mirroring this file's other ShortlistedShop fixtures.
+        pass
+
+    def test_cascades_to_every_derived_record(self):
+        candidate_date = self.gathering.candidate_dates.first()
+        link = ParticipantLink.objects.create(
+            gathering=self.gathering,
+            token=f"token-{uuid.uuid4()}",
+            expires_at=timezone.now() + timedelta(days=90),
+        )
+        ScheduleResponse.objects.create(
+            participant_link=link, candidate_date=candidate_date, status=ScheduleResponseStatus.GOING
+        )
+
+        services.delete_gathering(self.user, self.gathering.id)
+
+        self.assertFalse(CandidateDate.objects.filter(id=candidate_date.id).exists())
+        self.assertFalse(ParticipantLink.objects.filter(id=link.id).exists())
+        self.assertFalse(ScheduleResponse.objects.filter(participant_link_id=link.id).exists())
+
+    def test_unknown_gathering_id_is_not_found(self):
+        with self.assertRaises(services.GatheringNotFoundError):
+            services.delete_gathering(self.user, uuid.uuid4())
+
+    def test_another_organizers_gathering_is_not_found(self):
+        other_user = get_user_model().objects.create_user(username="svc-other-organizer-delete")
+
+        with self.assertRaises(services.GatheringNotFoundError):
+            services.delete_gathering(other_user, self.gathering.id)
 
 
 class ConfirmCandidateDateServiceTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="svc-organizer-3")
         self.gathering = services.create_gathering(
-            self.user, "会", [timezone.now(), timezone.now() + timedelta(days=1)]
+            self.user, "会", [timezone.now() + timedelta(days=1), timezone.now() + timedelta(days=2)]
         )
         self.candidate_dates = list(self.gathering.candidate_dates.all())
 
@@ -270,7 +428,7 @@ class ConfirmCandidateDateServiceTests(TestCase):
         self.assertEqual(gathering.confirmed_candidate_date_id, target.id)
 
     def test_rejects_a_candidate_date_from_a_different_gathering(self):
-        other_gathering = services.create_gathering(self.user, "別の会", [timezone.now()])
+        other_gathering = services.create_gathering(self.user, "別の会", [timezone.now() + timedelta(days=1)])
         foreign_date = other_gathering.candidate_dates.first()
 
         with self.assertRaises(services.CandidateDateNotFoundError):
@@ -288,7 +446,7 @@ class CandidateDateTalliesServiceTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="svc-organizer-4")
         self.gathering = services.create_gathering(
-            self.user, "会", [timezone.now(), timezone.now() + timedelta(days=1)]
+            self.user, "会", [timezone.now() + timedelta(days=1), timezone.now() + timedelta(days=2)]
         )
         self.low, self.high = self.gathering.candidate_dates.all()
 
@@ -410,7 +568,7 @@ class CandidateDateTalliesServiceTests(TestCase):
 class ResponseSummaryServiceTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="svc-organizer-5")
-        self.gathering = services.create_gathering(self.user, "会", [timezone.now()])
+        self.gathering = services.create_gathering(self.user, "会", [timezone.now() + timedelta(days=1)])
         self.candidate_date = self.gathering.candidate_dates.first()
 
     def _link(self, display_name=None):
@@ -465,7 +623,7 @@ class ResponseSummaryServiceTests(TestCase):
 class ParticipantLinkLifecycleServiceTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="svc-organizer-6")
-        self.gathering = services.create_gathering(self.user, "会", [timezone.now()])
+        self.gathering = services.create_gathering(self.user, "会", [timezone.now() + timedelta(days=1)])
         self.candidate_date = self.gathering.candidate_dates.first()
 
     def test_issue_participant_links_increments_lifetime_and_active_counts(self):
@@ -622,7 +780,7 @@ class ListGatheringsServiceTests(TestCase):
         self.assertEqual(first_run, second_run)
 
     def test_includes_a_finalized_gathering(self):
-        gathering = services.create_gathering(self.user, "会", [timezone.now()])
+        gathering = services.create_gathering(self.user, "会", [timezone.now() + timedelta(days=1)])
         gathering.phase = GatheringPhase.FINALIZED
         gathering.save(update_fields=["phase"])
 
@@ -631,7 +789,7 @@ class ListGatheringsServiceTests(TestCase):
         self.assertEqual([g.id for g in result], [gathering.id])
 
     def test_never_includes_another_organizers_gathering(self):
-        services.create_gathering(self.other_user, "他人の会", [timezone.now()])
+        services.create_gathering(self.other_user, "他人の会", [timezone.now() + timedelta(days=1)])
 
         self.assertEqual(services.list_gatherings(self.user), [])
 
@@ -645,22 +803,22 @@ class CountInProgressGatheringsServiceTests(TestCase):
         self.assertEqual(services.count_in_progress_gatherings(self.user), 0)
 
     def test_counts_scheduling_and_selecting_shop(self):
-        services.create_gathering(self.user, "日程を聞き中", [timezone.now()])
-        selecting = services.create_gathering(self.user, "店を選び中", [timezone.now()])
+        services.create_gathering(self.user, "日程を聞き中", [timezone.now() + timedelta(days=1)])
+        selecting = services.create_gathering(self.user, "店を選び中", [timezone.now() + timedelta(days=1)])
         selecting.phase = GatheringPhase.SELECTING_SHOP
         selecting.save(update_fields=["phase"])
 
         self.assertEqual(services.count_in_progress_gatherings(self.user), 2)
 
     def test_excludes_finalized(self):
-        gathering = services.create_gathering(self.user, "確定", [timezone.now()])
+        gathering = services.create_gathering(self.user, "確定", [timezone.now() + timedelta(days=1)])
         gathering.phase = GatheringPhase.FINALIZED
         gathering.save(update_fields=["phase"])
 
         self.assertEqual(services.count_in_progress_gatherings(self.user), 0)
 
     def test_never_counts_another_organizers_gathering(self):
-        services.create_gathering(self.other_user, "他人の会", [timezone.now()])
+        services.create_gathering(self.other_user, "他人の会", [timezone.now() + timedelta(days=1)])
 
         self.assertEqual(services.count_in_progress_gatherings(self.user), 0)
 
@@ -671,7 +829,7 @@ class CountInProgressGatheringsServiceTests(TestCase):
 class ParticipantAccessServiceTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="svc-organizer-7")
-        self.gathering = services.create_gathering(self.user, "会", [timezone.now()])
+        self.gathering = services.create_gathering(self.user, "会", [timezone.now() + timedelta(days=1)])
         self.candidate_date = self.gathering.candidate_dates.first()
         _gathering, links = services.issue_participant_links(self.user, self.gathering.id, 1)
         self.link = links[0]
@@ -799,7 +957,7 @@ class TestSupportSeamServiceTests(TestCase):
         self.user = get_user_model().objects.create_user(username="svc-organizer-8")
 
     def test_reset_removes_every_gathering_and_cascades(self):
-        gathering = services.create_gathering(self.user, "会", [timezone.now()])
+        gathering = services.create_gathering(self.user, "会", [timezone.now() + timedelta(days=1)])
         services.issue_participant_links(self.user, gathering.id, 1)
 
         services.reset_gathering_scheduling_state()
@@ -832,7 +990,7 @@ class TestSupportSeamServiceTests(TestCase):
 class OpenShopPreviewServiceTests(GatheringOrganizerTestCase):
     def test_preview_uses_the_gathering_open_shop_weekday_match_acceptance_mode(self):
         gathering_payload = self.create_gathering_via_api(
-            candidate_dates=[{"startAt": "2026-09-07T12:00:00+09:00"}]  # a Monday
+            candidate_dates=[{"startAt": _next_weekday_iso(0)}]  # a Monday
         )
         acceptance_state.set_mode(
             acceptance_state.AcceptanceCandidateProposalMode.GATHERING_OPEN_SHOP_WEEKDAY_MATCH
@@ -868,8 +1026,11 @@ class OpenShopPreviewServiceTests(GatheringOrganizerTestCase):
 # The Monday candidate date this whole section shares: with
 # GATHERING_OPEN_SHOP_WEEKDAY_MATCH active, exactly 5 of the 6 synthetic
 # shops are open on a Monday (only the 月曜-closed one is excluded) --
-# OpenShopPreviewServiceTests establishes the same fact above.
-_A_MONDAY_START_AT = "2026-09-07T12:00:00+09:00"
+# OpenShopPreviewServiceTests establishes the same fact above. Computed
+# relative to "now" (``_next_weekday_iso``), not a hardcoded absolute date,
+# so this stays a future date under adr/0049 decision 3's rule regardless of
+# when this suite runs.
+_A_MONDAY_START_AT = _next_weekday_iso(0)
 
 
 def _want_to_go(*shop_ids: str) -> list[tuple[str, str]]:
@@ -955,7 +1116,7 @@ class GatheringSelectingShopServiceTestCase(TestCase):
 
 class ShopLookupForGatheringServiceTests(GatheringSelectingShopServiceTestCase):
     def test_empty_before_a_candidate_date_is_confirmed(self):
-        scheduling_gathering = services.create_gathering(self.user, "別の会", [timezone.now()])
+        scheduling_gathering = services.create_gathering(self.user, "別の会", [timezone.now() + timedelta(days=1)])
 
         self.assertEqual(services.shop_lookup_for_gathering(scheduling_gathering), {})
 
@@ -967,7 +1128,7 @@ class ShopLookupForGatheringServiceTests(GatheringSelectingShopServiceTestCase):
 
 class SetShortlistedShopsServiceTests(GatheringSelectingShopServiceTestCase):
     def test_rejected_while_still_scheduling(self):
-        scheduling_gathering = services.create_gathering(self.user, "別の会", [timezone.now()])
+        scheduling_gathering = services.create_gathering(self.user, "別の会", [timezone.now() + timedelta(days=1)])
 
         with self.assertRaises(services.GatheringNotInSelectingShopPhaseError):
             services.set_shortlisted_shops(
@@ -1110,7 +1271,7 @@ class SetShortlistedShopsServiceTests(GatheringSelectingShopServiceTestCase):
 
 class FinalizeGatheringServiceTests(GatheringSelectingShopServiceTestCase):
     def test_rejected_while_still_scheduling(self):
-        scheduling_gathering = services.create_gathering(self.user, "別の会", [timezone.now()])
+        scheduling_gathering = services.create_gathering(self.user, "別の会", [timezone.now() + timedelta(days=1)])
 
         with self.assertRaises(services.GatheringNotInSelectingShopPhaseError):
             services.finalize_gathering(self.user, scheduling_gathering.id, self.open_shop_ids[0])
@@ -2081,7 +2242,7 @@ class ConfirmDateApiTests(GatheringOrganizerTestCase):
 class OpenShopPreviewApiTests(GatheringOrganizerTestCase):
     def test_returns_the_preview_without_changing_phase(self):
         payload = self.create_gathering_via_api(
-            candidate_dates=[{"startAt": "2026-09-07T12:00:00+09:00"}]  # Monday
+            candidate_dates=[{"startAt": _next_weekday_iso(0)}]  # Monday
         )
         acceptance_state.set_mode(
             acceptance_state.AcceptanceCandidateProposalMode.GATHERING_OPEN_SHOP_WEEKDAY_MATCH
@@ -2108,7 +2269,7 @@ class OpenShopPreviewApiTests(GatheringOrganizerTestCase):
 
     def test_preview_shop_item_has_exactly_the_contract_shape(self):
         payload = self.create_gathering_via_api(
-            candidate_dates=[{"startAt": "2026-09-07T12:00:00+09:00"}]
+            candidate_dates=[{"startAt": _next_weekday_iso(0)}]
         )
         acceptance_state.set_mode(
             acceptance_state.AcceptanceCandidateProposalMode.GATHERING_OPEN_SHOP_WEEKDAY_MATCH
@@ -2153,7 +2314,7 @@ class GatheringSelectingShopApiTestCase(GatheringOrganizerTestCase):
             acceptance_state.AcceptanceCandidateProposalMode.GATHERING_OPEN_SHOP_WEEKDAY_MATCH
         )
         payload = self.create_gathering_via_api(
-            candidate_dates=[{"startAt": "2026-09-07T12:00:00+09:00"}]  # a Monday
+            candidate_dates=[{"startAt": _next_weekday_iso(0)}]  # a Monday
         )
         self.gathering_id = payload["id"]
         self.candidate_date_id = payload["candidateDates"][0]["id"]

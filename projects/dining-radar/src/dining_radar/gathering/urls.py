@@ -19,7 +19,7 @@ urlpatterns = [
     path("gatherings/in-progress-count", views.in_progress_count, name="in-progress-count"),
     path("gatherings/<uuid:gathering_id>", views.gathering_detail, name="gathering-detail"),
     path(
-        "gatherings/<uuid:gathering_id>/candidate-dates",
+        "gatherings/<uuid:gathering_id>/candidate-dates:batch",
         views.candidate_dates,
         name="candidate-dates",
     ),
