@@ -265,10 +265,45 @@
 #   確定を伴うため、他のTDR-GTHシナリオと同じくこのリセットの対象に含める（会データが
 #   `candidate-search`側のシナリオを跨いで残ることを防ぐ）。
 # - `version`を1.5.4→1.5.5へ、`info.description`のシナリオ範囲表記を更新した。
+#
+# 2026-09-11 追補6 (architect、adr/0052。tester指摘——GATHERING_OPEN_SHOP_WEEKDAY_MATCH母集団の
+#   個々の店のidentityを受け入れテストがどう決定的に特定するかは、adr/0049が店選びを
+#   proposeCandidatesへ一本化した後は自明ではなく、候補日を変えて2回問い合わせ差分を取る技法が
+#   偶発的に破綻しうる設計のまま残っていた):
+# - **結論: 新しいseamは要らない**（adr/0037決定1・adr/0049追補5と同じ筋——この母集団は既に
+#   公開境界（candidate-search-api.yamlのproposeCandidates）から発見可能であり、脆かったのは
+#   発見の技法であって、状態そのものが公開境界で作れないわけではない）。下記スキーマの
+#   GATHERING_OPEN_SHOP_WEEKDAY_MATCH説明文とrandomSeed説明文へ、2点を追記するに留めた。
+# - **shopIdの安定性を契約として明記した**: この状態が選択されている間、6件の合成候補それぞれの
+#   shopIdは、どのproposeCandidates呼び出し・どの会をまたいでも同一である（状態選択時に一度だけ
+#   割り当てられ、リクエストごと・会ごとに再割り当てされない）。これにより、ある確定日に閉まって
+#   いる店のshopIdを、その店が開いている別の曜日で確定した別の会から読み取り、目的の会へ転用できる
+#   ——月曜（5件開店、月のみ閉店の1形を除く残り5形すべてが開店）で確定した会はこの母集団が他の
+#   どの1曜日で閉める店も開示し、火曜（同じく5件開店）で確定した会が月曜自身の閉店店舗（月のみ
+#   閉店の形）を開示する。
+# - **表示上限5件との衝突を明記した**: `previewOpenShopsForCandidateDate`のopenShopCount
+#   （件数のみ、adr/0049決定2以来サンプリングを経ない）と異なり、店の選択そのものは
+#   proposeCandidatesの`candidates`配列（表示上限5件・加重ランダム抽出、adr/0049決定1）を経由する
+#   ようになった。木・金・土（6件全店が開いている）はこの母集団が唯一表示上限を上回る曜日であり、
+#   1回の呼び出しでは6件中5件しか見えない。6件全部のshopIdが要る場面（例: TDR-GTH-45、5件目まで
+#   選んだ状態で6件目を拒否させる）は、randomSeedを固定し、1回目の応答が返した5件の
+#   providerPageUrlを2回目のshownProviderPageUrlsへ渡すことで、2回目の応答に必ず6件目が
+#   含まれるようにする（SHOWN_POOL_PRIORITYが既に文書化しているshownProviderPageUrls分割の
+#   仕組みの再利用であり、新しい仕組みではない）。
+# - **今回解消せず申し送ること**: 本ファイルのGATHERING_OPEN_SHOP_WEEKDAY_MATCH説明文は、
+#   TDR-GTH-26/27/38/39が`OpenShopPreviewItem.shopId`を読むと記述したままだった——このスキーマ
+#   自体はadr/0049決定2で削除済みであり、この記述はadr/0049の回で更新され損ねていたstaleな
+#   参照である（本追補では削除せず、そのまま古い参照として明記するに留めた）。TDR-GTH-26〜41の
+#   Given-state構築手段が、adr/0049で廃止された幹事ダッシュボード内の店選び一覧
+#   （shortlistSelection）を前提にしたまま残っている可能性があり、これらのシナリオが実装される
+#   回で棚卸しが要る——本追補はその棚卸しを代行しない（adr/0052の未決事項）。
+# - `version`を1.5.5→1.5.6へ更新した。新しいoperationId・新しいスキーマ・新しいシナリオIDは
+#   いずれも追加していないため、`info.description`のシナリオ範囲表記・`x-acceptance-scenarios`
+#   各listは変更していない。
 openapi: 3.0.3
 info:
   title: Dining Radar acceptance test-support API
-  version: 1.5.5
+  version: 1.5.6
   description: >-
     Acceptance-only setup and reset seams for TDR-AUTH-01 through TDR-AUTH-07,
     TDR-CS-00 through TDR-CS-19, and TDR-GTH-01 through TDR-GTH-48.
@@ -919,6 +954,45 @@ components:
             yaml's previewOpenShopsForCandidateDate or through this
             gatheringId-narrowed proposeCandidates, and no additional seed
             data was needed for either round.
+
+            Added 2026-09-11 (architect, adr/0052, a tester-identified
+            fragility in the Given-state discovery technique built against
+            this mode -- diffing previewOpenShopsForCandidateDate's shopId
+            set between two candidate dates, which breaks whenever the
+            diffed set has other than exactly one member, as it does on
+            Wednesday): this mode's 6 synthetic candidates each keep the
+            same shopId for as long as this acceptance state stays selected,
+            across every proposeCandidates call and every gathering an
+            acceptance test builds during that time -- the shared synthetic
+            factory assigns each candidate's shopId once, when this state is
+            selected, never per request or per gathering.
+            candidate-search-api.yaml's `Candidate.shopId` (adr/0049
+            decision 1) is now the only place any of these values are
+            exposed for a scenario built against the gathering-mode
+            proposeCandidates path; `Candidate.shopId` is non-null only in
+            gathering mode, and gathering mode's eligible population is by
+            definition restricted to shops open on the named gathering's
+            confirmed date, so a shop closed on that date never carries a
+            shopId in that gathering's own response. A scenario needing a
+            specific closed shop's shopId for a target confirmed date must
+            instead read it from a companion gathering confirmed to a
+            different weekday on which that same shape is open, then reuse
+            the identical value against the target gathering -- for example,
+            a companion gathering confirmed to Monday (5 open, excluding
+            only the 月-only shape) discloses the shopId of every shape this
+            mode excludes on any other single day, since none of the
+            remaining five shapes (水-only, 火/水, 日, 不定休, null) is
+            itself closed on Monday; a companion gathering confirmed to
+            Tuesday discloses the one shape (月-only) Monday's own
+            population excludes. This description's earlier references
+            above to `OpenShopPreviewItem.shopId` (for TDR-GTH-26/27) and to
+            `OpenShopPreviewItem`/`ParticipantShopVoteOption` (for
+            TDR-GTH-38/39) predate adr/0049 decision 2's removal of the
+            `OpenShopPreviewItem` schema and its retired shop-selection
+            screen -- this addendum reports that staleness rather than
+            resolving it (adr/0052's open item; a scenario-by-scenario
+            inventory of TDR-GTH-26 through TDR-GTH-41's Given-state
+            builders against that removal is separate, unfinished work).
         randomSeed:
           type: integer
           nullable: true
@@ -944,6 +1018,25 @@ components:
             larger than the display cap and its openShopCount counting does
             not involve display-selection sampling, so randomSeed has no
             effect on the counts that mode documents.
+
+            Added 2026-09-11 (architect, adr/0052): the previous sentence
+            only ever held for `openShopCount`, which adr/0049 decision 2
+            kept as a count-only, sampling-free read. Shop selection itself,
+            however, now flows through proposeCandidates' `candidates` array
+            (adr/0049 decision 1), which does apply the five-candidate
+            display cap and its weighted-random sampling. A confirmed date
+            with 6 open shops under this mode (Thursday, Friday, or
+            Saturday) therefore does exceed that cap, so which 5 of the 6
+            open shopIds a single gathering-mode call returns depends on
+            randomSeed, unlike the seed-independent count above. A scenario
+            needing all 6 open shopIds on such a date (for example,
+            TDR-GTH-45's fifth-shop-limit check, which needs a genuinely
+            open sixth shop to attempt shortlisting) must pin randomSeed and
+            issue two calls, passing the first call's five returned
+            providerPageUrl values as the second call's
+            shownProviderPageUrls -- the same partition mechanic
+            SHOWN_POOL_PRIORITY documents above -- so the sixth candidate is
+            guaranteed present in the second response.
         searchOrigin:
           type: object
           nullable: true
