@@ -112,8 +112,10 @@ class SerializeResultTests(SimpleTestCase):
                 "providerCredit",
                 "searchOrigin",
                 "shownPoolExhausted",
+                "gatheringContext",
             },
         )
+        self.assertIsNone(payload["gatheringContext"])
         self.assertEqual(
             set(payload["candidates"][0]),
             {
@@ -130,8 +132,12 @@ class SerializeResultTests(SimpleTestCase):
                 "location",
                 "providerPageUrl",
                 "walkingTimeMinutes",
+                "shopId",
+                "isShortlisted",
             },
         )
+        self.assertIsNone(payload["candidates"][0]["shopId"])
+        self.assertIsNone(payload["candidates"][0]["isShortlisted"])
 
     def test_population_attributes_serialize_only_the_closed_filter_membership_shape(self):
         result = ProposalResult(

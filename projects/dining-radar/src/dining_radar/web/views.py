@@ -267,9 +267,7 @@ def _resolve_gathering_mode(user, gathering_id: str) -> _GatheringModeContext:
     if gathering.phase == GatheringPhase.FINALIZED:
         raise _GatheringModeRejected(_GATHERING_FINALIZED)
     weekday = timezone.localtime(gathering.confirmed_candidate_date.start_at).weekday()
-    shortlisted_shop_ids = frozenset(
-        gathering.shortlisted_shops.values_list("shop_id", flat=True)
-    )
+    shortlisted_shop_ids = frozenset(gathering.shortlisted_shops.values_list("shop_id", flat=True))
     return _GatheringModeContext(
         gathering=gathering, weekday=weekday, shortlisted_shop_ids=shortlisted_shop_ids
     )

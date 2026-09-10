@@ -16,7 +16,7 @@ import shutil
 import subprocess
 import unittest
 import uuid
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
@@ -95,7 +95,9 @@ def _days_from_now_iso(days: int, *, hour: int = 12, minute: int = 0) -> str:
     return f"{target_date.isoformat()}T{hour:02d}:{minute:02d}:00+09:00"
 
 
-def _next_weekday_iso(weekday: int, *, min_days_ahead: int = 2, hour: int = 12, minute: int = 0) -> str:
+def _next_weekday_iso(
+    weekday: int, *, min_days_ahead: int = 2, hour: int = 12, minute: int = 0
+) -> str:
     """The next date >= ``min_days_ahead`` days from now whose ``weekday()`` matches.
 
     ``weekday`` follows ``datetime.date.weekday()``'s own convention (0 =
@@ -209,7 +211,9 @@ class CreateGatheringServiceTests(TestCase):
 
     def test_creates_in_scheduling_phase_with_every_candidate_date(self):
         gathering = services.create_gathering(
-            self.user, "会", [timezone.now() + timedelta(days=1), timezone.now() + timedelta(days=2)]
+            self.user,
+            "会",
+            [timezone.now() + timedelta(days=1), timezone.now() + timedelta(days=2)],
         )
 
         self.assertEqual(gathering.phase, GatheringPhase.SCHEDULING)
@@ -377,11 +381,17 @@ class DeleteGatheringServiceTests(TestCase):
     def test_deletes_a_finalized_gathering(self):
         candidate_date = self.gathering.candidate_dates.first()
         services.confirm_candidate_date(self.user, self.gathering.id, candidate_date.id)
-        services.set_shortlisted_shops(self.user, self.gathering.id, [])
-        # SHORTLIST_MIN_SHOPS is 1 -- an empty list is rejected, so seed one
-        # via direct ORM construction instead of going through the public
-        # operation, mirroring this file's other ShortlistedShop fixtures.
-        pass
+        # SHORTLIST_MIN_SHOPS is 1 -- finalize_gathering requires at least one
+        # shortlisted shop, so seed one via direct ORM construction instead
+        # of going through the population-dependent public operation.
+        ShortlistedShop.objects.create(
+            gathering=self.gathering, shop_id="shop-1", added_at=timezone.now()
+        )
+        services.finalize_gathering(self.user, self.gathering.id, "shop-1")
+
+        services.delete_gathering(self.user, self.gathering.id)
+
+        self.assertFalse(Gathering.objects.filter(id=self.gathering.id).exists())
 
     def test_cascades_to_every_derived_record(self):
         candidate_date = self.gathering.candidate_dates.first()
@@ -391,7 +401,9 @@ class DeleteGatheringServiceTests(TestCase):
             expires_at=timezone.now() + timedelta(days=90),
         )
         ScheduleResponse.objects.create(
-            participant_link=link, candidate_date=candidate_date, status=ScheduleResponseStatus.GOING
+            participant_link=link,
+            candidate_date=candidate_date,
+            status=ScheduleResponseStatus.GOING,
         )
 
         services.delete_gathering(self.user, self.gathering.id)
@@ -415,7 +427,9 @@ class ConfirmCandidateDateServiceTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="svc-organizer-3")
         self.gathering = services.create_gathering(
-            self.user, "会", [timezone.now() + timedelta(days=1), timezone.now() + timedelta(days=2)]
+            self.user,
+            "会",
+            [timezone.now() + timedelta(days=1), timezone.now() + timedelta(days=2)],
         )
         self.candidate_dates = list(self.gathering.candidate_dates.all())
 
@@ -428,7 +442,9 @@ class ConfirmCandidateDateServiceTests(TestCase):
         self.assertEqual(gathering.confirmed_candidate_date_id, target.id)
 
     def test_rejects_a_candidate_date_from_a_different_gathering(self):
-        other_gathering = services.create_gathering(self.user, "別の会", [timezone.now() + timedelta(days=1)])
+        other_gathering = services.create_gathering(
+            self.user, "別の会", [timezone.now() + timedelta(days=1)]
+        )
         foreign_date = other_gathering.candidate_dates.first()
 
         with self.assertRaises(services.CandidateDateNotFoundError):
@@ -446,7 +462,9 @@ class CandidateDateTalliesServiceTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="svc-organizer-4")
         self.gathering = services.create_gathering(
-            self.user, "会", [timezone.now() + timedelta(days=1), timezone.now() + timedelta(days=2)]
+            self.user,
+            "会",
+            [timezone.now() + timedelta(days=1), timezone.now() + timedelta(days=2)],
         )
         self.low, self.high = self.gathering.candidate_dates.all()
 
@@ -568,7 +586,9 @@ class CandidateDateTalliesServiceTests(TestCase):
 class ResponseSummaryServiceTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="svc-organizer-5")
-        self.gathering = services.create_gathering(self.user, "会", [timezone.now() + timedelta(days=1)])
+        self.gathering = services.create_gathering(
+            self.user, "会", [timezone.now() + timedelta(days=1)]
+        )
         self.candidate_date = self.gathering.candidate_dates.first()
 
     def _link(self, display_name=None):
@@ -623,7 +643,9 @@ class ResponseSummaryServiceTests(TestCase):
 class ParticipantLinkLifecycleServiceTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="svc-organizer-6")
-        self.gathering = services.create_gathering(self.user, "会", [timezone.now() + timedelta(days=1)])
+        self.gathering = services.create_gathering(
+            self.user, "会", [timezone.now() + timedelta(days=1)]
+        )
         self.candidate_date = self.gathering.candidate_dates.first()
 
     def test_issue_participant_links_increments_lifetime_and_active_counts(self):
@@ -749,8 +771,9 @@ class ListGatheringsServiceTests(TestCase):
         # (bypassing auto_now_add, which only governs the initial INSERT)
         # rather than relying on real wall-clock spacing between calls.
         now = timezone.now()
-        first = services.create_gathering(self.user, "1つめ", [now])
-        second = services.create_gathering(self.user, "2つめ", [now])
+        future = now + timedelta(days=1)
+        first = services.create_gathering(self.user, "1つめ", [future])
+        second = services.create_gathering(self.user, "2つめ", [future])
         Gathering.objects.filter(pk=first.pk).update(created_at=now - timedelta(seconds=1))
         Gathering.objects.filter(pk=second.pk).update(created_at=now)
 
@@ -765,8 +788,9 @@ class ListGatheringsServiceTests(TestCase):
         repeated reads.
         """
         now = timezone.now()
-        first = services.create_gathering(self.user, "1つめ", [now])
-        second = services.create_gathering(self.user, "2つめ", [now])
+        future = now + timedelta(days=1)
+        first = services.create_gathering(self.user, "1つめ", [future])
+        second = services.create_gathering(self.user, "2つめ", [future])
         Gathering.objects.filter(pk__in=[first.pk, second.pk]).update(created_at=now)
         self.assertEqual(
             len({g.created_at for g in Gathering.objects.filter(pk__in=[first.pk, second.pk])}), 1
@@ -804,14 +828,18 @@ class CountInProgressGatheringsServiceTests(TestCase):
 
     def test_counts_scheduling_and_selecting_shop(self):
         services.create_gathering(self.user, "日程を聞き中", [timezone.now() + timedelta(days=1)])
-        selecting = services.create_gathering(self.user, "店を選び中", [timezone.now() + timedelta(days=1)])
+        selecting = services.create_gathering(
+            self.user, "店を選び中", [timezone.now() + timedelta(days=1)]
+        )
         selecting.phase = GatheringPhase.SELECTING_SHOP
         selecting.save(update_fields=["phase"])
 
         self.assertEqual(services.count_in_progress_gatherings(self.user), 2)
 
     def test_excludes_finalized(self):
-        gathering = services.create_gathering(self.user, "確定", [timezone.now() + timedelta(days=1)])
+        gathering = services.create_gathering(
+            self.user, "確定", [timezone.now() + timedelta(days=1)]
+        )
         gathering.phase = GatheringPhase.FINALIZED
         gathering.save(update_fields=["phase"])
 
@@ -829,7 +857,9 @@ class CountInProgressGatheringsServiceTests(TestCase):
 class ParticipantAccessServiceTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="svc-organizer-7")
-        self.gathering = services.create_gathering(self.user, "会", [timezone.now() + timedelta(days=1)])
+        self.gathering = services.create_gathering(
+            self.user, "会", [timezone.now() + timedelta(days=1)]
+        )
         self.candidate_date = self.gathering.candidate_dates.first()
         _gathering, links = services.issue_participant_links(self.user, self.gathering.id, 1)
         self.link = links[0]
@@ -1116,7 +1146,9 @@ class GatheringSelectingShopServiceTestCase(TestCase):
 
 class ShopLookupForGatheringServiceTests(GatheringSelectingShopServiceTestCase):
     def test_empty_before_a_candidate_date_is_confirmed(self):
-        scheduling_gathering = services.create_gathering(self.user, "別の会", [timezone.now() + timedelta(days=1)])
+        scheduling_gathering = services.create_gathering(
+            self.user, "別の会", [timezone.now() + timedelta(days=1)]
+        )
 
         self.assertEqual(services.shop_lookup_for_gathering(scheduling_gathering), {})
 
@@ -1128,7 +1160,9 @@ class ShopLookupForGatheringServiceTests(GatheringSelectingShopServiceTestCase):
 
 class SetShortlistedShopsServiceTests(GatheringSelectingShopServiceTestCase):
     def test_rejected_while_still_scheduling(self):
-        scheduling_gathering = services.create_gathering(self.user, "別の会", [timezone.now() + timedelta(days=1)])
+        scheduling_gathering = services.create_gathering(
+            self.user, "別の会", [timezone.now() + timedelta(days=1)]
+        )
 
         with self.assertRaises(services.GatheringNotInSelectingShopPhaseError):
             services.set_shortlisted_shops(
@@ -1271,7 +1305,9 @@ class SetShortlistedShopsServiceTests(GatheringSelectingShopServiceTestCase):
 
 class FinalizeGatheringServiceTests(GatheringSelectingShopServiceTestCase):
     def test_rejected_while_still_scheduling(self):
-        scheduling_gathering = services.create_gathering(self.user, "別の会", [timezone.now() + timedelta(days=1)])
+        scheduling_gathering = services.create_gathering(
+            self.user, "別の会", [timezone.now() + timedelta(days=1)]
+        )
 
         with self.assertRaises(services.GatheringNotInSelectingShopPhaseError):
             services.finalize_gathering(self.user, scheduling_gathering.id, self.open_shop_ids[0])
@@ -1791,8 +1827,8 @@ class CreateGatheringApiTests(GatheringOrganizerTestCase):
         payload = self.create_gathering_via_api(
             title="第7回 社内ランチ会",
             candidate_dates=[
-                {"startAt": "2026-09-02T12:00:00+09:00"},
-                {"startAt": "2026-09-03T12:30:00+09:00"},
+                {"startAt": _days_from_now_iso(2)},
+                {"startAt": _days_from_now_iso(3, minute=30)},
             ],
         )
 
@@ -1892,15 +1928,23 @@ class CreateGatheringApiTests(GatheringOrganizerTestCase):
         self.assertLessEqual(before, created_at)
         self.assertLessEqual(created_at, after)
 
+    def test_a_candidate_date_that_is_today_is_rejected(self):
+        """adr/0049 decision 3: today (the server's current calendar day) is rejected."""
+        response = self.post_json(
+            reverse("gathering:gatherings"),
+            {"title": "会", "candidateDates": [{"startAt": timezone.now().isoformat()}]},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "CANDIDATE_DATE_NOT_IN_FUTURE")
+
     def test_duplicate_candidate_dates_within_the_same_request_are_rejected(self):
+        duplicated = _days_from_now_iso(2)
         response = self.post_json(
             reverse("gathering:gatherings"),
             {
                 "title": "会",
-                "candidateDates": [
-                    {"startAt": "2026-09-02T12:00:00+09:00"},
-                    {"startAt": "2026-09-02T12:00:00+09:00"},
-                ],
+                "candidateDates": [{"startAt": duplicated}, {"startAt": duplicated}],
             },
         )
 
@@ -1909,32 +1953,31 @@ class CreateGatheringApiTests(GatheringOrganizerTestCase):
 
     def test_duplicate_candidate_dates_reject_before_creating_a_partial_gathering(self):
         before_count = Gathering.objects.count()
+        duplicated = _days_from_now_iso(2)
 
         self.post_json(
             reverse("gathering:gatherings"),
             {
                 "title": "会",
-                "candidateDates": [
-                    {"startAt": "2026-09-02T12:00:00+09:00"},
-                    {"startAt": "2026-09-02T12:00:00+09:00"},
-                ],
+                "candidateDates": [{"startAt": duplicated}, {"startAt": duplicated}],
             },
         )
 
         self.assertEqual(Gathering.objects.count(), before_count)
 
     def test_same_instant_different_offset_representation_is_still_a_duplicate(self):
-        # 2026-09-02T12:00:00+09:00 and 2026-09-02T03:00:00Z name the exact
-        # same instant -- aware-datetime equality (and therefore this
+        # The same instant expressed once as +09:00, once as Z (03:00 UTC ==
+        # 12:00 JST) -- aware-datetime equality (and therefore this
         # duplicate check) normalizes across the offset, matching startAt's
         # own "exact same date-time" wording (adr/0038).
+        date_part = _days_from_now_iso(2).split("T")[0]
         response = self.post_json(
             reverse("gathering:gatherings"),
             {
                 "title": "会",
                 "candidateDates": [
-                    {"startAt": "2026-09-02T12:00:00+09:00"},
-                    {"startAt": "2026-09-02T03:00:00Z"},
+                    {"startAt": f"{date_part}T12:00:00+09:00"},
+                    {"startAt": f"{date_part}T03:00:00Z"},
                 ],
             },
         )
@@ -1982,6 +2025,72 @@ class GetGatheringApiTests(GatheringOrganizerTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["title"], "別の会")
+
+
+class DeleteGatheringApiTests(GatheringOrganizerTestCase):
+    """``DELETE /gatherings/{gatheringId}``: ``deleteGathering`` (adr/0050 decision 4)."""
+
+    def delete(self, gathering_id, *, client=None) -> object:
+        return (client or self.client).delete(
+            reverse("gathering:gathering-detail", kwargs={"gathering_id": gathering_id}),
+            HTTP_X_CSRFTOKEN=self.csrf_token,
+        )
+
+    def test_deletes_the_gathering(self):
+        payload = self.create_gathering_via_api()
+
+        response = self.delete(payload["id"])
+
+        self.assertEqual(response.status_code, 204)
+        get_response = self.client.get(
+            reverse("gathering:gathering-detail", kwargs={"gathering_id": payload["id"]})
+        )
+        self.assertEqual(get_response.status_code, 404)
+
+    def test_unauthenticated_request_is_a_safe_401(self):
+        payload = self.create_gathering_via_api()
+
+        response = self.delete(payload["id"], client=Client(enforce_csrf_checks=True))
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_missing_csrf_is_a_safe_400(self):
+        payload = self.create_gathering_via_api()
+
+        response = self.client.delete(
+            reverse("gathering:gathering-detail", kwargs={"gathering_id": payload["id"]})
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "REQUEST_REJECTED")
+
+    def test_unknown_gathering_is_a_safe_404(self):
+        response = self.delete(uuid.uuid4())
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["code"], "GATHERING_NOT_FOUND")
+
+    def test_another_organizers_gathering_is_a_safe_404(self):
+        payload = self.create_gathering_via_api()
+        other_client = Client()
+        other_client.force_login(self.other_user)
+
+        response = other_client.delete(
+            reverse("gathering:gathering-detail", kwargs={"gathering_id": payload["id"]})
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_deletable_regardless_of_phase(self):
+        """adr/0050 decision 4: accepted for any of the 3 phases, including FINALIZED."""
+        payload = self.create_gathering_via_api()
+        gathering = Gathering.objects.get(id=payload["id"])
+        gathering.phase = GatheringPhase.FINALIZED
+        gathering.save(update_fields=["phase"])
+
+        response = self.delete(payload["id"])
+
+        self.assertEqual(response.status_code, 204)
 
 
 class ListGatheringsApiTests(GatheringOrganizerTestCase):
@@ -2086,46 +2195,68 @@ class InProgressGatheringCountApiTests(GatheringOrganizerTestCase):
         self.assertEqual(response.json(), {"inProgressGatheringCount": 0})
 
 
-class AddCandidateDateApiTests(GatheringOrganizerTestCase):
+class AddCandidateDatesApiTests(GatheringOrganizerTestCase):
+    """``addCandidateDates`` (adr/0049 decision 3): batch, replacing the retired singular
+    ``addCandidateDate``. URL name is unchanged (``gathering:candidate-dates``); the
+    request body now always carries a ``candidateDates`` array."""
+
     def test_adds_a_candidate_date(self):
         payload = self.create_gathering_via_api(
-            candidate_dates=[{"startAt": "2026-09-01T00:00:00Z"}]
+            candidate_dates=[{"startAt": _days_from_now_iso(2)}]
         )
 
         response = self.post_json(
             reverse("gathering:candidate-dates", kwargs={"gathering_id": payload["id"]}),
-            {"startAt": "2026-09-05T00:00:00Z"},
+            {"candidateDates": [{"startAt": _days_from_now_iso(5)}]},
         )
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(len(response.json()["candidateDates"]), 2)
 
-    def test_a_utc_offset_start_at_round_trips_through_the_same_instant(self):
-        # Same coordinator-reported concern as
-        # CreateGatheringApiTests.test_a_utc_offset_start_at_round_trips_
-        # through_the_same_instant, pinned against addCandidateDate too
-        # (a distinct code path -- services.add_candidate_date, not
-        # services.create_gathering).
+    def test_adds_every_date_in_a_batch_of_more_than_one(self):
         payload = self.create_gathering_via_api(
-            candidate_dates=[{"startAt": "2026-01-01T00:00:00Z"}]
+            candidate_dates=[{"startAt": _days_from_now_iso(2)}]
         )
 
         response = self.post_json(
             reverse("gathering:candidate-dates", kwargs={"gathering_id": payload["id"]}),
-            {"startAt": "2026-09-22T12:00:00+00:00"},
+            {
+                "candidateDates": [
+                    {"startAt": _days_from_now_iso(5)},
+                    {"startAt": _days_from_now_iso(6)},
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(len(response.json()["candidateDates"]), 3)
+
+    def test_a_utc_offset_start_at_round_trips_through_the_same_instant(self):
+        # Same coordinator-reported concern as
+        # CreateGatheringApiTests.test_a_utc_offset_start_at_round_trips_
+        # through_the_same_instant, pinned against addCandidateDates too
+        # (a distinct code path -- services.add_candidate_dates, not
+        # services.create_gathering).
+        payload = self.create_gathering_via_api(
+            candidate_dates=[{"startAt": _days_from_now_iso(2)}]
+        )
+
+        response = self.post_json(
+            reverse("gathering:candidate-dates", kwargs={"gathering_id": payload["id"]}),
+            {"candidateDates": [{"startAt": "2026-09-22T12:00:00+00:00"}]},
         )
 
         self.assertEqual(response.status_code, 201)
         added = next(
             cd
             for cd in response.json()["candidateDates"]
-            if cd["startAt"] != "2026-01-01T00:00:00+00:00"
+            if cd["startAt"] == "2026-09-22T12:00:00+00:00"
         )
         self.assertEqual(added["startAt"], "2026-09-22T12:00:00+00:00")
 
     def test_rejected_after_confirming_a_date(self):
         payload = self.create_gathering_via_api(
-            candidate_dates=[{"startAt": "2026-09-01T00:00:00Z"}]
+            candidate_dates=[{"startAt": _days_from_now_iso(2)}]
         )
         gathering_id = payload["id"]
         candidate_date_id = payload["candidateDates"][0]["id"]
@@ -2136,7 +2267,7 @@ class AddCandidateDateApiTests(GatheringOrganizerTestCase):
 
         response = self.post_json(
             reverse("gathering:candidate-dates", kwargs={"gathering_id": gathering_id}),
-            {"startAt": "2026-09-06T00:00:00Z"},
+            {"candidateDates": [{"startAt": _days_from_now_iso(6)}]},
         )
 
         self.assertEqual(response.status_code, 409)
@@ -2147,32 +2278,81 @@ class AddCandidateDateApiTests(GatheringOrganizerTestCase):
 
         response = self.post_json(
             reverse("gathering:candidate-dates", kwargs={"gathering_id": payload["id"]}),
-            {"startAt": "not-a-date"},
+            {"candidateDates": [{"startAt": "not-a-date"}]},
         )
 
         self.assertEqual(response.status_code, 400)
 
-    def test_duplicate_candidate_date_is_rejected(self):
-        payload = self.create_gathering_via_api(
-            candidate_dates=[{"startAt": "2026-09-05T00:00:00Z"}]
-        )
+    def test_empty_candidate_dates_array_is_rejected(self):
+        payload = self.create_gathering_via_api()
 
         response = self.post_json(
             reverse("gathering:candidate-dates", kwargs={"gathering_id": payload["id"]}),
-            {"startAt": "2026-09-05T00:00:00Z"},
+            {"candidateDates": []},
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_a_candidate_date_that_is_today_is_rejected(self):
+        """adr/0049 decision 3: today (the server's current calendar day) is rejected."""
+        payload = self.create_gathering_via_api()
+
+        response = self.post_json(
+            reverse("gathering:candidate-dates", kwargs={"gathering_id": payload["id"]}),
+            {"candidateDates": [{"startAt": timezone.now().isoformat()}]},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "CANDIDATE_DATE_NOT_IN_FUTURE")
+
+    def test_duplicate_candidate_date_is_rejected(self):
+        shared = _days_from_now_iso(5)
+        payload = self.create_gathering_via_api(candidate_dates=[{"startAt": shared}])
+
+        response = self.post_json(
+            reverse("gathering:candidate-dates", kwargs={"gathering_id": payload["id"]}),
+            {"candidateDates": [{"startAt": shared}]},
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["code"], "DUPLICATE_CANDIDATE_DATE")
+
+    def test_a_duplicate_within_the_batch_itself_is_rejected(self):
+        payload = self.create_gathering_via_api(
+            candidate_dates=[{"startAt": _days_from_now_iso(2)}]
+        )
+        duplicated = _days_from_now_iso(5)
+
+        response = self.post_json(
+            reverse("gathering:candidate-dates", kwargs={"gathering_id": payload["id"]}),
+            {"candidateDates": [{"startAt": duplicated}, {"startAt": duplicated}]},
         )
 
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()["code"], "DUPLICATE_CANDIDATE_DATE")
 
     def test_duplicate_candidate_date_does_not_change_the_existing_candidate_dates(self):
-        payload = self.create_gathering_via_api(
-            candidate_dates=[{"startAt": "2026-09-05T00:00:00Z"}]
-        )
+        shared = _days_from_now_iso(5)
+        payload = self.create_gathering_via_api(candidate_dates=[{"startAt": shared}])
 
         self.post_json(
             reverse("gathering:candidate-dates", kwargs={"gathering_id": payload["id"]}),
-            {"startAt": "2026-09-05T00:00:00Z"},
+            {"candidateDates": [{"startAt": shared}]},
+        )
+
+        response = self.client.get(
+            reverse("gathering:gathering-detail", kwargs={"gathering_id": payload["id"]})
+        )
+        self.assertEqual(len(response.json()["candidateDates"]), 1)
+
+    def test_a_batch_that_partly_duplicates_creates_none_of_the_new_dates(self):
+        """adr/0049 decision 3: whole-batch rejection, no partial success."""
+        shared = _days_from_now_iso(5)
+        payload = self.create_gathering_via_api(candidate_dates=[{"startAt": shared}])
+
+        self.post_json(
+            reverse("gathering:candidate-dates", kwargs={"gathering_id": payload["id"]}),
+            {"candidateDates": [{"startAt": _days_from_now_iso(6)}, {"startAt": shared}]},
         )
 
         response = self.client.get(
@@ -2181,13 +2361,14 @@ class AddCandidateDateApiTests(GatheringOrganizerTestCase):
         self.assertEqual(len(response.json()["candidateDates"]), 1)
 
     def test_duplicate_candidate_date_with_a_different_offset_is_still_rejected(self):
+        date_part = _days_from_now_iso(5).split("T")[0]
         payload = self.create_gathering_via_api(
-            candidate_dates=[{"startAt": "2026-09-05T09:00:00+09:00"}]
+            candidate_dates=[{"startAt": f"{date_part}T09:00:00+09:00"}]
         )
 
         response = self.post_json(
             reverse("gathering:candidate-dates", kwargs={"gathering_id": payload["id"]}),
-            {"startAt": "2026-09-05T00:00:00Z"},
+            {"candidateDates": [{"startAt": f"{date_part}T00:00:00Z"}]},
         )
 
         self.assertEqual(response.status_code, 409)
@@ -2260,17 +2441,17 @@ class OpenShopPreviewApiTests(GatheringOrganizerTestCase):
         body = response.json()
         self.assertEqual(body["candidateDateId"], candidate_date_id)
         self.assertEqual(body["openShopCount"], 5)
-        self.assertLessEqual(len(body["previewShops"]), 10)
 
         get_gathering = self.client.get(
             reverse("gathering:gathering-detail", kwargs={"gathering_id": payload["id"]})
         )
         self.assertEqual(get_gathering.json()["phase"], "SCHEDULING")
 
-    def test_preview_shop_item_has_exactly_the_contract_shape(self):
-        payload = self.create_gathering_via_api(
-            candidate_dates=[{"startAt": _next_weekday_iso(0)}]
-        )
+    def test_response_has_exactly_the_contract_shape(self):
+        """adr/0049 decision 2: count-only -- ``previewShops``/``OpenShopPreviewItem`` were
+        retired 2026-09-09 (shop selection moved to candidate-search-api.yaml's gathering
+        mode)."""
+        payload = self.create_gathering_via_api(candidate_dates=[{"startAt": _next_weekday_iso(0)}])
         acceptance_state.set_mode(
             acceptance_state.AcceptanceCandidateProposalMode.GATHERING_OPEN_SHOP_WEEKDAY_MATCH
         )
@@ -2283,23 +2464,7 @@ class OpenShopPreviewApiTests(GatheringOrganizerTestCase):
             )
         )
 
-        item = response.json()["previewShops"][0]
-        self.assertEqual(
-            set(item),
-            {
-                "shopId",
-                "name",
-                "genre",
-                "capacityTier",
-                "nonSmokingStatus",
-                "dinnerBudgetTier",
-                "location",
-                "walkingTimeMinutes",
-                "providerPageUrl",
-            },
-        )
-        self.assertTrue(item["shopId"])
-        self.assertEqual(set(item["location"]), {"latitude", "longitude"})
+        self.assertEqual(set(response.json()), {"candidateDateId", "openShopCount"})
 
 
 # --- JSON API: shop shortlisting, approval voting, finalization (adr/0040) --
@@ -2323,16 +2488,17 @@ class GatheringSelectingShopApiTestCase(GatheringOrganizerTestCase):
             {"candidateDateId": self.candidate_date_id},
         )
         assert confirm_response.status_code == 200, confirm_response.content
-        preview = self.client.get(
-            reverse(
-                "gathering:open-shop-preview",
-                kwargs={
-                    "gathering_id": self.gathering_id,
-                    "candidate_date_id": self.candidate_date_id,
-                },
-            )
-        ).json()
-        self.open_shop_ids = [item["shopId"] for item in preview["previewShops"]]
+        # adr/0049 decision 1: shop selection moved to candidate-search-
+        # api.yaml's gathering mode -- the open shop ids this fixture needs
+        # now come from POST /candidate-proposals with gatheringId, not from
+        # the (now count-only) open-shop preview.
+        proposal_response = self.post_json(
+            reverse("web:candidate-proposals"), {"gatheringId": self.gathering_id}
+        )
+        assert proposal_response.status_code == 200, proposal_response.content
+        self.open_shop_ids = [
+            candidate["shopId"] for candidate in proposal_response.json()["candidates"]
+        ]
         assert len(self.open_shop_ids) == 5
 
     def issue_token(self) -> str:
@@ -2630,7 +2796,9 @@ class SetShopVotesApiTests(GatheringSelectingShopApiTestCase):
         options = {o["shopId"]: o for o in response.json()["shopVoteQuestions"]}
         self.assertEqual(options[self.open_shop_ids[0]]["yourVote"], "WANT_TO_GO")
         self.assertIsNone(options[self.open_shop_ids[1]]["yourVote"])
-        self.assertIsNone(options[self.open_shop_ids[1]]["tally"])
+        # adr/0050 decision 2 (reversed visibility): tally is always present,
+        # regardless of whether this participant has voted on this shop.
+        self.assertIsNotNone(options[self.open_shop_ids[1]]["tally"])
 
     def test_shop_vote_question_has_exactly_the_contract_shape(self):
         self.put_shortlisted_shops([self.open_shop_ids[0]])
@@ -2661,7 +2829,9 @@ class SetShopVotesApiTests(GatheringSelectingShopApiTestCase):
             {"wantToGoCount", "okToGoCount", "notGoingCount", "respondedParticipantCount"},
         )
 
-    def test_tally_is_null_before_this_participant_answers(self):
+    def test_tally_is_visible_before_this_participant_answers(self):
+        """adr/0050 decision 2 (reversed visibility): other participants' tallies are visible
+        whether or not this participant has voted on this shop yet."""
         self.put_shortlisted_shops([self.open_shop_ids[0]])
         token = self.issue_token()
 
@@ -2669,7 +2839,15 @@ class SetShopVotesApiTests(GatheringSelectingShopApiTestCase):
 
         question = response.json()["shopVoteQuestions"][0]
         self.assertIsNone(question["yourVote"])
-        self.assertIsNone(question["tally"])
+        self.assertEqual(
+            question["tally"],
+            {
+                "wantToGoCount": 0,
+                "okToGoCount": 0,
+                "notGoingCount": 0,
+                "respondedParticipantCount": 0,
+            },
+        )
 
     def test_null_shop_vote_questions_before_voting_started(self):
         token = self.issue_token()
@@ -2678,7 +2856,9 @@ class SetShopVotesApiTests(GatheringSelectingShopApiTestCase):
 
         self.assertIsNone(response.json()["shopVoteQuestions"])
 
-    def test_answering_after_others_reveals_their_votes(self):
+    def test_tally_is_visible_before_answering_and_updates_afterward(self):
+        """adr/0050 decision 2: this participant sees another's vote in the tally before
+        answering, and their own answer updates the same tally afterward."""
         self.put_shortlisted_shops([self.open_shop_ids[0]])
         first = self.issue_token()
         second = self.issue_token()
@@ -2687,7 +2867,7 @@ class SetShopVotesApiTests(GatheringSelectingShopApiTestCase):
         before = (
             Client().get(reverse("gathering:participant-view", kwargs={"token": second})).json()
         )
-        self.assertIsNone(before["shopVoteQuestions"][0]["tally"])
+        self.assertEqual(before["shopVoteQuestions"][0]["tally"]["respondedParticipantCount"], 1)
 
         self.put_shop_votes(second, [(self.open_shop_ids[0], "NOT_GOING")])
         after = Client().get(reverse("gathering:participant-view", kwargs={"token": second})).json()
@@ -2843,6 +3023,8 @@ class FinalizedParticipantViewApiTests(GatheringSelectingShopApiTestCase):
         self.assertEqual(body["decision"]["shop"]["shopId"], self.open_shop_ids[0])
 
     def test_decision_has_exactly_the_contract_shape(self):
+        """adr/0050 decision 3: ``yourShopVotes`` was retired 2026-09-09 -- ``decision``
+        carries only this participant's own schedule response (plus the decided shop)."""
         self.put_shortlisted_shops([self.open_shop_ids[0]])
         token = self.issue_token()
         self.post_finalize(self.open_shop_ids[0])
@@ -2852,7 +3034,7 @@ class FinalizedParticipantViewApiTests(GatheringSelectingShopApiTestCase):
         decision = response.json()["decision"]
         self.assertEqual(
             set(decision),
-            {"confirmedCandidateDate", "shop", "yourScheduleResponse", "yourShopVotes"},
+            {"confirmedCandidateDate", "shop", "yourScheduleResponse"},
         )
         self.assertEqual(
             set(decision["shop"]),
@@ -2868,7 +3050,6 @@ class FinalizedParticipantViewApiTests(GatheringSelectingShopApiTestCase):
                 "providerPageUrl",
             },
         )
-        self.assertEqual(set(decision["yourShopVotes"][0]), {"shop", "status"})
 
     def test_decision_includes_this_participants_own_schedule_response(self):
         token = self.issue_token()
@@ -2887,7 +3068,10 @@ class FinalizedParticipantViewApiTests(GatheringSelectingShopApiTestCase):
 
         self.assertEqual(response.json()["decision"]["yourScheduleResponse"], "GOING")
 
-    def test_decision_includes_only_this_participants_own_shop_votes(self):
+    def test_shop_vote_questions_remain_visible_after_finalization(self):
+        """adr/0050 decision 3: per-shop retrospective (``yourShopVotes``) was retired --
+        a participant can still see every shop's live tally/own vote via
+        ``shopVoteQuestions``, which is unaffected by finalization (adr/0050 decision 2)."""
         self.put_shortlisted_shops(self.open_shop_ids[0:2])
         wants_both = self.issue_token()
         answers_none = self.issue_token()
@@ -2909,50 +3093,17 @@ class FinalizedParticipantViewApiTests(GatheringSelectingShopApiTestCase):
             .json()
         )
 
-        both_votes = {
-            v["shop"]["shopId"]: v["status"] for v in both_view["decision"]["yourShopVotes"]
-        }
+        both_votes = {o["shopId"]: o["yourVote"] for o in both_view["shopVoteQuestions"]}
         self.assertEqual(both_votes[self.open_shop_ids[0]], "WANT_TO_GO")
         self.assertEqual(both_votes[self.open_shop_ids[1]], "OK_TO_GO")
-        # answers_none never voted on either shop, and never sees wants_both's
-        # votes reflected in their own decision -- each participant's
-        # yourShopVotes is derived solely from their own recorded votes
-        # (adr/0041 decision 3), and every shop they never voted on is
-        # still listed, with a null status (adr/0046, 2026-09-05).
-        none_votes = {
-            v["shop"]["shopId"]: v["status"] for v in none_view["decision"]["yourShopVotes"]
-        }
+        # answers_none never voted on either shop, but still sees wants_both's
+        # votes reflected in the tally (adr/0050 decision 2, reversed
+        # visibility) -- their own yourVote stays null throughout.
+        none_votes = {o["shopId"]: o["yourVote"] for o in none_view["shopVoteQuestions"]}
         self.assertEqual(none_votes, {shop_id: None for shop_id in self.open_shop_ids[0:2]})
-        # LiveProjectedShop carries no aggregate/other-participant field at all.
-        self.assertEqual(
-            set(both_view["decision"]["yourShopVotes"][0]["shop"]),
-            {
-                "shopId",
-                "name",
-                "genre",
-                "capacityTier",
-                "nonSmokingStatus",
-                "dinnerBudgetTier",
-                "location",
-                "walkingTimeMinutes",
-                "providerPageUrl",
-            },
-        )
-
-    def test_a_shop_this_participant_never_answered_is_included_with_a_null_status(self):
-        # adr/0046 open item 3 (2026-09-05 human chat decision): a
-        # never-answered shop appears in yourShopVotes with status: null
-        # ("答えないまま締まりました"), rather than being omitted entirely.
-        self.put_shortlisted_shops([self.open_shop_ids[0]])
-        token = self.issue_token()
-        self.post_finalize(self.open_shop_ids[0])
-
-        response = Client().get(reverse("gathering:participant-view", kwargs={"token": token}))
-
-        votes = response.json()["decision"]["yourShopVotes"]
-        self.assertEqual(len(votes), 1)
-        self.assertEqual(votes[0]["shop"]["shopId"], self.open_shop_ids[0])
-        self.assertIsNone(votes[0]["status"])
+        none_tallies = {o["shopId"]: o["tally"] for o in none_view["shopVoteQuestions"]}
+        self.assertEqual(none_tallies[self.open_shop_ids[0]]["wantToGoCount"], 1)
+        self.assertEqual(none_tallies[self.open_shop_ids[1]]["okToGoCount"], 1)
 
     def test_finalized_link_rejects_new_schedule_responses_and_shop_votes(self):
         token = self.issue_token()
@@ -3215,7 +3366,8 @@ class ParticipantViewApiTests(GatheringOrganizerTestCase):
         self.assertIsNone(body["decision"])
         question = body["scheduleQuestions"][0]
         self.assertEqual(
-            set(question), {"candidateDateId", "startAt", "openShopCount", "yourResponse"}
+            set(question),
+            {"candidateDateId", "startAt", "openShopCount", "yourResponse", "tally"},
         )
 
     def test_expired_link_is_a_safe_410_link_expired(self):
@@ -3316,13 +3468,16 @@ class ParticipantViewApiTests(GatheringOrganizerTestCase):
         self.assertEqual(question["yourResponse"], "GOING")
         self.assertIn("tally", question)
 
-    def test_tally_is_absent_before_answering(self):
+    def test_tally_is_visible_before_answering(self):
+        """adr/0050 decision 2 (reversed visibility): other participants' schedule
+        tallies are visible whether or not this participant has answered yet."""
         response = self.participant_client.get(
             reverse("gathering:participant-view", kwargs={"token": self.token})
         )
 
         question = response.json()["scheduleQuestions"][0]
-        self.assertNotIn("tally", question)
+        self.assertIn("tally", question)
+        self.assertIsNotNone(question["tally"])
         self.assertIsNone(question["yourResponse"])
 
     def test_schedule_response_can_be_changed(self):
@@ -3630,7 +3785,7 @@ class OrganizerEndpointGuardTests(GatheringOrganizerTestCase):
     def test_add_candidate_date_unauthenticated_is_a_safe_401(self):
         response = Client().post(
             reverse("gathering:candidate-dates", kwargs={"gathering_id": self.gathering_id}),
-            data=json.dumps({"startAt": "2026-09-01T00:00:00Z"}),
+            data=json.dumps({"candidateDates": [{"startAt": _days_from_now_iso(2)}]}),
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 401)
@@ -3638,7 +3793,7 @@ class OrganizerEndpointGuardTests(GatheringOrganizerTestCase):
     def test_add_candidate_date_missing_csrf_is_a_safe_400(self):
         response = self.client.post(
             reverse("gathering:candidate-dates", kwargs={"gathering_id": self.gathering_id}),
-            data=json.dumps({"startAt": "2026-09-01T00:00:00Z"}),
+            data=json.dumps({"candidateDates": [{"startAt": _days_from_now_iso(2)}]}),
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 400)
@@ -3646,14 +3801,14 @@ class OrganizerEndpointGuardTests(GatheringOrganizerTestCase):
     def test_add_candidate_date_unknown_gathering_is_a_safe_404(self):
         response = self.post_json(
             reverse("gathering:candidate-dates", kwargs={"gathering_id": uuid.uuid4()}),
-            {"startAt": "2026-09-01T00:00:00Z"},
+            {"candidateDates": [{"startAt": _days_from_now_iso(2)}]},
         )
         self.assertEqual(response.status_code, 404)
 
     def test_add_candidate_date_extra_key_is_rejected(self):
         response = self.post_json(
             reverse("gathering:candidate-dates", kwargs={"gathering_id": self.gathering_id}),
-            {"startAt": "2026-09-01T00:00:00Z", "extra": True},
+            {"candidateDates": [{"startAt": _days_from_now_iso(2)}], "extra": True},
         )
         self.assertEqual(response.status_code, 400)
 

@@ -1,11 +1,16 @@
 import json
 import re
+import uuid
+from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
+from dining_radar.gathering import services as gathering_services
+from dining_radar.gathering.models import GatheringPhase
 from dining_radar.suggestions import acceptance_state
 
 
@@ -411,6 +416,7 @@ class CandidateProposalsApiTests(TestCase):
                 },
                 "searchOrigin": {"latitude": 0.0, "longitude": 0.0},
                 "shownPoolExhausted": False,
+                "gatheringContext": None,
             },
         )
 
@@ -643,6 +649,100 @@ class CandidateProposalsApiTests(TestCase):
         self.assertNotIn("shownProviderPageUrls", response.json())
 
 
+class GatheringModeCandidateProposalsApiTests(TestCase):
+    """``CandidateProposalRequest.gatheringId`` (adr/0049 decision 1): gathering mode."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(acceptance_state.reset_mode)
+        acceptance_state.reset_mode()
+        self.password = "Synthetic-passphrase-123!"
+        self.user = get_user_model().objects.create_user(
+            username="gathering-mode-organizer", password=self.password
+        )
+        self.other_user = get_user_model().objects.create_user(
+            username="gathering-mode-other-organizer", password=self.password
+        )
+        self.client = Client(enforce_csrf_checks=True)
+        self.client.force_login(self.user)
+        page = self.client.get(reverse("web:home"))
+        self.csrf_token = csrf_token_from(page)
+
+    def post_proposal(self, body: dict | None = None):
+        return self.client.post(
+            reverse("web:candidate-proposals"),
+            data=json.dumps(body if body is not None else {}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=self.csrf_token,
+        )
+
+    def _selecting_shop_gathering(self, organizer=None):
+        organizer = organizer or self.user
+        gathering = gathering_services.create_gathering(
+            organizer, "会", [timezone.now() + timedelta(days=1)]
+        )
+        candidate_date = gathering.candidate_dates.first()
+        return gathering_services.confirm_candidate_date(organizer, gathering.id, candidate_date.id)
+
+    def test_unknown_gathering_id_is_a_safe_404(self):
+        response = self.post_proposal({"gatheringId": str(uuid.uuid4())})
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["code"], "GATHERING_NOT_FOUND")
+
+    def test_another_organizers_gathering_is_a_safe_404(self):
+        gathering = self._selecting_shop_gathering(self.other_user)
+
+        response = self.post_proposal({"gatheringId": str(gathering.id)})
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["code"], "GATHERING_NOT_FOUND")
+
+    def test_still_scheduling_is_a_safe_409(self):
+        gathering = gathering_services.create_gathering(
+            self.user, "会", [timezone.now() + timedelta(days=1)]
+        )
+
+        response = self.post_proposal({"gatheringId": str(gathering.id)})
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["code"], "GATHERING_NOT_IN_SELECTING_SHOP_PHASE")
+
+    def test_finalized_is_a_safe_409(self):
+        gathering = self._selecting_shop_gathering()
+        gathering.phase = GatheringPhase.FINALIZED
+        gathering.save(update_fields=["phase"])
+
+        response = self.post_proposal({"gatheringId": str(gathering.id)})
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["code"], "GATHERING_FINALIZED")
+
+    def test_real_provider_path_returns_503_when_unconfigured(self):
+        # adr/0049 decision 1: gathering mode reuses resolve_population_
+        # source's own real-provider fallback outside the acceptance
+        # profile's active mode (no acceptance_state.set_mode call here).
+        gathering = self._selecting_shop_gathering()
+
+        response = self.post_proposal({"gatheringId": str(gathering.id)})
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["code"], "PROVIDER_UNAVAILABLE")
+
+    @override_settings(PROPOSAL_RATE_LIMIT_MAX_REQUESTS=1, PROPOSAL_RATE_LIMIT_WINDOW_SECONDS=45)
+    def test_real_provider_path_rate_limits_after_the_first_request(self):
+        gathering = self._selecting_shop_gathering()
+
+        first = self.post_proposal({"gatheringId": str(gathering.id)})
+        self.assertEqual(first.status_code, 503)  # counted, though the provider is unconfigured
+
+        second = self.post_proposal({"gatheringId": str(gathering.id)})
+
+        self.assertEqual(second.status_code, 429)
+        self.assertEqual(second.json()["code"], "PROPOSAL_RATE_LIMITED")
+        self.assertEqual(second["Retry-After"], "45")
+
+
 class CandidateResponseSchemaTests(TestCase):
     """Structural checks on the serialized candidate shape."""
 
@@ -692,12 +792,18 @@ class CandidateResponseSchemaTests(TestCase):
                     "location",
                     "providerPageUrl",
                     "walkingTimeMinutes",
+                    "shopId",
+                    "isShortlisted",
                 },
             )
             self.assertEqual(set(candidate["location"]), {"latitude", "longitude"})
             self.assertIsInstance(candidate["location"]["latitude"], (int, float))
             self.assertIsInstance(candidate["location"]["longitude"], (int, float))
             self.assertIsInstance(candidate["walkingTimeMinutes"], int)
+            # adr/0049 decision 1: null outside gathering mode (no gatheringId
+            # was sent on this request).
+            self.assertIsNone(candidate["shopId"])
+            self.assertIsNone(candidate["isShortlisted"])
 
         self.assertEqual(
             set(payload),
@@ -709,5 +815,7 @@ class CandidateResponseSchemaTests(TestCase):
                 "providerCredit",
                 "searchOrigin",
                 "shownPoolExhausted",
+                "gatheringContext",
             },
         )
+        self.assertIsNone(payload["gatheringContext"])
