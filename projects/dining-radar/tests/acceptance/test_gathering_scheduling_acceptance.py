@@ -314,26 +314,31 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.participant_answers_the_candidate_date(candidate_date_id, "MAYBE")
         self.steps.schedule_question_tally_is(candidate_date_id, going=1, maybe=1, not_going=0)
 
-    def test_zzz_TEMP_defect_injection_tally_must_be_present_before_self_answers(self) -> None:
-        """TEMPORARY defect-injection probe (meta/adr/0065) -- not committed.
-        Proves schedule_question_tally_is (TDR-GTH-12's own rewritten Must:
-        the tally is unconditionally present, adr/0050 decision 2) actually
-        fails when that property is broken, by removing the rendered tally
-        element via the browser before asserting.
+    def test_gth_answer_later_and_peek_results_are_functional(self) -> None:
+        """UI実装詳細（adr/0050 決定1、2026-09-08〜09 人間裁定「『あとで答える』
+        『結果をのぞく』を実際に動くものにする」）: no dedicated TDR-GTH-4x
+        scenario names these two controls (the contract's own note --
+        gathering-scheduling-browser-interface.yaml's answerLater/peekResults
+        description), so this is verified here directly as a contract Must
+        with no scenario of its own, the same precedent TDR-GTH-43's ordering
+        check and TDR-CS-02's desktop/mobile split already establish.
+        Present while undecided, absent once finalized (mirrors
+        nameControl.open's own presenceRule); activating "あとで答える" saves
+        no new state and leaves the existing answer intact; activating
+        "結果をのぞく" makes the (already unconditionally present since
+        adr/0050 decision 2) schedule tally actually visible.
         """
         self._sign_in()
-        self.steps.organizer_has_a_scheduling_gathering("会12z", [days_from_now_iso(3)])
+        self.steps.organizer_has_a_scheduling_gathering("会later", [days_from_now_iso(3)])
         candidate_date_id = self.dsl.candidate_date_id_at(0)
-        link_a = self.steps.a_participant_link_is_issued()
-        self.steps.participant_opens_the_link(link_a)
+        link = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link)
         self.steps.participant_answers_the_candidate_date(candidate_date_id, "GOING")
-        link_b = self.steps.a_participant_link_is_issued()
-        self.steps.participant_opens_the_link(link_b)
-        self.dsl.page.evaluate(
-            "() => document.querySelector('[data-testid=\"gathering-schedule-tally\"]')"
-            ".setAttribute('data-going-count', '999')"
+        self.steps.answer_later_and_peek_results_are_present()
+        self.steps.participant_activates_answer_later_and_state_is_unchanged(
+            candidate_date_id, "GOING"
         )
-        self.steps.schedule_question_tally_is(candidate_date_id, going=1, maybe=0, not_going=0)
+        self.steps.participant_activates_peek_results_and_tallies_are_visible(candidate_date_id)
 
     def test_tdr_gth_13_guessing_a_token_is_denied_without_disclosure(self) -> None:
         self._sign_in()
@@ -889,6 +894,9 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         # ParticipantView.decision is non-null, not only the schedule/vote/
         # progress surfaces participant_question_surfaces_are_replaced checks.
         self.steps.participant_name_controls_are_absent()
+        # answerLater/peekResults share nameControl.open's own presenceRule
+        # (adr/0050 decision 1): both disappear once decision is non-null.
+        self.steps.answer_later_and_peek_results_are_absent()
         schedule_response = self.steps.participant_attempts_to_answer_via_api(
             link, candidate_date_id, "MAYBE"
         )

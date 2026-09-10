@@ -328,9 +328,6 @@ class GatheringSchedulingSteps:
             candidate_date_id, going=going, maybe=maybe, not_going=not_going
         )
 
-    def schedule_question_tally_is_absent(self, candidate_date_id: str) -> None:
-        self.dsl.assert_schedule_question_tally_absent(candidate_date_id)
-
     def schedule_question_tally_is(
         self, candidate_date_id: str, *, going: int, maybe: int, not_going: int
     ) -> None:
@@ -346,6 +343,26 @@ class GatheringSchedulingSteps:
 
     def participant_view_is_valid(self) -> None:
         self.dsl.assert_valid_participant_view_is_shown()
+
+    # answerLater / peekResults (adr/0050 decision 1) ------------------------
+
+    def answer_later_and_peek_results_are_present(self) -> None:
+        self.dsl.assert_answer_later_and_peek_results_present()
+
+    def answer_later_and_peek_results_are_absent(self) -> None:
+        self.dsl.assert_answer_later_and_peek_results_absent()
+
+    def participant_activates_answer_later_and_state_is_unchanged(
+        self, candidate_date_id: str, expected_response: str
+    ) -> None:
+        self.dsl.activate_answer_later_and_verify_it_changes_no_state(
+            candidate_date_id, expected_response
+        )
+
+    def participant_activates_peek_results_and_tallies_are_visible(
+        self, candidate_date_id: str
+    ) -> None:
+        self.dsl.activate_peek_results_and_verify_tallies_are_visible(candidate_date_id)
 
     def prior_responses_are_retained(self, before: dict[str, dict[str, object]]) -> None:
         self.dsl.assert_answer_state_unchanged(before)
@@ -481,9 +498,6 @@ class GatheringSchedulingSteps:
 
     def shop_vote_your_vote_is(self, shop_id: str, expected: str) -> None:
         self.dsl.assert_shop_vote_your_vote(shop_id, expected)
-
-    def shop_vote_tally_is_absent(self, shop_id: str) -> None:
-        self.dsl.assert_shop_vote_tally_absent(shop_id)
 
     def shop_vote_tally_is(
         self, shop_id: str, *, want_to_go: int, ok_to_go: int, not_going: int, responded: int

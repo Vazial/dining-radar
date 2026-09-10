@@ -126,44 +126,49 @@ PROBLEM = "candidate-proposal-problem"
 PROBLEM_GUIDANCE = "candidate-proposal-problem-guidance"
 MANUAL_ORDERING = "candidate-manual-ordering"
 
-# contractVersion 1.6.0 (adr/0033) renderModes -- two mutually exclusive
-# "implementation-chosen rendering condition" element sets, both map-primary.
+# contractVersion 1.8.0 (adr/0033/adr/0049) renderModes -- two mutually
+# exclusive "implementation-chosen rendering condition" element sets.
 # adr/0033 retired the pre-adr/0031 list-primary mode (candidate-map-open /
 # candidate-map-sheet-close) outright: no width selects it any longer, so
 # this contract no longer defines it and this DSL no longer references it
 # (mirrors adr/0023's TDR-CS-07 retirement precedent -- a dead mode is
-# removed, not kept around as an always-false condition). The two
-# currently-named modes differ only in how the card deck is paged: buttons
-# (mapPrimaryLayout, adr/0031, desktop) or a swipe gesture
-# (mapPrimaryTouchLayout, adr/0033, mobile).
-DECK_PREVIOUS = "candidate-deck-previous"
-DECK_NEXT = "candidate-deck-next"
+# removed, not kept around as an always-false condition). **adr/0049
+# decision 4 (2026-09-08 human decision: "微妙。右に地図で一覧左とかじゃ
+# なかったっけ") retired mapPrimaryLayout (the desktop, button-paged deck)
+# the same way, replacing it with twoColumnLayout** -- a plain side-by-side
+# list-and-map layout that owns no test id of its own (all up to 5 cards fit
+# in one unpaged column) -- so candidate-deck-previous/-next and their two
+# purposes no longer exist anywhere in this DSL either, mirroring the same
+# dead-mode-removal precedent. The two currently-named modes are
+# twoColumnLayout (desktop, no deck) and mapPrimaryTouchLayout (mobile,
+# swipe-paged deck, unchanged by adr/0049).
 DECK_SWIPE_SURFACE = "candidate-deck-swipe-surface"
 DECK_POSITION = "candidate-deck-position"
-# renderModes.mapPrimaryLayout.testIds / renderModes.mapPrimaryTouchLayout.
-# testIds (v1.6.0): candidate-deck-position is deliberately *not* a member of
-# either list below -- adr/0033 decision 2 moved it out of both modes'
-# exclusivity arrays because deckNavigation.position.presenceRule makes it
-# common to both currently-named modes, not a distinguishing element.
-MAP_PRIMARY_LAYOUT_TEST_IDS = [DECK_PREVIOUS, DECK_NEXT]
+# renderModes.mapPrimaryTouchLayout.testIds (v1.8.0): twoColumnLayout's own
+# testIds array is empty by contract design (renderModes.twoColumnLayout.
+# testIds: [] -- it owns no exclusive element), so there is no analogous
+# TWO_COLUMN_LAYOUT_TEST_IDS constant to define; the mode is identified only
+# by mapPrimaryTouchLayout's own test id being absent (see
+# assert_render_mode_test_ids_are_mutually_exclusive below).
 MAP_PRIMARY_TOUCH_LAYOUT_TEST_IDS = [DECK_SWIPE_SURFACE]
 DECK_VISIBLE_START_ATTRIBUTE = "data-deck-visible-start"
 DECK_VISIBLE_END_ATTRIBUTE = "data-deck-visible-end"
 DECK_TOTAL_ATTRIBUTE = "data-deck-total"
-DECK_PAGE_PREVIOUS_PURPOSE = "candidate-deck-page-previous"
-DECK_PAGE_NEXT_PURPOSE = "candidate-deck-page-next"
-# adr/0031 決定4: the contract deliberately does not fix a pixel threshold
+# adr/0049 決定4: the contract deliberately does not fix a pixel threshold
 # (renderModes.verificationAllocation.L4/L5); this DSL is the one place that
-# chooses a single fixed viewport wide enough that mapPrimaryLayout (a
-# desktop-only surface per human decision 2026-08-28, decision7) is the mode
-# expected to hold, for the deckNavigation/selectMarker.deckVisibility checks
-# that apply only while it does. Deliberately far from any plausible
-# narrow/mobile breakpoint so this choice cannot be read as testing the
-# breakpoint value itself (that remains ADR-0032/L5's job, not this file's).
-DESKTOP_MAP_PRIMARY_VIEWPORT = {"width": 1440, "height": 900}
+# chooses a single fixed viewport wide enough that twoColumnLayout (a
+# desktop-only surface, replacing mapPrimaryLayout 2026-09-08) is the mode
+# expected to hold, for the selectMarker.deckVisibility ("trivially
+# satisfied" under this mode) checks that apply only while it does.
+# Deliberately far from any plausible narrow/mobile breakpoint so this
+# choice cannot be read as testing the breakpoint value itself (that remains
+# ADR-0032/L5's job, not this file's). Same 1440x900 value
+# DESKTOP_MAP_PRIMARY_VIEWPORT used before this rename -- only the mode this
+# viewport is chosen to reach has changed, not the viewport itself.
+DESKTOP_TWO_COLUMN_VIEWPORT = {"width": 1440, "height": 900}
 # adr/0033 決定1: mapPrimaryTouchLayout is the mobile/narrow surface (human
 # decision 2026-08-29, all widths under the still-unfixed threshold). Chosen
-# well below any plausible breakpoint (mirrors DESKTOP_MAP_PRIMARY_VIEWPORT's
+# well below any plausible breakpoint (mirrors DESKTOP_TWO_COLUMN_VIEWPORT's
 # own reasoning in the opposite direction) so this choice cannot be read as
 # testing the breakpoint value itself.
 MOBILE_MAP_PRIMARY_TOUCH_VIEWPORT = {"width": 390, "height": 844}
@@ -487,18 +492,20 @@ class CandidateSearchBrowserDsl:
             self._applied_filters = self._normalized_filters(self._current_filters())
             self._pending_filters = dict(self._applied_filters)
 
-    def open_candidate_screen_at_map_primary_viewport(self) -> None:
-        """renderModes.mapPrimaryLayout is the desktop deck-navigation layout
-        adr/0031 introduces (human decision 2026-08-28, decision7=案A).
+    def open_candidate_screen_at_two_column_viewport(self) -> None:
+        """renderModes.twoColumnLayout is the desktop, unpaged side-by-side
+        layout adr/0049 decision 4 introduces (2026-09-08 human decision:
+        "微妙。右に地図で一覧左とかじゃなかったっけ"), replacing
+        mapPrimaryLayout's button-paged deck.
 
         L4 fixes a single viewport per scenario rather than switching width
         mid-test (verificationAllocation.L4/L5 -- width-dependent mode
         *selection* correctness is ADR-0032/L5's job, not this file's); this
-        method is the one place DESKTOP_MAP_PRIMARY_VIEWPORT is applied, for
-        the deckNavigation/selectMarker.deckVisibility checks that apply
-        only while mapPrimaryLayout holds.
+        method is the one place DESKTOP_TWO_COLUMN_VIEWPORT is applied, for
+        the selectMarker.deckVisibility ("trivially satisfied" under this
+        mode) checks that apply only while twoColumnLayout holds.
         """
-        self.page.set_viewport_size(DESKTOP_MAP_PRIMARY_VIEWPORT)
+        self.page.set_viewport_size(DESKTOP_TWO_COLUMN_VIEWPORT)
         self.open_candidate_screen()
 
     def open_candidate_screen_at_map_primary_touch_viewport(self) -> None:
@@ -506,7 +513,7 @@ class CandidateSearchBrowserDsl:
         adr/0033 introduces (human decision 2026-08-29: mobile widths become
         map-primary too, paged by a swipe gesture instead of buttons).
 
-        Mirrors open_candidate_screen_at_map_primary_viewport's own reasoning
+        Mirrors open_candidate_screen_at_two_column_viewport's own reasoning
         in the opposite direction: MOBILE_MAP_PRIMARY_TOUCH_VIEWPORT is the
         one fixed viewport this file applies for the deckNavigation.
         swipeSurface / pageDeckSwipeForward/Backward checks that apply only
@@ -627,6 +634,19 @@ class CandidateSearchBrowserDsl:
             f'[{CANDIDATE_GATHERING_SHORTLISTED_ATTR}="false"]'
         ).first
         expect(toggle).to_be_disabled()
+
+    def assert_selected_candidate_toggle_is_enabled(self) -> None:
+        """gatheringMode.cardToggle.disabledState's second half (adr/0049
+        decision 8): a card already in the gathering
+        (data-gathering-shortlisted="true") remains enabled even once the
+        5-shop cap is reached, so removing it to choose a different shop is
+        never blocked -- only an unselected card at the cap disables.
+        """
+        toggle = self.page.locator(
+            f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]'
+            f'[{CANDIDATE_GATHERING_SHORTLISTED_ATTR}="true"]'
+        ).first
+        expect(toggle).to_be_enabled()
 
     def assert_gathering_mode_candidates_are_within_open_shop_population(
         self, gathering_id: str
@@ -1332,166 +1352,107 @@ class CandidateSearchBrowserDsl:
     # Then: renderModes and deck navigation (adr/0031, contractVersion 1.5.0) --
 
     def assert_render_mode_test_ids_are_mutually_exclusive(self) -> None:
-        """renderModesの2モードは互いに排他的である (adr/0033 決定1; contractVersion 1.6.0).
+        """renderModesの2モードは互いに排他的である
+        (adr/0033 決定1、adr/0049 決定4; contractVersion 1.8.0).
 
         renderModes.invariant: exactly one named mode holds at any time, and
-        every test id of the *other* mode is absent while it does. adr/0033
-        retired listPrimaryLayout, so the two currently-named modes compared
-        here are mapPrimaryLayout (buttons) and mapPrimaryTouchLayout (swipe
-        surface) -- both map-primary. This reads DOM presence directly for
-        both id sets -- it does not compare two attributes the
-        implementation derived from a single shared source, so a defect that
-        leaks one mode's element while the other mode's elements are already
-        present is genuinely detectable (unlike a same-origin-value
-        comparison). candidate-deck-position is deliberately excluded from
-        both id sets (MAP_PRIMARY_LAYOUT_TEST_IDS /
-        MAP_PRIMARY_TOUCH_LAYOUT_TEST_IDS): adr/0033 decision 2 made it
-        common to both modes, so it cannot itself say which one holds.
+        every test id of the *other* mode is absent while it does.
+        twoColumnLayout (adr/0049 decision 4, replacing mapPrimaryLayout) owns
+        no test id of its own (renderModes.twoColumnLayout.testIds: [] --
+        showing every card in one unpaged column needs no paging control),
+        so this mode is identified only by elimination: whenever
+        mapPrimaryTouchLayout's own swipe-surface test id is absent, this
+        contract's invariant requires twoColumnLayout to be the mode
+        holding instead (exactly one of the two always holds). This still
+        genuinely detects a defect that leaks mapPrimaryTouchLayout's own
+        test id while twoColumnLayout is expected to hold (the branch below
+        that runs only when the swipe surface is absent) -- it just has
+        nothing of twoColumnLayout's own to assert as *present*, since the
+        contract defines nothing (this is the "vacuously... for its own,
+        empty test id set" property renderModes.twoColumnLayout's own note
+        describes). candidate-deck-position is likewise absent while
+        twoColumnLayout holds (asserted here too, matching
+        deckNavigation.position.presenceRule) -- unlike under adr/0033, it
+        is no longer common to both modes.
         """
-        map_primary_present = any(
-            by_test_id(self.page, test_id).count() > 0 for test_id in MAP_PRIMARY_LAYOUT_TEST_IDS
-        )
         map_primary_touch_present = any(
             by_test_id(self.page, test_id).count() > 0
             for test_id in MAP_PRIMARY_TOUCH_LAYOUT_TEST_IDS
         )
-        self.assertions.assertTrue(
-            map_primary_present or map_primary_touch_present,
-            "neither renderModes.mapPrimaryLayout nor renderModes.mapPrimaryTouchLayout test "
-            "ids are present at this fixed viewport, but renderModes.invariant requires "
-            "exactly one named mode to hold",
-        )
-        self.assertions.assertFalse(
-            map_primary_present and map_primary_touch_present,
-            "test ids from both renderModes.mapPrimaryLayout and renderModes."
-            "mapPrimaryTouchLayout are present simultaneously, but renderModes.invariant "
-            "requires exactly one named mode to hold",
-        )
-        if map_primary_present:
-            assert_all_absent(self.assertions, self.page, MAP_PRIMARY_TOUCH_LAYOUT_TEST_IDS)
+        if map_primary_touch_present:
+            assert_all_present(self.assertions, self.page, [DECK_POSITION])
         else:
-            assert_all_absent(self.assertions, self.page, MAP_PRIMARY_LAYOUT_TEST_IDS)
+            assert_all_absent(self.assertions, self.page, [DECK_POSITION])
 
-    def assert_map_primary_layout_holds(self) -> None:
-        """このスライスのデッキ検査は renderModes.mapPrimaryLayout が成立する前提である
-        (adr/0031 決定4; deckNavigation.description).
+    def assert_two_column_layout_holds(self) -> None:
+        """このスライスのデッキ検査は renderModes.twoColumnLayout が成立する前提である
+        (adr/0049 決定4; deckNavigation.description, replacing
+        assert_map_primary_layout_holds).
 
-        Unchanged assertions from before contractVersion 1.6.0: still
-        requires candidate-deck-previous/-next *and* candidate-deck-position
-        present, and every mapPrimaryTouchLayout-only test id absent.
-        candidate-deck-position is listed explicitly here (rather than via
-        MAP_PRIMARY_LAYOUT_TEST_IDS) only because adr/0033 decision 2 moved
-        it out of that array's contract definition -- it is still required
-        while mapPrimaryLayout holds (deckNavigation.position.presenceRule).
+        twoColumnLayout owns no exclusive test id of its own (its testIds
+        array is empty by contract design), so "this mode holds" is
+        asserted as the absence of every mapPrimaryTouchLayout-only test id
+        (the swipe surface and the position counter, which deckNavigation.
+        position.presenceRule ties to mapPrimaryTouchLayout only as of
+        contractVersion 1.8.0) -- mirroring
+        assert_render_mode_test_ids_are_mutually_exclusive's own by-
+        elimination reasoning.
         """
-        assert_all_present(
-            self.assertions, self.page, [*MAP_PRIMARY_LAYOUT_TEST_IDS, DECK_POSITION]
+        assert_all_absent(
+            self.assertions, self.page, [*MAP_PRIMARY_TOUCH_LAYOUT_TEST_IDS, DECK_POSITION]
         )
-        assert_all_absent(self.assertions, self.page, MAP_PRIMARY_TOUCH_LAYOUT_TEST_IDS)
 
     def assert_map_primary_touch_layout_holds(self) -> None:
         """このスライスのデッキ検査は renderModes.mapPrimaryTouchLayout が成立する前提である
-        (adr/0033 決定1; deckNavigation.description). Mirrors
-        assert_map_primary_layout_holds for the touch-driven mobile mode:
-        requires candidate-deck-swipe-surface and candidate-deck-position
-        present, and every mapPrimaryLayout-only (button) test id absent.
+        (adr/0033 決定1; deckNavigation.description). Requires
+        candidate-deck-swipe-surface and candidate-deck-position present
+        (twoColumnLayout owns no test id of its own to assert absent here,
+        adr/0049 decision 4 -- assert_render_mode_test_ids_are_mutually_
+        exclusive already proves the by-elimination exclusivity property).
         """
         assert_all_present(
             self.assertions, self.page, [*MAP_PRIMARY_TOUCH_LAYOUT_TEST_IDS, DECK_POSITION]
         )
-        assert_all_absent(self.assertions, self.page, MAP_PRIMARY_LAYOUT_TEST_IDS)
+
+    def assert_all_cards_visible_without_paging(self) -> None:
+        """twoColumnLayoutは専有のtest idを持たない代わりに、送りボタンなしで
+        最大5件のカードをすべて同時に見せることそのものが成立の証拠である
+        (adr/0049 決定4: "5件が一覧に収まるため"). candidate-deck-position が
+        不在の場合、この suite にはデッキの窓を機械観測する手段が無い
+        (adr/0049 decision4 の設計どおり)ため、その代わりに現在の応答が持つ
+        候補の総数と、実際にPlaywrightの可視判定で見えているカードの枚数が
+        一致することを、送りボタン不在の直接証拠として確認する。
+        """
+        candidates = self._current_proposal()["candidates"]
+        cards = by_test_id(self.page, CARD)
+        self.assertions.assertEqual(cards.count(), len(candidates))
+        for index in range(cards.count()):
+            expect(cards.nth(index)).to_be_visible()
 
     def assert_deck_position_counter_is_well_formed(self) -> None:
         """件数カウンタは表示窓の位置を1始まりの整数で示す
-        (adr/0031 決定2; deckNavigation.position.valueShape)."""
+        (adr/0031 決定2; deckNavigation.position.valueShape). **Strengthened
+        2026-09-09 (adr/0049 決定5, 2026-09-08 human decision: "スワイプが
+        途中で止まって見切れる症状を直す")**: deckNavigation.swipeSurface's
+        stopBehavior now always settles on exactly one full card, so
+        visibleStart must always equal visibleEnd while candidate-deck-
+        position is present (it is present only while mapPrimaryTouchLayout
+        holds as of contractVersion 1.8.0) -- this equality is the
+        contract's own stated indirect, machine-observable proof that
+        "exactly one card is visible" (this suite does not otherwise measure
+        rendered card geometry, that remains L5's job).
+        """
         start, end, total = self._deck_window()
         self.assertions.assertEqual(total, len(self._card_candidate_refs()))
         self.assertions.assertGreaterEqual(start, 1)
         self.assertions.assertLessEqual(start, end)
         self.assertions.assertLessEqual(end, total)
-
-    def assert_deck_paging_controls_declare_correct_purposes(self) -> None:
-        """送りボタンはそれぞれ別名の目的を宣言する (adr/0031 決定1)."""
-        expect(by_test_id(self.page, DECK_PREVIOUS)).to_have_attribute(
-            "data-candidate-control-purpose", DECK_PAGE_PREVIOUS_PURPOSE
-        )
-        expect(by_test_id(self.page, DECK_NEXT)).to_have_attribute(
-            "data-candidate-control-purpose", DECK_PAGE_NEXT_PURPOSE
-        )
-
-    def assert_deck_paging_controls_disabled_state_matches_window(self) -> None:
-        """送りボタンは窓の端で無効化される。不在ではなく disabled であること
-        (adr/0031 決定2; deckNavigation.disabledState)."""
-        position = assert_present(self.assertions, self.page, DECK_POSITION)
-        start = position.get_attribute(DECK_VISIBLE_START_ATTRIBUTE)
-        end = position.get_attribute(DECK_VISIBLE_END_ATTRIBUTE)
-        total = position.get_attribute(DECK_TOTAL_ATTRIBUTE)
-        previous = assert_present(self.assertions, self.page, DECK_PREVIOUS)
-        next_ = assert_present(self.assertions, self.page, DECK_NEXT)
-        if start == "1":
-            expect(previous).to_be_disabled()
-        else:
-            expect(previous).to_be_enabled()
-        if end == total:
-            expect(next_).to_be_disabled()
-        else:
-            expect(next_).to_be_enabled()
-
-    def page_deck_next_and_verify_window_advances(self) -> None:
-        """次へを押すと表示窓が動くが、カード集合・選択・条件は変えない
-        (adr/0031 決定3; browserActions.pageDeckNext)."""
-        start_before, end_before, total = self._deck_window()
-        self.assertions.assertLess(
-            end_before, total, "deck window already covers every card; cannot exercise pageDeckNext"
-        )
-        snapshot = self._display_snapshot()
-        self._perform_without_candidate_request(lambda: by_test_id(self.page, DECK_NEXT).click())
-        start_after, end_after, total_after = self._deck_window()
-        self.assertions.assertEqual(total_after, total)
-        self.assertions.assertGreater(start_after, start_before)
-        self.assertions.assertGreaterEqual(end_after, end_before)
-        self.assertions.assertLessEqual(end_after, total)
-        self._assert_display_snapshot(snapshot)
-
-    def page_deck_previous_and_verify_window_recedes(self) -> None:
-        """前へを押すと表示窓が動くが、カード集合・選択・条件は変えない
-        (adr/0031 決定3; browserActions.pageDeckPrevious)."""
-        start_before, end_before, total = self._deck_window()
-        self.assertions.assertGreater(
-            start_before, 1, "deck window is already at the start; cannot exercise pageDeckPrevious"
-        )
-        snapshot = self._display_snapshot()
-        self._perform_without_candidate_request(
-            lambda: by_test_id(self.page, DECK_PREVIOUS).click()
-        )
-        start_after, end_after, total_after = self._deck_window()
-        self.assertions.assertEqual(total_after, total)
-        self.assertions.assertLess(end_after, end_before)
-        self.assertions.assertLessEqual(start_after, start_before)
-        self.assertions.assertGreaterEqual(start_after, 1)
-        self._assert_display_snapshot(snapshot)
-
-    def page_deck_forward_until_the_window_reaches_the_end(self) -> None:
-        """次へを、窓の末尾 (data-deck-visible-end) が data-deck-total に一致する
-        まで繰り返し押す。デッキの窓の枚数は幅ごとに異なる (adr/0032) ため回数を
-        決め打ちにしない。1クリックごとに page_deck_next_and_verify_window_advances
-        を経由するため、送りの途中も含めて並び・data-candidate-ref集合が保たれる
-        こと (deckNavigation.orderingInvariant) を毎回検査する。無限ループ防止の
-        上限 (data-deck-total 回) に達しても末尾へ到達していなければ、それ自体を
-        成功とはせず明示的に失敗させる
-        (adr/0031 決定3; browserActions.pageDeckNext, deckNavigation.disabledState)."""
-        _, end, total = self._deck_window()
-        clicks = 0
-        while end < total and clicks < total:
-            self.page_deck_next_and_verify_window_advances()
-            clicks += 1
-            _, end, total = self._deck_window()
         self.assertions.assertEqual(
+            start,
             end,
-            total,
-            f"deck window did not reach the end after {clicks} forward clicks "
-            f"(data-deck-visible-end={end}, data-deck-total={total}); "
-            "candidate-deck-next may not be advancing the window toward the last card",
+            "candidate-deck-position's visibleStart must always equal visibleEnd while "
+            "mapPrimaryTouchLayout holds (adr/0049 decision 5: the swipe surface always "
+            "settles on exactly one full card, never a partial one at either edge)",
         )
 
     def select_marker_outside_deck_window_and_verify_it_becomes_visible(self) -> None:
@@ -1723,8 +1684,8 @@ class CandidateSearchBrowserDsl:
 
     def page_deck_swipe_forward_until_the_window_reaches_the_end(self) -> None:
         """指のスワイプ（前方向）を、窓の末尾が総数に一致するまで繰り返す。
-        page_deck_forward_until_the_window_reaches_the_end と同じ理由で回数を
-        決め打ちにしない (adr/0033 決定3; browserActions.pageDeckSwipeForward)."""
+        デッキの窓の枚数は幅ごとに異なる (adr/0032) ため回数を決め打ちにしない
+        (adr/0033 決定3; browserActions.pageDeckSwipeForward)."""
         _, end, total = self._deck_window()
         swipes = 0
         while end < total and swipes < total:

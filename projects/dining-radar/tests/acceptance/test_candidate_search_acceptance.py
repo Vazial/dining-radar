@@ -85,32 +85,32 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.walking_route_and_current_location_are_not_shown()
         self.steps.search_range_value_is_not_shown()
 
-    def test_tdr_cs_02_desktop_deck_navigation_windows_candidates_without_changing_them(
+    def test_tdr_cs_02_desktop_two_column_layout_shows_every_candidate_without_paging(
         self,
     ) -> None:
-        """TDR-CS-02のUI実装詳細 (adr/0031): デスクトップの地図主役レイアウトでは、送りボタン・
-        件数カウンタがデッキの表示窓を動かすだけで、カード集合・選択・絞り込み条件のいずれも
-        変えない。地図上のピンを選ぶと対応するカードが表示窓の中に見えるようになる
-        (selectMarker.deckVisibility)。renderModes.verificationAllocation.L4 のとおり、この
-        テストは単一の固定ビューポート（DESKTOP_MAP_PRIMARY_VIEWPORT）でmapPrimaryLayoutが
-        成立する前提のもとで動く——幅ごとの正しさそのものはADR-0032/L5の管轄で、ここでは扱わない。
-        deckNavigation.disabledStateは両端を定めるため、先頭（candidate-deck-previousが
-        disabled）だけでなく末尾（candidate-deck-nextがdisabled、かつcandidate-deck-previousは
-        disabledでない）にも実際に到達して検査する。
+        """TDR-CS-02のUI実装詳細 (adr/0049 決定4、2026-09-08 人間裁定「微妙。右に地図で一覧左
+        とかじゃなかったっけ」): デスクトップ幅ではtwoColumnLayoutが成立し、最大5件のカードが
+        送りボタンなしで一覧として同時にすべて見える。renderModes.twoColumnLayoutは専有の
+        test idを持たない（空配列、adr/0049決定4）ため、mapPrimaryTouchLayout側の swipe-
+        surface/position が両方とも不在であることの消去法で成立を確認する
+        (renderModes.invariantのvacuous/non-vacuousな扱い、
+        assert_render_mode_test_ids_are_mutually_exclusiveの docstring 参照)。デッキの送り
+        ボタン（candidate-deck-previous/-next）とそのpurposeはcontractVersion 1.8.0
+        (adr/0049決定4) で退役しており、この画面には一切存在しない
+        (unavailableControls.allowedPurposesの1:1突き合わせが別途保証する)。地図上のピンを
+        選ぶとカードが選択状態になること (selectMarker.deckVisibility) はtwoColumnLayoutでは
+        「窓が無いので自明に満たされる」("trivially satisfied") と契約が明記しており、この
+        固定ビューポートでも成立することを確認する。renderModes.verificationAllocation.L4
+        のとおり、幅ごとの正しさそのものはADR-0032/L5の管轄で、ここでは扱わない。
         """
         self._sign_in()
         self.steps.lunch_candidates_can_be_proposed_at_a_known_search_origin()
-        self.steps.organizer_compares_candidates_at_map_primary_viewport()
-        self.steps.map_primary_layout_holds()
+        self.steps.organizer_compares_candidates_at_two_column_viewport()
+        self.steps.two_column_layout_holds()
         self.steps.render_mode_test_ids_are_mutually_exclusive()
-        self.steps.deck_position_counter_is_well_formed()
-        self.steps.deck_paging_controls_declare_correct_purposes()
-        self.steps.deck_paging_controls_disabled_state_matches_window()
-        self.steps.organizer_pages_the_deck_forward()
-        self.steps.organizer_pages_the_deck_backward()
-        self.steps.selecting_a_marker_outside_the_deck_window_brings_its_card_into_view()
-        self.steps.organizer_pages_the_deck_forward_until_it_reaches_the_end()
-        self.steps.deck_paging_controls_disabled_state_matches_window()
+        self.steps.all_cards_visible_without_paging()
+        self.steps.selecting_a_marker_highlights_its_card()
+        self.steps.no_location_range_or_manual_order_control_exists()
 
     def test_tdr_cs_02_mobile_deck_navigation_swipes_candidates_without_changing_them(
         self,
@@ -320,3 +320,5 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
             self.steps.organizer_adds_a_candidate_to_the_gathering()
         self.steps.gathering_mode_band_shows(shortlisted=5)
         self.steps.unselected_candidate_toggle_is_disabled()
+        # adr/0049 決定8 後段: 既に選択済みのカードは5件到達後も外す操作として活性のまま
+        self.steps.selected_candidate_toggle_is_enabled()

@@ -239,6 +239,19 @@ LINK_ERROR_CODE_ATTR = "data-link-error-code"
 # does not.
 PARTICIPANT_LOAD_ERROR = "gathering-participant-load-error"
 
+# answerLater / peekResults (adr/0050 decision 1, 2026-09-08〜09 human
+# decision: 「あとで答える」「結果をのぞく」を実際に動く操作にする -- both
+# previously visual-only). Neither owns a dedicated TDR-GTH-4x scenario (the
+# contract's own note: "no dedicated TDR-GTH-4x scenario names these two
+# controls, but they are real, present controls... so they must still be
+# declared"), so this suite verifies their requiredOutcome directly as a UI
+# implementation detail, the same precedent TDR-GTH-43's ordering check and
+# TDR-CS-02's desktop/mobile split already establish for contract Musts with
+# no scenario of their own.
+ANSWER_LATER = "gathering-participant-answer-later"
+ANSWER_LATER_CONFIRMATION = "gathering-participant-answer-later-confirmation"
+PEEK_RESULTS = "gathering-participant-peek-results"
+
 # unavailableControls (both namespaces; gathering-scheduling-browser-interface.yaml).
 # Mirrors candidate_search_browser.py's ALLOWED_CONTROL_PURPOSES /
 # assert_map_has_no_forbidden_surfaces convention for the sibling contract.
@@ -1383,17 +1396,31 @@ class GatheringSchedulingBrowserDsl:
         GATHERING_OPEN_SHOP_WEEKDAY_MATCH openShopCount is <= 5 (the
         candidate-search-api.yaml display cap), so the returned set is always
         *complete* for that day -- no sampling loss, unlike a day with 6 open
-        shops. Does not disturb self.gathering/self.gathering_id (saves and
-        restores them), so callers can freely interleave this with their own
-        gathering's own state.
+        shops. Does not disturb self.gathering/self.gathering_id, or
+        candidate_date_id_at's own index space (saves and restores all four
+        -- **fixed**: an earlier version restored only gathering/gathering_id,
+        leaving _created_candidate_date_isos/_candidate_date_id_by_start_at
+        permanently shifted by this probe's own throwaway date. A caller that
+        runs this probe *before* building its own gathering -- e.g. TDR-GTH-
+        31/32's `a_shop_id_not_open_on` before `organizer_has_a_selecting_
+        shop_gathering` -- would then have candidate_date_id_at(0) resolve to
+        this probe's own candidate date instead of its own gathering's first
+        one, confirming the wrong gathering's date and getting back
+        CANDIDATE_DATE_NOT_FOUND; reproduced empirically before this fix),
+        so callers can freely interleave this with their own gathering's own
+        state regardless of call order.
         """
         saved_gathering, saved_gathering_id = self.gathering, self.gathering_id
+        saved_isos = list(self._created_candidate_date_isos)
+        saved_id_by_start_at = dict(self._candidate_date_id_by_start_at)
         self._create_gathering("会（一時プローブ）", [candidate_date_iso])
         candidate_date_id = self.candidate_date_id_at(-1)
         self.confirm_candidate_date_via_api(self.gathering_id, candidate_date_id)
         self._set_gathering(self._api("GET", f"/gatherings/{self.gathering_id}").payload)
         open_ids = set(self.fetch_confirmed_date_open_shop_ids())
         self.gathering, self.gathering_id = saved_gathering, saved_gathering_id
+        self._created_candidate_date_isos = saved_isos
+        self._candidate_date_id_by_start_at = saved_id_by_start_at
         return open_ids
 
     def fetch_shop_id_closed_only_on(self, closed_weekday: int, open_weekday: int) -> str:
@@ -1407,16 +1434,27 @@ class GatheringSchedulingBrowserDsl:
         OPEN_SHOP_COUNT_BY_WEEKDAY's cap). Replaces the retired
         identify_a_shop_closed_on_the_confirmed_date, which read
         previewOpenShopsForCandidateDate's now-removed previewShops directly.
+
+        **The diff is not guaranteed to be a singleton**: test-support-
+        api.yaml documents only each weekday's total openShopCount, not
+        which of the 6 fixed shops individually belong to which weekday --
+        empirically, Monday(5)/Wednesday(4) yields two shops open on
+        Wednesday but not Monday, not one (this method's own only caller
+        needs *some* shop meeting the criterion, not a uniquely-identified
+        one, so this no longer over-asserts a cardinality the contract
+        never promised). Picks the lexicographically smallest candidate for
+        determinism across runs.
         """
         open_ids = self._probe_open_shop_ids_on(next_weekday_iso(open_weekday))
         closed_ids = self._probe_open_shop_ids_on(next_weekday_iso(closed_weekday))
         candidates = open_ids - closed_ids
-        self.assertions.assertEqual(
+        self.assertions.assertGreaterEqual(
             len(candidates),
             1,
-            f"expected exactly one shop closed only on this day, got {candidates}",
+            f"expected at least one shop open on open_weekday but not closed_weekday, got none "
+            f"(open={open_ids}, closed={closed_ids})",
         )
-        return next(iter(candidates))
+        return sorted(candidates)[0]
 
     def fetch_a_shop_id_not_open_on(self, excluded_weekday: int, included_weekday: int) -> str:
         """Test-arrangement technique for TDR-GTH-31/32 (D7 replace): identical
@@ -1892,15 +1930,18 @@ class GatheringSchedulingBrowserDsl:
             self.page.locator('[data-testid="gathering-open-shop-preview-item"]').count(), 0
         )
 
-    def assert_schedule_question_tally_absent(self, candidate_date_id: str) -> None:
-        question = self._schedule_question_locator(candidate_date_id)
-        self.assertions.assertEqual(
-            question.locator(f'[data-testid="{SCHEDULE_TALLY}"]').count(), 0
-        )
-
     def assert_schedule_question_tally(
         self, candidate_date_id: str, *, going: int, maybe: int, not_going: int
     ) -> None:
+        """scheduleQuestion.tally's presenceRule (adr/0050 decision 2, TDR-GTH-12):
+        always present regardless of this question's own data-your-response
+        -- `to_have_count(1)` below fails if the tally is missing, not only
+        if its counts are wrong. Its own sibling
+        assert_schedule_question_tally_absent (the pre-reversal "answer
+        first, then see others" observation) is retired along with this
+        Must's own reversal -- no scenario names an UNANSWERED question
+        whose tally is absent any longer.
+        """
         question = self._schedule_question_locator(candidate_date_id)
         tally = question.locator(f'[data-testid="{SCHEDULE_TALLY}"]')
         expect(tally).to_have_count(1)
@@ -1928,6 +1969,52 @@ class GatheringSchedulingBrowserDsl:
     def assert_valid_participant_view_is_shown(self) -> None:
         assert_all_present(self.assertions, self.page, [PARTICIPANT_HEADER, SCHEDULE_QUESTION])
         assert_absent(self.assertions, self.page, PARTICIPANT_LINK_ERROR)
+
+    # answerLater / peekResults (adr/0050 decision 1) ------------------------
+
+    def assert_answer_later_and_peek_results_present(self) -> None:
+        """Both share one presenceRule: present exactly when
+        ParticipantView.decision is null (the same phase scheduleQuestion/
+        shopVoteQuestion render in)."""
+        assert_all_present(self.assertions, self.page, [ANSWER_LATER, PEEK_RESULTS])
+
+    def assert_answer_later_and_peek_results_absent(self) -> None:
+        """Mirrors nameControl.open's own presenceRule once finalized --
+        both controls disappear once ParticipantView.decision is non-null."""
+        assert_all_absent(self.assertions, self.page, [ANSWER_LATER, PEEK_RESULTS])
+
+    def activate_answer_later_and_verify_it_changes_no_state(
+        self, candidate_date_id: str, expected_response: str
+    ) -> None:
+        """answerLater.requiredOutcome: reveals a confirmation surface with
+        non-empty text and calls no public operation -- checked here as
+        "the already-recorded answer is unchanged by activating it" (this
+        suite has no network-interception convention in this file the way
+        candidate_search_browser.py's _perform_without_candidate_request
+        does; before/after DOM comparison of the one value this action could
+        plausibly disturb is the equivalent proof for this contract).
+        """
+        by_test_id(self.page, ANSWER_LATER).click()
+        confirmation = assert_present(self.assertions, self.page, ANSWER_LATER_CONFIRMATION)
+        self.assertions.assertNotEqual(confirmation.inner_text().strip(), "")
+        self.assert_schedule_question_your_response(candidate_date_id, expected_response)
+
+    def activate_peek_results_and_verify_tallies_are_visible(self, candidate_date_id: str) -> None:
+        """peekResults.requiredOutcome: makes every currently reachable
+        gathering-schedule-tally/gathering-shop-vote-tally simultaneously
+        visible in the DOM. scheduleQuestion.tally/shopVoteQuestion.tally
+        are already unconditionally present as of adr/0050 decision 2 (this
+        suite's own assert_schedule_question_tally/assert_shop_vote_tally
+        already prove DOM presence elsewhere) -- this checks the property
+        peekResults specifically adds: actual Playwright visibility (not
+        merely DOM attachment), for whichever tallies are currently
+        reachable, after activation.
+        """
+        by_test_id(self.page, PEEK_RESULTS).click()
+        tally = self._schedule_question_locator(candidate_date_id).locator(
+            f'[data-testid="{SCHEDULE_TALLY}"]'
+        )
+        expect(tally).to_be_visible()
 
     # unexpectedLoadFailureOutcome / loadFailure (TDR-GTH-42, adr/0047) -----
 
@@ -2064,12 +2151,6 @@ class GatheringSchedulingBrowserDsl:
             YOUR_VOTE_ATTR, expected
         )
 
-    def assert_shop_vote_tally_absent(self, shop_id: str) -> None:
-        question = self._shop_vote_question_locator(shop_id)
-        self.assertions.assertEqual(
-            question.locator(f'[data-testid="{SHOP_VOTE_TALLY}"]').count(), 0
-        )
-
     def assert_shop_vote_tally(
         self, shop_id: str, *, want_to_go: int, ok_to_go: int, not_going: int, responded: int
     ) -> None:
@@ -2079,7 +2160,12 @@ class GatheringSchedulingBrowserDsl:
         own invariant). wantToGoCount + okToGoCount + notGoingCount must
         always equal respondedCount, same invariant its twin
         assert_shortlisted_shop_tally already checks here too, not only
-        trusted (reviewer audit Minor#1).
+        trusted (reviewer audit Minor#1). **presenceRule reversed 2026-09-09
+        (adr/0050 decision 2, TDR-GTH-29)**: always present regardless of
+        this question's own data-your-vote -- `to_have_count(1)` below fails
+        if the tally is missing. Its own sibling
+        assert_shop_vote_tally_absent (the pre-reversal observation) is
+        retired along with this Must's own reversal.
         """
         question = self._shop_vote_question_locator(shop_id)
         tally = question.locator(f'[data-testid="{SHOP_VOTE_TALLY}"]')
