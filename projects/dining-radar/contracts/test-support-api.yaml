@@ -300,10 +300,28 @@
 # - `version`を1.5.5→1.5.6へ更新した。新しいoperationId・新しいスキーマ・新しいシナリオIDは
 #   いずれも追加していないため、`info.description`のシナリオ範囲表記・`x-acceptance-scenarios`
 #   各listは変更していない。
+#
+# 2026-09-11 追補7 (architect、adr/0053。adr/0052が申し送ったTDR-GTH-26〜41の棚卸しを完了した
+#   ことに伴う、本ファイルのstale参照の解消):
+# - **TDR-GTH-26〜41を1本ずつ確認した結果、gathering-scheduling.featureの本文はいずれも成立する
+#   と判定した**（詳細はadr/0053の判定表）——書き換え・廃止を要したシナリオは無い。会モードへの
+#   一本化（adr/0049）・可視性の反転（adr/0050）・カレンダー統一（adr/0051）はいずれも業務の言葉
+#   で書かれた既存シナリオの成立を妨げていない。
+# - **本ファイルのGATHERING_OPEN_SHOP_WEEKDAY_MATCH説明文が持っていたstale参照を解消した**（adr/0052
+#   決定4が解消せず申し送っていた件）: TDR-GTH-26/27の`OpenShopPreviewItem.shopId`という記述を、
+#   candidate-search-api.yamlの`Candidate.shopId`（会モード、adr/0049決定1）を読む記述へ書き換えた
+#   ——TDR-GTH-26は対象の会自身のproposeCandidates応答から、TDR-GTH-27は閉店している形の店IDを
+#   別の曜日で確定した会（companion gathering、adr/0052決定2の手順）から読む。TDR-GTH-38の
+#   `OpenShopPreviewItem`という記述も同じ`Candidate`スキーマへ書き換えた——この画面自体が
+#   adr/0049決定1でランチ候補画面（会モード）へ移ったため。TDR-GTH-39の`ParticipantShopVoteOption`
+#   という記述はそのまま残した——このスキーマはadr/0049で削除されていない。
+# - `version`を1.5.6→1.5.7へ更新した。新しいoperationId・新しいスキーマ・新しいシナリオIDは
+#   いずれも追加していないため、`info.description`のシナリオ範囲表記・`x-acceptance-scenarios`
+#   各listは変更していない。
 openapi: 3.0.3
 info:
   title: Dining Radar acceptance test-support API
-  version: 1.5.6
+  version: 1.5.7
   description: >-
     Acceptance-only setup and reset seams for TDR-AUTH-01 through TDR-AUTH-07,
     TDR-CS-00 through TDR-CS-19, and TDR-GTH-01 through TDR-GTH-48.
@@ -349,11 +367,17 @@ paths:
         gathering-scheduling-api.yaml calls it makes (TDR-GTH-26/27 added
         2026-09-04, adr/0043, documentation freshness only; TDR-GTH-38/39
         added 2026-09-04, adr/0044, to check for the presence of
-        OpenShopPreviewItem/ParticipantShopVoteOption's new
-        location/walkingTimeMinutes/providerPageUrl fields -- these
-        scenarios reuse this same seam and population unchanged, since
-        candidate-search-api.yaml has required these fields non-null under
-        every mode since adr/0025, well before this round). TDR-GTH-41
+        location/walkingTimeMinutes/providerPageUrl fields -- TDR-GTH-38
+        now reads them via candidate-search-api.yaml's Candidate in
+        gathering mode (adr/0049 decision 1), since its shop-selection
+        screen retired into the lunch-candidate screen, and TDR-GTH-39
+        continues to read them via ParticipantShopVoteOption, which
+        adr/0049 did not remove (corrected 2026-09-11, adr/0053, replacing
+        this paragraph's prior reference to the retired
+        OpenShopPreviewItem) -- these scenarios reuse this same seam and
+        population unchanged, since candidate-search-api.yaml has required
+        these fields non-null under every mode since adr/0025, well before
+        this round). TDR-GTH-41
         (adr/0045) does not select a mode here -- see this file's
         2026-09-05 header addendum for why. A TDR-CS-17/18/19/TDR-GTH-44/45
         scenario (adr/0049, 2026-09-09) likewise selects
@@ -923,20 +947,40 @@ components:
             (meta/verification.md); this seam verifies only that the
             population-to-response wiring for a representative confirmed,
             multi-weekday, and unconfirmed case is correct end to end.
-            TDR-GTH-26 (shortlisting from this same population) and
+            TDR-GTH-26 (shortlisting from this same population) reads the
+            shopId this mode's candidates carry via candidate-search-
+            api.yaml's Candidate.shopId in gathering mode (adr/0049
+            decision 1), directly from the target gathering's own
+            proposeCandidates response -- its eligible population is by
+            definition the shops open on that gathering's confirmed date,
+            so every candidate it returns already carries a shopId.
             TDR-GTH-27 (a closed-on-that-day shop must not be selectable)
-            read the shopId this mode's candidates carry via
-            OpenShopPreviewItem.shopId (gathering-scheduling-api.yaml,
-            adr/0042) the same way TDR-GTH-08/09 read their display fields
-            -- no additional seed data was needed for this round (adr/0043).
-            TDR-GTH-38/39 (adr/0044, 2026-09-04) read this same population's
-            `location`/`walkingTimeMinutes`/`providerPageUrl` values via
-            OpenShopPreviewItem/ParticipantShopVoteOption -- again no
-            additional seed data was needed, since every synthetic candidate
-            this shared factory produces has already carried these fields
-            (non-null, schema-valid) since adr/0025, for candidate-search-
-            api.yaml's own sake, well before gathering-scheduling-api.yaml
-            started reusing them this round. TDR-GTH-41 (adr/0045,
+            instead needs a closed shape's shopId, which for that same
+            reason never appears in the target gathering's own response --
+            it is read from a companion gathering confirmed to a different
+            weekday on which that shape is open, per the discovery
+            procedure this description's 2026-09-11 addendum below
+            documents (adr/0052 decision 2); attempting to add it to the
+            target gathering's shortlist is then rejected with
+            INVALID_SHOP_SELECTION (gathering-scheduling-api.yaml's
+            setShortlistedShops, which requires every submitted shop id to
+            belong to the confirmed candidate date's open-shop population).
+            No additional seed data was needed for either scenario
+            (adr/0043; corrected 2026-09-11, adr/0053, replacing this
+            paragraph's prior reference to the retired
+            OpenShopPreviewItem.shopId). TDR-GTH-38 (adr/0044, 2026-09-04;
+            its shop-selection screen retired into the lunch-candidate
+            screen's gathering mode, adr/0049 decision 1) reads this same
+            population's `location`/`walkingTimeMinutes`/`providerPageUrl`
+            values via that same Candidate schema rather than the retired
+            OpenShopPreviewItem. TDR-GTH-39 continues to read them via
+            ParticipantShopVoteOption (gathering-scheduling-api.yaml),
+            which adr/0049 did not remove. Neither needed additional seed
+            data, since every synthetic candidate this shared factory
+            produces has already carried these fields (non-null,
+            schema-valid) since adr/0025, for candidate-search-api.yaml's
+            own sake, well before either contract started reusing them
+            this round. TDR-GTH-41 (adr/0045,
             2026-09-05) does not read this mode's population at all -- it
             asserts only that ParticipantView.searchOrigin is present and
             rendered, a property every mode already guarantees independently
@@ -984,15 +1028,23 @@ components:
             remaining five shapes (水-only, 火/水, 日, 不定休, null) is
             itself closed on Monday; a companion gathering confirmed to
             Tuesday discloses the one shape (月-only) Monday's own
-            population excludes. This description's earlier references
-            above to `OpenShopPreviewItem.shopId` (for TDR-GTH-26/27) and to
-            `OpenShopPreviewItem`/`ParticipantShopVoteOption` (for
-            TDR-GTH-38/39) predate adr/0049 decision 2's removal of the
-            `OpenShopPreviewItem` schema and its retired shop-selection
-            screen -- this addendum reports that staleness rather than
-            resolving it (adr/0052's open item; a scenario-by-scenario
-            inventory of TDR-GTH-26 through TDR-GTH-41's Given-state
-            builders against that removal is separate, unfinished work).
+            population excludes.
+
+            Corrected 2026-09-11, second addendum (architect, adr/0053,
+            completing adr/0052's open item -- a scenario-by-scenario
+            inventory of TDR-GTH-26 through TDR-GTH-41 against adr/0049's
+            retirement of the dashboard shop-selection screen and its
+            OpenShopPreviewItem schema): this description's earlier
+            references above to `OpenShopPreviewItem.shopId` (for
+            TDR-GTH-26/27) and to `OpenShopPreviewItem`/
+            `ParticipantShopVoteOption` (for TDR-GTH-38/39), which predated
+            that removal, have been rewritten above to read via
+            candidate-search-api.yaml's `Candidate` (for TDR-GTH-26/27/38)
+            and via `ParticipantShopVoteOption`, unaffected by that removal
+            (for TDR-GTH-39). The inventory itself found every TDR-GTH-26
+            through TDR-GTH-41 scenario in gathering-scheduling.feature
+            still holds as written -- none needed a text revision or
+            retirement (adr/0053's decision table).
         randomSeed:
           type: integer
           nullable: true
