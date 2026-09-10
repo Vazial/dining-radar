@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from itertools import product
 from pathlib import Path
 
@@ -24,8 +25,10 @@ from tests.acceptance.dsl.js_browser_mechanics import (
     assert_all_absent,
     assert_all_present,
     assert_present,
+    build_captured_response,
     by_test_id,
     capture_candidate_proposal_response,
+    csrf_token,
     is_candidate_proposal_request,
     require,
     wait_for_at_least_one,
@@ -239,21 +242,36 @@ CARD_PAYMENT_CAUTION_TEST_ID = "candidate-card-payment-caution"
 CARD_PAYMENT_CAUTION_ATTRIBUTE = "data-card-payment-available"
 CARD_PAYMENT_VALUE_STATE_ATTRIBUTE = "data-card-payment-value-state"
 PROVIDER_PAGE_LINK_TEST_ID = "candidate-card-provider-page-link"
+# Verified 1:1 against candidate-search-browser-interface.yaml v1.8.0's own
+# unavailableControls.allowedPurposes list (18 entries, contract lines
+# ~1207-1217) -- every entry below has a matching contract entry and vice
+# versa. **Resynced 2026-09-09 (adr/0049)**: removed DECK_PAGE_PREVIOUS_
+# PURPOSE/DECK_PAGE_NEXT_PURPOSE (decision 4 -- twoColumnLayout replaces
+# mapPrimaryLayout, which owned the only desktop paging buttons; deck paging
+# survives only as mapPrimaryTouchLayout's swipe gesture, which carries no
+# purpose-declared control at all). Added candidate-no-results-open-filter
+# and candidate-filter-walking-time-max-selection, both of which this set
+# had never carried even though adr/0025 decision 3 and adr/0030 decision 2
+# added their own controls earlier -- a genuine pre-existing gap this
+# tester's own 1:1 resync (this round's own explicit instruction) surfaced,
+# not something adr/0049 itself changed. Added candidate-card-gathering-
+# toggle (decision 1's gatheringMode).
 ALLOWED_CONTROL_PURPOSES = {
     "candidate-card-selection",
     "candidate-map-marker-selection",
     "candidate-filter-open",
+    "candidate-no-results-open-filter",
     "candidate-filter-genre-selection",
     "candidate-filter-genre-overflow-toggle",
     "candidate-filter-izakaya-bar-toggle",
     "candidate-filter-non-smoking-toggle",
     "candidate-filter-card-payment-toggle",
     "candidate-filter-budget-tier-selection",
+    "candidate-filter-walking-time-max-selection",
     "candidate-filter-apply",
     "candidate-filter-revert",
     "candidate-search-again",
-    DECK_PAGE_PREVIOUS_PURPOSE,
-    DECK_PAGE_NEXT_PURPOSE,
+    "candidate-card-gathering-toggle",
     "auth-sign-out",
     "auth-password-change-open",
     "auth-account-menu-toggle",
@@ -299,6 +317,22 @@ LOCATION_RANGE_FORBIDDEN_TOKENS = [
     "distance",
 ]
 STATUS_BY_PROBLEM_CODE = {"PROVIDER_UNAVAILABLE": 503, "PROPOSAL_RATE_LIMITED": 429}
+
+# gatheringMode (TDR-CS-17/18/19, adr/0049 decision 1): the consolidated
+# shop-selection screen reached via gathering-scheduling-browser-interface.
+# yaml's shopSelectionEntry.open. This module does not import
+# gathering_scheduling_browser.py (module boundary already established the
+# other direction by that file's own TDR-GTH-25/44/45 handling) -- Given-
+# state construction (creating and confirming a gathering) and the entry
+# navigation (clicking that other contract's gathering-shortlist-open
+# button) are driven here as raw JSON calls / raw test ids instead.
+GATHERING_MODE_BAND = "candidate-gathering-mode-band"
+GATHERING_MODE_SHORTLISTED_COUNT_ATTR = "data-gathering-shortlisted-count"
+GATHERING_MODE_MAX_SHORTLISTED_ATTR = "data-gathering-max-shortlisted"
+CANDIDATE_CARD_GATHERING_TOGGLE = "candidate-card-gathering-toggle"
+CANDIDATE_GATHERING_SHORTLISTED_ATTR = "data-gathering-shortlisted"
+GATHERING_SHORTLIST_OPEN = "gathering-shortlist-open"
+GATHERING_PHASE_INDICATOR = "gathering-phase-indicator"
 # adr/0030 決定1 bandLabel: "whose leading digits, parsed as an integer,
 # equal that same bandAttribute value". Only a run of digits at the very
 # start of the text counts -- a label like "徒歩10分" (digits not leading)
@@ -481,6 +515,139 @@ class CandidateSearchBrowserDsl:
         """
         self.page.set_viewport_size(MOBILE_MAP_PRIMARY_TOUCH_VIEWPORT)
         self.open_candidate_screen()
+
+    # gatheringMode (TDR-CS-17/18/19, adr/0049 decision 1) ------------------
+    # Given-state construction and entry navigation cross into gathering-
+    # scheduling-api.yaml/gathering-scheduling-browser-interface.yaml's own
+    # surfaces (module-boundary note above) -- mirrors gathering_scheduling_
+    # browser.py's own TDR-GTH-25/44/45 precedent in the opposite direction.
+
+    def _gathering_api(
+        self, method: str, path: str, json_body: dict | None = None, *, csrf: bool = False
+    ) -> CapturedApiResponse:
+        headers: dict[str, str] = {}
+        data: bytes | None = None
+        if json_body is not None:
+            headers["Content-Type"] = "application/json"
+            data = json.dumps(json_body).encode("utf-8")
+        if csrf:
+            headers["X-CSRFToken"] = csrf_token(self.page)
+        response = self.page.context.request.fetch(
+            f"{self.base_url}{path}", method=method, headers=headers, data=data
+        )
+        return build_captured_response(response)
+
+    def given_a_selecting_shop_gathering(self, title: str) -> str:
+        """Given-state builder for TDR-CS-17/18/19's own Given ("幹事が会から
+        店を選ぶためにこの画面を開いている（会モード）"): creates and confirms
+        one candidate date on a gathering, through gathering-scheduling-
+        api.yaml's own public boundary (mirrors gathering_scheduling_
+        browser.py's create_selecting_shop_gathering, adr/0037 decision 1),
+        returning the gathering's id.
+        """
+        start_at = (datetime.now(UTC) + timedelta(days=3)).replace(
+            hour=12, minute=0, second=0, microsecond=0
+        )
+        create_response = self._gathering_api(
+            "POST",
+            "/gatherings",
+            {"title": title, "candidateDates": [{"startAt": start_at.isoformat()}]},
+            csrf=True,
+        )
+        self.assertions.assertEqual(create_response.status, 201, create_response.body)
+        gathering = create_response.payload
+        candidate_date_id = gathering["candidateDates"][0]["id"]
+        confirm_response = self._gathering_api(
+            "POST",
+            f"/gatherings/{gathering['id']}/confirm-date",
+            {"candidateDateId": candidate_date_id},
+            csrf=True,
+        )
+        self.assertions.assertEqual(confirm_response.status, 200, confirm_response.body)
+        return gathering["id"]
+
+    def open_gathering_mode_from_dashboard(self, gathering_id: str) -> None:
+        """Navigates to the organizer dashboard for ``gathering_id`` and
+        activates shopSelectionEntry.open (gathering-scheduling-browser-
+        interface.yaml), landing on this file's own gatheringMode screen.
+        """
+        self.page.goto(f"{self.base_url}/gatherings/{gathering_id}/")
+        wait_for_at_least_one(self.page, GATHERING_PHASE_INDICATOR)
+        self.initial = capture_candidate_proposal_response(
+            self.page, lambda: by_test_id(self.page, GATHERING_SHORTLIST_OPEN).first.click()
+        )
+        self.current = self.initial
+        wait_for_at_least_one(self.page, GATHERING_MODE_BAND)
+        if self.initial.status == 200:
+            self._current_proposal()
+            self._applied_filters = self._normalized_filters(self._current_filters())
+            self._pending_filters = dict(self._applied_filters)
+
+    def _read_gathering_mode_band(self) -> dict[str, int]:
+        node = assert_present(self.assertions, self.page, GATHERING_MODE_BAND)
+        return {
+            "shortlisted": int(node.get_attribute(GATHERING_MODE_SHORTLISTED_COUNT_ATTR)),
+            "max": int(node.get_attribute(GATHERING_MODE_MAX_SHORTLISTED_ATTR)),
+        }
+
+    def assert_gathering_mode_band_shows(
+        self, *, shortlisted: int, max_shortlisted: int = 5
+    ) -> None:
+        band = self._read_gathering_mode_band()
+        self.assertions.assertEqual(band["shortlisted"], shortlisted)
+        self.assertions.assertEqual(band["max"], max_shortlisted)
+
+    def toggle_first_candidate_into_gathering(self) -> None:
+        """gatheringMode.cardToggle's requiredOutcome (TDR-CS-17): toggles the
+        first currently-rendered, not-yet-shortlisted card in. Calls
+        setShortlistedShops immediately (no separate submit).
+        """
+        toggle = self.page.locator(
+            f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]'
+            f'[{CANDIDATE_GATHERING_SHORTLISTED_ATTR}="false"]'
+        ).first
+        before = self._read_gathering_mode_band()["shortlisted"]
+        toggle.click()
+        expect(toggle).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "true")
+        self.assertions.assertEqual(self._read_gathering_mode_band()["shortlisted"], before + 1)
+
+    def toggle_off_the_first_shortlisted_candidate(self) -> None:
+        toggle = self.page.locator(
+            f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]'
+            f'[{CANDIDATE_GATHERING_SHORTLISTED_ATTR}="true"]'
+        ).first
+        before = self._read_gathering_mode_band()["shortlisted"]
+        toggle.click()
+        expect(toggle).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "false")
+        self.assertions.assertEqual(self._read_gathering_mode_band()["shortlisted"], before - 1)
+
+    def assert_unselected_candidate_toggle_is_disabled(self) -> None:
+        toggle = self.page.locator(
+            f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]'
+            f'[{CANDIDATE_GATHERING_SHORTLISTED_ATTR}="false"]'
+        ).first
+        expect(toggle).to_be_disabled()
+
+    def assert_gathering_mode_candidates_are_within_open_shop_population(
+        self, gathering_id: str
+    ) -> None:
+        """TDR-CS-18: 会モードでは、候補はその会の開催日に開いている店に絞
+        られる -- checked as self-consistency against this same response's
+        own gatheringContext (the population narrowing itself is gathering-
+        scheduling-api.yaml's own weekday-matching logic, out of reach from
+        this suite the same way TDR-CS-01/TDR-CS-08's near-order checks are,
+        per this file's own established precedent for server-computed
+        geography/population facts this suite cannot independently
+        recompute).
+        """
+        proposal = self._current_proposal()
+        gathering_context = require(
+            proposal.get("gatheringContext"), "response carries no gatheringContext"
+        )
+        self.assertions.assertEqual(gathering_context["gatheringId"], gathering_id)
+        for candidate in proposal["candidates"]:
+            self.assertions.assertIsNotNone(candidate["shopId"])
+            self.assertions.assertIsNotNone(candidate["isShortlisted"])
 
     def open_filter_panel(self) -> None:
         url_before = self.page.url

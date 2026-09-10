@@ -283,3 +283,40 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.organizer_attempts_to_apply_changed_filters()
         self.steps.prior_candidates_and_map_remain()
         self.steps.fetch_failure_is_announced()
+
+    # TDR-CS-17/18/19 (new, 2026-09-08, ADR-0049 decision 1. 店選びはランチ
+    # 候補画面に一本化する -- gathering-scheduling.featureのTDR-GTH-44/45と
+    # 対を成す、この画面から見た同じ業務規則) -----------------------------
+
+    def test_tdr_cs_17_organizer_toggles_a_shop_into_and_out_of_the_gathering(self) -> None:
+        self._sign_in()
+        self.steps.lunch_candidates_can_be_proposed()
+        gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会CS17")
+        self.steps.organizer_opens_this_screen_in_gathering_mode(gathering_id)
+        self.steps.gathering_mode_band_shows(shortlisted=0)
+        self.steps.organizer_adds_a_candidate_to_the_gathering()
+        self.steps.gathering_mode_band_shows(shortlisted=1)
+        self.steps.organizer_removes_the_shop_from_the_gathering()
+        self.steps.gathering_mode_band_shows(shortlisted=0)
+        # FR-030's repeated lesson: gatheringMode is a new screen state this
+        # cross-cutting check must be exercised against.
+        self.steps.no_location_range_or_manual_order_control_exists()
+
+    def test_tdr_cs_18_gathering_mode_narrows_candidates_to_the_confirmed_dates_open_shops(
+        self,
+    ) -> None:
+        self._sign_in()
+        self.steps.lunch_candidates_can_be_proposed()
+        gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会CS18")
+        self.steps.organizer_opens_this_screen_in_gathering_mode(gathering_id)
+        self.steps.gathering_mode_candidates_are_within_the_open_shop_population(gathering_id)
+
+    def test_tdr_cs_19_at_most_five_shops_can_be_in_the_gathering(self) -> None:
+        self._sign_in()
+        self.steps.lunch_candidates_can_be_proposed()
+        gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会CS19")
+        self.steps.organizer_opens_this_screen_in_gathering_mode(gathering_id)
+        for _ in range(5):
+            self.steps.organizer_adds_a_candidate_to_the_gathering()
+        self.steps.gathering_mode_band_shows(shortlisted=5)
+        self.steps.unselected_candidate_toggle_is_disabled()

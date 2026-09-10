@@ -364,3 +364,30 @@ class CandidateSearchSteps:
 
     def deck_swipe_backward_is_a_no_op_at_the_boundary(self) -> None:
         self.dsl.assert_deck_swipe_backward_is_a_no_op_at_the_boundary()
+
+    # gatheringMode (TDR-CS-17/18/19, adr/0049 decision 1) ------------------
+
+    def organizer_has_a_selecting_shop_gathering(self, title: str) -> str:
+        return self.dsl.given_a_selecting_shop_gathering(title)
+
+    def organizer_opens_this_screen_in_gathering_mode(self, gathering_id: str) -> None:
+        self.dsl.open_gathering_mode_from_dashboard(gathering_id)
+
+    def gathering_mode_band_shows(self, *, shortlisted: int, max_shortlisted: int = 5) -> None:
+        self.dsl.assert_gathering_mode_band_shows(
+            shortlisted=shortlisted, max_shortlisted=max_shortlisted
+        )
+
+    def organizer_adds_a_candidate_to_the_gathering(self) -> None:
+        self.dsl.toggle_first_candidate_into_gathering()
+
+    def organizer_removes_the_shop_from_the_gathering(self) -> None:
+        self.dsl.toggle_off_the_first_shortlisted_candidate()
+
+    def unselected_candidate_toggle_is_disabled(self) -> None:
+        self.dsl.assert_unselected_candidate_toggle_is_disabled()
+
+    def gathering_mode_candidates_are_within_the_open_shop_population(
+        self, gathering_id: str
+    ) -> None:
+        self.dsl.assert_gathering_mode_candidates_are_within_open_shop_population(gathering_id)
