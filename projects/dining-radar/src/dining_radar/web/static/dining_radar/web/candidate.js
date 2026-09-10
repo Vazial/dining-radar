@@ -215,6 +215,29 @@
   var SHOWN_CANDIDATE_MEMORY_KEY = "dining-radar:shown-provider-page-urls";
   var SHOWN_CANDIDATE_MEMORY_MAX_AGE_MS = 20 * 60 * 60 * 1000;
 
+  // adr/0049 decision 1: gathering mode. This contract does not fix the
+  // exact navigation mechanism into this mode (gatheringMode's own
+  // description) -- a URL query parameter is this implementation's choice,
+  // read once at module load and carried unchanged on every later
+  // applyFilters/searchAgain request while this screen stays in gathering
+  // mode (requestProposal below attaches it whenever non-null).
+  function readGatheringIdFromUrl() {
+    var params = new URLSearchParams(window.location.search);
+    var value = params.get("gatheringId");
+    return value ? value : null;
+  }
+  var gatheringModeId = readGatheringIdFromUrl();
+  // The most recent response's gatheringContext (null outside gathering
+  // mode, or before any proposal has loaded) -- renderResult/renderCard
+  // read this to decide whether to render gatheringMode's band/cardToggle
+  // at all (their own presenceRule: present exactly when non-null).
+  var currentGatheringContext = null;
+  // This render's Candidate objects keyed by candidateRef -- lets
+  // toggleCardGatheringShortlist read each currently-displayed card's own
+  // shopId without a dedicated DOM attribute (mirrors cardElementsByRef's
+  // own by-ref lookup convention).
+  var currentCandidatesByRef = {};
+
   var currentFilters = defaultFilters();
   // The organizer's working copy. Editing a chip changes only this; nothing
   // is searched until the apply control is used, which is what the
@@ -424,6 +447,13 @@
     var shownProviderPageUrls = currentShownProviderPageUrls();
     if (shownProviderPageUrls.length > 0) {
       body.shownProviderPageUrls = shownProviderPageUrls;
+    }
+    // adr/0049 decision 1: every request carries the same gatheringId while
+    // this screen remains in gathering mode (gatheringMode's own
+    // description: "every applyFilters/searchAgain ... carries that same
+    // gatheringId").
+    if (gatheringModeId) {
+      body.gatheringId = gatheringModeId;
     }
     return fetch("/candidate-proposals", {
       method: "POST",
@@ -763,8 +793,149 @@
       ])
     );
 
+    // adr/0049 decision 1: gatheringMode.cardToggle -- present on every
+    // candidate-card exactly when response.gatheringContext is non-null.
+    if (currentGatheringContext) {
+      var toggle = renderGatheringCardToggle(candidate);
+      card.appendChild(toggle);
+    }
+
     cardElementsByRef[candidate.candidateRef] = card;
     return card;
+  }
+
+  // adr/0049 decision 8: disabled exactly when this card is not currently
+  // shortlisted and the gathering has already reached its 5-shop cap.
+  function gatheringCardToggleDisabled(isShortlisted) {
+    return (
+      !isShortlisted &&
+      currentGatheringContext.shortlistedShopCount >= currentGatheringContext.maxShortlistedShops
+    );
+  }
+
+  function renderGatheringCardToggle(candidate) {
+    var isShortlisted = candidate.isShortlisted === true;
+    var button = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "candidate-card-gathering-toggle",
+        "data-candidate-control-category": "button",
+        "data-candidate-control-purpose": "candidate-card-gathering-toggle",
+        "data-gathering-shortlisted": isShortlisted ? "true" : "false",
+        "class": "candidate-gathering-toggle" + (isShortlisted ? " candidate-gathering-toggle--on" : ""),
+      },
+      [isShortlisted ? "この会に入れました" : "この会に入れる"]
+    );
+    if (gatheringCardToggleDisabled(isShortlisted)) {
+      button.disabled = true;
+    }
+    button.addEventListener("click", function (event) {
+      event.stopPropagation();
+      toggleCardGatheringShortlist(candidate.candidateRef);
+    });
+    return button;
+  }
+
+  // adr/0049 decision 1 (toggleCardGatheringShortlist): the complete
+  // replacement shopIds array is built from every currently-displayed
+  // card's own data-gathering-shortlisted="true" state at the moment of
+  // activation, with this card's shopId added (if it was "false") or
+  // removed (if it was "true") -- this action never calls
+  // candidate-search-api.yaml's own /candidate-proposals; it targets
+  // gathering-scheduling-api.yaml's setShortlistedShops directly (this
+  // contract's first browserAction whose publicOperation targets a
+  // different contract's endpoint).
+  function toggleCardGatheringShortlist(candidateRef) {
+    if (!currentGatheringContext) {
+      return;
+    }
+    var shopIds = [];
+    var thisShopId = null;
+    orderedCardElements.forEach(function (cardEl) {
+      var toggleEl = cardEl.querySelector('[data-testid="candidate-card-gathering-toggle"]');
+      if (!toggleEl) {
+        return;
+      }
+      var ref = cardEl.getAttribute("data-candidate-ref");
+      var shopId = currentCandidatesByRef[ref] ? currentCandidatesByRef[ref].shopId : null;
+      var isOn = toggleEl.getAttribute("data-gathering-shortlisted") === "true";
+      if (ref === candidateRef) {
+        thisShopId = shopId;
+        isOn = !isOn;
+      }
+      if (isOn && shopId) {
+        shopIds.push(shopId);
+      }
+    });
+    if (thisShopId === null) {
+      return;
+    }
+    fetch("/gatherings/" + encodeURIComponent(currentGatheringContext.gatheringId) + "/shortlisted-shops", {
+      method: "PUT",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": csrfToken(),
+      },
+      body: JSON.stringify({ shopIds: shopIds }),
+    })
+      .then(function (response) {
+        return response.status === 200 ? response.json() : null;
+      })
+      .then(function (gathering) {
+        // errorOutcome: a rejected call leaves cardToggle/band unchanged --
+        // this contract fixes no distinct visible error surface beyond that
+        // no-op-on-failure guarantee, so a null (non-200) response here is
+        // silently ignored.
+        if (!gathering) {
+          return;
+        }
+        var updatedShopIds = {};
+        (gathering.shortlistedShops || []).forEach(function (shop) {
+          updatedShopIds[shop.shopId] = true;
+        });
+        currentGatheringContext = {
+          gatheringId: currentGatheringContext.gatheringId,
+          title: currentGatheringContext.title,
+          confirmedCandidateDate: currentGatheringContext.confirmedCandidateDate,
+          shortlistedShopCount: (gathering.shortlistedShops || []).length,
+          maxShortlistedShops: currentGatheringContext.maxShortlistedShops,
+        };
+        var band = root.querySelector('[data-testid="candidate-gathering-mode-band"]');
+        if (band) {
+          band.setAttribute(
+            "data-gathering-shortlisted-count",
+            String(currentGatheringContext.shortlistedShopCount)
+          );
+          band.setAttribute(
+            "data-gathering-max-shortlisted",
+            String(currentGatheringContext.maxShortlistedShops)
+          );
+          var countEl = band.querySelector(".candidate-gathering-mode-band-count");
+          if (countEl) {
+            countEl.textContent =
+              "入れた店 " +
+              String(currentGatheringContext.shortlistedShopCount) +
+              " / " +
+              String(currentGatheringContext.maxShortlistedShops);
+          }
+        }
+        orderedCardElements.forEach(function (cardEl) {
+          var toggleEl = cardEl.querySelector('[data-testid="candidate-card-gathering-toggle"]');
+          if (!toggleEl) {
+            return;
+          }
+          var ref = cardEl.getAttribute("data-candidate-ref");
+          var shopId = currentCandidatesByRef[ref] ? currentCandidatesByRef[ref].shopId : null;
+          var isOn = !!updatedShopIds[shopId];
+          toggleEl.setAttribute("data-gathering-shortlisted", isOn ? "true" : "false");
+          toggleEl.textContent = isOn ? "この会に入れました" : "この会に入れる";
+          toggleEl.classList.toggle("candidate-gathering-toggle--on", isOn);
+          toggleEl.disabled = gatheringCardToggleDisabled(isOn);
+        });
+      })
+      .catch(function () {});
   }
 
   function clearWalkingRadiusRingLayers() {
@@ -2208,12 +2379,74 @@
     root.appendChild(problem);
   }
 
+  // adr/0049 decision 1: the always-on, non-togglable "いまの条件" line
+  // (band). Present exactly when response.gatheringContext is non-null; no
+  // exception for the empty/no-results outcome (gatheringMode.band's own
+  // presenceRule names only response.gatheringContext, not any other
+  // render-state condition).
+  function renderGatheringModeBand(context) {
+    if (!context) {
+      return null;
+    }
+    return el(
+      "div",
+      {
+        "data-testid": "candidate-gathering-mode-band",
+        "data-gathering-shortlisted-count": String(context.shortlistedShopCount),
+        "data-gathering-max-shortlisted": String(context.maxShortlistedShops),
+        "class": "candidate-gathering-mode-band",
+      },
+      [
+        el("span", { "class": "candidate-gathering-mode-band-condition" }, [
+          formatGatheringConfirmedDate(context.confirmedCandidateDate) + "に開いている店",
+        ]),
+        el("span", { "class": "candidate-gathering-mode-band-count" }, [
+          "入れた店 " +
+            String(context.shortlistedShopCount) +
+            " / " +
+            String(context.maxShortlistedShops),
+        ]),
+      ]
+    );
+  }
+
+  // A human-readable rendering of gatheringContext.confirmedCandidateDate
+  // (an ISO-8601 date-time). This contract does not fix the exact wording/
+  // date format (mirrors walkingTimeEstimateWording's own content-only
+  // Musts) -- month/day + weekday is this implementation's choice.
+  // Reads UTC accessors only, matching the shared-date-formatting
+  // convention gathering.js/participant.js already establish for every
+  // startAt/confirmedCandidateDate value (gathering-scheduling-api.yaml
+  // tags every such instant as literal UTC on input --
+  // dateTimeLocalValueToIso -- so display must read the same UTC
+  // components back, not the viewing browser's own host timezone; see
+  // gathering.js's own shared-date-formatting comment for the full TDR-
+  // GTH-24-adjacent rationale this mirrors).
+  function formatGatheringConfirmedDate(isoDateTime) {
+    var date = new Date(isoDateTime);
+    if (isNaN(date.getTime())) {
+      return isoDateTime;
+    }
+    var weekday = ["日", "月", "火", "水", "木", "金", "土"][date.getUTCDay()];
+    return (date.getUTCMonth() + 1) + "/" + date.getUTCDate() + " (" + weekday + ")";
+  }
+
   function renderResult(body) {
     cardElementsByRef = {};
     orderedCardElements = [];
     selectedCandidateRef = null;
     cardsContainerEl = null;
     mapWrapperEl = null;
+    // adr/0049 decision 1: this response's own gatheringContext -- null
+    // outside gathering mode. renderCard reads this to decide whether to
+    // render gatheringMode.cardToggle at all. currentCandidatesByRef lets
+    // toggleCardGatheringShortlist below look up each currently-displayed
+    // card's own Candidate.shopId without inventing a new DOM attribute.
+    currentGatheringContext = body.gatheringContext || null;
+    currentCandidatesByRef = {};
+    (body.candidates || []).forEach(function (candidate) {
+      currentCandidatesByRef[candidate.candidateRef] = candidate;
+    });
     // adr/0031: reset every render, mirroring the resets above -- a fresh
     // proposal (search-again/apply-filters) always starts the deck's own
     // window back at its first card, not wherever a previous response's
@@ -2237,6 +2470,11 @@
     // no-results, and problem outcomes alike (TDR-CS-05's "絞り込み条件を
     // 変更するよう案内される" needs the controls to survive an empty result).
     var content = el("section", { "data-testid": "candidate-proposal-content" }, []);
+
+    var gatheringModeBand = renderGatheringModeBand(currentGatheringContext);
+    if (gatheringModeBand) {
+      content.appendChild(gatheringModeBand);
+    }
 
     // adr/0023 decision 6: disclose both that the default izakaya/bar
     // exclusion was set aside for this response and that included shops'

@@ -213,6 +213,30 @@
       font-size: 0.875rem; line-height: 1.5;
     }
 
+    /* adr/0049 decision 1: gatheringMode.band -- the always-on, non-
+       togglable "いまの条件" condition line. */
+    .candidate-gathering-mode-band {
+      margin: 0; padding: 0.6rem 0.85rem; border-radius: 0.4rem;
+      background: #f0f5ee; border: 1px solid #cddccf; color: #2c3a2f;
+      font-size: 0.8125rem; line-height: 1.5;
+      display: flex; flex-wrap: wrap; align-items: center;
+      justify-content: space-between; gap: 0.5rem;
+    }
+    .candidate-gathering-mode-band-count { font-weight: 700; }
+
+    /* gatheringMode.cardToggle: "この会に入れる"/"この会に入れました". */
+    .candidate-gathering-toggle {
+      margin-top: 0.6rem; width: 100%; min-height: 2.75rem; box-sizing: border-box;
+      border: 1px solid #14684a; border-radius: 0.5rem; background: #fff;
+      color: #14684a; font-size: 0.8125rem; font-weight: 700; font-family: inherit;
+      cursor: pointer;
+    }
+    .candidate-gathering-toggle:hover:not(:disabled) { background: #eef6f1; }
+    .candidate-gathering-toggle:focus-visible { outline: 2px solid #14684a; outline-offset: 2px; }
+    .candidate-gathering-toggle--on { background: #14684a; color: #fff; }
+    .candidate-gathering-toggle--on:hover:not(:disabled) { background: #0d4b35; }
+    .candidate-gathering-toggle:disabled { opacity: 0.5; cursor: default; }
+
     /* TDR-CS-16 (human decision 2026-08-23): rendered in addition to, not
        instead of, a retained proposal (candidate.js's renderProblem
        `additive` path), so this must read as an interruption banner above
@@ -1389,5 +1413,5 @@
       code (184px facts grid, no name-in-id-row) even though the server's
       own file already had this round's fixes.
     {% endcomment %}
-    <script src="{% static 'dining_radar/web/candidate.js' %}?v=20260902-gathering-entry-and-deck-fixes"></script>
+    <script src="{% static 'dining_radar/web/candidate.js' %}?v=20260910-gathering-mode-band-and-toggle"></script>
 {% endblock %}

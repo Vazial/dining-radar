@@ -615,7 +615,10 @@
   align-items: center;
   justify-content: center;
 }
-.gth-shop-row--vote:first-child .gth-shop-rank {
+/* adr/0050 decision 5: driven by data-current-leader, the contract's own
+   attribute, rather than :first-child -- keeps the highlight tied to the
+   actual leader signal even if this list's DOM structure changes later. */
+.gth-shop-row--vote[data-current-leader="true"] .gth-shop-rank {
   background: #b4531c;
   border-color: #b4531c;
   color: #fff;

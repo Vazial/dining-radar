@@ -302,7 +302,7 @@
         border-radius: 999px;
         padding: 0.2rem 0.75rem;
       }
-      .gth-final-when-lb, .gth-final-shop-lb, .gth-final-yours-lb, .gth-final-approved-lb {
+      .gth-final-when-lb, .gth-final-shop-lb, .gth-final-yours-lb {
         font-size: 0.6875rem;
         color: #77827a;
         margin-top: 0.4rem;
@@ -310,19 +310,6 @@
       .gth-final-when { font-size: 1.25rem; font-weight: 700; }
       .gth-final-shop { font-size: 1.25rem; font-weight: 700; }
       .gth-final-yours-row { font-size: 0.8125rem; }
-      .gth-final-approved { display: flex; flex-direction: column; gap: 0.3rem; }
-      .gth-final-shop-vote {
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        gap: 0.5rem;
-        font-size: 0.8125rem;
-        padding: 0.2rem 0;
-        border-top: 1px solid #eef1ed;
-      }
-      .gth-final-shop-vote:first-of-type { border-top: 0; }
-      .gth-final-shop-vote-name { font-weight: 600; }
-      .gth-final-shop-vote-status { color: #4b564e; font-size: 0.75rem; white-space: nowrap; }
     </style>
   </head>
   <body>
@@ -346,6 +333,6 @@
     {% comment %}
       Cache-busting query string on participant.js (FR-025).
     {% endcomment %}
-    <script src="{% static 'dining_radar/gathering/participant.js' %}?v=20260906-stale-response-guard"></script>
+    <script src="{% static 'dining_radar/gathering/participant.js' %}?v=20260910-field-feedback"></script>
   </body>
 </html>

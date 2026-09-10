@@ -947,6 +947,13 @@
       "data-ok-to-go-count": shop.okToGoCount,
       "data-not-going-count": shop.notGoingCount,
       "data-responded-count": shop.respondedParticipantCount,
+      // adr/0050 decision 5 (architect technical judgment): "true" for
+      // exactly the first item in this list's own orderingInvariant order
+      // (wantToGoCount + okToGoCount descending, ties broken by distance
+      // ascending then shopId ascending -- already the exact order
+      // state.gathering.shortlistedShops arrives in, so index 0 is always
+      // the leader). Independent of gathering-finalize-shop-select below.
+      "data-current-leader": index === 0 ? "true" : "false",
       class: "gth-shop-row gth-shop-row--vote",
     };
     // TDR-GTH-40: the three-tier breakdown, denominator = respondedParticipantCount
