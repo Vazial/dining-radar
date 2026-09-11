@@ -327,6 +327,13 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         no new state and leaves the existing answer intact; activating
         "結果をのぞく" makes the (already unconditionally present since
         adr/0050 decision 2) schedule tally actually visible.
+
+        **Fixed (reviewer audit Minor#3)**: this is the only test that
+        actually clicks gathering-participant-answer-later/-peek-results
+        (both registered GATHERING_ALLOWED_PURPOSES entries), but it never
+        ran the FR-030 cross-cutting purpose-declaration scan with both
+        buttons rendered and peek-results' tallies actually visible --
+        added at the end, after every other action on this screen state.
         """
         self._sign_in()
         self.steps.organizer_has_a_scheduling_gathering("会later", [days_from_now_iso(3)])
@@ -339,6 +346,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
             candidate_date_id, "GOING"
         )
         self.steps.participant_activates_peek_results_and_tallies_are_visible(candidate_date_id)
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
 
     def test_tdr_gth_13_guessing_a_token_is_denied_without_disclosure(self) -> None:
         self._sign_in()
