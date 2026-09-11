@@ -35,6 +35,7 @@ from urllib.parse import urlparse
 
 from django.test import SimpleTestCase
 from playwright.sync_api import Locator, Page, Response, expect
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from tests.acceptance.dsl.authentication_browser import AuthenticationBrowserDsl
 from tests.acceptance.dsl.browser_mechanics import HttpBrowser, assert_no_content
@@ -1106,11 +1107,53 @@ class GatheringSchedulingBrowserDsl:
         FR-030's repeated lesson: a new screen state (the dialog itself,
         carrying gathering-delete-confirm/-cancel) must be exercised, not
         only the pre- and post-delete dashboard states.
+
+        **Fixed (intermittent net::ERR_ABORTED)**: deleteGathering.confirm.
+        requiredOutcome (gathering-scheduling-browser-interface.yaml)
+        deliberately leaves the immediate post-delete destination screen
+        unspecified -- it fixes only that the gathering subsequently no
+        longer appears in organizerGatheringList.list -- so this method must
+        not assert or require any particular destination, including
+        /gatherings/ itself. It only needs to not return control to its
+        caller (assert_gathering_absent_from_list, which navigates to
+        organizerGatheringList.list to observe the required outcome) while
+        a navigation this same confirm click set in motion is still
+        in-flight, because a second, independent navigation racing an
+        in-flight one is exactly what Playwright surfaces as
+        net::ERR_ABORTED / "interrupted by another navigation".
+
+        page.expect_navigation() (registered *before* the click, per
+        Playwright's own documented idiom for a click whose navigation is
+        delayed behind an async network call) is what actually closes this
+        race: two earlier attempts did not. Reading the DELETE response's
+        body first (mirroring _capture_gathering_response below) failed
+        deterministically -- not intermittently -- with "Response body is
+        not available for a response that was navigated away from", because
+        the screen's own client-side navigation had already reclaimed the
+        network resource before Playwright's second round-trip
+        (Network.getResponseBody) could land. Waiting only for the response
+        *event* (no body read) followed by wait_for_load_state("load")
+        narrowed the race but did not close it -- wait_for_load_state
+        resolves immediately against the page's already-settled state if no
+        navigation has started yet at the moment it is called, so it cannot
+        by itself wait for a navigation that has not begun. expect_navigation
+        avoids this because entering its `with` block subscribes to the
+        frame's next navigation event before running the click, so whatever
+        the confirm click triggers -- now or a moment later, once its DELETE
+        call resolves -- is the exact same navigation this method waits on.
+        If the click causes no navigation at all (not currently expected,
+        given the confirm click here always triggers one, but not something
+        this contract fixes either), expect_navigation times out and that is
+        treated as "nothing to wait for", not a failure.
         """
         by_test_id(self.page, GATHERING_DELETE_OPEN).click()
         wait_for_at_least_one(self.page, GATHERING_DELETE_CONFIRM_DIALOG)
         self.assert_gathering_screen_has_no_forbidden_surfaces()
-        by_test_id(self.page, GATHERING_DELETE_CONFIRM).click()
+        try:
+            with self.page.expect_navigation(wait_until="load"):
+                by_test_id(self.page, GATHERING_DELETE_CONFIRM).click()
+        except PlaywrightTimeoutError:
+            pass
 
     def assert_gathering_absent_from_list(self, gathering_id: str) -> None:
         self.open_organizer_gathering_list()
