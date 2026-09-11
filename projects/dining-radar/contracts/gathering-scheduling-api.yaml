@@ -1,6 +1,6 @@
 # Dining Radar gathering-scheduling API — TDR-GTH candidate proposals
 #
-# ステータス: 承認待ち — architectが起草したドラフトである。人間の承認前（meta/adr/0043 方式(ii)）。
+# ステータス: 承認済み(2026-09-11) — 人間裁定（2026-09-11 チャット選択肢UI）: 会の画面群の仕様と実装を、この場の合意として承認する。合意はチャットで取り、公表はPRで行う（meta/adr/0064 決定1）。
 #   会スコープの契約。この行の形式はmeta/adr/0043の機械検証が要求する
 #
 # 2026-08-30 起草 (architect、ADR-0035):

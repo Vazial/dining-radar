@@ -1,9 +1,9 @@
 ---
 id: 0052
 scope: project/dining-radar
-status: 提案中
+status: 承認済み
 date: 2026-09-11
-approved_by: null
+approved_by: "人間裁定（2026-09-11 チャット選択肢UI）: どちらも利用者から見える動きは変えない技術的な記録であると説明したうえで「今ここで承認する」を選択。承認だけの追いPRを出す手間を避けるため、同じPRに承認記録ごと載せる"
 supersedes: []
 superseded_by: null
 relates_to: [P-04, P-05, P-08, ADR-0037, ADR-0049]
