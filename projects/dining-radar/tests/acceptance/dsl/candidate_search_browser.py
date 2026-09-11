@@ -356,6 +356,26 @@ def _leading_minutes(text: str | None) -> int | None:
     return int(match.group(1))
 
 
+def next_weekday_iso(weekday: int, hour: int = 12) -> str:
+    """The next future occurrence (never "today") of ``weekday`` (Python's
+    date.weekday(): Monday=0 ... Sunday=6) as an RFC3339 string, for
+    given_a_selecting_shop_gathering's candidate_date_iso.
+
+    Identical in behavior to gathering_scheduling_browser.py's own
+    next_weekday_iso (TDR-GTH-44/45's own technique for the same
+    test-support-api.yaml GATHERING_OPEN_SHOP_WEEKDAY_MATCH population) --
+    duplicated here rather than imported, mirroring this pair of DSL files'
+    existing precedent of each owning its own small Given-state utilities
+    rather than cross-importing between the two sibling suites.
+    """
+    now = datetime.now(UTC)
+    days_ahead = (weekday - now.weekday()) % 7 or 7
+    target = (now + timedelta(days=days_ahead)).replace(
+        hour=hour, minute=0, second=0, microsecond=0
+    )
+    return target.isoformat()
+
+
 @dataclass(frozen=True)
 class DisplaySnapshot:
     """Everything browser-interface.yaml's several *-unchanged Musts (and
@@ -544,16 +564,30 @@ class CandidateSearchBrowserDsl:
         )
         return build_captured_response(response)
 
-    def given_a_selecting_shop_gathering(self, title: str) -> str:
+    def given_a_selecting_shop_gathering(
+        self, title: str, candidate_date_iso: str | None = None
+    ) -> str:
         """Given-state builder for TDR-CS-17/18/19's own Given ("幹事が会から
         店を選ぶためにこの画面を開いている（会モード）"): creates and confirms
         one candidate date on a gathering, through gathering-scheduling-
         api.yaml's own public boundary (mirrors gathering_scheduling_
         browser.py's create_selecting_shop_gathering, adr/0037 decision 1),
         returning the gathering's id.
+
+        ``candidate_date_iso`` lets a caller pin the confirmed date's
+        weekday (e.g. TDR-CS-19's need for test-support-api.yaml's
+        GATHERING_OPEN_SHOP_WEEKDAY_MATCH population, whose openShopCount is
+        known per weekday -- see this file's own next_weekday_iso below,
+        mirroring gathering_scheduling_browser.py's identical helper for the
+        sibling TDR-GTH-44/45 scenarios). Omitted, this keeps the prior
+        arbitrary "+3 days" default TDR-CS-17/18 do not depend on.
         """
-        start_at = (datetime.now(UTC) + timedelta(days=3)).replace(
-            hour=12, minute=0, second=0, microsecond=0
+        start_at = (
+            datetime.fromisoformat(candidate_date_iso)
+            if candidate_date_iso is not None
+            else (datetime.now(UTC) + timedelta(days=3)).replace(
+                hour=12, minute=0, second=0, microsecond=0
+            )
         )
         create_response = self._gathering_api(
             "POST",
@@ -608,24 +642,59 @@ class CandidateSearchBrowserDsl:
         """gatheringMode.cardToggle's requiredOutcome (TDR-CS-17): toggles the
         first currently-rendered, not-yet-shortlisted card in. Calls
         setShortlistedShops immediately (no separate submit).
+
+        **Fixed**: the prior version located its target with an attribute
+        filter (`[data-gathering-shortlisted="false"]`) and re-asserted on
+        that *same, still-attribute-filtered* Locator after clicking --
+        since a Playwright Locator re-resolves its selector on every
+        interaction rather than pinning the element it first found, once the
+        click flips the clicked card's own attribute to "true" that locator
+        no longer matches the clicked card at all; with more than one
+        not-yet-shortlisted card still on screen (TDR-CS-19 toggles five in a
+        row), it silently starts matching a *different*, still-"false" card
+        instead, so the following assertion polled a moving target and timed
+        out waiting for a card that was never clicked to turn "true"
+        (reproduced empirically: the underlying setShortlistedShops call
+        always succeeded and the band count always advanced, only the
+        re-resolved locator's own attribute check hung). Locating by
+        position (`nth`) instead pins a stable target: toggling never
+        triggers a fresh proposeCandidates call (it calls
+        setShortlistedShops on gathering-scheduling-api.yaml instead, per
+        toggleCardGatheringShortlist's own requiredOutcome elsewhere in this
+        contract), so this screen's own card order is unaffected by the
+        click and the same index continues to identify the same card across
+        it -- mirroring gathering_scheduling_browser.py's own identical fix
+        for this same gatheringMode screen's cardToggle.
         """
-        toggle = self.page.locator(
-            f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]'
-            f'[{CANDIDATE_GATHERING_SHORTLISTED_ATTR}="false"]'
-        ).first
+        toggles = self.page.locator(f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]')
+        target_index = next(
+            index
+            for index in range(toggles.count())
+            if toggles.nth(index).get_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR) == "false"
+        )
+        target = toggles.nth(target_index)
         before = self._read_gathering_mode_band()["shortlisted"]
-        toggle.click()
-        expect(toggle).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "true")
+        target.click()
+        expect(target).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "true")
         self.assertions.assertEqual(self._read_gathering_mode_band()["shortlisted"], before + 1)
 
     def toggle_off_the_first_shortlisted_candidate(self) -> None:
-        toggle = self.page.locator(
-            f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]'
-            f'[{CANDIDATE_GATHERING_SHORTLISTED_ATTR}="true"]'
-        ).first
+        """See toggle_first_candidate_into_gathering's docstring above for why
+        this targets by position (`nth`) rather than by the toggled
+        attribute itself: TDR-CS-17 clicks this immediately after that one,
+        so it is exposed to the identical retargeting bug once more than one
+        shortlisted card is on screen.
+        """
+        toggles = self.page.locator(f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]')
+        target_index = next(
+            index
+            for index in range(toggles.count())
+            if toggles.nth(index).get_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR) == "true"
+        )
+        target = toggles.nth(target_index)
         before = self._read_gathering_mode_band()["shortlisted"]
-        toggle.click()
-        expect(toggle).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "false")
+        target.click()
+        expect(target).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "false")
         self.assertions.assertEqual(self._read_gathering_mode_band()["shortlisted"], before - 1)
 
     def assert_unselected_candidate_toggle_is_disabled(self) -> None:

@@ -356,8 +356,21 @@ class CandidateSearchSteps:
 
     # gatheringMode (TDR-CS-17/18/19, adr/0049 decision 1) ------------------
 
-    def organizer_has_a_selecting_shop_gathering(self, title: str) -> str:
-        return self.dsl.given_a_selecting_shop_gathering(title)
+    def gathering_open_shop_population_is_available(self) -> None:
+        """test-support-api.yaml's GATHERING_OPEN_SHOP_WEEKDAY_MATCH (TDR-CS-19's
+        own Given, adr/0049 decision 1's 2026-09-09 header addendum): a
+        6-open-shop weekday lets 5 be shortlisted through this screen's own
+        cardToggle while leaving exactly 1 not-yet-shortlisted spare
+        reachable via a search-again replay (mirrors gathering-scheduling.
+        feature's TDR-GTH-45, the same requirement from that other file's
+        own Given).
+        """
+        self.dsl.set_candidate_state("GATHERING_OPEN_SHOP_WEEKDAY_MATCH")
+
+    def organizer_has_a_selecting_shop_gathering(
+        self, title: str, candidate_date_iso: str | None = None
+    ) -> str:
+        return self.dsl.given_a_selecting_shop_gathering(title, candidate_date_iso)
 
     def organizer_opens_this_screen_in_gathering_mode(self, gathering_id: str) -> None:
         self.dsl.open_gathering_mode_from_dashboard(gathering_id)
@@ -372,6 +385,9 @@ class CandidateSearchSteps:
 
     def organizer_removes_the_shop_from_the_gathering(self) -> None:
         self.dsl.toggle_off_the_first_shortlisted_candidate()
+
+    def organizer_searches_again_on_shop_selection_entry(self) -> None:
+        self.dsl.search_again()
 
     def unselected_candidate_toggle_is_disabled(self) -> None:
         self.dsl.assert_unselected_candidate_toggle_is_disabled()

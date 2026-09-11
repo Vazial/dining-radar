@@ -7,7 +7,10 @@ import os
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
 from playwright.sync_api import sync_playwright
 
-from tests.acceptance.dsl.candidate_search_browser import CandidateSearchBrowserDsl
+from tests.acceptance.dsl.candidate_search_browser import (
+    CandidateSearchBrowserDsl,
+    next_weekday_iso,
+)
 from tests.acceptance.steps.candidate_search_steps import CandidateSearchSteps
 
 
@@ -289,6 +292,21 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
     # 対を成す、この画面から見た同じ業務規則) -----------------------------
 
     def test_tdr_cs_17_organizer_toggles_a_shop_into_and_out_of_the_gathering(self) -> None:
+        """**Fixed**: toggling off the *only* shortlisted shop made the WHEN
+        step attempt to empty the shortlist entirely -- gathering-scheduling-
+        api.yaml's SetShortlistedShopsRequest.shopIds carries `minItems: 1`,
+        so the server correctly rejected it with 400 INVALID_SHOP_SELECTION,
+        leaving the toggle's own attribute and the band both unchanged
+        (reproduced empirically: the click fired but data-gathering-
+        shortlisted stayed "true" and the band count stayed 1 even after
+        waiting). This scenario's own assertions are about the one specific
+        shop's own toggle-in/toggle-out outcome, not about the shortlist
+        becoming empty overall, so selecting 2 before toggling one back off
+        (leaving 1, never 0) tests the identical business behavior without
+        colliding with this orthogonal Must -- mirrors gathering_scheduling_
+        browser.py's own identical fix for this same gatheringMode screen's
+        TDR-GTH-44.
+        """
         self._sign_in()
         self.steps.lunch_candidates_can_be_proposed()
         gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会CS17")
@@ -296,8 +314,10 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.gathering_mode_band_shows(shortlisted=0)
         self.steps.organizer_adds_a_candidate_to_the_gathering()
         self.steps.gathering_mode_band_shows(shortlisted=1)
+        self.steps.organizer_adds_a_candidate_to_the_gathering()
+        self.steps.gathering_mode_band_shows(shortlisted=2)
         self.steps.organizer_removes_the_shop_from_the_gathering()
-        self.steps.gathering_mode_band_shows(shortlisted=0)
+        self.steps.gathering_mode_band_shows(shortlisted=1)
         # FR-030's repeated lesson: gatheringMode is a new screen state this
         # cross-cutting check must be exercised against.
         self.steps.no_location_range_or_manual_order_control_exists()
@@ -312,13 +332,36 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.gathering_mode_candidates_are_within_the_open_shop_population(gathering_id)
 
     def test_tdr_cs_19_at_most_five_shops_can_be_in_the_gathering(self) -> None:
+        """**Fixed**: this Given previously used lunch_candidates_can_be_
+        proposed (NORMAL_WITH_WEIGHTED_SAMPLING, >=40 synthetic candidates).
+        candidate-search-api.yaml's own 5-item display cap means any single
+        proposeCandidates response can render at most 5 cards; toggling all
+        5 of them in (the only ones ever shown) leaves no not-yet-
+        shortlisted card on screen at all to assert disabled, and reopening
+        this large a population never re-shows an already-shortlisted card
+        either (shownPoolPriority guarantees a fresh, wholly disjoint 5 while
+        the not-yet-shown remainder stays far above the cap) -- reproduced
+        empirically: "no [data-gathering-shortlisted=false] element found".
+        test-support-api.yaml's own 2026-09-09 header addendum names
+        GATHERING_OPEN_SHOP_WEEKDAY_MATCH as this scenario's intended Given
+        for exactly this reason -- its Thursday population is exactly 6 open
+        shops (OPEN_SHOP_COUNT_BY_WEEKDAY), so after 5 are shortlisted
+        through this screen's own cardToggle, a search-again replay's
+        shownPoolPriority is guaranteed to surface the 1 not-yet-shown spare
+        (disabled, count>=5) alongside 4 repeats of the already-shortlisted
+        ones (still enabled) -- mirroring gathering-scheduling.feature's own
+        TDR-GTH-45 technique for this identical requirement on this same
+        gatheringMode screen.
+        """
         self._sign_in()
-        self.steps.lunch_candidates_can_be_proposed()
-        gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会CS19")
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会CS19", thursday)
         self.steps.organizer_opens_this_screen_in_gathering_mode(gathering_id)
         for _ in range(5):
             self.steps.organizer_adds_a_candidate_to_the_gathering()
         self.steps.gathering_mode_band_shows(shortlisted=5)
+        self.steps.organizer_searches_again_on_shop_selection_entry()
         self.steps.unselected_candidate_toggle_is_disabled()
         # adr/0049 決定8 後段: 既に選択済みのカードは5件到達後も外す操作として活性のまま
         self.steps.selected_candidate_toggle_is_enabled()
