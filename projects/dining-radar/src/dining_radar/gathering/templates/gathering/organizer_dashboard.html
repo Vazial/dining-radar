@@ -16,11 +16,18 @@
     {% endcomment %}
     <link rel="stylesheet" href="{% static 'dining_radar/web/vendor/leaflet/leaflet.css' %}">
     {% comment %}
+      flatpickr, vendored the same way (adr/0049 decision 3, MIT license,
+      vendor/flatpickr/) -- backs addCandidateDateForm.calendar's day-cell
+      surface. No cache-busting query string, mirroring leaflet.css's own
+      precedent above (this vendored file changes only on a library upgrade).
+    {% endcomment %}
+    <link rel="stylesheet" href="{% static 'dining_radar/gathering/vendor/flatpickr/flatpickr.min.css' %}">
+    {% comment %}
       Cache-busting query string (FR-025) -- bump this on every
       organizer.css change. Shared with organizer_gathering_list.html and
       organizer_gathering_create.html (2026-09-04 visual-language pass).
     {% endcomment %}
-    <link rel="stylesheet" href="{% static 'dining_radar/gathering/organizer.css' %}?v=20260910-field-feedback">
+    <link rel="stylesheet" href="{% static 'dining_radar/gathering/organizer.css' %}?v=20260911-calendar-and-delete">
 {% endblock %}
 
 {% block content %}
@@ -43,10 +50,11 @@
     </main>
 
     <script src="{% static 'dining_radar/web/vendor/leaflet/leaflet.js' %}"></script>
+    <script src="{% static 'dining_radar/gathering/vendor/flatpickr/flatpickr.min.js' %}"></script>
     {% comment %}
       Cache-busting query string on gathering.js -- bump this on every
       gathering.js change (FR-025: a browser that already cached this exact
       URL keeps serving the old script indefinitely otherwise).
     {% endcomment %}
-    <script src="{% static 'dining_radar/gathering/gathering.js' %}?v=20260910-field-feedback"></script>
+    <script src="{% static 'dining_radar/gathering/gathering.js' %}?v=20260911-calendar-and-shortlist-fix"></script>
 {% endblock %}

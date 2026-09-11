@@ -59,6 +59,28 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / ".runtime" / "staticfiles"
+# This project serves no uploaded/media files (no FileField/ImageField), but
+# Django's own default MEDIA_URL == "" (unset) leaves a real, environment-
+# specific landmine for LiveServerTestCase-based acceptance tests
+# (StaticLiveServerTestCase's own LiveServerThread wraps every request in
+# `_MediaFilesHandler(WSGIHandler())`, whose `_should_handle()` -- "path.
+# startswith(self.base_url.path)" -- degenerates to "always true" whenever
+# MEDIA_URL is the empty string, since every path starts with ""). Real
+# measurement, 2026-09-11: gathering-scheduling-api.yaml's own contracted
+# `POST /gatherings/{gatheringId}/candidate-dates:batch` path (the literal
+# colon is part of the approved contract, not renameable) made Windows'
+# `nturl2path.url2pathname` -- which `_MediaFilesHandler.file_path()` calls
+# unconditionally on every request once `_should_handle` degenerates this
+# way -- misparse the colon as a drive-letter separator and collapse the
+# path to a nonsense fragment ("S:batch"), raising an uncaught
+# `SuspiciousFileOperation` (not the `Http404` this handler's own code
+# expects and catches) as a raw 500 before the request ever reached
+# urls.py/views.py. Giving MEDIA_URL its own real, non-empty prefix (the
+# same relative-path shape STATIC_URL already uses) restores
+# `_should_handle`'s intended behavior -- only requests actually under
+# `/media/` take this path-conversion route at all -- closing the landmine
+# for every other URL in this project, not just this one contracted path.
+MEDIA_URL = "media/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # These are public application invariants. A local debug server may opt out of

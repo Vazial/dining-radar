@@ -133,6 +133,13 @@
         font-size: 0.6875rem;
         color: #77827a;
       }
+      /* peekResults.requiredOutcome (adr/0050 decision 1): the one open
+         question's own tally/mask stays hidden until
+         gathering-participant-peek-results is activated -- every *done*
+         question's own gth-tally (rendered outside this wrapper) is
+         unaffected and always visible. */
+      .gth-open-tally-wrap { display: none; }
+      .gth-open-tally-wrap--revealed { display: flex; flex-direction: column; gap: 0.5625rem; }
       .gth-open-options { display: flex; flex-direction: column; gap: 0.5rem; }
 
       /* Response option buttons -- shared, compact variant for done cards */
@@ -333,6 +340,6 @@
     {% comment %}
       Cache-busting query string on participant.js (FR-025).
     {% endcomment %}
-    <script src="{% static 'dining_radar/gathering/participant.js' %}?v=20260910-field-feedback"></script>
+    <script src="{% static 'dining_radar/gathering/participant.js' %}?v=20260911-answer-later-peek-results"></script>
   </body>
 </html>

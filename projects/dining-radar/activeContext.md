@@ -2150,6 +2150,129 @@ Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (
     - **合成候補は経度0固定で南北一直線に並び、現在地は海の上**である。ピンが縦一列なのはデータの
       性質であって不具合ではない。**実データの2次元の散らばりでの見え方は、この環境では確かめられない**
 
+17. **回帰1件の実測診断・修正と、カレンダー複数選択・会の削除・answerLater/peekResultsを実装した
+    （2026-09-11、developer、ブランチ`fix/gathering-not-found-and-remaining-ui`、基点
+    `origin/test/gathering-field-feedback-steps-continued`の`4c97e80`）。**
+
+    **回帰の実測診断**: tester報告のTDR-GTH-06・10・11・26・27・36・38・44（実際には08等も含め、
+    `gathering-candidate-date`をクリックしてtentative selectする、またはSELECTING_SHOP到達後に
+    ダッシュボードを開く経路全般）が軒並み失敗していた真因は、`gathering.js`の
+    `renderOpenShopPreview`/`fetchOpenShopListForShortlist`が、adr/0049決定2で
+    `CandidateDateOpenShopPreview.previewShops`がAPI側から削除されたにもかかわらず、削除前と同じ
+    `state.openShopPreview.previewShops.map(...)`/`state.openShopList.previewShops.forEach(...)`を
+    呼び続けていたこと——`previewShops`が`undefined`になり`.map`/`.forEach`が例外を投げ、
+    `render()`が`root.innerHTML = ""`の直後に中断して`#gathering-app`が空になっていた（symptom：
+    静的な見出しだけが残る）。**修正**: `renderOpenShopPreview`を件数のみの表示に書き直し、
+    adr/0049決定1により全廃された`shortlistSelection`一式
+    （`fetchOpenShopListForShortlist`/`shortlistSelectionVisible`/`renderShortlistSelection`/
+    `renderOpenShopListItem`/`toggleShortlistPending`/`submitShortlist`/`openShortlistReplace`/
+    `initializeOpenShopMap`/`renderOpenShopDetailFields`とその状態フィールド）を丸ごと削除し、
+    `shopSelectionEntry.open`（`gathering-shortlist-open`、`navigateToShopSelectionEntry`/
+    `renderShopSelectionEntry`）を新設して`candidate-search-browser-interface.yaml`の
+    `gatheringMode`（`/?gatheringId=<id>`、candidate.js自身の`readGatheringIdFromUrl`が読む
+    クエリパラメータ）へ遷移する形に置き換えた。
+
+    **候補日のカレンダー複数選択**（adr/0049決定3・adr/0051、`gathering.js`の
+    `addCandidateDateForm`・`gathering_create.js`の`organizerGatheringCreate`両方）: vendored
+    flatpickr（4.6.13、MIT license、`vendor/flatpickr/`、Leafletと同じ同一オリジン配信規約）を
+    採用した——選定理由は、contractが要求する「day-cell一つ一つにdata-testid/data-date/
+    data-selected/purposeを付与する」ことが`onDayCreate`フックで正確に実現でき、依存ゼロ・
+    JS+CSS合計約68KBと軽量だったため。実装上の実測の落とし穴が3件あった:
+    (1) flatpickr自身が管理する`<input>`は`setupInputs()`が`type`を強制的に`"text"`へ上書きする
+    ため、`type="hidden"`で回避できず、`allGatheringScreenFormControlsMustDeclarePurpose`スキャン
+    （`input:not([type='hidden'])`にマッチしpurpose未宣言で失敗）に必ず引っかかる——この入力要素を
+    **一切documentへattachしない**（`appendTo: container`でflatpickrに自分のカレンダー本体だけを
+    別コンテナへ描画させる）ことで回避した。(2) flatpickrの月ヘッダーは`showMonths`の値に関わらず
+    年入力`<input class="cur-year">`を必ず生成する——初期化直後に検出して静的な`<span>`へ置換した
+    （代償: この置換後にprev/next月移動をすると年表示だけが更新されなくなる。日送り自体は正しく
+    動く）。(3) `showMonths: 3`（TDR-GTH-46が要求する+3日・+20日の同一バッチが月をまたぐケースに
+    単一月表示では対応できないため採用）は隣接月の「詰め物」セル（`prevMonthDay`/`nextMonthDay`）
+    も生成し、同じ日付に対し2つの要素へ同じ`data-date`を付けるとPlaywrightのstrict-mode違反になる
+    ——詰め物セルには一切属性を付けないよう`onDayCreate`で除外した。始まり時刻は"12:00始まり"
+    （`calendarDayIsoToStartAtIso`、`dayIso + "T12:00:00Z"`）で固定、退役した
+    `dateTimeLocalValueToIso`/`toStartAtIso`の代替として`tests/test_gathering.py`の
+    `DateTimeLocalConversionSourceTests`を更新した。
+
+    **実装中に発見した無関係のWindows依存バグ1件（真の500エラー）**: TDR-GTH-02（カレンダー経由の
+    `addCandidateDates`呼び出し）が実ブラウザ経由でのみ`500`を返す事象を実測で追った——
+    `gathering-scheduling-api.yaml`が固定する契約上のURL`POST /gatherings/{id}/candidate-dates:batch`
+    （コロンを含む、変更不可）に対し、`StaticLiveServerTestCase`の`LiveServerThread`が
+    `_MediaFilesHandler(WSGIHandler())`でラップしており、`MEDIA_URL`が既定の空文字列のままだと
+    `_should_handle()`が「常にTrue」に退化し、あらゆるリクエストがWindows専用の
+    `nturl2path.url2pathname`を通ってしまう——このURLのコロンが誤ってドライブレター区切りとして
+    解釈され、パスが`"S:batch"`へ壊れて`SuspiciousFileOperation`（`FSFilesHandler`が捕捉する
+    `Http404`ではない）が生の500として返っていた。Django test clientはこの層を経由しないため
+    従来のユニットテストでは一度も踏んでいなかった。**修正**: `settings_base.py`に
+    `MEDIA_URL = "media/"`を追加（このプロジェクトはメディアファイルを一切使わないが、
+    STATIC_URLと同じ相対パス規約を与えることで`_should_handle`の意図通りの絞り込みを回復する）。
+
+    **会の削除**（adr/0050決定4、TDR-GTH-48）: `gathering.js`に`deleteGathering`
+    （`gathering-delete-open`→`gathering-delete-confirm-dialog`→`-confirm`/`-cancel`の2段階）を
+    実装。バックエンド（`DELETE /gatherings/{id}`、`services.delete_gathering`）は前任者により
+    既に実装済みだった。
+
+    **「あとで答える」「結果をのぞく」を実際に動かす**（adr/0050決定1）: `participant.js`の
+    `renderFooter`を装飾用`<div>`から実際の`<button>`へ書き直した——前任者が「共有DSLの
+    allowedPurposesがまだ`gathering-participant-answer-later`/`-peek-results`を認識せず、
+    実際にL4を回して確認済み」として保留していたが、テスター側の`test/gathering-field-feedback-
+    steps-continued`branchで既に解消されていたため、今回配線した。`answerLater`は確認文言
+    （`gathering-participant-answer-later-confirmation`）を表示するだけの操作。`peekResults`は
+    「まだ回答していない1問（open question）」自身のtally/maskをCSSで既定非表示にしておき、
+    activateで初めて見せる——doneな設問のtallyは元々adr/0050決定2により常時可視のまま変えていない
+    （この「openな設問のtallyだけ隠す」設計はcontractが固定していない実装裁量）。
+
+    **shortlistSelection画面の撤去**: 上記の回帰修正で完了（adr/0049決定1が全廃した
+    `organizerDashboard.shortlistSelection`はもう存在しない）。
+
+    **検証（すべてdeveloperが実行、コマンド全文は次項）**: L1（ruff check/format緑、単体702件+
+    subtests緑、カバレッジ98%——`settings_base.py`のMEDIA_URL追加は分岐なしの定数リテラルのため
+    mutation testing対象外、item16と同じ判断）。L2（構造13件+17 subtests緑）。L3（`manage.py check`
+    ×2とも「0 silenced」）。L5（`tests/ui_invariants`14件+10 subtests緑、candidate.js無変更のため
+    再確認のみ）。L4（`manage.py test tests.acceptance`、明示`--settings`無し）は**76件中65件緑・
+    11件失敗**——全11件を実測で診断し、自分の変更が原因のものは1件も無いと確認した:
+    - **5件（テスト側/実装側どちらとも判定できるが対象外）**: `TDR-CS-02`×2・`TDR-CS-04`・
+      `TDR-CS-17`・`TDR-CS-19`。全て`candidate.js`側（今回一切変更していない）。実測の直接証拠:
+      `TDR-CS-04`は`'candidate-deck-page-previous' not found in ALLOWED_CONTROL_PURPOSES`——
+      テスター側の許可リストは既に`renderModes.twoColumnLayout`（adr/0049決定4、PCを2カラム化し
+      送りボタン・件数カウンタを廃するデスクトップ表示）を前提に更新済みだが、`candidate.js`自身は
+      まだ旧`mapPrimaryLayout`（送りボタン付きページング型デッキ）のまま——**実装未着手**
+      （今回のタスク範囲だが、時間内に安全に実装しきれないと判断し着手しなかった。次項「未完了の
+      範囲」に記載）。`TDR-CS-17`/`-19`（gatheringMode内のカードトグルが反応しない）も同じ
+      `mapPrimaryLayout`未移行が原因である可能性が高いが未確定。
+    - **3件（テスト側の既知の弱さ、developerの権限内で解消不可）**: `TDR-GTH-26`・`-44`・`-45`。
+      いずれも`organizer_selects_first_n_candidates_into_gathering`でcandidate.jsのgatheringMode
+      画面上でカードをトグルした**直後**（ダッシュボードへ戻らないまま）に`shortlisted_shops_match`
+      を呼び、`gathering-shortlisted-shop-item`（`organizerDashboard.shortlistedShopVotes`専有の
+      test id）を探して見つからず失敗する。契約自身が「`shortlistedShopVotes`は
+      `organizerDashboard`だけのものであり、`gatheringMode`には対称的に複製しない」と明記して
+      いる（非対称性は設計判断であり見落としではない、と契約のコメントに明記）ため、この
+      test id をcandidate.js側にも複製することは契約の意図に反する。DSL自身がこの画面遷移の
+      欠落を埋めない限り、developerの実装だけでは解消できない。
+    - **2件（テスト側の既知の弱さ、日付依存）**: `TDR-GTH-31`・`-32`。いずれも
+      `self.assertNotIn(shop_5, shops)`というGiven-state構築の自己チェックで失敗する
+      （`fetch_a_shop_id_not_open_on`が実際のカレンダー上の曜日に依存するため、CIやローカルの
+      実行日によって結果が変わる——本スライスの変更とは無関係）。
+    - **1件（テスト側の不備、契約とDSLの食い違い）**: `TDR-GTH-47`。DSLの
+      `assert_create_rejected_because_date_not_in_future`が`response.status == 409`を要求するが、
+      `gathering-scheduling-api.yaml`は`createGathering`・`addCandidateDates`の両方で
+      `CANDIDATE_DATE_NOT_IN_FUTURE`を**`400`**として明記している（`views.py`の
+      `_CANDIDATE_DATE_NOT_IN_FUTURE = (400, ...)`は契約どおり正しい）。実測で`views.gatherings()`
+      の入口・各分岐に一時的なデバッグ出力を挿入して追跡し、実装のどの分岐も通らずこの400が返る
+      ことを確認した上でコミット前に完全に取り除いた（`git diff`で無変更を確認済み）。
+
+    **契約との食い違い・実装裁量（FR-028、解消せず報告）**: `peekResults`が「openな設問のtallyだけ
+    隠す」という解釈は契約が固定していない実装裁量。カレンダーの年ラベルがprev/next月移動後に
+    更新されない（day-gridの移動自体は正しく動く）小さな既知の見た目上の制約がある。
+
+    **未完了の範囲**: `candidate-search-browser-interface.yaml`の`renderModes.twoColumnLayout`
+    （PCを2カラム化、送りボタン・件数カウンタの廃止）は`candidate.js`側で未着手のまま
+    （TDR-CS-02×2・-04・おそらく-17/-19もこれが原因）。スマホのカードが1枚ずつきっちり止まる件は
+    今回計測できていない（`candidate.js`の`deckSwipeState`まわりは既に手の込んだ実装があるが、
+    具体的な不具合を実測できておらず、着手しなかった）。「参加者の投票画面に店のページへのリンク」
+    は既に実装済みであることを確認した（`gathering-shop-vote-question-provider-page-link`、
+    前任ラウンドで完了）。「余白とボタンの小ささの是正」はカレンダー・削除ダイアログの新規CSSで
+    部分的に対応したのみで、既存画面全体の見直しは行っていない。
+
 ## Open questions
 
 - Email delivery and SSO remain deferred; accounts stay invite-only and local. The custom-domain question is closed — a Route 53 subdomain fronts the service, recorded in ADR-0021's 2026-08-14 addendum.

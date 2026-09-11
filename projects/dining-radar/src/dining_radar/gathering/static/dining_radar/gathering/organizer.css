@@ -347,12 +347,52 @@
   align-items: center;
   gap: 0.625rem 1rem;
 }
-.gth-title {
+.gth-header-row {
   flex-basis: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.gth-title {
   font-size: 1.125rem;
   font-weight: 700;
   color: #17201b;
   overflow-wrap: break-word;
+}
+
+/* --- deleteGathering (adr/0050 decision 4) ------------------------------- */
+
+.gth-delete {
+  flex: 0 0 auto;
+  position: relative;
+}
+.gth-btn-danger {
+  border-color: #b4531c;
+  color: #b4531c;
+}
+.gth-btn-danger:hover {
+  background: #fbf1ea;
+}
+.gth-delete-dialog {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.5rem);
+  z-index: 5;
+  width: max(16rem, 100%);
+  background: #fff;
+  border: 1px solid #dfe4de;
+  border-radius: 0.625rem;
+  box-shadow: 0 0.5rem 1.5rem rgba(23, 32, 27, 0.15);
+  padding: 0.875rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.gth-delete-dialog-text {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #4b564e;
 }
 
 .gth-phase {
@@ -526,6 +566,63 @@
 }
 .gth-inline-form-row .gth-input {
   flex: 1 1 12rem;
+}
+
+/* --- candidate-date calendars (adr/0049 decision 3 / adr/0051) ---------
+   Shared by addCandidateDateForm.calendar (gathering.js, .gth-calendar) and
+   organizerGatheringCreate.calendar (gathering_create.js,
+   .gathering-calendar) -- one ruleset, two container classes, since both
+   wrap the same vendored flatpickr markup the same way. flatpickr's own
+   required `<input>` is never attached to the document at all (see
+   gathering.js's own buildCandidateDateCalendar) -- `.flatpickr-calendar.
+   inline` is appended directly into this container instead, so there is no
+   separate anchor element to hide here. Day-cell sizing is bumped past
+   flatpickr's own ~39px default toward this file's own 44px tap-target
+   quality bar (see this file's header comment) -- not gate-enforced for
+   these screens (ADR-0020 decision 4(e) scopes that gate to
+   candidate-search only), but a real fix for the "ボタンが小さい" feedback
+   this round responds to. */
+.gth-calendar,
+.gathering-calendar {
+  display: block;
+  /* showMonths: 3 (gathering.js/gathering_create.js's own
+     buildCandidateDateCalendar) renders wider than this screen's own
+     min(100% - 2rem, 60rem) column on narrow viewports -- horizontal
+     scroll (a common, well-understood pattern for wide multi-month
+     calendars) keeps every day cell simultaneously reachable rather than
+     clipping or attempting a wrap flatpickr's own flex layout does not
+     natively support gracefully. */
+  overflow-x: auto;
+}
+.gth-calendar .flatpickr-calendar.inline,
+.gathering-calendar .flatpickr-calendar.inline {
+  width: auto;
+  max-width: none;
+  border: 1px solid #dfe4de;
+  border-radius: 0.625rem;
+  box-shadow: none;
+  font-family: inherit;
+}
+.gth-calendar .flatpickr-day,
+.gathering-calendar .flatpickr-day {
+  height: 2.75rem;
+  line-height: 2.75rem;
+  max-width: 2.75rem;
+  border-radius: 0.5rem;
+}
+.gth-calendar .flatpickr-day.today,
+.gathering-calendar .flatpickr-day.today {
+  border-color: #14614a;
+}
+.gth-calendar .flatpickr-day[data-selected="true"],
+.gathering-calendar .flatpickr-day[data-selected="true"] {
+  background: #14614a;
+  border-color: #14614a;
+  color: #fff;
+}
+.gth-calendar .flatpickr-day.flatpickr-disabled,
+.gathering-calendar .flatpickr-day.flatpickr-disabled {
+  color: #c6cfc6;
 }
 
 .gth-preview {

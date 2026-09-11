@@ -4292,30 +4292,43 @@ class ParticipantLoadFailureSourceTests(SimpleTestCase):
 class DateTimeLocalConversionSourceTests(SimpleTestCase):
     """Guards the fix for a real host-timezone-dependent bug an acceptance
     合流 run surfaced (TDR-GTH-24): ``new Date(value).toISOString()`` parses
-    a timezone-less ``<input type="datetime-local">`` value using the *host
-    machine's own local timezone* (JS spec's Date Time String Format), which
-    on a JST host silently shifted a submitted ``startAt`` by 9 hours. A
-    Django-test-client reproduction (bypassing the browser entirely) never
-    exercised this JS conversion and could not see the bug -- these checks
-    stay at the source level instead, mirroring
-    ``tests/test_static_assets.py``'s own established convention for
-    candidate.js.
+    a timezone-less date-time value using the *host machine's own local
+    timezone* (JS spec's Date Time String Format), which on a JST host
+    silently shifted a submitted ``startAt`` by 9 hours. A Django-test-client
+    reproduction (bypassing the browser entirely) never exercised this JS
+    conversion and could not see the bug -- these checks stay at the source
+    level instead, mirroring ``tests/test_static_assets.py``'s own
+    established convention for candidate.js.
+
+    **Updated 2026-09-11 (adr/0049 decision 3 / adr/0051)**: the single
+    ``<input type="datetime-local">`` both screens used to convert
+    (``dateTimeLocalValueToIso``/``toStartAtIso``) is retired -- both screens
+    now build ``startAt`` from a multi-select calendar's own "YYYY-MM-DD"
+    ``data-date`` digits instead (``calendarDayIsoToStartAtIso``). The lesson
+    this class guards is unchanged (never route through
+    ``new Date(...).toISOString()``), only the source function name and its
+    literal fixed-UTC suffix (``"T12:00:00Z"`` now, the calendar's own
+    "12:00始まり" default, replacing the old ``":00Z"`` that completed an
+    already-timed ``HH:mm`` value).
     """
 
     def test_gathering_js_no_longer_uses_host_timezone_dependent_conversion(self):
         source = GATHERING_JS.read_text(encoding="utf-8")
 
         self.assertNotIn("new Date(localDateTimeValue).toISOString()", source)
-        self.assertIn("function dateTimeLocalValueToIso(value)", source)
-        self.assertIn('return value + ":00Z";', source)
-        self.assertIn("dateTimeLocalValueToIso(localDateTimeValue)", source)
+        self.assertNotIn("function dateTimeLocalValueToIso(value)", source)
+        self.assertIn("function calendarDayIsoToStartAtIso(dayIso)", source)
+        self.assertIn('return dayIso + "T12:00:00Z";', source)
+        self.assertIn("calendarDayIsoToStartAtIso(iso)", source)
 
     def test_gathering_create_js_no_longer_uses_host_timezone_dependent_conversion(self):
         source = GATHERING_CREATE_JS.read_text(encoding="utf-8")
 
         self.assertNotIn("new Date(rawDateTimeLocalValue).toISOString()", source)
-        self.assertIn("function toStartAtIso(rawDateTimeLocalValue)", source)
-        self.assertIn('return rawDateTimeLocalValue + ":00Z";', source)
+        self.assertNotIn("function toStartAtIso(rawDateTimeLocalValue)", source)
+        self.assertIn("function calendarDayIsoToStartAtIso(dayIso)", source)
+        self.assertIn('return dayIso + "T12:00:00Z";', source)
+        self.assertIn("calendarDayIsoToStartAtIso(iso)", source)
 
 
 class GatheringListAlwaysPresentSourceTests(SimpleTestCase):
@@ -4376,9 +4389,11 @@ class GatheringDateTimeFormattingSourceTests(SimpleTestCase):
     instead of a readable "M/D (曜) HH:MM" -- Organizer.dc.html/
     Answer.dc.html/Final.dc.html's own display convention.
 
-    Every value this formatter reads was itself produced by tagging a raw
-    ``<input type="datetime-local">`` value as a literal UTC instant
-    (``dateTimeLocalValueToIso``/``toStartAtIso``, TDR-GTH-24's own fix) --
+    Every value this formatter reads was itself produced by tagging a
+    calendar day's own "YYYY-MM-DD" digits as a literal UTC instant
+    (``calendarDayIsoToStartAtIso``, adr/0049 decision 3 -- TDR-GTH-24's own
+    fix, updated 2026-09-11 when the row-based datetime-local input this
+    function used to convert was replaced by the multi-select calendar) --
     formatting must read back the *same* UTC calendar/clock components, not
     the viewing browser's own host timezone (mirrors
     ``DateTimeLocalConversionSourceTests``'s own reasoning for the opposite,

@@ -147,6 +147,20 @@
     // applies -- set only by loadView below, never by any other
     // participant-facing call (seedParticipantLinkServerError's own scope).
     loadFailure: false,
+    // adr/0050 decision 1 (2026-09-09): answerLater/peekResults, both made
+    // functional this round (previously "見た目だけの飾り", designer's own
+    // words). Neither calls a public operation -- both are purely
+    // client-side reveals.
+    answerLaterConfirmationOpen: false,
+    // Whether the currently-open (not-yet-answered) question's own tally
+    // has been explicitly revealed. Every *done* question's tally stays
+    // unconditionally visible regardless of this flag (adr/0050 decision 2
+    // already settled that "約束は覆してもよい" for answered questions);
+    // this flag only governs the one open question's tally/mask -- keeping
+    // it hidden until the participant actively chooses to "のぞく" (peek)
+    // is this developer's own reading of the verb, not fixed by the
+    // contract (which "does not fix the visible layout of this overview").
+    peekResultsActivated: false,
   };
 
   // request-sequencer:start -- Stale-response guard (this file's module
@@ -733,8 +747,22 @@
     ];
     var tally = renderTally(question);
     if (tally) {
-      children.push(tally);
-      children.push(el("div", { class: "gth-mask" }, [VISIBILITY_HINT]));
+      // peekResults.requiredOutcome (adr/0050 decision 1): this one open
+      // question's own tally stays hidden until the participant explicitly
+      // activates gathering-participant-peek-results (renderFooter below) --
+      // see this file's own state.peekResultsActivated comment for why only
+      // the open question's tally is gated this way.
+      children.push(
+        el(
+          "div",
+          {
+            class:
+              "gth-open-tally-wrap" +
+              (state.peekResultsActivated ? " gth-open-tally-wrap--revealed" : ""),
+          },
+          [tally, el("div", { class: "gth-mask" }, [VISIBILITY_HINT])]
+        )
+      );
     }
     children.push(
       el(
@@ -963,25 +991,55 @@
     // Answer.dc.html shows these two entry points ("あとで答える" /
     // "結果をのぞく"). adr/0050 decision 1 (2026-09-09) assigns both a real
     // requiredOutcome and a browserControlSurface purpose
-    // (gathering-participant-answer-later/-peek-results), now part of this
-    // contract's own allowedPurposes closed list. **Not yet wired up here**:
-    // the shared acceptance DSL's own allow-list of gathering purposes
-    // (tests/acceptance/dsl -- tester's domain, out of developer's reach per
-    // this project's role boundaries) still predates this contract revision
-    // and does not yet recognize either new purpose value, so declaring it
-    // on a real `<button>` here would trip every existing scenario's shared
-    // "no forbidden control/purpose" hygiene check (confirmed by actually
-    // running L4 locally against a `<button>` version of this function,
-    // 2026-09-10) -- a cross-role sequencing gap, not a contract conflict.
-    // Left as plain, purposeless <div>s (not <button>s) until that DSL gap
-    // is closed, mirroring this project's existing precedent for a
-    // display-only entry point (activeContext.md's candidate-map-open/
-    // -sheet-close judgment) -- see this project's activeContext.md/PR
-    // description for the follow-up this leaves for the next developer.
-    return el("div", { class: "gth-foot" }, [
-      el("div", { class: "gth-foot-btn" }, ["あとで答える"]),
-      el("div", { class: "gth-foot-btn" }, ["結果をのぞく"]),
-    ]);
+    // (gathering-participant-answer-later/-peek-results). **Wired up
+    // 2026-09-11**: the shared acceptance DSL's own allow-list of gathering
+    // purposes now recognizes both (tests/acceptance/dsl, confirmed present
+    // in GATHERING_ALLOWED_PURPOSES) -- the cross-role sequencing gap the
+    // previous developer round left behind is closed.
+    var answerLater = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "gathering-participant-answer-later",
+        "data-gathering-control-purpose": "gathering-participant-answer-later",
+        class: "gth-foot-btn",
+      },
+      ["あとで答える"]
+    );
+    answerLater.addEventListener("click", function () {
+      // answerLater.requiredOutcome: calls no public operation -- every
+      // answer already saved itself the moment it was submitted. This is a
+      // purely client-side acknowledgement.
+      state.answerLaterConfirmationOpen = true;
+      render();
+    });
+
+    var peekResults = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "gathering-participant-peek-results",
+        "data-gathering-control-purpose": "gathering-participant-peek-results",
+        class: "gth-foot-btn",
+      },
+      ["結果をのぞく"]
+    );
+    peekResults.addEventListener("click", function () {
+      state.peekResultsActivated = true;
+      render();
+    });
+
+    var children = [answerLater, peekResults];
+    if (state.answerLaterConfirmationOpen) {
+      children.push(
+        el(
+          "p",
+          { "data-testid": "gathering-participant-answer-later-confirmation", class: "gth-fine" },
+          ["ここまでの回答は保存されています。またあとで、続きから答えられます。"]
+        )
+      );
+    }
+    return el("div", { class: "gth-foot" }, children);
   }
 
   function renderFinePrint() {
