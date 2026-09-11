@@ -396,6 +396,23 @@ class CandidateSearchSteps:
         self.dsl.assert_selected_candidate_toggle_is_enabled()
 
     def gathering_mode_candidates_are_within_the_open_shop_population(
-        self, gathering_id: str
+        self, gathering_id: str, expected_open_shop_count: int
     ) -> None:
-        self.dsl.assert_gathering_mode_candidates_are_within_open_shop_population(gathering_id)
+        self.dsl.assert_gathering_mode_candidates_are_within_open_shop_population(
+            gathering_id, expected_open_shop_count
+        )
+
+    # gatheringMode server-truth cross-checks (reviewer audit Major#2/Minor#1) -
+
+    def gathering_shortlisted_count_matches_server(
+        self, gathering_id: str, expected_count: int
+    ) -> None:
+        self.dsl.assert_gathering_shortlisted_count_matches_server(gathering_id, expected_count)
+
+    def gathering_shortlisted_shop_ids_via_api(self, gathering_id: str) -> set[str]:
+        return self.dsl.fetch_shortlisted_shop_ids_via_api(gathering_id)
+
+    def gathering_shortlisted_shop_ids_match_server(
+        self, gathering_id: str, expected_shop_ids: set[str]
+    ) -> None:
+        self.dsl.assert_gathering_shortlisted_shop_ids_match_server(gathering_id, expected_shop_ids)

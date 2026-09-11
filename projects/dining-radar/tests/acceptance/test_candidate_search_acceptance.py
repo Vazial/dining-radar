@@ -318,6 +318,15 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.gathering_mode_band_shows(shortlisted=2)
         self.steps.organizer_removes_the_shop_from_the_gathering()
         self.steps.gathering_mode_band_shows(shortlisted=1)
+        # **Fixed (reviewer audit Minor#1)**: gathering_mode_band_shows above
+        # reads only this screen's own client-rendered
+        # data-gathering-shortlisted-count attribute -- a client that
+        # optimistically re-rendered the band without the underlying
+        # setShortlistedShops write actually landing would still pass every
+        # check above. Cross-checking the same final count (1) against
+        # gathering-scheduling-api.yaml's own server-held shortlistedShops
+        # closes that gap.
+        self.steps.gathering_shortlisted_count_matches_server(gathering_id, 1)
         # FR-030's repeated lesson: gatheringMode is a new screen state this
         # cross-cutting check must be exercised against.
         self.steps.no_location_range_or_manual_order_control_exists()
@@ -325,11 +334,27 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
     def test_tdr_cs_18_gathering_mode_narrows_candidates_to_the_confirmed_dates_open_shops(
         self,
     ) -> None:
+        """**Fixed (reviewer audit Major#1)**: the prior version's Given
+        (lunch_candidates_can_be_proposed, NORMAL_WITH_WEIGHTED_SAMPLING) has
+        no known population size, so the Then check it fed
+        (gathering_mode_candidates_are_within_the_open_shop_population) could
+        only confirm each candidate carried a non-null shopId/isShortlisted
+        -- true even with no narrowing at all. test-support-api.yaml's
+        GATHERING_OPEN_SHOP_WEEKDAY_MATCH mode (already TDR-CS-19's own
+        Given) fixes a 6-shop synthetic population with a known, per-weekday
+        open-shop count instead. Monday is chosen deliberately
+        (OPEN_SHOP_COUNT_BY_WEEKDAY[0] == 5, exactly the display cap) -- see
+        the Then step's own docstring for why that specific coincidence is
+        what makes this check meaningful rather than trivially true.
+        """
         self._sign_in()
-        self.steps.lunch_candidates_can_be_proposed()
-        gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会CS18")
+        self.steps.gathering_open_shop_population_is_available()
+        monday = next_weekday_iso(0)  # OPEN_SHOP_COUNT_BY_WEEKDAY[0] == 5 (1 closed: Monday)
+        gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会CS18", monday)
         self.steps.organizer_opens_this_screen_in_gathering_mode(gathering_id)
-        self.steps.gathering_mode_candidates_are_within_the_open_shop_population(gathering_id)
+        self.steps.gathering_mode_candidates_are_within_the_open_shop_population(
+            gathering_id, expected_open_shop_count=5
+        )
 
     def test_tdr_cs_19_at_most_five_shops_can_be_in_the_gathering(self) -> None:
         """**Fixed**: this Given previously used lunch_candidates_can_be_
@@ -352,6 +377,19 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         ones (still enabled) -- mirroring gathering-scheduling.feature's own
         TDR-GTH-45 technique for this identical requirement on this same
         gatheringMode screen.
+
+        **Fixed (reviewer audit Major#2)**: this scenario's own "既に入れ
+        ている5件はそのまま変わらない" is an exact-identity claim, not
+        merely a count -- unselected_candidate_toggle_is_disabled and
+        selected_candidate_toggle_is_enabled below are both true even if
+        the 5 members had been silently swapped for a different 5.
+        gatheringMode's own cardToggle carries no shopId-to-card DOM
+        correlation this suite could otherwise read identity from (mirrors
+        gathering_scheduling_browser.py's own TDR-GTH-45 fix note), so this
+        reads gathering-scheduling-api.yaml's own getGathering directly
+        (gathering_shortlisted_shop_ids_via_api/_match_server below), both
+        before and after the search-again replay that surfaces the excluded
+        6th shop, and asserts the shopId set truly did not change.
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
@@ -361,7 +399,9 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         for _ in range(5):
             self.steps.organizer_adds_a_candidate_to_the_gathering()
         self.steps.gathering_mode_band_shows(shortlisted=5)
+        selected = self.steps.gathering_shortlisted_shop_ids_via_api(gathering_id)
         self.steps.organizer_searches_again_on_shop_selection_entry()
         self.steps.unselected_candidate_toggle_is_disabled()
         # adr/0049 決定8 後段: 既に選択済みのカードは5件到達後も外す操作として活性のまま
         self.steps.selected_candidate_toggle_is_enabled()
+        self.steps.gathering_shortlisted_shop_ids_match_server(gathering_id, selected)

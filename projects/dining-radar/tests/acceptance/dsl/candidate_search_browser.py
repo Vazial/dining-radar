@@ -338,6 +338,25 @@ CANDIDATE_CARD_GATHERING_TOGGLE = "candidate-card-gathering-toggle"
 CANDIDATE_GATHERING_SHORTLISTED_ATTR = "data-gathering-shortlisted"
 GATHERING_SHORTLIST_OPEN = "gathering-shortlist-open"
 GATHERING_PHASE_INDICATOR = "gathering-phase-indicator"
+# Duplicated from gathering_scheduling_browser.py's own OPEN_SHOP_COUNT_BY_
+# WEEKDAY (test-support-api.yaml's GATHERING_OPEN_SHOP_WEEKDAY_MATCH
+# description's per-weekday openShopCount table) rather than imported,
+# mirroring this pair of DSL files' established next_weekday_iso precedent
+# above (each owns its own small Given-state utilities, no cross-import
+# between the two sibling suites). Reviewer audit Major#1's own fix
+# (assert_gathering_mode_candidates_are_within_open_shop_population below)
+# needs this to know, per confirmed weekday, exactly how many distinct
+# shopIds a fully-converged gatheringMode population must contain.
+OPEN_SHOP_COUNT_BY_WEEKDAY = {0: 5, 1: 5, 2: 4, 3: 6, 4: 6, 5: 6, 6: 5}
+# Reviewer audit Major#1: upper bound on assert_gathering_mode_candidates_
+# are_within_open_shop_population's own search-again convergence loop --
+# GATHERING_OPEN_SHOP_WEEKDAY_MATCH's fixed 6-shop synthetic population
+# converges to any weekday's own known count within at most 3 rounds (see
+# that method's own docstring for the round-by-round trace); this leaves
+# ample headroom while still failing fast and explicitly, rather than
+# looping unboundedly, if a future change to the seam ever breaks that
+# guarantee.
+_GATHERING_MODE_NARROWING_MAX_ROUNDS = 5
 # adr/0030 決定1 bandLabel: "whose leading digits, parsed as an integer,
 # equal that same bandAttribute value". Only a run of digits at the very
 # start of the text counts -- a label like "徒歩10分" (digits not leading)
@@ -718,25 +737,128 @@ class CandidateSearchBrowserDsl:
         expect(toggle).to_be_enabled()
 
     def assert_gathering_mode_candidates_are_within_open_shop_population(
-        self, gathering_id: str
+        self, gathering_id: str, expected_open_shop_count: int
     ) -> None:
         """TDR-CS-18: 会モードでは、候補はその会の開催日に開いている店に絞
-        られる -- checked as self-consistency against this same response's
-        own gatheringContext (the population narrowing itself is gathering-
-        scheduling-api.yaml's own weekday-matching logic, out of reach from
-        this suite the same way TDR-CS-01/TDR-CS-08's near-order checks are,
-        per this file's own established precedent for server-computed
-        geography/population facts this suite cannot independently
-        recompute).
+        られる.
+
+        **Fixed (reviewer audit Major#1)**: the prior version checked only
+        that `gatheringContext.gatheringId` matched the target gathering
+        and that each candidate's `shopId`/`isShortlisted` were non-null --
+        true even if the population were not narrowed at all, so it proved
+        nothing about the Then's actual claim. This instead drives
+        search_again through this screen's own shown-pool-priority
+        accumulation (the same technique TDR-CS-19 already established for
+        this screen, adr/0052 decision 3 -- see search_again's own callers)
+        until the set of distinct `shopId` values actually returned stops
+        growing, then asserts that set's size exactly equals
+        ``expected_open_shop_count``, not merely at-least: narrowing that
+        failed to exclude a closed shop would converge to the unnarrowed
+        6-shop population's own larger, also-known size instead
+        (test-support-api.yaml's GATHERING_OPEN_SHOP_WEEKDAY_MATCH fixes
+        the raw synthetic population at exactly 6 regardless of weekday, so
+        an unnarrowed response and a correctly-narrowed one are
+        indistinguishable from a single round's count alone whenever the
+        confirmed weekday's own known count coincides with the 5-candidate
+        display cap -- this method's only caller deliberately picks such a
+        weekday, Monday, `OPEN_SHOP_COUNT_BY_WEEKDAY[0] == 5`, for exactly
+        this reason: a single round already returns 5 candidates whether or
+        not narrowing actually ran, so this loop must keep searching past
+        that coincidental match). Each round either draws exclusively from
+        the not-yet-shown partition (adding only new shopIds) or, once that
+        partition is smaller than the display cap, draws every remaining
+        not-yet-shown shopId plus already-shown repeats
+        (candidate-search-api.yaml's proposeCandidates description) -- so
+        growth is monotonic and a round that adds nothing new is a reliable,
+        non-flaky convergence signal, not a lucky sampling coincidence
+        (mirrors gathering_scheduling_browser.py's own
+        fetch_confirmed_date_open_shop_ids_with_a_spare "guaranteed, not
+        merely likely" reasoning).
         """
         proposal = self._current_proposal()
         gathering_context = require(
             proposal.get("gatheringContext"), "response carries no gatheringContext"
         )
         self.assertions.assertEqual(gathering_context["gatheringId"], gathering_id)
-        for candidate in proposal["candidates"]:
-            self.assertions.assertIsNotNone(candidate["shopId"])
-            self.assertions.assertIsNotNone(candidate["isShortlisted"])
+        seen_shop_ids: set[str] = set()
+        for _round_index in range(_GATHERING_MODE_NARROWING_MAX_ROUNDS):
+            shop_id_count_before_this_round = len(seen_shop_ids)
+            for candidate in proposal["candidates"]:
+                self.assertions.assertIsNotNone(candidate["shopId"])
+                self.assertions.assertIsNotNone(candidate["isShortlisted"])
+                seen_shop_ids.add(candidate["shopId"])
+            if len(seen_shop_ids) == shop_id_count_before_this_round:
+                break
+            self.search_again()
+            proposal = self._current_proposal()
+        else:
+            self.assertions.fail(
+                "gathering-mode candidate population did not converge within "
+                f"{_GATHERING_MODE_NARROWING_MAX_ROUNDS} search-again rounds "
+                f"(distinct shopIds seen so far: {sorted(seen_shop_ids)})"
+            )
+        self.assertions.assertEqual(
+            len(seen_shop_ids),
+            expected_open_shop_count,
+            f"gathering-mode candidate population converged to "
+            f"{sorted(seen_shop_ids)} ({len(seen_shop_ids)} shops), expected "
+            f"exactly {expected_open_shop_count} for this confirmed weekday",
+        )
+
+    def fetch_shortlisted_shop_ids_via_api(self, gathering_id: str) -> set[str]:
+        """Given/Then-state technique for reviewer audit Major#2/Minor#1:
+        reads gathering-scheduling-api.yaml's own getGathering directly
+        (this module's own established _gathering_api convention, mirroring
+        gathering_scheduling_browser.py's refresh_gathering_from_api /
+        fetch_confirmed_date_open_shop_ids "direct API call sharing the same
+        authenticated session" precedent), rather than through this
+        screen's own DOM -- candidate-search-browser-interface.yaml's
+        gatheringMode carries no shopId-to-card DOM correlation a caller
+        could otherwise read identity back from (the same reason
+        gathering_scheduling_browser.py's own TDR-GTH-45 must return to the
+        organizer dashboard rather than stay on this screen; this screen
+        has no such dashboard to return to, so it reads the same
+        server-side truth directly instead). This is server truth, not the
+        client's own optimistic DOM state --
+        assert_gathering_mode_band_shows reads only the latter.
+        """
+        response = self._gathering_api("GET", f"/gatherings/{gathering_id}")
+        self.assertions.assertEqual(response.status, 200, response.body)
+        return {shop["shopId"] for shop in response.payload["shortlistedShops"]}
+
+    def assert_gathering_shortlisted_count_matches_server(
+        self, gathering_id: str, expected_count: int
+    ) -> None:
+        """Reviewer audit Minor#1: TDR-CS-17's final gathering_mode_band_shows
+        check reads only this screen's own `data-gathering-shortlisted-
+        count` attribute -- a client that optimistically re-renders the
+        band without the underlying setShortlistedShops write actually
+        landing would still pass that check. This closes the gap by
+        cross-checking the same count against gathering-scheduling-api.
+        yaml's own server-held `shortlistedShops` (mirrors gathering_
+        scheduling_browser.py's own TDR-GTH-44/45 refresh_gathering_from_
+        api asymmetry, now resolved on this screen too).
+        """
+        actual = self.fetch_shortlisted_shop_ids_via_api(gathering_id)
+        self.assertions.assertEqual(len(actual), expected_count)
+
+    def assert_gathering_shortlisted_shop_ids_match_server(
+        self, gathering_id: str, expected_shop_ids: set[str]
+    ) -> None:
+        """Reviewer audit Major#2: TDR-CS-19's "既に入れている5件はそのまま
+        変わらない" is an exact-identity claim, not merely a count -- the
+        collective disabled/enabled toggle-state checks around this
+        method's only caller are true even if the 5 members had been
+        silently swapped for a different 5. gatheringMode's own cardToggle
+        carries no shopId-to-card DOM correlation this suite could
+        otherwise read identity from (mirrors gathering_scheduling_
+        browser.py's own TDR-GTH-45 fix note), so this reads
+        gathering-scheduling-api.yaml's own getGathering directly, both
+        before and after the search-again replay that surfaces the excluded
+        6th shop, and asserts the shopId set truly did not change.
+        """
+        actual = self.fetch_shortlisted_shop_ids_via_api(gathering_id)
+        self.assertions.assertEqual(actual, expected_shop_ids)
 
     def open_filter_panel(self) -> None:
         url_before = self.page.url
