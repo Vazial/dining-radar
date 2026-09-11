@@ -39,6 +39,92 @@ _VENDORED_LEAFLET_ASSETS = (
     "dining_radar/web/vendor/leaflet/images/layers-2x.png",
 )
 
+# adr/0049 decision 3 (2026-09-11): flatpickr (MIT license) is vendored the
+# same way, under the gathering app's own static namespace -- it backs
+# addCandidateDateForm.calendar (gathering.js) and
+# organizerGatheringCreate.calendar (gathering_create.js). "Selecting a UI
+# library, small and clearly licensed" is the human's explicit instruction
+# this round (same vendoring discipline as Leaflet, ADR-0010): flatpickr is
+# a single self-contained JS+CSS pair (no runtime dependency, ~50KB/~16KB
+# minified) with `mode`/`onDayCreate` hooks precise enough to attach this
+# contract's own day-cell attributes directly to its rendered day elements
+# (see gathering.js's own buildCandidateDateCalendar for the full account).
+DASHBOARD_TEMPLATE = (
+    PROJECT_ROOT
+    / "src"
+    / "dining_radar"
+    / "gathering"
+    / "templates"
+    / "gathering"
+    / "organizer_dashboard.html"
+)
+GATHERING_CREATE_TEMPLATE = (
+    PROJECT_ROOT
+    / "src"
+    / "dining_radar"
+    / "gathering"
+    / "templates"
+    / "gathering"
+    / "organizer_gathering_create.html"
+)
+_VENDORED_FLATPICKR_ASSETS = (
+    "dining_radar/gathering/vendor/flatpickr/flatpickr.min.js",
+    "dining_radar/gathering/vendor/flatpickr/flatpickr.min.css",
+    "dining_radar/gathering/vendor/flatpickr/LICENSE",
+)
+
+
+class FlatpickrVendoringSourceTests(SimpleTestCase):
+    """Static checks against the two gathering-screen templates that load
+    flatpickr (no request cycle needed) -- mirrors
+    ``LeafletVendoringSourceTests`` above for the calendar library."""
+
+    def test_gathering_templates_do_not_reference_a_third_party_cdn(self):
+        for template in (DASHBOARD_TEMPLATE, GATHERING_CREATE_TEMPLATE):
+            with self.subTest(template=template.name):
+                source = template.read_text(encoding="utf-8")
+                self.assertNotIn("unpkg.com", source)
+                self.assertNotIn("cdn.jsdelivr.net", source)
+                self.assertNotIn("cdnjs.cloudflare.com", source)
+
+    def test_gathering_templates_load_flatpickr_through_the_static_tag(self):
+        for template in (DASHBOARD_TEMPLATE, GATHERING_CREATE_TEMPLATE):
+            with self.subTest(template=template.name):
+                source = template.read_text(encoding="utf-8")
+                self.assertIn(
+                    "{% static 'dining_radar/gathering/vendor/flatpickr/flatpickr.min.css' %}",
+                    source,
+                )
+                self.assertIn(
+                    "{% static 'dining_radar/gathering/vendor/flatpickr/flatpickr.min.js' %}",
+                    source,
+                )
+
+    def test_vendored_flatpickr_assets_are_discoverable_by_the_staticfiles_finders(self):
+        for asset in _VENDORED_FLATPICKR_ASSETS:
+            with self.subTest(asset=asset):
+                self.assertIsNotNone(
+                    finders.find(asset), f"{asset} is not reachable by Django's staticfiles finders"
+                )
+
+    def test_vendored_flatpickr_license_identifies_the_mit_terms(self):
+        license_path = finders.find("dining_radar/gathering/vendor/flatpickr/LICENSE")
+        self.assertIsNotNone(license_path)
+
+        license_text = Path(license_path).read_text(encoding="utf-8")
+        self.assertIn("The MIT License (MIT)", license_text)
+
+    def test_vendored_flatpickr_does_not_reference_an_unvendored_source_map(self):
+        for asset in (
+            "dining_radar/gathering/vendor/flatpickr/flatpickr.min.js",
+            "dining_radar/gathering/vendor/flatpickr/flatpickr.min.css",
+        ):
+            with self.subTest(asset=asset):
+                asset_path = finders.find(asset)
+                self.assertIsNotNone(asset_path)
+                text = Path(asset_path).read_text(encoding="utf-8")
+                self.assertNotIn("sourceMappingURL=", text)
+
 
 class LeafletVendoringSourceTests(SimpleTestCase):
     """Static checks against the template source (no request cycle needed)."""
@@ -127,13 +213,22 @@ class CandidateSurfaceSourceTests(SimpleTestCase):
         self.assertNotIn("var mapSheetOpen", script)
         self.assertNotIn('"data-map-sheet-open", "true"', script)
 
-        # The deck (adr/0031, extended below 64rem by adr/0033) is now
-        # unconditional: both named renderModes' own testIds must be
-        # buildable from this one script, and the position counter
-        # (common to both, adr/0033 decision2) must be present.
-        self.assertIn('"data-testid": "candidate-deck-previous"', script)
-        self.assertIn('"data-testid": "candidate-deck-next"', script)
-        self.assertIn('setAttribute("data-testid", "candidate-deck-swipe-surface")', script)
+        # adr/0049 decision 4 (2026-09-08 human decision: "微妙。右に地図で
+        # 一覧左とかじゃなかったっけ") retires mapPrimaryLayout's own
+        # button-paged deck outright, the same way task 2/3's ribbon/sheet
+        # was retired above: >=64rem no longer builds candidate-deck-previous/
+        # -next or their pager -- isTwoColumnLayout (renamed from
+        # isMapPrimaryLayout) replaces the deck with a plain two-column
+        # list-and-map layout instead. isMapPrimaryTouchLayout's own
+        # swipe-paged deck (adr/0033) is unchanged by this revision.
+        self.assertNotIn('"data-testid": "candidate-deck-previous"', script)
+        self.assertNotIn('"data-testid": "candidate-deck-next"', script)
+        self.assertNotIn(".candidate-deck-pager {", template)
+        self.assertNotIn(".candidate-deck-nav {", template)
+        self.assertNotIn("var isMapPrimaryLayout", script)
+        self.assertIn("var isTwoColumnLayout", script)
+        self.assertIn('"class": "candidate-list-column"', script)
+        self.assertIn('"data-testid": "candidate-deck-swipe-surface"', script)
         self.assertIn('"data-testid": "candidate-deck-position"', script)
         self.assertIn("function attachSwipeGesture(", script)
         self.assertIn("function pageDeckNext()", script)

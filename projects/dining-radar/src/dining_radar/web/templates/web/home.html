@@ -213,6 +213,30 @@
       font-size: 0.875rem; line-height: 1.5;
     }
 
+    /* adr/0049 decision 1: gatheringMode.band -- the always-on, non-
+       togglable "いまの条件" condition line. */
+    .candidate-gathering-mode-band {
+      margin: 0; padding: 0.6rem 0.85rem; border-radius: 0.4rem;
+      background: #f0f5ee; border: 1px solid #cddccf; color: #2c3a2f;
+      font-size: 0.8125rem; line-height: 1.5;
+      display: flex; flex-wrap: wrap; align-items: center;
+      justify-content: space-between; gap: 0.5rem;
+    }
+    .candidate-gathering-mode-band-count { font-weight: 700; }
+
+    /* gatheringMode.cardToggle: "この会に入れる"/"この会に入れました". */
+    .candidate-gathering-toggle {
+      margin-top: 0.6rem; width: 100%; min-height: 2.75rem; box-sizing: border-box;
+      border: 1px solid #14684a; border-radius: 0.5rem; background: #fff;
+      color: #14684a; font-size: 0.8125rem; font-weight: 700; font-family: inherit;
+      cursor: pointer;
+    }
+    .candidate-gathering-toggle:hover:not(:disabled) { background: #eef6f1; }
+    .candidate-gathering-toggle:focus-visible { outline: 2px solid #14684a; outline-offset: 2px; }
+    .candidate-gathering-toggle--on { background: #14684a; color: #fff; }
+    .candidate-gathering-toggle--on:hover:not(:disabled) { background: #0d4b35; }
+    .candidate-gathering-toggle:disabled { opacity: 0.5; cursor: default; }
+
     /* TDR-CS-16 (human decision 2026-08-23): rendered in addition to, not
        instead of, a retained proposal (candidate.js's renderProblem
        `additive` path), so this must read as an interruption banner above
@@ -484,16 +508,6 @@
       background: #fdf3e2; border: 1px solid #f0dcae; color: #6b4f13;
       font-size: 0.825rem; line-height: 1.4;
     }
-    /* D-fix 案B (2026-09-01, PC deck card-height equalization, candidate.js):
-       visibility: hidden (not display: none) keeps this element's own box
-       -- same padding/border/font/line-height/text as the real caution --
-       taking up exactly the same height without painting anything. This is
-       what reserves the caution's own space on a card that does not have
-       one, so every deck card's bottom edge and internal row positions
-       line up regardless of which cards actually show the caution. Never
-       carries the candidate-card-payment-caution test id (see candidate.js's
-       own comment; the contract's presenceRule forbids it here). */
-    .candidate-payment-caution-reserved { visibility: hidden; }
 
     [data-testid="candidate-card-provider-page-link"] {
       display: inline-flex; align-items: center; justify-content: center;
@@ -828,23 +842,25 @@
       .candidate-card-detail-footer { margin-top: auto; }
     }
 
-    /* Below 64rem the deck (candidate.js's renderDeck) is the same
-       floating overlay >=64rem's own deck is (adr/0031's `.candidate-
-       deck`/`.candidate-deck-viewport`/`.candidate-deck-position` scaffold
-       -- shared by class name across both modes, so this block mirrors
-       that one's structure rather than inventing a parallel set of names),
-       paged by a horizontal swipe gesture instead of buttons (adr/0033,
-       human decision 2026-08-29: "地図に店舗カードを浮かせて、スクロールで
-       切り替え", Mobile.dc.html). Card width here is fluid (fills the
-       swipe surface) rather than PC's fixed 16.25rem, since only one card
-       is ever the deck's own visible window member below 64rem
-       (candidate.js keeps deckWindowSize at 1 here -- Mobile.dc.html's own
-       "可視窓が常に1件"); the next card's existence is instead hinted at by
-       a small decorative sliver (.candidate-deck-peek, orchestrator
-       decision 2026-08-29, Mobile.dc.html 論点1 案B: "隣を少し覗かせる" --
-       drawn as a plain silhouette, not the next card's real content, per
-       that same board's own choice, so it carries no candidate data of its
-       own to keep in sync with "見える値＝返り値"). */
+    /* Below 64rem, candidate.js's renderDeck builds a floating overlay
+       (adr/0033's `.candidate-deck`/`.candidate-deck-viewport`/
+       `.candidate-deck-position` scaffold), paged by a horizontal swipe
+       gesture (human decision 2026-08-29: "地図に店舗カードを浮かせて、
+       スクロールで切り替え", Mobile.dc.html). adr/0049 decision4 (2026-09-08)
+       retired the >=64rem counterpart this scaffold used to also describe
+       (a button-paged deck sharing these same class names) in favor of a
+       plain two-column list-and-map layout with no deck at all -- see the
+       `@media (min-width: 64rem)` block's own comment for that revision;
+       this block is unaffected by it. Card width here is fluid (fills the
+       swipe surface), since only one card is ever the deck's own visible
+       window member below 64rem (candidate.js keeps deckWindowSize at 1
+       here -- Mobile.dc.html's own "可視窓が常に1件"); the next card's
+       existence is instead hinted at by a small decorative sliver
+       (.candidate-deck-peek, orchestrator decision 2026-08-29, Mobile.
+       dc.html 論点1 案B: "隣を少し覗かせる" -- drawn as a plain silhouette,
+       not the next card's real content, per that same board's own choice,
+       so it carries no candidate data of its own to keep in sync with
+       "見える値＝返り値"). */
     @media (max-width: 63.999rem) {
       .candidate-deck {
         position: absolute;
@@ -891,8 +907,8 @@
          time. This is a CSS-level fix, not a pointer-event one: it never
          touches setPointerCapture, preventDefault timing, or the capture
          object itself, so it cannot affect the map/deck hit-test split
-         above or PC's own unrelated button-paged deck (>=64rem, no
-         swipe-surface testid there to match). */
+         above -- there is no such split to affect at >=64rem, which has no
+         deck at all (adr/0049 decision4). */
       [data-testid="candidate-deck-swipe-surface"] {
         touch-action: pan-y;
         -webkit-user-select: none;
@@ -910,25 +926,26 @@
         box-shadow: 0 0.375rem 1.25rem rgb(23 32 27 / 14%);
       }
       /* orchestrator real-device report (2026-08-29, this touch-deck round):
-         the same shop-name cut-off the >=64rem deck rule below already
-         fixed (human decision 2026-08-29, "この画面で一番大事な情報") also
-         hit this narrower render mode once it became a fixed-width deck
-         card too (adr/0033) -- measured 46-71% of the name's own needed
-         width at 375-390px. candidate.js's renderCard no longer puts the
-         walking-time chip in either mode's own id row (see its own
-         walkChip comment for the full account), so this flex-grow lets the
-         name claim the row's whole remaining width here too, the same
-         reason the >=64rem rule below gives its own name this same
-         property. Unlike that rule, this one does not also compress
-         font-size/badge/chip sizing -- this card already used its own
-         existing (non-deck-compacted) sizes before this change and nothing
-         here requires shrinking them further to fit. */
+         a shop-name cut-off (human decision 2026-08-29, "この画面で一番大事な
+         情報") hit this narrower render mode once it became a fixed-width
+         deck card (adr/0033) -- measured 46-71% of the name's own needed
+         width at 375-390px. candidate.js's renderCard keeps the
+         walking-time chip out of this mode's own id row (see its own
+         walkChip comment for the full account -- adr/0049 decision4 later
+         restored the chip to the id row for the wider, non-deck
+         isTwoColumnLayout card only, unaffected by this rule), so this
+         flex-grow lets the name claim the row's whole remaining width.
+         This card does not compress font-size/badge/chip sizing the way
+         the retired >=64rem deck card once did -- this card already used
+         its own existing (non-deck-compacted) sizes before this change and
+         nothing here requires shrinking them further to fit. */
       .candidate-deck-viewport [data-testid="candidate-card-name"] { flex: 1 1 auto; }
-      /* Mirrors the >=64rem .candidate-genre-row rule below (same class
-         name, candidate.js emits it identically in both render modes now)
-         -- genre and the walking-time chip share one row so the id row
-         above can give the name essentially the whole card width instead
-         of splitting it with the chip. */
+      /* mapPrimaryTouchLayout-only (isTwoColumnLayout's own card puts the
+         chip back in the id row instead, see candidate.js's own walkChip
+         comment, and needs no genre-row chip styling at all): genre and the
+         walking-time chip share one row so the id row above can give the
+         name essentially the whole card width instead of splitting it with
+         the chip. */
       .candidate-deck-viewport .candidate-genre-row {
         display: flex;
         align-items: baseline;
@@ -954,8 +971,10 @@
       .candidate-deck-peek[hidden] { display: none; }
       /* Sibling of .candidate-deck-viewport rather than a child of it, so
          its own negative top offset is not clipped by that element's own
-         overflow: hidden (mirrors >=64rem's own candidate-deck-position
-         rule below for the identical reason). */
+         overflow: hidden. mapPrimaryTouchLayout-only, unlike under adr/0033
+         -- adr/0049 decision4 retired isTwoColumnLayout's own paged deck
+         (and this counter with it), so there is no >=64rem counterpart of
+         this rule any longer. */
       .candidate-deck-position {
         position: absolute;
         top: -0.9rem;
@@ -974,51 +993,92 @@
 
     /* At desktop widths, filters are a compact working surface. The panel
        stays visually attached to its toolbar. */
-    /* adr/0031 (Desktop.dc.html decision7=案A/decision8=案あ, human decision
-       2026-08-28): at >=64rem the map is now the primary surface -- it
-       fills essentially the whole area below the header/filter bar, and
-       the candidate cards are no longer a separate column beside it.
-       candidate.js's own renderModes.mapPrimaryLayout branch
-       (isMapPrimaryLayout in renderResult) moves [data-testid="candidate-
-       proposal-cards"] inside the map wrapper's own .candidate-deck
-       overlay instead of appending it as candidate-main-layout's second
-       child, so the prior 2026-08-26 "decision1/2/3" sticky-2-column rules
-       (76rem shell, a fixed 25rem card column, position:sticky map column)
-       are retired outright here, not layered under this one -- the same
-       kind of same-slice reversal Desktop.dc.html's own "訂正
-       （2026-08-26、同日中の再裁定）" section already records for
-       decision2. Header/account-menu are not pulled out of .app-shell for
-       this (the human's own 2026-08-26 instruction allows either) -- they
-       widen along with the shell, which is a valid reading of "ヘッダーは
-       全幅のままで構いません", not a violation of it. */
+    /* adr/0049 decision 4 (2026-09-08 human decision: "微妙。右に地図で一覧左
+       とかじゃなかったっけ"): >=64rem returns to a plain two-column layout --
+       a card list column on the left, the map on the right -- replacing the
+       map-primary, button-paged deck adr/0031 introduced (2026-08-28) and
+       the card-density compression (adr/0031 decision9) it required.
+       adr/0033's own mobile deck (swipe-paged, below 64rem) is unchanged by
+       this revision. candidate.js's own renderModes branch
+       (isTwoColumnLayout in renderResult, renamed from isMapPrimaryLayout)
+       appends [data-testid="candidate-proposal-cards"] into its own
+       .candidate-list-column instead of moving it inside the map wrapper's
+       .candidate-deck overlay -- there is no deck at this width any longer,
+       so every one of adr/0031's deck-only rules below it
+       (.candidate-deck/-pager/-nav/-viewport/-position) is retired outright
+       here, not kept as a dead, unreachable rule -- the same kind of
+       same-slice reversal this file's own history already has two
+       precedents for (the 2026-08-26 sticky-two-column rules retired
+       outright when adr/0031 first introduced the deck; listPrimaryLayout
+       retired outright when adr/0033 introduced mapPrimaryTouchLayout).
+       Card density (description clamp, compact facts, shrunk id-row/name
+       font) was scoped to .candidate-deck-viewport, so removing that
+       wrapper already restores the base (non-deck) card styling adr/0049
+       decision4 calls for -- no separate "undo" rule is needed for that
+       part. List column width (26.5rem/424px) mirrors the design board
+       (E:\AWS\dsg-out\party\Deck.dc.html); all dimensions here are
+       unmeasured design-board values (meta/adr/0059 decision5) that may be
+       retuned once measured against a real device. Header/account-menu are
+       not pulled out of .app-shell for this (the human's own 2026-08-26
+       instruction allows either) -- they widen along with the shell, which
+       is a valid reading of "ヘッダーは全幅のままで構いません", not a
+       violation of it. */
     @media (min-width: 64rem) {
-      /* decision7's own "画面のほぼ全面" -- widened well past the retired
-         76rem two-column cap now that the map is the sole column; 120rem
-         keeps an ultra-wide monitor's deck/map from growing unboundedly
-         rather than leaving the shell fully unconstrained. */
-      .app-shell { width: min(100% - 2rem, 120rem); }
+      /* 96rem keeps an ultra-wide monitor's two columns from growing
+         unboundedly rather than leaving the shell fully unconstrained. */
+      .app-shell { width: min(100% - 2rem, 96rem); }
       .app-card { padding: 1rem 1.5rem 1.5rem; }
-      /* The map wrapper is candidate-main-layout's only child at this
-         width (cardsContainer moved inside its own .candidate-deck below),
-         so it no longer needs the retired row-reverse/sticky-column
-         machinery -- it simply fills the remaining vertical space below
-         the header/filter bar. 15rem (240px) is a measured value, not a
-         guess: orchestrator measured every element around this wrapper at
-         1280x800 (header 44px, filter bar 60.375px, the
-         candidate-provider-credit row below the map including its own
-         margin 30.375px, app-shell/app-card's own combined vertical
-         padding 72px) summing to 233px of real, mostly width-independent
-         chrome; 240px keeps a small deliberate margin above that measured
-         233px instead of cutting it exactly, so a slightly taller header
-         wrap or a longer providerCredit string does not immediately
-         reintroduce page-level scroll (confirmed no page overflow at
+      .candidate-main-layout {
+        flex-direction: row;
+        align-items: flex-start;
+        gap: 1.25rem;
+      }
+      /* Deck.dc.html's own `.listcol` width (424px). The card list scrolls
+         independently of the page once it exceeds the map's own height
+         (matched below) -- at most 5 cards are ever displayed
+         (candidate-search-api.yaml's DISPLAY_CAP), so this is expected to
+         rarely engage in practice, but is kept rather than left unbounded
+         so a very small viewport height cannot grow the page past the
+         map's own fixed height. */
+      .candidate-list-column {
+        flex: 0 0 26.5rem;
+        min-width: 0;
+        max-height: calc(100vh - 15rem);
+        min-height: 28rem;
+        overflow-y: auto;
+      }
+      /* Deck.dc.html's own `.nm { flex: 1 }`: lets the shop name claim the
+         id row's remaining width so the walk-time chip (restored to this
+         row now that the column is wide enough, see candidate.js's own
+         walkChip comment) sits flush at the row's trailing edge instead of
+         immediately after the name. Scoped to the list column so the
+         mobile deck's own id row (no chip in this row, see that file's own
+         placement branch) is untouched. */
+      .candidate-list-column [data-testid="candidate-card-name"] { flex: 1 1 auto; }
+      /* The map wrapper is candidate-main-layout's second column at this
+         width, sized the same way it always has been for >=64rem -- see
+         its own history below for how these values were measured -- but no
+         longer overlaid by a deck (cardsContainer moved to its own
+         .candidate-list-column above), so mapPrimaryFitPaddingOptions
+         (candidate.js) simply finds no .candidate-deck to pad for and falls
+         back to its own plain, symmetric padding. 15rem (240px) is a
+         measured value, not a guess: orchestrator measured every element
+         around this wrapper at 1280x800 (header 44px, filter bar 60.375px,
+         the candidate-provider-credit row below the map including its own
+         margin 30.375px, app-shell/app-card's own combined vertical padding
+         72px) summing to 233px of real, mostly width-independent chrome;
+         240px keeps a small deliberate margin above that measured 233px
+         instead of cutting it exactly, so a slightly taller header wrap or
+         a longer providerCredit string does not immediately reintroduce
+         page-level scroll (confirmed no page overflow at
          1280x800/1440x900/1920x1080; 1024px, this breakpoint's own lower
          bound, still overflows by a few px after this value -- see
          activeContext.md for the exact figure and why it was accepted
          rather than chased further). Developer has not measured this
-         against every possible real viewport height (Desktop.dc.html
-         decision3's own "数値は未実測" note applies here too). */
+         against every possible real viewport height. */
       .candidate-map-wrapper {
+        flex: 1 1 auto;
+        min-width: 0;
         height: calc(100vh - 15rem);
         min-height: 28rem;
         max-height: 52rem;
@@ -1058,168 +1118,6 @@
       .candidate-main-layout:not([data-map-sheet-open="true"]) [data-testid="candidate-map"] .leaflet-top,
       .candidate-main-layout:not([data-map-sheet-open="true"]) [data-testid="candidate-map"] .leaflet-bottom {
         display: block;
-      }
-
-      /* The deck (decision7's own "下部インセットの横デッキ" + decision8=
-         案あ's paging buttons/counter + decision9's compact card variant):
-         a horizontal, paged strip of the same candidate-card elements the
-         mobile list renders, overlaid on the map's own bottom inset -- see
-         candidate.js's renderDeck/recomputeDeckWindow for the paging model
-         this CSS only paints (a transform-driven sliding window, not
-         native scrollLeft -- see that function's own comment for why). */
-      /* D-fix 案A (2026-09-01, deck見た目3件): a column of two rows -- the
-         card viewport, then a centered pager row (previous/position/next)
-         below it -- replacing the previous single row that flanked the
-         viewport with the two nav buttons and floated the position counter
-         as a separate absolutely positioned badge. */
-      .candidate-deck {
-        position: absolute;
-        left: 1.5rem;
-        right: 1.5rem;
-        bottom: 1.125rem;
-        /* Clears Leaflet's markerPane (600, leaflet.css) so the deck
-           always paints over pins/rings underneath it; still below the
-           1000-range control-corner panes, though the zoom control (top
-           left) and the deck (bottom) do not actually overlap in
-           practice. */
-        z-index: 640;
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-      }
-      .candidate-deck-pager {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 0.75rem;
-      }
-      .candidate-deck-nav {
-        flex: 0 0 2.75rem;
-        width: 2.75rem;
-        height: 2.75rem;
-        border-radius: 50%;
-        border: 1px solid #c6cfc6;
-        background: #fff;
-        color: #17201b;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.15rem;
-        cursor: pointer;
-        box-shadow: 0 0.125rem 0.375rem rgb(23 32 27 / 16%);
-      }
-      .candidate-deck-nav:hover:not(:disabled) { background: #f4f6f2; }
-      .candidate-deck-nav:focus-visible { outline: 2px solid #14684a; outline-offset: 2px; }
-      .candidate-deck-nav:disabled { opacity: 0.4; cursor: default; box-shadow: none; }
-      /* D-fix 案A: no longer needs flex: 1 1 auto to fill space between two
-         flanking nav buttons (they moved into their own pager row below,
-         see .candidate-deck-pager above) -- the column-direction
-         .candidate-deck's default align-items: stretch already gives this,
-         its only row-1 child, the full available width. */
-      .candidate-deck-viewport {
-        min-width: 0;
-        overflow: hidden;
-        position: relative;
-      }
-      .candidate-deck-viewport [data-testid="candidate-proposal-cards"] {
-        display: flex;
-        gap: 0.75rem;
-        transition: transform 0.22s ease;
-        will-change: transform;
-      }
-      .candidate-deck-viewport [data-testid="candidate-card"] {
-        flex: 0 0 16.25rem;
-        width: 16.25rem;
-        padding: 0.75rem 0.8125rem;
-        gap: 0.5rem;
-        box-shadow: 0 0.375rem 1.25rem rgb(23 32 27 / 14%);
-      }
-      /* decision9: the deck's own compact card variant -- same DOM/test
-         ids renderCard already produces for the mobile list (no separate
-         renderer), CSS-only compression so more of the deck's own limited
-         height goes to a candidate's most decision-relevant facts.
-         Description clamps to one line (mobile's own 2-line clamp is a
-         separate, narrower max-width:63.999rem rule below); facts become
-         one row of four columns instead of a 2x2 grid. The provider-page
-         link keeps its existing 44px min-height (2.75rem, declared once,
-         above, for every width) unchanged here -- Desktop.dc.html
-         decision9 also sketched a 26px "案i" variant, but developer keeps
-         the 44px "案ii" regardless of whether ADR-0020 decision4(e)'s
-         frozen gate's own [data-candidate-control-purpose] query would
-         have swept this link either way (it is classified an
-         "observation" by unavailableControls.machineObservation's own
-         text and carries no such attribute, so it is not actually in that
-         gate's scope) -- staying visually consistent with the mobile
-         card's own 44px link is the simpler, safer choice regardless. */
-      .candidate-deck-viewport [data-testid="candidate-card-description"] {
-        display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden;
-      }
-      /* Real-device measurement (this slice): at the mobile card's own
-         1.0625rem name size, this card's fixed 16.25rem width (badge +
-         name + walk-time chip sharing one row) left only 2-3 legible
-         characters of most shop names before ellipsizing -- the synthetic
-         local-demo name "合成母集団食堂 05号店" rendered as "合成母…".
-         Shrinking the id row's own font sizes (name, walk-time chip) is
-         scoped to the deck alone; the mobile card's own sizes are
-         untouched. */
-      /* Human real-device report, deck round (2026-08-29, chat decision
-         among three costed options): the shop name -- "この画面で一番大事な
-         情報" -- was still being cut even for the synthetic population's
-         own longest name (measured 75-79% of its needed width at 1440px).
-         candidate.js's renderCard now omits the walking-time chip from the
-         deck's own id row entirely (moved to .candidate-genre-row below)
-         and this flex-grow lets the name claim essentially the row's whole
-         remaining width (badge + gap only) instead of stopping at its own
-         min-content size the way a flex-grow:0 item otherwise would with
-         nothing left to fill it. This rule itself stays scoped to
-         >=64rem's own compact deck-card font sizes (unchanged by the
-         mobile extension below, which does not touch font-size); the
-         placement change (id row -> genre row) it depends on is common to
-         both render modes now -- see candidate.js's own comment on
-         walkChip for why. */
-      .candidate-deck-viewport [data-testid="candidate-card-name"] { font-size: 0.875rem; flex: 1 1 auto; }
-      .candidate-deck-viewport .candidate-walk-chip { font-size: 0.6875rem; padding: 0.125rem 0.4375rem 0.125rem 0.35rem; }
-      .candidate-deck-viewport .candidate-marker-badge { width: 1.125rem; height: 1.125rem; font-size: 0.625rem; }
-      /* Deck-only row pairing genre with the walking-time chip that used to
-         share the id row (see candidate.js's renderCard/isMapPrimaryLayout
-         branch and the .candidate-deck-viewport [data-testid="candidate-
-         card-name"] comment above for the full account). Genre keeps its
-         own font-size/color (no override here) and is free to wrap to a
-         second line as it already could before this row existed; the chip
-         stays a fixed-size flex item beside it so it never gets squeezed. */
-      .candidate-deck-viewport .candidate-genre-row {
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        gap: 0.5rem;
-      }
-      .candidate-deck-viewport .candidate-genre-row [data-testid="candidate-card-genre"] {
-        flex: 1 1 auto;
-        min-width: 0;
-      }
-      .candidate-deck-viewport .candidate-genre-row .candidate-walk-chip {
-        flex: 0 0 auto;
-      }
-      .candidate-deck-viewport [data-testid="candidate-card"] dl.candidate-facts {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 0.3rem 0.4rem;
-        padding: 0.4rem 0.5rem;
-      }
-      .candidate-deck-viewport [data-testid="candidate-card"] dl.candidate-facts dt { font-size: 0.6875rem; }
-      .candidate-deck-viewport [data-testid="candidate-card"] dl.candidate-facts dd { font-size: 0.75rem; }
-      /* D-fix 案A: "‹ 1–5 / 5 ›" -- now a plain inline member of
-         .candidate-deck-pager, between deckPreviousEl and deckNextEl
-         (candidate.js's renderDeck), not an absolutely positioned badge
-         floating over the map. */
-      .candidate-deck-position {
-        background: #23302a;
-        color: #fff;
-        font-size: 0.7rem;
-        font-weight: 650;
-        padding: 0.2rem 0.7rem;
-        border-radius: 999px;
-        font-variant-numeric: tabular-nums;
-        white-space: nowrap;
       }
 
       #candidate-filter-bar { position: relative; z-index: 8; overflow: visible; }
@@ -1389,5 +1287,5 @@
       code (184px facts grid, no name-in-id-row) even though the server's
       own file already had this round's fixes.
     {% endcomment %}
-    <script src="{% static 'dining_radar/web/candidate.js' %}?v=20260902-gathering-entry-and-deck-fixes"></script>
+    <script src="{% static 'dining_radar/web/candidate.js' %}?v=20260910-gathering-mode-band-and-toggle"></script>
 {% endblock %}

@@ -36,12 +36,17 @@
         box-shadow: 0 0.25rem 1.25rem rgb(23 49 36 / 6%);
       }
 
-      /* Header: title + 日程 n/N counter, progress bar, name control */
+      /* Header: title + 日程 n/N counter, progress bar, name control.
+         min-height raised 52->56px (2026-09-08 human report, repeated:
+         "余白が気になりますね、ボタンが小さいのも相まってデザインが悪く
+         見える"; Answer.dc.html board's own delta table, "ヘッダ 52 -> 56px"). */
       .gth-hd-row {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 0.625rem;
+        min-height: 3.5rem;
+        box-sizing: border-box;
         padding: 0.75rem 1rem;
         background: #fff;
       }
@@ -81,19 +86,24 @@
         font: inherit;
       }
 
+      /* gap 10->12px, top padding 12->14px (2026-09-08 human report,
+         repeated: "余白が気になりますね..."; Answer.dc.html board's own
+         delta table, "カード同士の間隔 10 -> 12px" / "画面の内側 12/16 ->
+         14/16px"). */
       .gth-body {
         display: flex;
         flex-direction: column;
-        gap: 0.625rem;
-        padding: 0.75rem 1rem 1rem;
+        gap: 0.75rem;
+        padding: 0.875rem 1rem 1rem;
       }
 
-      /* Cards (both done and open share the base) */
+      /* Cards (both done and open share the base). Inner padding 13/15 ->
+         15/16px (Answer.dc.html board's own delta table, "カードの内側"). */
       .gth-card {
         background: #fff;
         border: 1px solid #dfe4de;
         border-radius: 0.75rem;
-        padding: 0.8rem 0.95rem;
+        padding: 0.9375rem 1rem;
         display: flex;
         flex-direction: column;
         gap: 0.5625rem;
@@ -133,11 +143,21 @@
         font-size: 0.6875rem;
         color: #77827a;
       }
+      /* peekResults.requiredOutcome (adr/0050 decision 1): the one open
+         question's own tally/mask stays hidden until
+         gathering-participant-peek-results is activated -- every *done*
+         question's own gth-tally (rendered outside this wrapper) is
+         unaffected and always visible. */
+      .gth-open-tally-wrap { display: none; }
+      .gth-open-tally-wrap--revealed { display: flex; flex-direction: column; gap: 0.5625rem; }
       .gth-open-options { display: flex; flex-direction: column; gap: 0.5rem; }
 
       /* Response option buttons -- shared, compact variant for done cards */
+      /* 52->56px (2026-09-08 human report, repeated: "余白が気になります
+         ね、ボタンが小さいのも相まってデザインが悪く見える"; Answer.dc.html
+         board's own delta table, "選択肢のボタン 52 -> 56px"). */
       .gth-opt {
-        min-height: 3.25rem;
+        min-height: 3.5rem;
         box-sizing: border-box;
         border: 1px solid #c6cfc6;
         border-radius: 0.625rem;
@@ -166,9 +186,11 @@
       .gth-next-muted { color: #77827a; }
 
       .gth-foot { display: flex; gap: 0.625rem; }
+      /* 44->48px, font 13->13.5px (Answer.dc.html board's own delta table,
+         "下の2つのボタン 44 -> 48px（文字 13 -> 13.5）"). */
       .gth-foot-btn {
         flex: 1;
-        min-height: 2.75rem;
+        min-height: 3rem;
         box-sizing: border-box;
         border: 1px solid #c6cfc6;
         border-radius: 0.625rem;
@@ -176,11 +198,12 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 0.8125rem;
+        font-size: 0.84375rem;
         font-weight: 500;
         color: #77827a;
       }
-      .gth-fine { font-size: 0.65rem; line-height: 1.6; color: #77827a; text-align: center; }
+      /* 10.5->11px (Answer.dc.html board's own delta table, "注記 10.5 -> 11px"). */
+      .gth-fine { font-size: 0.6875rem; line-height: 1.6; color: #77827a; text-align: center; }
 
       [data-testid="gathering-participant-link-error"] {
         margin: 0.75rem 1rem;
@@ -210,11 +233,12 @@
 
       /* Approval-voting surface (Vote.dc.html B-2, adr/0042; three-tier +
          map/detail fields adr/0044/0045, 2026-09-05) */
+      /* Same card-padding delta as .gth-card above (Answer.dc.html board). */
       .gth-vote-section {
         background: #fff;
         border: 1px solid #dfe4de;
         border-radius: 0.75rem;
-        padding: 0.8rem 0.95rem;
+        padding: 0.9375rem 1rem;
         display: flex;
         flex-direction: column;
         gap: 0.5rem;
@@ -268,10 +292,14 @@
       }
       .gth-shop-detail-row { display: flex; flex-wrap: wrap; gap: 0.35rem 0.65rem; align-items: center; }
       .gth-shop-detail { font-size: 0.6875rem; color: #4b564e; white-space: nowrap; }
+      /* Raised to the 44px minimum tap target the rest of this screen's
+         controls already use (2026-09-08 human report, repeated: "余白が
+         気になりますね、ボタンが小さいのも相まってデザインが悪く見える")
+         -- a real, clickable <a>, not a decorative badge. */
       .gth-shop-link {
         display: inline-flex;
         align-items: center;
-        min-height: 2.25rem;
+        min-height: 2.75rem;
         padding: 0 0.75rem;
         border: 1px solid #14614a;
         border-radius: 0.5rem;
@@ -302,7 +330,7 @@
         border-radius: 999px;
         padding: 0.2rem 0.75rem;
       }
-      .gth-final-when-lb, .gth-final-shop-lb, .gth-final-yours-lb, .gth-final-approved-lb {
+      .gth-final-when-lb, .gth-final-shop-lb, .gth-final-yours-lb {
         font-size: 0.6875rem;
         color: #77827a;
         margin-top: 0.4rem;
@@ -310,19 +338,6 @@
       .gth-final-when { font-size: 1.25rem; font-weight: 700; }
       .gth-final-shop { font-size: 1.25rem; font-weight: 700; }
       .gth-final-yours-row { font-size: 0.8125rem; }
-      .gth-final-approved { display: flex; flex-direction: column; gap: 0.3rem; }
-      .gth-final-shop-vote {
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        gap: 0.5rem;
-        font-size: 0.8125rem;
-        padding: 0.2rem 0;
-        border-top: 1px solid #eef1ed;
-      }
-      .gth-final-shop-vote:first-of-type { border-top: 0; }
-      .gth-final-shop-vote-name { font-weight: 600; }
-      .gth-final-shop-vote-status { color: #4b564e; font-size: 0.75rem; white-space: nowrap; }
     </style>
   </head>
   <body>
@@ -346,6 +361,6 @@
     {% comment %}
       Cache-busting query string on participant.js (FR-025).
     {% endcomment %}
-    <script src="{% static 'dining_radar/gathering/participant.js' %}?v=20260906-stale-response-guard"></script>
+    <script src="{% static 'dining_radar/gathering/participant.js' %}?v=20260911-answer-later-peek-results"></script>
   </body>
 </html>

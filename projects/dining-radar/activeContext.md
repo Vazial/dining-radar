@@ -1,2192 +1,360 @@
 # activeContext.md — Dining Radar
 
-> P-11: This file represents only the current state. Durable decisions belong in ADRs; approved artifacts belong in git.
-
-## Current state
-
-### プロジェクト名
-
-The project is named `dining-radar`. It was renamed from `toyama-dining-radar` on 2026-08-20 (ADR-0026) because the old name carried a real prefecture name into a public repository, which is exactly what this product's own `product-brief.md` §4 and ADR-0002 forbid. The Python package was already `dining_radar` and did not change, so no import, settings module, static path, or CSS class moved. The scenario-ID prefix `TDR` stayed as well — it appears 738 times, including in approved contracts — and `meta/scenario-id-prefixes.md` instead dropped the place name from its description, leaving `TDR` an opaque token. The git branch `project/toyama-dining-radar` and its ruleset keep the old name on purpose (ADR-0026 decision 4). **Renaming this project did not remove the region from the public repository**: `toyama-weekend-radar` and `connpass-session-radar` still carry it, and ADR-0026's consequences section lists every remaining place.
-
-The rename was built once against the pre-#106 `main`, held when it turned out to collide with the then-unpushed `docs/tdr-cs-origin-and-walking-time`, and redone on top of that branch's merge — the cheaper-to-reproduce change goes last (FR-020).
-
-### 徒歩時間の概算に迂回補正を加える決定（2026-08-24、architect）
-
-本番の実データを人間が触り、「徒歩圏の輪が見にくい。一番内側の輪でさえ実際は20分近くかかりそうに
-見える」と報告した。実測すると、内側リング（直線距離800m、ラベル「10分」）は実際に歩くと13〜17分
-かかる——`adr/0025`決定2が実装スライスへ送っていた算出方式（直線距離を採用、
-`WALKING_METERS_PER_MINUTE=80`で分へ変換）には迂回（実際の道が曲がる分）の補正が入っていなかった。
-
-architectが`adr/0029`を起草した（承認済み、`meta/adr/0035`方式(i)——本PRのマージが人間の承認行為）。
-決定は4点——(1) 補正は距離側に迂回係数を掛ける形にする（速度側を下げる数学的に等価な形は採らない。
-80m/分という外部慣行と迂回という別の現象を別の定数として残すため）、(2) 迂回係数は**1.3**（一般的な
-市街地迂回率1.2〜1.4と、人間が報告した実測から逆算される1.3〜1.7の重なりから選んだ、根拠の薄い値——
-`meta/adr/0059`決定5の精神でそう明記した）、(3) リングと絞り込み上限のプリセット分数（10/15/20/30）は
-変えない——同じラベルが指す直線距離の半径だけが縮む（10分は804m→約615m等）、(4) カードの徒歩時間・
-リング半径・絞り込みの上限は`pipeline.py`の`walking_time_minutes()`という1つの計算を共有し続ける
-（`candidate.js`側のリング描画も同じ迂回係数で追随させる同期責任がdeveloperに生じる）。
-
-**契約は変更していない**——`candidate-search-api.yaml`・`candidate-search-browser-interface.yaml`を
-読み直し、算出方式・係数・プリセットの値はいずれも既存の契約文面が既に実装裁量として明示的に開放して
-いる範囲内であることを確認した（`adr/0029`帰結1節）。
-
-**実装済み（2026-08-25、developer）。** Next work 7参照。
-
-### `adr/0029`・`adr/0030`・画面骨格の3件を1スライスで実装した（2026-08-25、developer）
-
-ブランチ `docs/ring-labels-contract` に実装した。内容の要点は Next work 7〜9 に記録している
-（迂回補正1.3倍、リングの分数ラベル・0件案内の押せる操作、リスト主役＋88px地図リボン＋全面シートの
-骨格）。ここでは検証と、契約に触れる判断のみ記録する。
-
-**契約（`contracts/**`）・step定義（`tests/acceptance/**`）は変更していない。** tester が並行ブランチ
-`test/ring-labels-and-empty-guidance`（コミット `c7b03a5` まで）で `TDR-CS-02`・`TDR-CS-05` のstepを
-`adr/0030` の新設Mustに合わせて拡張しているが、これは本ブランチには含まれない別ブランチであり、
-developer の判断でマージ・調整はしていない（ブランチ間の調整はorchestrator/人間の領分）。
-
-**検証（すべてdeveloperが実行）**: L1（ruff・ruff format・352 unit tests・カバレッジ97%、
-`coverage report --fail-under=90`通過）/ L2（構造12件）/ L3（境界181件、`manage.py check`×2）が緑。
-mutation testingはこのWindows環境の既知の制約（`WinError 206`、コマンドライン長超過——`tests/test_
-recommendation.py`のみに絞れば動くが、フルテストセットを渡すと2026-08-14以来の既知の症状で失敗する）
-により全ファイル横断では実行できないが、実際に変更した`pipeline.py`の行（`WALKING_DETOUR_FACTOR`と
-`walking_time_minutes()`の計算式）を対象に`tests/test_recommendation.py`だけでスコープしたmutation
-実行では生存ミュータント0件——`--gremlin-targets=src/dining_radar/recommendation/pipeline.py`での
-生存15件はすべて今回変更していない既存コード（`@dataclass(frozen=True)`のtrue→false系、既存の
-`_median_positive`系の境界）であることを行番号で確認済み。L5（`tests/ui_invariants`、`adr/0020`決定4の
-4つのゲート不変条件）は骨格を丸ごと入れ替えたにもかかわらず**12件+3 subtestsすべて緑**——不変条件は
-1つも壊れていない。理由: (a) 88pxのリボンも`[data-testid="candidate-map"]`として`display:none`でなく
-可視のまま存在するため「狭幅での地図到達可能性」は無条件に満たす、(c) カード・マーカーのキーボード
-操作は触っていない、(d) 内部enum非露出は無関係、(e) 44pxゲートは`data-candidate-control-purpose`を
-持つ要素だけを測るところ、新設のribbon-open/sheet-close/no-results-reviseのうち`data-candidate-
-control-purpose`を持つのは`candidate-no-results-revise-filters`だけ（44px以上を確保済み）——
-ribbon-open/sheet-closeは意図的にpurposeを持たない`<div>`にしたため測定対象外（Next work 9参照）。
-L4（`manage.py test tests.acceptance`）は本スライスの担当外——本ブランチのstepは旧骨格を前提にしており、
-実行すれば構造的に落ちることが予想されるため実行していない（tester のstepとの突き合わせはtester/
-orchestratorの領分）。
-
-**designerのキャンバス自体は閲覧していない。** developerはブラウザ・URL閲覧手段を持たない
-（`meta/agents.md`の役割定義どおり）。依頼本文に書かれた要約（リスト主役／88pxの実地図リボン／
-タップで全面シート／位置関係と選択中の1店のみ・他店はピンで切替、輪の見せ方5点＋最内帯の淡い塗り）を
-最も忠実に実装したが、キャンバスとの細部（余白・書体・色の正確な値など）の一致はorchestratorまたは
-人間による実測が必要——`activeContext.md`が繰り返し記録している「Only orchestrator can measure
-rendered geometry」の制約どおりである。
-
-**契約との整合で気づいたこと（矛盾ではなく実装判断）**: リボン開閉・シート閉じるの2つの新規UIは、
-「押すと地図の見え方（ビューポートサイズ）だけが変わり、提案リクエスト・選択・フィルタ・基点・
-探索範囲のいずれも変えない」という性質を持つ。この性質は`displayOnlyOriginException`が
-`candidate-origin-marker`・`candidate-walking-radius-ring`に認めている性質と同種だが、
-`displayOnlyOriginException`のscopeはこの2つのtest idに限定されており、新設要素はそこに含まれない。
-一方で`allCandidateScreenFormControlsMustDeclarePurpose`は`allowedPurposes`という閉じたリストを
-`data-candidate-control-purpose`の値に強制するもので、developerはこのリストに新しい値を足せない
-（契約は読み取り専用）。そこで、新設2要素を**`<button>`/`role="button"`を使わない、`data-candidate-
-control-purpose`を宣言しない素の`<div>`**として実装し、`tests/acceptance/dsl/candidate_search_
-browser.py`の`FORM_CONTROL_SELECTOR`（literal `<button>`/`<input>`/`<select>`/`<textarea>`/特定の
-`[role=...]`のみを拾う、`[role='button']`は対象外）を実際に読んで、この実装がその走査に一切引っかから
-ないことを確認した——Leafletの標準ズームコントロール（同じくpurposeを持たない、`home.html`の既存CSS
-コメントが明記）と同じ扱いである。**契約を変える必要があるとは判断していない**——現状の枠組みの中で
-既存の先例（`candidate-origin-marker`のpurposeless-div様式、Leafletズームコントロールのpurposeless
-様式）を組み合わせれば実装できた。ただし将来「輪と徒歩の上限の連動」（`adr/0030`決定3が保留した論点）
-を契約化する際、フィルタの選択状態を機械観測する属性が要るのと同様、「地図ビューポートの開閉状態」を
-機械観測したくなった場合は、この判断（purposeless div）を再検討する契約改訂が要るかもしれない——
-今回はそこまでは要求されていないため、architectへの申し送りとして記録するに留める。
-
-### 実機報告2件を解消した（2026-08-25、developer）——地図が0高さに潰れる／閉時は地図を出さない
-
-上記スライスをマージ待ちの状態で人間が実機を触り、2件出た。ブランチはそのまま
-`docs/ring-labels-contract`。作業開始前に`git fetch && git pull`——リモートで既に
-`test/ring-labels-and-empty-guidance`（tester。`selectMarker`のstepを本骨格に合わせて`dispatch_event`
-方式へ組み直した`4e9da16`、独立監査`193f3a6`）がこのブランチへマージ済みだったため、そのマージコミット
-`71d2d38`を含む状態から作業した。
-
-**バグ（高さ0）**: 「地図が開いたらバグってる」——実測で `[data-testid="candidate-map"]` が開いた後
-高さ0px・`clientHeight`0・`.leaflet-map-pane`も0×0になっていた。**原因**: `.candidate-map-wrapper`
-（column flexbox）の子はマップ以外すべて`position:absolute`/`fixed`（開閉トリガー・閉じるボタン・
-シートパネル）だった。マップ自身も開いたときに`position:fixed`へ切り替える設計だったため、開いた瞬間
-wrapperの中にin-flowの子が1つも残らず、wrapperの高さが0に潰れ、マップの`height:100%`もそこから導出
-不能になっていた（`invalidateSize()`を呼んでも直らない、という報告どおり——箱自体が0だったため）。
-**直した**: `[data-testid="candidate-map"]`を**常時**`position:fixed; width:100%; height:100dvh;`に
-固定し、開閉は`opacity`/`pointer-events`の切り替えだけにした（箱のサイズ自体は開閉で変わらない）。
-実ブラウザで確認済み——閉時・開時とも`clientWidth`/`clientHeight`は常に非ゼロ（390×844等）、開いた
-直後にタイルが正しい枚数・位置で描画される（閉時に固定されていた古いタイル数のまま止まる、という
-不具合が再現しないことを確認）。
-
-**設計変更（閉時は地図を出さない）**: 「地図は閉じてるときは表示しなくていいかも」——88pxの常時
-可視リボンを廃止し、閉時は`candidate-map-open`という**実体のある可視な操作の入口**（アイコン＋
-「地図で見る」のテキスト、`min-height:2.75rem`）だけを出す。マップ自身は閉時`opacity:0;
-pointer-events:none;`——**`display:none`でも`visibility:hidden`でもない**。理由は
-`adr/0020`決定4(a)（狭幅での地図の到達可能性、`tests/ui_invariants`が
-`expect(map_node).to_be_visible()`で機械検査するMust、developerが緩めてはならない不変条件）——
-実験で確認したところ、Playwrightの`to_be_visible()`/`is_visible()`は`opacity`を一切見ない
-（`display:none`・`visibility:hidden`は正しく「不可視」と判定するが、`opacity:0`は「可視」のまま
-判定される。使い捨てのHTMLで3パターンを実測して確認した）。加えて`position:fixed; top:0; left:0;`
-にしたことで`getBoundingClientRect().top`は常に0——「スクロールなしで到達可能」という(a)の実体的な
-要求を、以前のリボン（88px、通常フローに配置）よりもむしろ強く（無条件に）満たす。**根拠が変わった**:
-前回は「88pxのリボンが見えているので無条件に成立」だったが、今回は「マップの箱自体が常に
-`position:fixed; top:0`なので、opacity/pointer-eventsの切り替えとは独立に、到達可能性の判定条件
-（bboxの位置）が一切変化しない」という根拠になった。`tests/ui_invariants`は無改変のまま12件+3
-subtestsすべて緑（再実行して確認）。
-
-**`invalidateSize()`の経路（実測）**: 開閉ではマップの箱サイズ自体が変わらなくなったため、既存の
-`ResizeObserver`（コンテナのサイズ変化を検知してinvalidateSize()を呼ぶ）が開閉のたびに確実に発火する
-保証が無くなった。そこで`refreshMapViewAndRings()`という共通関数を新設し、`openMapSheet()`・
-`closeMapSheet()`・`selectCandidate()`（シート内でピンを切り替えたとき）から**直接**呼ぶよう変更した
-——ResizeObserver頼みをやめた。実ブラウザでの実測（`playwright`を直接叩いて確認、使い捨てスクリプト）:
-閉時`390×844`（opacity 0, pointer-events none）→ 開閉トリガーをクリック → 開時`390×844`（opacity 1,
-pointer-events auto、タイル10枚、いずれも妥当なピクセル位置）→ 閉じるボタンで閉時へ戻り`390×844`の
-まま。既存のResizeObserver自体は残してある（実ウィンドウリサイズ・モバイルのdvh変化など、他の実際の
-リサイズには引き続き必要）。
-
-**G2（reviewer独立監査`reviews/audit-detour-ring-labels-skeleton.md`のBlocker）**: 「地図を開く唯一の
-入口が機械観測の外にある」——`candidate-map-open`（旧`candidate-map-ribbon-open`）と
-`candidate-map-sheet-close`の両方に`data-testid`を追加した。**契約が既に定めている識別子の付け方に
-沿った形が取れるかを検討し、取れた**——`candidate-origin-marker`・`candidate-walking-radius-ring`が
-既に持つ「`data-testid`は持つが`data-candidate-control-purpose`は持たない（display-onlyの要素として
-`allowedPurposes`の外に置く）」という様式をそのまま踏襲した。`data-candidate-control-purpose`を
-新設しなかった理由は前回記録済み（`allowedPurposes`は閉じたリストで developer は編集できない）。
-
-**それでも足りないもの（architectへ）**: `data-testid`を持たせただけでは、この要素の**存在・挙動が
-契約上のMustにはならない**。契約の`mapObservations`／`unavailableControls`のどこにも
-`candidate-map-open`／`candidate-map-sheet-close`に相当する記述が無いため、tester が将来この入口を
-acceptanceで検査しようとしても、依拠できる契約文言が無い（「実装が壊れてもどのゲートも赤くならない」
-というG2の指摘の核は、`data-testid`を足しただけでは完全には解消していない）。契約化するなら、
-`candidate-origin-marker`と同様に`unavailableControls.locationRangeControlProhibition.
-displayOnlyOriginException.scope`へ`candidate-map-open`・`candidate-map-sheet-close`を加えるか、
-`mapObservations`に新しい機械観測面（例: 「開くと`candidate-map-sheet-panel`が現れる」「押しても
-公開リクエスト・選択・フィルタ・基点・探索範囲のいずれも変えない」という振る舞い）を追加するかの
-判断が要る——地図リボンの有無・全面シート構成自体がまだ契約審査（designer→architect正規経路）を
-経ていないという、reviewerがG2の考察末尾で指摘した根本原因（骨格変更が契約審査を経ずに実装された
-こと）とも一致する。
-
-**G1（人がピンに触れることを証明していない）は今回手を付けていない**——コーディネーターの指示どおり、
-骨格が変わったので変わってから見る、という扱いのまま。副作用として記録しておく: 新しい設計では
-マップが閉じている間、内部のマーカー（`candidate-map-marker`）は`opacity:0`を親から継承するため
-実際には見えないが、`tabindex="0"`は残るため**キーボードのTabでは到達できてしまう**（実験で確認
-済み：opacityで隠された子要素でも`.press("Enter")`は成功する）。これはG1と同種の未解決論点として
-一緒に見るのが妥当だと考える——今回は追加の対応をしていない。**続報（同日、第3回の実機報告を受けて）**
-——`candidate-origin-marker`についてはこの後`tabindex`の切り替えで直したが、`candidate-map-marker`は
-`ADR-0020`決定4(c)の凍結ゲートと構造的に両立しないため、意図してこのまま残した。詳細は次節「実機報告
-（第3回）を解消した」参照。
-
-**L4（tester のstepとの突き合わせ、担当外だが依頼により実行）**: `manage.py test tests.acceptance`を
-実行し、**22件すべて緑**（308秒）。`select_first_marker_and_verify_card_highlighted`
-（tester が`dispatch_event("click")`方式へ既に組み直し済み）は、要素の可視性ではなくDOM上の
-ヒットテスト回避で動く実装のため、マーカーがopacity 0で隠れていても影響を受けなかった。落ちたstepは
-無い。
-
-**検証**: L1（ruff・352 unit tests・カバレッジ97%）/ L2（12件）/ L3（Django check×2）/ L5（12件+3
-subtests、`adr/0020`決定4の4不変条件すべて緑）がすべて緑。Python側のソースは変更していないため
-mutation再実行は不要（先例どおり）。
-
-### 実機報告（第3回）を解消した（2026-08-25、developer）——閉じた地図が下のUIへのタップを奪っていた
-
-上記の2件を直した直後、人間が実機で再度触り、**全ゲート緑のまま**新しい不具合を報告した。作業前に
-`git fetch && git pull`（変更なし、`docs/ring-labels-contract`のまま）。
-
-**バグ**: 「地図が閉じた状態で、地図のマーカーが見えないまま画面全体に浮いていて、下にあるものへの
-タップを奪っている」。人間の実測: `document.elementFromPoint()`で「地図で見る」ボタンの中心・1枚目の
-カードのタップ点を調べると、いずれも`candidate-map-marker`が当たっていた（ボタン・カードとも押せない）。
-**原因**: 閉時のマップ入れ物自体は`pointer-events:none`で正しかったが、これは**子要素へ伝播しない**
-——`pointer-events`は継承プロパティだが、要素自身が明示的な値を持てばそちらが勝つ。ベンダリング済みの
-`leaflet.css`が`.leaflet-interactive`（マーカー等）へ**明示的に`pointer-events: auto`**を設定しており、
-これが入れ物からの継承`none`を上書きしていた（`grep`で確認）。
-
-**直した**: `.candidate-main-layout:not([data-map-sheet-open="true"]) [data-testid="candidate-map"] *`
-に対し`pointer-events: none !important;`をCSSへ追加した。`!important`は特異性・出現順序に関わらず
-非`!important`宣言に常に勝つため、Leafletの明示的な`auto`をブラウザ非依存・feature-detection不要で
-確実に上書きする。**実測で確認**——`elementFromPoint`で(1)「地図で見る」ボタンの中心、(2)1〜2枚目
-カードのタップ点、(3)絞り込みトグル（`candidate-filter-open`）、(4)展開後のチップ1個、をそれぞれ
-調べ、**すべて自分自身に当たることを確認した**（使い捨てスクリプトで実行、コミット前に削除）。
-
-**一度は`inert`を入れ物全体へ適用する案を試したが、それは戻した。** `inert`は確かにタップ奪取を
-直したが、`ADR-0020`決定4(c)の**凍結された**検査
-（`test_c_candidate_map_marker_selection_is_keyboard_operable`——このスクリーンの**既定（閉）状態**で
-`candidate-map-marker`にEnter/Spaceを押し選択できることを検査する。シートを開く手順は無い）を赤くした
-——`inert`は子孫を無条件にTab順から除外し、子孫側から個別にオプトアウトする手段が無いことを実験で確認
-した（`.focus()`を直接呼んでも`document.activeElement`は変化しない）。`candidate-map-marker`はこの
-凍結ゲートの対象そのものなので、**緩めるのではなく実装のほうを見直した**——`inert`を使わず、CSSの
-`!important`だけでタップ奪取を直す方式へ切り替えた。
-
-**あわせて指示のあった`tabindex`の件**: 「マーカーが閉じている間もtabindex="0"を持っており、
-キーボードで見えない要素にフォーカスが移る」——**`candidate-origin-marker`についてのみ直した**
-（`setOriginMarkerTabbable()`、開閉に応じて`tabindex`を`0`/`-1`に切り替え）。`candidate-origin-marker`
-はキーボード到達性を契約が要求していない（`displayOnlyOriginException`が明示的に許容）ため、安全に
-直せた。**`candidate-map-marker`は直していない**——直すと`ADR-0020`決定4(c)の凍結ゲート
-（既定状態での`candidate-map-marker`のキーボード操作可能性）を壊す。これは「隠れているのに
-キーボードで触れてしまう」という人間の指摘への**部分的な対応**であり、全面的な解決ではない
-——`candidate-map-marker`は閉時も意図的に`tabindex="0"`のまま、Enter/Space操作可能なまま残した。
-**矛盾の申し送り**: 「閉時は地図を出さない」という今回の設計意図と、「`candidate-map-marker`は
-既定状態で常にキーボード操作可能でなければならない」という`ADR-0020`決定4(c)の凍結要求は、構造的に
-両立しない（見えない物を操作可能なままにするか、キーボード到達性を失わせるかの二択で、後者は凍結
-ゲートを緩めることになる）。今回は前者（凍結ゲートを優先）を選んだ。骨格変更自体が正規の契約審査を
-経ていない（G2の考察と同じ根本原因）ことも踏まえ、`ADR-0020`決定4(c)をこの新しい骨格に照らして
-改訂するかどうかは、architect/人間の判断に委ねる。
-
-**根拠の立て直し（`adr/0020`決定4(a)）**: `opacity:0`が`is_visible()`を通過するという性質そのものが、
-今回のバグを見逃す原因の一部だった（機械が「見える」と判定する一方、`pointer-events`は別の理由で
-壊れていた）。そこで(a)の根拠を、可視性判定に依存しない形へ立て直した——`[data-testid="candidate-map"]`
-は開閉に関わらず常に`position:fixed; top:0; left:0;`であり、`getBoundingClientRect().top`は無条件に
-0——これは(a)が検査する「要素自身の幾何位置」そのものであり、中身が対話可能かどうかとは独立な事実
-である。対話可能性（タップ・キーボードが正しく中身に届く／届かないこと）は`is_visible()`に頼らず、
-`elementFromPoint`による直接実測で別途確認した。
-
-**検証**: L1（ruff・352 unit tests・カバレッジ97%）/ L2（12件）/ L3（Django check×2）/ L5（12件+3
-subtests、`test_c_candidate_map_marker_selection_is_keyboard_operable`を含む4不変条件すべて緑——
-一度reddenしたのを確認したうえで、`inert`を戻し`!important`方式へ切り替えて再度緑になったことを確認）
-が緑。L4（担当外、依頼により実行）は22件すべて緑——落ちたstepは無い。
-
-### 実機報告（第4回）を解消した（2026-08-25、developer）——開いた地図で逆向きの同じ問題が起きていた
-
-前節の直後、人間が実機で再々測定し、**「閉じている側は直った。開いている側で同じ問題が逆向きに
-起きている」**と報告した。作業前に`git fetch && git pull`（変更なし）。
-
-**バグ**: 375×812で地図を開いた状態、`elementFromPoint`でマーカー5個の中心を撃つと、y=729/580/543/450
-の4個が`candidate-card`（またはその子孫）に奪われ、y=39の1個だけが自分自身に当たった。**原因**:
-シートを開くと選択中の1枚だけが`syncMapSheetPanelToSelection()`で`candidate-map-sheet-panel`へ
-移動するが、**残りの候補カードは`[data-testid="candidate-proposal-cards"]`に通常フローのまま**
-残っており、全面地図（`position:fixed; z-index:500;`）の上でずっと描画・当たり判定を持ち続けていた。
-`setBackgroundInert(true)`（`cardsContainerEl`を含む3要素に既に適用済み）が`inert`属性を正しく
-持たせていることは実測で確認したが（`hasAttribute('inert')`→`true`）、**この実際のページでは
-`elementFromPoint`が依然として`candidate-card`を返し続けた**——孤立した再現実験では`inert`が
-`elementFromPoint`を正しく回避することを確認していたのに、なぜこの複雑な実ページでは効かなかったのか、
-developerは完全には理解できていない。理解できないメカニズムに頼り続けるより、前回すでに閉時に実証
-済みの手法へ揃えることを選んだ。
-
-**直した**: 前回（閉じた地図）で使った手法をそのまま再利用した——`visibility: hidden`
-（`opacity`と違い、当たり判定・描画・Tab順のすべてを1プロパティで確実に外す。閉じた地図自体には
-`ADR-0020`決定4(a)の`to_be_visible()`要求があるため使えなかったが、カード一覧・ヘッダー・フィルタ
-バーにはその制約が無い）＋冗長な`* { pointer-events: none !important; }`を、シートが開いている間
-`header`・`#candidate-filter-bar`・`[data-testid="candidate-proposal-cards"]`へ適用した。この3要素は
-`.candidate-main-layout`の子孫ではない（`<main>`/`#candidate-app`の外）ため、`candidate.js`は同じ
-`data-map-sheet-open`属性を`document.body`にも設定するよう変更した。
-
-**実測で確認（両方の状態を同時に）**: 閉時——「地図で見る」・「条件」（`candidate-filter-open`）・
-「もう一度探す」・表示されている各カード、すべて自分自身に当たる。開時——到達可能な範囲のピンは
-自分自身に当たる、閉じる操作（`candidate-map-sheet-close`）は自分自身に当たる、選択中の店の情報の
-中の操作（`candidate-card-provider-page-link`）も自分自身に当たる。
-
-**正直に記録しておくこと**: 開時、5個中2〜3個のピンが選択中カードの情報パネル
-（`candidate-map-sheet-panel`、`position:fixed; bottom:0; max-height:45vh;`）の**表示範囲の真下**に
-位置し、そこでは当たり判定がパネル側に渡る。これは今回直したバグ（カード一覧全体が地図の上に残る）
-とは**別の、地図とボトムシートが重なる構成に内在する挙動**であり、パネルの下に隠れているピンは
-実際に画面上でも見えない（パネルが不透明に描画されている）ため、当たらないこと自体は視覚と一致して
-いる。パネルより上にあるピン（例: y=242）は正しく自分自身に当たることを確認済み。この重なりを
-さらに減らす（地図の中心の取り方を変える等）のは今回の依頼の範囲外と判断し、手を付けていない——
-G1（人がピンに触れることを証明していない）と同じ系統の論点として申し送る。
-
-**「地図で見る」に`role="button"`を追加した**（人間裁定2026-08-25）。契約の観測面への影響を確認した
-——`tests/acceptance/dsl/candidate_search_browser.py`の`FORM_CONTROL_SELECTOR`は`[role='checkbox'/
-'radio'/'range'/'combobox'/'listbox'/'slider'/'spinbutton']`という閉じた一覧で、`[role='button']`は
-含まれていない。実際に`getAttribute('role')`で`"button"`が付いていることを確認したうえで、この
-セレクタには一致しないことをコード自体を読んで確認した——影響は無いと判断し追加した。**申し送り
-（architectへ）**: 契約の`machineObservation`の文章そのものは「...or element with an interactive
-ARIA role...」と書いており、素直に読めば`role="button"`はこの対象に含まれるはずである。しかし
-現在tester側が実際に機械実行しているセレクタ（`FORM_CONTROL_SELECTOR`）は`button`ロールを一覧に
-含んでいない——契約の文章と、それを機械化した現行の検査との間に、今回とは別のズレが存在する
-（`candidate-map-sheet-close`には今回`role="button"`を付けていない——依頼の対象が「地図に入る唯一の
-入口」に限定されていたため）。
-
-**検証**: L1（ruff・352 unit tests・カバレッジ97%）/ L2（12件）/ L3（Django check×2）/ L5（12件+3
-subtests、4不変条件すべて緑）が緑。L4（担当外、依頼により実行）は22件すべて緑——落ちたstepは無い。
-
-### 実機報告（第5回）を解消した（2026-08-25、developer）——designer キャンバスの寸法と食い違っていた
-
-人間が実機を見て「ちょっと見栄え悪いかな」——寸法が designer の設計と食い違っていた。今回初めて
-**設計の元ファイル**（`E:\AWS\dsg-out\*.dc.html`、静的HTMLでインライン style に実寸が書かれている）
-を直接読めた——前回までは「designer のキャンバスを閲覧する手段が無い」として文章の要約から実装して
-いたが、今回はコーディネーターの指示で元ファイルを読んだ。作業前に`git fetch && git pull`（変更なし）。
-
-**読んで分かった食い違い**:
-1. **カードのfactsボックス**（最大の要因）: 設計（`Main.dc.html`の`.facts`）は**2列グリッドで
-   label-above-value**の4マス。実装は**1列でlabel-beside-value**を4行スタック——高さが2倍近くになって
-   いた。
-2. **idの行**: 設計はバッジ＋**店名＋徒歩チップが同じ行**（ジャンルは無し）。実装はバッジ＋ジャンル
-   チップだけの行で、店名は別の見出し行、徒歩は facts グリッドの中の1項目——行の使い方が違った。
-3. **ジャンル**: 設計はプレーンテキスト（店名の下、紹介文の上）。実装は淡緑のチップ。
-4. **紹介文**: 設計はラベル無しの段落。実装は fieldRow 経由で「紹介」という可視ラベル付きの fact 行
-   だった。
-5. **地図シートのヘッダ**: 設計（`MapSheet.dc.html`）は**高さ52pxのヘッダバー**（「← リストへ戻る」
-   ＋「1/5」の位置カウンタ）。実装は右上に浮く円形の✕ボタンで、カウンタが無かった。
-6. **地図シートのパネル**: 設計は**156px**、店名・ジャンル・徒歩・リンクの4項目だけ。実装は
-   **365px（45vh）**——選択中カードの全項目（紹介文・facts・カード払い注意・定休日）をそのまま表示
-   していたため、ピンが2つ隠れていた（前回の実機報告の直接の原因）。
-7. **条件バー**: `Tokens.dc.html`は「条件バー: 48」だが実装は56px（3.5rem）。ヘッダ52pxは既に一致
-   していた。
-
-**設計ファイルにあって、あえて元に戻さなかったもの**: `Main.dc.html`・`Contract.dc.html`は**閉時も
-88pxのリボンを常時表示**（D2の3案のうち「A. リボンを本物の地図にする」を設計が選んだ、と明記）。
-これはファイルの日付（2026-08-24作成）が、人間が下した「地図は閉じてるときは表示しなくていいかも」
-という**より新しい・より直接的な決定**（2026-08-25、前々回の実機報告）より前のものだったため。
-より新しい人間の裁定を優先し、閉時に地図を出さない今回までの実装を維持した——これは矛盾として
-`Contract.dc.html`自身が「D2はB案（DOMに置いたまま視覚的に畳む）とA案の間で人間の判断が要る」と
-記録していた論点そのもので、今回その判断が別ルートで既に下っていたと理解している。他にも設計は
-契約に無い配色（`Tokens.dc.html`の役割色3色）を提案しているが、今回は寸法・型階層の指示に絞り、
-配色の全面差し替えは行っていない（時間の制約、かつ明示的な依頼の範囲外と判断）。
-
-**直した**: facts グリッドを2列（`grid-template-columns: repeat(2, minmax(0,1fr))`）へ、内部を
-label-above-valueのflex-columnへ変更。idの行を badge+店名(ellipsis)+spacer+徒歩チップへ再構成。
-ジャンルをプレーンテキスト化。紹介文を fieldRow から独立した無ラベルの段落へ。地図シートのヘッダを
-52pxのバー（戻るボタン＋カウンタ、`candidate-map-sheet-close`のtest idは同じ要素に残した）へ置換。
-シートのパネルは同じ`candidate-card`要素を移動する既存方式のまま、facts・紹介文・カード払い注意・
-定休日を**このパネルの中だけ**`display:none`で隠す（DOMには残るので契約の`to_be_attached()`ベースの
-存在要求は満たしたまま——L4のどのシナリオも現状シートを開かないため、この非表示化がL4を壊さないことも
-確認済み）。リンクは設計どおり塗りの主要ボタンとして再スタイルし、ヒント文「ほかの店を見るには地図の
-ピンをタップ」を追加。条件バーを48pxへ。
-
-**実測結果（実装後、両方の状態を同時に`elementFromPoint`で確認）**:
-- 閉時: 「地図で見る」・「条件」・「もう一度探す」・表示されている各カード（2枚とも）、すべて自分
-  自身に当たる。
-- 開時: 到達可能な範囲のピン（375×812・選択中候補中心・ズーム16で3/5が画面内）はすべて自分自身に
-  当たる。「戻る」操作・選択中カードのリンクも自分自身に当たる。パネルの外に出たピンはこのバグの
-  対象外（前回報告のとおり、地図とボトムシートが重なる構成に内在する挙動）。
-
-**カード枚数**: 375×812で、**上端が画面内に入るカードは2枚**（design目標3枚には届いていない）。
-1枚目のカード高さは実データの内容（カード払い注意の有無等）で310〜340px変動する。カード払い注意が
-無い候補どうしが並んだ場合は2枚目の下端が画面下端から約11px超過し、3枚目の上端はほぼ画面下端付近
-まで来る——「3枚目は意図的に途切れさせてある」という設計の意図に近づいてはいるが、確実に再現する
-状態にはできていない。**理由**: 元の設計は88pxリボンを前提に「カードは約2〜2.5枚」と自ら見積もって
-おり（`Legend.dc.html`・`Contract.dc.html`双方に明記）、3枚という数字はリボンを捨てた案（B/C）で
-初めて得られる想定値だった。今回リボン自体は既に捨てているが、代わりに`candidate-map-open`という
-専用の行（44px+周辺の余白）が新たに必要になっており、この分（設計のB/C案には無かったコスト）が
-「3枚確実に入る」までの到達を妨げている。
-
-**パネル高さ**: **165px**（設計156px、旧実装365px）。ほぼ設計どおりまで縮んだが、9px分の余剰が残る
-——ヒント文の余白等、細部の詰め残しと考えられる。時間の制約でこれ以上の追い込みは行っていない。
-
-**検証**: L1（ruff・352 unit tests・カバレッジ97%）/ L2（12件）/ L3（Django check×2）/ L5（12件+3
-subtests、4不変条件すべて緑）が緑。L4（担当外、依頼により実行）は22件すべて緑——落ちたstepは無い。
-
-### 実機報告（第6回）を解消した（2026-08-25、developer）——キャッシュされた古いcandidate.jsを見ていた
-
-前回のスライス後、人間が実機で再測定し「カードがまだ351px。id-rowに名前を入れたという報告も画面では
-別のまま」と報告した。作業前に`git fetch && git pull`（変更なし）。
-
-**まず自分のブラウザ（キャッシュ無しの新規Playwrightコンテキスト）で直接測定した**——コードは正しく
-`h3`が`idRow`の子として実装されており、実測でも facts が2列グリッド（`grid-template-columns:
-142.5px 142.5px`）で正しく描画されていた。カード高さは310px（前回の修正が効いている）。この時点で
-コーディネーターの「351px・別要素」という報告と食い違いが確定した。
-
-**原因**: `home.html`の`<script src="…candidate.js?v=20260811-approved-layout">`——**キャッシュ
-無効化用のクエリ文字列が2026-08-11から一度も更新されていなかった**。今回のスライスだけで
-`candidate.js`を5ラウンド変更してきたが、URLが一度も変わっていないため、**以前のセッションで一度
-このURLの`candidate.js`をキャッシュしたブラウザは、サーバ側のファイルがいくら更新されても古いスクリプト
-を返し続ける**。報告された「facts 184px・名前が別要素」は、まさに前回ラウンドより前の（1列グリッド・
-id-row内に名前が無い）コードの挙動と一致する——キャッシュされた旧版を見ていたと判断した。バージョン
-文字列を更新した。
-
-**この過程で見つけた追加の実バグ（line-height継承）**: facts の dt/dd・徒歩チップ・ジャンル・定休日
-フッタの dt/dd が、`base.html`の`body { line-height: 1.6 }`をそのまま継承していた（例: 12pxのdtが
-19.2pxの行高——1.6倍）。短い1行のラベル・値にはこの比率は過大。すべてに`line-height: 1.3`を明示
-設定した。facts2列グリッドの効果と合わせ、カード払い注意の無い候補で**カード高さ 310px → 約286.5px**、
-地図シートのパネルも**165px → 約158.5px**（設計156pxにほぼ一致）まで縮んだ。
-
-**副産物として見つけた実装ミス**: キャッシュバスティングの説明コメントを最初 Django の `{# #}` で
-複数行にまたがせて書いたところ、**このプロジェクト自身の既存回帰テスト**
-（`test_every_open_comment_marker_is_closed_on_the_same_line`）が赤くなった——`{# #}`は1行を跨げず、
-2行目以降がページの生テキストとしてそのまま表示されてしまう不具合を過去に踏んで作られたテストだった。
-`{% comment %}...{% endcomment %}`へ書き直して解消した。テストの存在自体がこの種の不具合を機械的に
-検出することを実証した形になる。
-
-**実測（両方の状態、`elementFromPoint`）**: 閉時——「地図で見る」・「条件」・「もう一度探す」・
-表示されている各カード、すべて自分自身に当たる。開時——到達可能な範囲のピン・「戻る」操作・選択中
-カードのリンク、すべて自分自身に当たる。1回だけ、開いた地図のヘッダ帯の真下にあったピンが
-`candidate-proposal-content`という別要素に当たった実測結果が出たが、**同じ状況を3回繰り返しても
-再現しなかった**——テストハーネス側の一時的なタイミングのずれと判断し、これ以上は追いかけていない。
-
-**カード枚数**: 375×812で、**完全に画面内に収まるカードは2枚、上端が画面内に入るカードは3枚**まで
-改善した（前回は1枚／2枚）。designerの`.card`実物（約200px）にはまだ届いていない——残る差の主因は
-定休日（`candidate-card-detail-footer`）を独立フッタのまま維持していること。理由は`tests/
-ui_invariants`の凍結テスト
-（`test_long_regular_holiday_wraps_inside_a_narrow_card_without_truncation`）が「定休日の値はカード幅の
-70%以上を保つ」ことを要求しており、これを2列グリッドの半幅セルに入れると壊れる。facts へ全幅スパン
-として統合する案も検討したが、独立フッタより計算上わずかに高くなる（グリッドの行gapが8pxで独立フッタの
-gap 5.6pxより大きいため）ため見送った——designerの参照データが定休日を短い値と仮定している点が、
-このプロジェクト固有の「長い定休日文言も切り詰めない」という凍結済みの約束と噛み合っていない。
-
-**検証**: L1（ruff・352 unit tests・カバレッジ97%）/ L2（12件）/ L3（Django check×2）/ L5（12件+3
-subtests、4不変条件すべて緑）が緑。L4（担当外、依頼により実行）は22件すべて緑——落ちたstepは無い。
-
-### 実機報告（第7回）を解消した（2026-08-26、developer）——輪の線の統一・5分プリセット・ラベルとピンの重なり・戻るとズームの重なり
-
-人間が実機で4件を報告：(1)「それぞれ線が違います」（輪ごとの破線パターン/濃さの段差が不要な違いに
-見える）、(2)「徒歩5分もあってもいいかも」（プリセット追加）、(3)「15分」ラベルが`candidate-map-marker`
-の下に隠れる、(4)「リストへ戻る」ヘッダ帯とLeafletのズームコントロールが重なる。作業前に
-`git fetch && git pull`（差分なし）。作業途中でセッションが一度落ちたが、(1)のCSS編集のみディスクに
-残っており、そこから再開した。
-
-**(1) 輪の線の統一**: `home.html`の`.candidate-walking-radius-ring-casing--band-0`〜`--band-3`・
-`.candidate-walking-radius-ring-path--band-0`〜`--band-3`（内側から外側へ実線→長破線→短破線→点線、
-不透明度0.85→0.45と段階的に変化）を削除し、casing/ring本体とも単一の破線パターン（`5 5`）・単一の
-不透明度（ring本体は0.75）に統一した。**維持したもの**（同じ人間裁定）: 白いcasing（過去の「見にくい」
-報告への対応）と線の太さ（candidate.jsの`weight`オプション、CSSではなくインスタンスごとに設定）。
-適用中の徒歩時間上限フィルタに一致する輪（accent）は今回の苦情の対象外のため、実線・完全不透明のまま
-区別を維持した。`candidate.js`の`WALKING_RADIUS_RING_STYLE_BY_BAND_INDEX`テーブルと、削除済みの
-`--band-N`クラスを参照していたclassName組み立てロジックも合わせて削除・簡略化した。
-
-**(2) 徒歩5分プリセットの追加**: `pipeline.WALKING_TIME_MAX_PRESET_MINUTES`（サーバ）と
-`candidate.js`の`WALKING_TIME_MAX_PRESETS_MINUTES`（クライアント）に`5`を追加——(10, 15, 20, 30) →
-(5, 10, 15, 20, 30)。クライアント側は輪のレイアウトとフィルタパネルの両方がこの1つの配列を共有して
-いるため、1箇所の編集で両方に反映される。フィルタ側への5分追加は人間の直接の要望ではなく、
-adr/0029「輪の半径・カード表示・フィルタ上限は同じ徒歩時間基準を共有する」という要求に基づく developer
-自身の判断——コーディネーターには別途「輪だけでよいなら言ってください」と伝達済み。
-
-**境界値の再検証**: `acceptance_state.py`の`WALKING_TIME_LIMIT_EXCLUDES`合成データ（600m/710m/830m
-→ 10/12/14分）と、`enable_walking_time_max_filter_that_excludes_some_candidates`
-（提示されたプリセットのうち`minutes[0] <= value < minutes[-1]`を満たす最小値を選ぶ）の組み合わせを
-実際に計算して確認した——新しい5分プリセットは`5 < minutes[0]=10`のため条件を満たさず、選ばれる値は
-これまでと同じ10のまま。`acceptance_state.py`への変更は不要と判断した（コーディネーターの警告どおり、
-仮定ではなく実計算で確認）。
-
-既存の単体テスト1件（`PopulationAttributesTests.test_walking_time_band_orders_two_non_null_bands_ascending`）
-が、100m（約2分）という固定距離が新しい最小プリセット5分バケットに落ちてしまい、意図していた2つの
-異なるバケットを区別できなくなって赤くなった——距離を460m（約8分、(5,10]バケットの余裕を持った位置）
-に変更して修正した。
-
-**(3) ラベルとピンの重なり回避**: designerの仕様は「輪の線の上にラベルを乗せる」のみで、ピンとの重なり
-回避のルールは無い。developer独自の配置戦略として、各輪の円周上の複数の角度（北を最優先、続いて
-±45°・±90°・±135°・180°の順、真北からの時計回り）を順に試し、候補/検索基点マーカーおよび
-既に配置済みの他の輪ラベルの推定バウンディングボックスと重ならない最初の角度を採用する
-（矩形重なり判定、`WALKING_RADIUS_RING_LABEL_*`/`CANDIDATE_*_MARKER_HALF_SIZE_PX`定数の保守的な
-推定半サイズを使用）。どの角度も重なる場合は従来どおり真北にフォールバックする。
-
-**この過程で見つけた副産物のバグ**: 検証用に検索基点から真北・輪の半径ちょうどの位置に候補を強制配置
-する診断で確認したところ、地図シートを開いた際の`refreshMapViewAndRings`の`leafletMap.setView(...)`
-（選択中の候補へ再センタリング）がデフォルトでアニメーション付きだったため、直後に同期実行される
-`layoutWalkingRadiusRings`がアニメーション途中の座標からラベルの緯度経度を計算・固定してしまい、
-アニメーション完了後の最終ビューに再投影すると画面外（真上のマイナス座標）に飛ぶ実バグを発見した
-（実測で確認）。`setView`に`{ animate: false }`を渡し、ビュー確定後に座標計算するよう修正した。
-
-**(4) 戻るとズームコントロールの重なり解消**: 実測——戻る帯（left 6px, top 4px, 105×44）とLeafletの
-既定ズームコントロール（zoom-in: left 12px, top 12px, 44×44／zoom-out: left 12px, top 56px, 44×44）
-が完全に重なっていた。戻る帯自体の形・デザインは変更禁止（`E:\AWS\dsg-out\MapSheet.dc.html`に一致
-済み）のため、Leaflet側のコントロールを動かした——`.leaflet-top.leaflet-left`（ズームコントロールの
-親ペイン）に、地図シートが開いているときだけヘッダの高さ（3.25rem）ぶんの`top`オフセットを与えた。
-閉じている間は地図全体が非表示・pointer-events:noneのため変更しない。
-
-**(5) キャッシュバスティング**: `candidate.js?v=20260825-design-realignment-3` →
-`?v=20260826-ring-and-zoom-fixes`。忘れると過去5ラウンドと同じ「実機が古いJSを見続ける」問題を
-再発するため、今回のスライスで`candidate.js`を変更するたびに確認した。
-
-**実測（`elementFromPoint`、いずれもコミット前に削除した使い捨て診断スクリプトで確認）**:
-- 輪ラベルとマーカーの重なり: ランダム配置を複数回実行してもバウンディングボックスの重なりは0件。
-  検索基点から真北・輪半径ちょうどの位置に候補を強制配置するシナリオでも、ラベルは実際に別の角度へ
-  移動し、重ならないことを確認した（回避ロジックが単に発火しなかったのではなく、実際に機能している
-  ことの確認）。
-- 戻る・ズーム＋・ズーム－: 3件とも自分自身に当たる。戻る帯とズームボタンのバウンディングボックスは
-  もう重ならない（ズーム＋ 64–108px、ズーム－ 108–152px、戻る帯 3.5–47.5px）。
-- 閉時: 「地図で見る」・「条件」・「もう一度探す」は自分自身に当たる。画面内に収まっているカード
-  （375×812換算で先頭2枚）も自分自身に当たる。3枚目以降はビューポート外（画面下）にあり、これは
-  ページスクロールで届く範囲の話であって不具合ではない。
-- 開時: 画面内に入っているピンはすべて自分自身に当たる。「戻る」・選択中カードのリンクも自分自身に
-  当たる。
-- 輪の本数・ラベル文字: NORMAL_WITH_WEIGHTED_SAMPLINGのランダム配置では、ズームレベルや原点との
-  距離次第で1〜3本（5分・10分・15分。プリセットは5/10/15/20/30分だが、現在のビューを横切る輪だけが
-  描画される——designerの「1本も入らない輪は描かない」仕様どおり）。
-
-**検証**: L1（ruff・352 unit tests・カバレッジ97%）/ L2（12件+9 subtests）/ L3（境界テスト＋Django
-check×2）/ L5（12件+3 subtests、4不変条件すべて緑）が緑。L4（担当外、依頼により実行）は22件すべて
-緑——落ちたstepは無い。
-
-### 実機報告（第8回）を解消した（2026-08-26、developer）——「地図で見る」の絵文字撤去・選択中の店の情報を隠していたのを解消
-
-人間が実機で2件を報告：(1)「地図で見る」が幅34px・高さ117pxに縦積みで潰れている、(2)地図を開いた後の
-選択中の店の情報が少ない——2026-08-23の指示「下にその店舗の情報を出す」に反している。作業前に
-`git fetch && git pull`（差分なし、ネットワーク接続が一度不安定になったが再試行で解消）。
-
-**(1) 「地図で見る」の絵文字撤去**: `.claude/agents/designer.md`・`meta/templates/wireframe.md`の
-「絵文字をアイコン代わりに使わない」規程に反し、🗺絵文字を使っていた。`E:\AWS\dsg-out\Main.dc.html`の
-同用途アイコン（地図を全画面へ広げる操作、44pxボタン内のコーナー矢印線画）と同じpathデータのインライン
-SVGに置き換えた（色は固定値ではなく`currentColor`——このボタン自身の文字色に追従する）。
-
-**寸法の潰れについて**: 報告された375×812・地図閉時での実測（幅34px・高さ117px、文字が縦積み）を
-再現しようと、初回読み込み・地図の開閉往復・iPhone 13相当のエミュレーションなど複数の状況で試したが、
-**developer側では一度も再現できなかった**（常に351×44の正しい寸法）。原因を`.candidate-map-open`の
-CSS・親要素（`.candidate-map-wrapper`は`position:relative`のみでflexではない、`.candidate-main-
-layout`は`display:flex; flex-direction:column`で常時全幅ストレッチ）まで遡って確認したが、現在の
-コミット済みコードに原因となるflex指定は見当たらなかった。**正直に報告**: 絵文字の撤去に加え、
-コーディネーターの仮説（「親のflex指定」）に直接対応する形で`width:100%; flex-shrink:0; flex-wrap:
-nowrap;`を`.candidate-map-open`へ明示的に追加した——現状のCSS階層では何もしなくても同じ結果になる
-はずのno-opだが、仮に将来この階層のどこかがflexへ変わっても本来の全幅・単一行の形を保つ安全策として
-入れた。もし次回以降も同じ潰れが実機で再現するなら、正確な幅・高さに加えてブラウザ／OS情報を伝えて
-いただけると、developer側で再現できない原因の切り分けに使える。
-
-**(2) 選択中の店の情報を隠していたのを解消**: `home.html`の`.candidate-map-sheet-panel`に、
-説明文（`candidate-card-description`）・facts（席数・禁煙・夜予算）・カード払い注意・定休日を
-`display:none`で隠すルールがあった——前回のdesigner realignmentラウンドで、designerの
-`MapSheet.dc.html`が想定する156pxのパネル高さに寄せるために追加したもの。だが2026-08-23の人間の
-指示は「下にその店舗の情報を出す。**それ以外の店舗は出さなくてよい**」——省いてよいのは**他の店舗**の
-情報であって、選択中の店自身の情報ではない。この`display:none`ルールを削除し、選択中の店の情報を
-リストのカードと同じだけパネルに表示するようにした。
-
-**地図とパネルの比率**: パネルを`max-height: 50vh`（画面の半分）＋`overflow-y: auto`（内部スクロール）
-に変更した（旧: 220px固定）。判断理由——(a) 画面の半分を地図に残すという固定比率にすることで、
-どれだけ長い定休日文言が来ても地図が完全に覆われることがない、(b) 開時は`refreshMapViewAndRings`が
-選択中の候補へズーム16以上でセンタリングするため、その候補自身のピンはパネルより上（画面上半分）に
-収まる構造になっている、(c) パネルを引き上げ可能なドラッグ式シートにする案も検討したが、実装・検証の
-複雑さに見合う要求ではないと判断し、固定比率+内部スクロールという単純な方式を選んだ。
-
-**実測（両方の状態、375×812、`elementFromPoint`・`innerText`・`getBoundingClientRect`）**:
-- 通常の候補（定休日短め）: パネル高さ317px（画面の約39%）、テキストに店名・徒歩時間・ジャンル・
-  紹介文・席数/禁煙/夜予算・定休日・リンクがすべて含まれる（カード払い注意は対象候補に無いため非表示、
-  条件どおり）。地図上の候補ピン5件中3件が画面内かつパネルの外に見えている（パネル直下に重なっている
-  ピンは0件）。
-- 定休日を意図的に長くした候補（L5の凍結回帰テストと同じ文言）: パネル高さは上限の406px（50vh）で
-  頭打ちになり、`scrollHeight`416pxとの差から内部スクロールが機能していることを確認した。定休日の
-  テキスト自体は水平方向に一切省略されていない（`scrollWidth`が`clientWidth`を超えない）——L5の
-  「定休日は切り詰めない」という凍結要件を壊していない。
-- 「地図で見る」・「条件」・「もう一度探す」・画面内カードは自分自身に当たる。開時: 戻る・ズーム＋・
-  ズーム－・パネル内のリンクは自分自身に当たる。**画面内のピンについては、隣接する候補どうしが実際の
-  距離で近く、ズーム16以上の地図上で視覚的に重なるケースがあり、重なった側のピンがelementFromPointで
-  自分自身でなく隣のピンに当たることがあった**——これは今回のパネル/ボタン変更とは無関係な、前回
-  ラウンド（実機報告第3回）から存在する既知の非決定的事象（「同じ状況を3回繰り返しても再現しなかった」
-  と既に記録済み）の再現であって、新規の不具合ではないと判断した。今回の変更対象（戻る・ズーム・
-  パネル内リンク・パネルの表示内容）はすべて安定して自分自身に当たっている。
-
-**検証**: L1（ruff・352 unit tests・カバレッジ97%）/ L2（12件+9 subtests）/ L3（境界181件＋Django
-check×2）/ L5（12件+3 subtests、4不変条件すべて緑——1回だけ`candidate-map-marker`の高さが
-43.999969...pxという浮動小数点誤差＋`/candidate-proposals`への503応答が重なった一時的な失敗があったが、
-単体で即座に再実行して合格、フルスイートも再実行して全緑を確認したため、フレークと判断し追いかけて
-いない）が緑。今回のスライスはPythonソースを一切変更していないため、mutation testingは前回の判定を
-再利用（既存の先例どおり）。L4（担当外、依頼により実行）は22件すべて緑——落ちたstepは無い。
-`candidate.js`のキャッシュ避け文字列を`?v=20260826-map-open-svg-and-panel-fields`へ更新した。
-
-### 画面の機能について確定した人間裁定（2026-08-23）
-
-ワイヤフレーム（`https://claude.ai/code/artifact/278c94d2-116e-4bcd-87df-b552607541c7`。designer が
-`design/explorations/` の3枚を土台に `/design` で作成。元データは未コミット）をもとに、人間が4件を裁定した。
-
-1. **ジャンル行**: 「ほか N件…」の展開ボタンを**行の左端に固定**する。1行の横スクロールは維持し、
-   高さは変えない。折り返しは採らない（2026-08-14 の見送りを維持）。**契約確認が要る**——
-   `genrePresentation` はジャンルの順序を定めているが**位置を定めていない**ので、追補の要否を見ること
-2. **候補の取得に失敗したとき**: 直前まで表示していた候補を**残す**。エラーは上に出す。古い候補を
-   新しい提案と誤読しうる点は承知のうえで、比べていた材料を失わないほうを採る
-3. **件数の予告**: **適用ボタンにだけ出す**（「この条件で探す（8件）」）。常時表示は引き続き置かない。
-   契約は既に件数を `candidate-filter-apply` の `data-match-count` 属性に持っているので、それを
-   文字として見せる形になる
-4. **PC版は今回の合意の対象に含めない**。幹事はスマホ中心（2026-08-22 裁定）なので、まずスマホを固める。
-   PC版のワイヤフレームは参考として存在するが、合意対象外
-
-**まだ決めていないこと**（designer が破線で残し、裁定を仰いでいない残り）: 429（レート制限）と503
-（取得不能）を画面で区別するか／0件のとき契約どおり地図ごと消えるのを受け入れるか。**「絞り込みを
-見直す」を押せるものにするかは、2026-08-24に決着した**（下記「進行中: ADR-0030」参照）。エラー時の
-画面状態は `product-brief.md` §8 で残る部分について未決のままである。
-
-### 進行中: ADR-0030（徒歩圏リングの分数ラベル・0件案内の操作化）— 人間の承認待ち
-
-ブランチ `docs/ring-labels-contract` に、承認待ちの決定と契約改訂がある。実装コードは一切変更していない。
-
-designer が本番のスマホ実測から、輪の分数ラベルが契約に無いことを報告した——`walkingRadiusRings` は
-「本数と半径は実装の選択」としか定めておらず、**ラベルという要素そのものが契約に存在しなかった**。
-分数を出さない実装でもL4は通る——**本番でいま起きているのがまさにそれだった**。実測は輪4本
-（10/15/20/30分）・1px破線・色`#8da093`・分数は`data-walking-radius-minutes`属性の中だけにあり画面に
-出ていない、というもの。人間の指摘は「何本かある輪がどの範囲かわかりません」。
-
-designer は他に3件、契約に無く機械で守られていないものを挙げた。**輪と徒歩の上限の連動**（強調表示・
-「15分まで」の文言）、**地図リボンの高さ・役割**（リストの上に常時出る88pxの小さい地図。人間は「実物を
-見てから決めたい」としており、リボン有り無しの比較案を別途作る）、**44pxのタップ標的**。あわせて、
-0件画面の「絞り込みを見直す」を押せるボタンにするかという design/wireframes/EmptyError.dc.html の
-未決論点が、人間裁定（2026-08-24）で「押せるボタンにする」と決着した。
-
-architect の判断（`adr/0030`、詳細はADR本文）:
-
-- **輪の分数ラベルは契約に載せる**（決定1）。`mapObservations.walkingRadiusRings` に
-  `bandAttribute`（`data-walking-radius-minutes`、実装が既に使っている属性名をそのまま契約化）と
-  `bandLabel`（その値と一致する分数を画面上で読める形で示すことをMustにする）を新設した。文言・単位
-  表記・配置・本数・半径は無変更のまま実装の選択に残す
-- **0件案内は押せる操作にする**（決定2）。`browserControlSurface.empty` に `reviseFiltersControl` を
-  新設し、`candidate-no-results` が押すと絞り込みパネルを開く要素を1つ持つことをMustにした
-  （`openFilterPanel` の第2入力として配線）
-- **輪と徒歩の上限の連動は今回は載せない**（決定3、保留）。人間が実際に困ったのはラベルの欠如で
-  あって連動ではないこと（P-05）、フィルタの「選択中」状態を機械観測する属性がこの契約にはそもそも
-  存在しないこと（`filterPanel.constraints` は散文で述べるのみ）、輪の本数・半径自体が「補正後の見た目を
-  見てから決める」と保留中であることの3点が理由
-- **地図リボンの高さ・役割は載せない**（決定4）。88pxは描画後の幾何であり、`ADR-0020` が L5 の
-  レンダー不変条件の管轄と既に線を引いている。加えてリボン有り無しはまだ人間が選んでいない
-  （P-02）。**ただし本契約はリボン有りの構成を前提に書かれていることを明記する**——比較の結果が
-  変われば `authenticatedInitialOutcome.present` の改訂が別途要る（`design/wireframes/Legend.dc.html`
-  のD2と同じ論点）
-- **44pxの新しい条文は不要**（決定5）。決定2で新設した要素を `allowedPurposes` に登録すれば
-  `allCandidateScreenFormControlsMustDeclarePurpose` により `data-candidate-control-purpose` を持つ
-  ことになり、`ADR-0020` 決定4(e) の既存ゲートが自動的に測る
-
-改訂対象は `contracts/candidate-search-browser-interface.yaml`（`1.3.2` → `1.4.0`）と
-`contracts/candidate-search.feature`（`TDR-CS-02`・`TDR-CS-05` に業務の言葉で1行ずつ追加）の2本。
-`contractVersion` のヘッダコメントに2026-08-24付の起草ブロックを追加した。実装は `candidate.js` で
-(a) 各リング要素に可視ラベルを追加し `data-walking-radius-minutes` と桁を一致させる、(b)
-`candidate-no-results` 内に `candidate-filter-open` と同じ挙動を起こすボタンを追加し
-`data-candidate-control-purpose="candidate-no-results-open-filter"` を設定することが要る。tester は
-`TDR-CS-02`・`TDR-CS-05` のstep定義を新しい観測に合わせて拡張する必要がある。
-
-### 契約が、この画面の中心を「禁止」している（2026-08-23 確認）
-
-`ADR-0025` は基点と徒歩時間の表示を承認済みだが、**マージ済みの契約はまだ旧世界のままである**。実測:
-
-- `contracts/candidate-search-browser-interface.yaml:310` — `forbiddenTestIds` に `candidate-origin-marker`
-- 同 `:795` — `bodyMustNotExposeTestIds` に `candidate-origin-marker`
-- `contracts/candidate-search.feature:84` — 「非公開の検索地点、経路、現在地、**徒歩時間**は示されない」
-- `candidate-walking-radius-ring` は現行契約に存在しない。API に `walkingTimeMinutes` も無い
-- `CandidateFilters` に `walkingTimeMaxMinutes` が無い（徒歩の上限）
-
-つまり基点マーカー・同心リング・カードの徒歩時間・徒歩の上限は、**現時点では契約が明示的に禁じている**。
-契約改訂はこの画面が成立する前提そのものであり、あとで足す追補ではない。L4 の都合で契約だけ先に
-マージできないため、契約・実装・テストを同一スライスで動かす。
-
-**解決した（2026-08-24、developer）。** architect が `81bc06f` で契約改訂をこのブランチへコミットし、
-上記の禁止はすべて反転済み（`candidate-origin-marker` は許可側、`walkingTimeMinutes`・
-`walkingTimeMaxMinutes`・`walkingTimeBand` は契約に存在する）。developer がその改訂契約を満たす実装を
-同ブランチへ積んだ。要点:
-
-- `src/dining_radar/recommendation/pipeline.py` の `_distance()` は**度単位からメートル単位**に変わった
-  （既存の等長方位図法的近似はそのまま、`METERS_PER_DEGREE_LATITUDE=111,320` を掛けるだけ——単位変更は
-  距離に依存する既存の順序付け・重み付け計算をすべて不変に保つ、スケール不変な設計だったため無傷）。
-  新設 `walking_time_minutes()`（`WALKING_METERS_PER_MINUTE=80`——不動産の「徒歩1分=80m」表示規約、
-  切り上げ）と `walking_time_band()`（`WALKING_TIME_MAX_PRESET_MINUTES=(10,15,20,30)`、実データ由来ではない
-  実装上の恣意的な値）を追加。`walkingTimeMaxMinutes` はハード絞り込み（`filter_candidates`・
-  `apply_izakaya_bar_fallback` の両方に、居酒屋バーのフォールバック再試行でも緩めないよう配線済み）。
-  `Proposal`/`ProposalResult` に `search_origin: Origin` を追加。`CandidateFilters`・`PopulationAttribute`
-  それぞれに新フィールドを追加。プリセット `(10,15,20,30)` は `candidate.js` 側の
-  `WALKING_TIME_MAX_PRESETS_MINUTES` と手作業で同期させている実装責任（契約が構造的に強制できないと
-  明記している点、契約ノート2節参照）。
-- `web/serializers.py`・`web/views.py`・`suggestions/service.py`・`suggestions/acceptance_state.py` を
-  配線。`acceptance_state.py` に `WALKING_TIME_LIMIT_EXCLUDES`（TDR-CS-15、しきい値12分固定の合成値）と
-  `RATE_LIMITED_AFTER_INITIAL_SUCCESS`（TDR-CS-16、1回目だけ成功しその後429を返す、モード選択のたび
-  キャッシュカウンタをリセットする自前の2段階状態——`set_mode` を2回呼ぶ手法は使っていない）を追加。
-- `candidate.js`・`home.html`: 検索基点マーカーと徒歩圏の同心リング（プリセットごとに1本）、カードの
-  徒歩のめやす欄（`約N分`、rawValueAttribute なし）、徒歩の上限フィルタ（単一選択・独立グループ）、
-  ジャンル行の「ほか N件…」を横スクロールコンテナの外側・先頭に固定するDOM再構成、429時に直前の候補・
-  地図・適用済み条件を保持したまま問題バナーを追加表示する挙動（`applyPendingFilters` は成功時のみ
-  `currentFilters` をコミットするよう変更）、適用ボタンの文言を「この条件で探す（対象N件）」に変更
-  （「〜件表示されます」型の文言を使わない）。
-- 検証: L1（ruff・334 unit tests・カバレッジ97%）/ L2（構造12件）/ L3（境界171件 + Django check ×2）は
-  すべて緑。mutation testing はこの Windows 環境で `WinError 206`（コマンドライン長超過、2026-08-14 の
-  記録済み既知の環境限界——本スライスで悪化させたのではなく、既に壊れていたものに新規テストを足しても
-  症状は変わらない）によりフル実行不能。個別ファイルへスコープを絞った部分実行では新規追加ロジックに
-  生き残ったミュータントは無かった（`pipeline.py` 単体で 80.0%→84.2%、新規の `_distance()`・
-  `walking_time_band` の生存ミュータントを追加テストで潰した後）。CI（Ubuntu）が実測する。
-  L4（`tests/acceptance/test_candidate_search_acceptance.py`、tester の担当外のstep定義は未変更のまま）を
-  手動実行すると 14件中11件成功・3件失敗——失敗3件はすべて `candidate-origin-marker` の**旧契約の禁止**を
-  まだ主張している既存のstep定義によるもので、新契約はこれを許可側へ反転しているため、実装が新契約を
-  正しく満たしていることの状況証拠になる。既存stepの改訂は tester の領分のため未着手のまま残した。
-
-### `mapObservations.searchOriginMarker.positionAttributes` の実装と地図resizeの不具合修正（2026-08-24、developer）
-
-architect が `contractVersion 1.3.1` で `mapObservations.searchOriginMarker` に `positionAttributes`
-（`data-origin-latitude`/`data-origin-longitude`）を新設した（FR-022(1)。基点マーカーの位置を
-`response.searchOrigin` の値と突き合わせて検証する手段が契約に無かった穴を塞ぐ追記、人間の再承認は
-不要と architect が判断した記録）。`candidate.js` の `initializeMap` で `candidate-origin-marker` の
-`data-testid` を設定している直後に、`String(searchOrigin.latitude)`/`String(searchOrigin.longitude)` を
-2属性へ設定した——契約の `presenceRule` が要求する「正確な文字列一致」を、`fieldRow` の
-`rawValueAttribute`（`data-raw-value` に `String(value)` を入れる）と同じ様式で満たす。
-
-あわせて `activeContext.md` Next work 5 に記録されていた既知の不具合（画面サイズが変わると地図がずれる）
-を修正した。**実測して分かった訂正がある**——元の記述は「resizeハンドラが一切無い」としていたが、
-vendored `leaflet.js`（1.9.4）を読むと `trackResize: true` がデフォルトで有効で、`candidate.js` は
-これを上書きしていないため、**素朴なブラウザ `window` resize（`page.set_viewport_size()` が発火させる
-もの相当）はこの修正の前から既に自己修復していた**（3通りの独立した実験で確認：スタッシュした無修正の
-コードでも、Playwright の `set_viewport_size` を挟んだ前後でタイルの被覆・マーカー位置が完全に一致した）。
-**実際に空いていた穴**は、`window` resize を伴わないコンテナだけの寸法変化——`candidate-map` の高さが
-`home.html` で `dvh`/`vh` 単位のため、スマホでスクロール中にブラウザのツールバーが出入りするとコンテナが
-CSSだけで寸法変化し、多くのモバイルブラウザではこれが `window` の `resize` を発火させない。これは
-「幹事はスマホ中心」（人間裁定2026-08-22）に直結する経路である。修正は `candidate.js` の `initializeMap`
-の末尾で `ResizeObserver` をコンテナへ直接 `observe` し、発火のたびに `map.invalidateSize()` を呼ぶ
-（`initializeMap` の再実行時は先に `disconnect()` してから張り直す）。
-
-再発防止テストは `tests/ui_invariants/test_render_invariants.py` に
-`test_map_tiles_still_cover_the_container_after_it_resizes_without_a_window_resize` として追加した
-（ADR-0020 決定4の4つのゲート不変条件には含めていない——同ファイルの `test_long_regular_holiday_...` と
-同じ「プレゼンテーション回帰」の型に倣った）。判断の理由: (1) `page.set_viewport_size()` ベースのテストは
-Leaflet自身の `trackResize` で既に緑になってしまうため、この変更を入れる前後を判別できない（実測で確認
-済み）。(2) 実際に穴があった経路（`window` resizeを伴わないコンテナ単独の寸法変化）を再現するには、
-コンテナ要素へ直接インラインstyleで寸法を強制する必要があった——`candidate-map-wrapper` が
-`display:flex; flex-direction:column` なので、`height`だけを`!important`で強制してもフレックスの
-主軸shrinkに押し戻される点が実装時のハマりどころで、`flex: 0 0 <height>px !important` も併せて設定する
-ことで解消した。(3) このテストは fix を無効化して実際に赤くなることを確認した（コンテナの新しい下辺まで
-タイルが届かず `assertGreaterEqual` が失敗）うえで、fix を戻して緑に戻ることも確認済み——このプロジェクト
-の他の回帰テスト（keyboard-activation defect等）と同じ「revert-and-rerun」の実証パターンに倣った。
-
-検証（developer が独立に再実行）: L1（ruff・ruff format・334 unit tests・カバレッジ97%——`coverage
-report --fail-under=90` 通過。mutationは今回のスライスで Python ソースを一切変更していないため
-再実行不要、2026-08-14 に確立した先例のとおり）/ L2（構造12件+9 subtests）/ L3（境界171件+23 subtests、
-Django check ×2）/ L5（`tests/ui_invariants` 12件+3 subtests、新規テストを含めすべて緑）が緑。L4
-（`manage.py test tests.acceptance`）も developer の担当外だが健全性確認として実行し、22件すべて緑
-だった（tester が別途 `5bea6c8` で origin/walking-time の step を既に翻訳済みのため、上記の
-「14件中3件失敗」はこの時点で解消している）。
-
-### 独立監査F1（基点マーカー位置検証のトートロジー）を解消した（2026-08-24、developer）
-
-独立監査（`reviews/audit-tdr-cs-origin-marker-position.md`、branch `test/origin-marker-position`
-——このブランチ自体には未マージで、`git show a22bb2b:...`で内容を読んだ。下の「気づいたこと」参照）が
-Blocker 1件（F1）を報告した。基点マーカーの数値一致検証は「マーカーの位置が応答の`searchOrigin`に
-由来し、独立に知られた定数ではないこと」を証明すると契約が主張していたが、`acceptance_state.py`の
-`_ORIGIN = Origin(latitude=0.0, longitude=0.0)`が全14箇所・全モードで共有されていたため、応答を正しく
-読む実装と`0`/`0`を決め打ちする実装が常に同じ結果になり、実際には証明できていなかった。architect が
-`ffd6937`で`test-support-api.yaml`（`1.4.0`）に`CandidateProposalAcceptanceState.searchOrigin`
-（任意・nullable・緯度経度）を新設済み——省略時は従来の合成定数、指定時は応答の`searchOrigin`がその値と
-完全一致することを要求する。本スライスはその実装側を担当した。
-
-**基点を動かしたときに候補との相対関係が壊れないようにした方法**: `acceptance_state.py`の全ての
-`_..._source()`関数が返す合成候補群は、`_ORIGIN=(0.0, 0.0)`からの絶対緯度経度としてハードコードされて
-おり（例: `latitude=0.0010 + index*0.0002`）、徒歩時間・徒歩の上限フィルタ・重み付け選択・
-`SHOWN_POOL_PRIORITY`の集合判定はすべて`pipeline._distance(origin, candidate)`——`origin`と`candidate`の
-絶対座標の差——に依存する。新設`_origin_shifted()`は、`active_search_origin()`が既定値と異なる基点を
-返すとき、候補群の全メンバーを「基点自身が動いた分と全く同じデルタ」で平行移動してから返す。これにより
-`candidate.longitude`と`origin.longitude`は既定では両方とも`0.0`で、平行移動後は両方とも同じ
-`origin.longitude`になる（同じ値どうしの浮動小数点減算は常に厳密にゼロなので、経度方向の距離寄与は
-基点をどこへ動かしても厳密にゼロのまま）。緯度方向も同様に厳密なデルタ保存を確認済みで、
-`WALKING_TIME_LIMIT_EXCLUDES`の12分境界（950m/12分・800m/10分・1100m/14分、マージン40〜150m）が
-基点を合成的に大きく動かしても崩れないことを単体テストで直接検証した
-（`test_walking_time_limit_boundary_is_unchanged_by_a_pinned_origin`）。`NO_RESULTS`（パイプラインを
-経由しない固定応答）も`active_search_origin()`を読むよう配線し、モードによらず一貫して基点を報告する。
-`set_mode`/`reset_mode`/`views.candidate_proposal_state`（PUT）に`searchOrigin`の受け渡しとスキーマ検証
-（`additionalProperties: false`・緯度±90・経度±180・bool値の拒否）を配線し、省略・明示的な`null`の両方が
-既定の合成定数へフォールバックすることを確認した。
-
-検証（すべて developer が実行）: L1（ruff・ruff format・352 unit tests——18件新規・カバレッジ97%、
-`coverage report --fail-under=90`通過）/ mutation（`acceptance_state.py`・`test_support/views.py`へ
-スコープを絞った`--gremlin-targets`実行、139/139 zapped=100%、Windows既知のWinError 206を回避する
-2026-08-14確立の先例どおり）/ L2（構造12件+9 subtests）/ L3（境界181件+23 subtests、Django check ×2）/
-L5（`tests/ui_invariants` 12件+3 subtests、本スライスはレンダリングコードを変更していないため不変のまま
-緑）が緑。加えて、健全性確認として`manage.py test tests`（L4含むフルスイート）を実行し386件すべて緑
-だった（担当外のstep定義側はtesterが並行して進めている）。
-
-**気づいたこと**: 依頼で指定された監査レポート`reviews/audit-tdr-cs-origin-marker-position.md`は、この
-ブランチ（`docs/record-tdr-cs-slice-state`）の作業ツリーには存在しない。コミット`a22bb2b`として
-`test/origin-marker-position`ブランチにのみ存在し、architect の契約改訂コミット`ffd6937`（本ブランチ上、
-親は`a078684`で`a22bb2b`を経由していない）はその内容を参照してはいるが、ファイル自体を本ブランチへは
-持ち込んでいない。`git show a22bb2b:projects/dining-radar/reviews/audit-tdr-cs-origin-marker-position.md`
-で内容を読み、実装はそこに書かれた指摘とADR-0027追記2の記述に基づいて行った。契約自体に矛盾は見つから
-なかった——`test-support-api.yaml`の新設スキーマは省略時/指定時の挙動を明記しており、実装で判断に迷う
-点はなかった。監査レポートをこのブランチへ持ち込むかどうか（ブランチ間のコーディネーションの問題であり
-契約の矛盾ではない）は、developer の権限外として報告のみ行う。
-
-### 進行中: ADR-0025（検索基点と徒歩時間の開示）— 人間の承認待ち
-
-ブランチ `docs/tdr-cs-origin-and-walking-time` に、承認待ちの決定と契約改訂がある。実装コードは
-一切変更していない。
-
-人間裁定 2026-08-20 chat（『別にソースから現在位置を推測できなければいいから、環境変数で指定すれば
-よく、アプリ利用者にはバレてもいいよ』）を受けて、`ADR-0008` 決定4 の Must のうち **browser への
-非開示だけ**を撤回する。公開URL・ログ・trace・Git への非開示と、タイル提供者へ基点を渡さない
-`Referrer-Policy`（`ADR-0008` 決定5）は維持する。`ADR-0004` がこれを却下した理由「生活圏の露出と
-外部通信を増やす」のうち、前者は露出先を特定していなかった——画面を開けるのは招待制認証を通った幹事
-だけで、全員が基点の界隈にいる。後者は徒歩**経路**には当たるが、基点マーカー・同心リング・徒歩時間
-には当たらない。決定9として、リング半径から設定探索範囲が間接的に推測されうることも許容した
-（値そのものの露出は引き続き禁止）。
-
-契約4本の改訂は architect がドラフト済みだが、**このPRには含めず実装スライスへ回した**。L4は稼働中の
-実装の応答を契約スキーマと突き合わせて検証するため、契約だけ先に進めると `'searchOrigin' is a required
-property` で提案を取得する全シナリオが落ちる（実測: 11 error）。改訂シナリオは画面挙動そのものを
-検証しているので、必須項目を任意に緩めても解消しない。既存シナリオに実装待ちの印を付けると、いま
-守れている検査まで止まる。この製品で「契約だけ先にマージする」が成立しないことは `ADR-0024` の実績
-（契約・実装・テストが同一コミット `6dd0fb1`）とも一致する。ドラフトはブランチ
-`docs/tdr-cs-contract-draft-rebased` に退避し（旧 `docs/tdr-cs-contract-draft-adr-0025` は改名前のパスを
-指すため使わない）、内容は
-`adr-0025-candidate-search-contract-notes.md` が持つ。改訂の要点は `populationAttributes` の同一性境界で、
-生の徒歩分を載せると匿名の母集団行と表示中の候補が値の一致で結びつくため、`walkingTimeBand` を
-「ブラウザが提示している上限候補のうち、この候補がなお該当する最小値」と定義した。禁止属性の列は
-`walkingTimeBand` だけを明示的な例外として書き直し、座標・基点・設定探索範囲・正確な距離・経路・
-現在地は禁止のまま残した。徒歩時間の算出方式（直線距離か道のり基準か）には踏み込んでいない——
-`ADR-0025` 決定2 が実装スライスへ送った判断であり、契約はどちらでも満たせる形にしてある。製品側では
-**直線距離からの概算**を採ることが人間の選択で決着している。実装で必ず踏むのは
-`src/dining_radar/recommendation/pipeline.py` の `_distance()` が**度単位**を返すことで、docstring が
-その理由（正確な距離をブラウザに返さないので測地線の精度は要らない）を明記している。`ADR-0025` で
-この前提が崩れたため、徒歩時間を表示するにはメートル換算が要る。`src/dining_radar/**` は mutation
-testing の対象なのでテストも要る。
-
-`design/explorations/` に店を絞る画面のラフ3枚を置いた。**承認済み設計ではない**。これらは designer の
-パイプラインを通っておらず orchestrator が直接描いたもので、`meta/adr/0018`・`0020`・`0021` の
-design integrator の定義に沿っていない。現状のまま「設計骨格」の承認材料として提出してはならない。
-
-未決だった3つのうち、**すべて解決している**。**(1)** ラフ3枚の由来問題——`design/explorations/` に
-**探索資料のまま置く**（人間が選択、決着済み）。README に由来を記録済みで、承認材料に昇格させない。
-残っていた「画面作業そのものを designer 経由でやり直す」件は、2026-08-23 に designer が `/design` で
-`design/wireframes/` を作成し完了した（下記参照）。**(2)** `ADR-0003` 決定2 が `design-preview` に
-「検索基点」「数値距離」を置くことを禁じており、`ADR-0025` で両方が製品の表示物になったことで生じていた
-条文の衝突は、**`ADR-0028`（2026-08-24、architect）が解消した**——`design-preview` 受け皿そのものを
-廃止したため、禁止条文が適用対象を失った。`ADR-0003` 決定1・2 は `ADR-0028` に置き換わり（superseded）、
-決定3（契約との照合境界）・決定4（runtime別のデザイン作成経路）は、その中身がすでに全プロジェクト共通の
-designer 役割契約（`meta/adr/0050`）へ移っているため引き継がれない。**(3)** スマホの C 画面は案2
-（地図を畳む）と案3（余地バーを地図に重ねる）が未選択だった——**これは 2026-08-23 に決着した（下記）。**
-
-**(3) の前提は確定した（人間裁定 2026-08-22）**——**幹事はスマホ中心でこの作業をする**。したがって
-スマホの C 画面は「一応動く」で済ませられず、案2か案3かは本番の判断である。2026-08-11 に人間承認済みの
-モバイル優先の配置とも、L5 が 375×812 で走ることとも整合する。なお探索の過程で orchestrator が描いた
-「会の進みかた」の図は幹事＝PC・参加者＝スマホとしており**この裁定と食い違う**。図は探索資料であって
-承認済み設計ではないため、正はこの裁定である。
-
-**(3) に方向が出た（人間の意向 2026-08-23）。ただしこれは画面構成の指定ではなく、情報量の指針である。**
-
-2026-08-23、`meta/adr/0050` のマージ後に designer を起動し、案2と案3を同じ3場面で並べた比較を作った
-（Artifact: `https://claude.ai/code/artifact/ec54ae74-eec4-451c-b16d-3c7c833dcb81`。元データは未コミット）。
-それを見た人間が示した意向は、**地図を見ている場面では「位置関係」と「いま選んでいる店舗」以外の情報は
-削ってよい**、というものである。人間自身が「厳格に守る必要はない。わざわざ別画面・コンポーネントにする、
-とかは不要」と述べている。
-
-そこから読み取れる具体は次の3つだが、**いずれも「こう作れ」ではなく「ここまで削ってよい」の意味**である:
-
-- 最初は店舗のリストでよい。タップしたら地図を見る
-- 地図はいま選んでいる店舗を中心に置き、その店舗の情報を添える。**他の店舗の情報は出さなくてよい**
-  （地図側に横スワイプのカードデッキは要らない）
-- 他の店舗を見たいときは、地図上のピンをタップして切り替える
-
-**構成の決定は designer に残っている。** 別画面にするのか、同じ画面の中で地図を開くのか、コンポーネントを
-分けるのかは指定されていない。案2の「地図を1行のバーに畳む」形のままでも、開いたときに他店舗の情報を
-落とせば意向は満たせる。**この記述を構成の要件として読まないこと**——初回の記録がそう読んでおり、
-人間の訂正を受けて書き直した。
-
-designerに渡すときは「地図側の情報量をここまで削ってよい」という制約として渡し、構成は designer が
-決める。渡す際に確認が要る点: 下記の「案2を選ぶと契約の追補が要る」が、採る構成によっては同じ論点に
-なる——`candidate-search-browser-interface.yaml` が初期表示に `candidate-map` の存在を要求しているため、
-初期表示をリスト主体にする形はいずれもこの条文に触れる。**2026-08-24時点でこの論点は解消していない**
-——designer の最新成果物（リスト主役＋88px地図リボン＋全面シート構成）はリボンが本物の地図であるため
-`candidate-map` が初期表示に実在し条文に触れないが、人間は比較用にリボン無し案も別途作る予定であり、
-リボン無し案が選ばれれば改訂が要る（`adr/0030` 決定4参照）。
-
-designer が比較の作図から報告した事実（**すべて作図上の値で未実測**。`meta/adr/0059` 決定5）:
-
-- 案2の「4件同時に見える」は成立しない。契約が要求するカード項目を全部描くと**3件と4件目の頭**まで。
-  探索ラフのカードは項目が省かれていたので過大だった
-- 案3の「位置関係が常に見える」は、条件を触っている最中には効かない（パネルが地図をほぼ覆う）
-
-designer が報告した契約とのズレ（architect と共有すること）:
-
-- **案2を選ぶ場合、契約の追補が要る。** `candidate-search-browser-interface.yaml` の
-  `authenticatedInitialOutcome.present` と `initialProposal.success.present` が初期表示に `candidate-map` の
-  存在を要求している。地図を畳む・別画面にする形が、これをDOM上どう満たすのか（存在させて隠すのか、
-  条文を緩めるのか）は未決。加えて `candidate.js` に resize ハンドラが無く `invalidateSize()` を呼ばない
-  という既知の未修正課題が、**畳んだ地図を開く操作で必ず踏まれる**（**resizeハンドラの欠落自体は
-  2026-08-24に developer が解消済み**。上記「`mapObservations.searchOriginMarker.positionAttributes`
-  の実装と地図resizeの不具合修正」参照。地図を畳む構成の是非そのものは未決のまま）
-- パネル内の「+N件」バッジは契約に無い要素。`populationAttributes` から計算できるが、契約は件数を
-  `candidate-filter-apply` の `data-match-count` にしか置いていない。採るなら契約追加が要る
-- 常時の件数表示は出していない（人間が一度断っているため）。**探索ラフ3枚はこれを常時出しており**、
-  designer はラフを正として引き写さなかった
-
-画面作業そのものは引き続き**designer を起動して行う**（`meta/adr/0050`。マージ済み `3c73e11`）。
-orchestrator は自分で描かない。次に designer を起動するときは、**セッションを開き直してから**行うこと
-——2026-08-23 の起動では旧定義・旧道具立てで走り、designer が `/design` を起動できなかった
-（`meta/adr/0059`・`meta/friction-log.md` FR-003）。上記の Artifact は designer が書いた `.dc.html` を
-orchestrator が発行したもので、これは一度きりの処置であり正規の経路ではない（`meta/adr/0059` 決定3）。
-
-プロジェクト名から実在の地名 "toyama" を外す改名は**完了している**（2026-08-20、`adr/0026`）。
-Pythonパッケージ `dining_radar` とシナリオIDプレフィックス `TDR` は据え置き、ブランチ
-`project/toyama-dining-radar` と ruleset `protect project/toyama-dining-radar` も意図して旧名のまま残す。
-
-Claude took this project over from Codex on 2026-08-04, with no open pull request and a green project branch, so no unmerged Codex artifact was inherited. The project branch was promoted to `main` through merged PR #86; work now runs on ordinary feature branches based on `main`.
-
-`TDR-AUTH` (authentication) and `TDR-CS` (candidate search) are both implemented. `TDR-AUTH` and the first `TDR-CS` are durable on `main`; the filter model described below lives on this feature branch and is not yet merged.
-
-An authenticated organizer opens the screen and immediately sees one proposal — up to five candidate cards and a Leaflet/OpenStreetMap map — without being asked for secondary conditions. Selecting a card highlights its marker and the reverse. The concept-lens model is gone (ADR-0023): there is no `ConceptKind`, no re-proposal modal, and no lens to choose. What replaced it is an always-visible filter panel (genre, izakaya/bar inclusion, non-smoking, card payment, budget tier) plus a fixed nearest-first sort and a "search again" control. Filters separate `applied` from `pending`: changing a control edits only `pending` and issues no request; apply commits it as one `POST /candidate-proposals`; revert restores `applied` without any public operation. Filtering is soft — a candidate whose value is unknown is kept and ranked after the confirmed matches, never removed — and it applies to the whole fetched population, not to the already-capped five. Selection from the filtered population is randomized from a nearest-first pool, so repeated searches do not return the same five shops.
-
-The implementation is four modules. `recommendation` is pure Python with no framework or provider dependency: it deduplicates by provider page URL, applies the candidate filters to the full normalized population, keeps unknown soft-filter values, and selects up to five candidates. `integrations/hotpepper` is the HTTPS-only adapter with env-based configuration, query-key redaction, and provider-shape normalization. `suggestions` mediates the fresh search and the pipeline, applies per-organizer rate limiting, and owns the acceptance-only state seam; it is also the only path by which `web` may reach the provider adapter, which a structural test enforces. `web` serves `POST /candidate-proposals`, a serializer matching the API schema exactly, and the authenticated screen, whose candidate surface is rendered client-side by vanilla JavaScript with no bundler.
-
-The current feature branch contains the chat-approved filter-model UI/UX refinement after `955e10d`: the map-led candidate surface has a bottom-overlapping, horizontally swipable card deck; mobile removes the double outer card chrome; and filter controls separate applied conditions from pending changes. The human approved the subsequent mobile-first placement mock on 2026-08-11, and the production Django screen now reflects it: a 52px header, one-line condition toolbar, horizontally scrolling single-row filter categories, a viewport-filling map, near-full-width compact cards, and an explicit selected-candidate counter. The filter labels reflect the soft-filter model: confirmed card-payment unavailability is excluded while information unavailable remains, and budget controls explicitly say they use dinner-budget tiers.
-
-The current screen refines that agreed control surface without changing its contract or request behavior: at PC widths the expanded filter controls are a three-column floating panel anchored to the condition toolbar; on mobile they are an overlay over the map. The desktop deck keeps its right-edge fade but exposes a thin, styled native horizontal scrollbar so a normal mouse can scroll the candidates. Its card internals retain the earlier compact, pale-green fact and description hierarchy; the repeat-search control shows a text label on PC and stays icon-first on mobile, mobile filter rails add a right-edge fade, and selected chips carry a visible check. The `cardPaymentAvailable=false` caution reads `クレジットカード非対応（支払い方法は要確認）`, stating only the confirmed card limitation. Regular-holiday text wraps naturally rather than ellipsizing and takes its own full-width footer row; the provider link follows on its own 44px target row. The common short value stays compact, while longer provider text remains fully visible and may increase the card height. Orchestrator measured the synthetic screen at 1920×1080: document height equaled the viewport; the deck was `overflow-x: auto`, 1374px wide with 2028px of content, showed the thin native scrollbar, and horizontal input changed `scrollLeft` from 0 to 654; the description background was `rgb(243, 246, 242)`. The candidate article was 384×289.7px; regular-holiday text was 306×35px, exact and unclipped in two lines, and the provider link was a separate 44px row. At 375×812, document height equaled the viewport, the card was 343×242.5px, regular-holiday text was 275×35px with its exact value in two lines, and the provider link remained 44px. Neither viewport had page overflow; the mobile scrollbar remained hidden, and browser warnings and errors were both zero.
-
-The orchestrator completed L5/control-surface checks using the human-owned `.env.local` and real data at 375×812 and 1440×900. At 375×812, the collapsed screen measured exactly one viewport with no page-level overflow, a 343×about-206px card, three equal-width decision facts, and 44px minimum app-authored controls; the only smaller links are the agreed inline OSM/provider credits. The unchanged expanded panel measured about 185px, with three 52px category rows whose overflow remains inside their horizontal rails; changing a filter adds a 44px-high apply action and disables re-search until applied or reverted. Card↔pin synchronization and the 1/5 counter worked in both directions. At 1440×900 the screen also remained exactly one viewport, with the full 1214px map/deck surface and about 350×249px cards. Browser logs contained no warning or error. No privacy-sensitive text or external scripts were introduced, and the OSM attribution remained readable. Earlier real-data checks also found and corrected Leaflet stacking over the deck and attribution occlusion.
-
-The same feature branch now contains the human-agreed deployment preparation for a zero-cost first release: Render Free Web in Singapore, Neon Free PostgreSQL, one Gunicorn worker, WhiteNoise same-origin static delivery, a DB-only readiness probe, and an idempotent first-organizer bootstrap from write-only runtime secrets. `render.yaml`, `build.sh`, `DEPLOYMENT.md`, and proposed ADR-0021 define the topology and operator flow; no Render/Neon resource or public origin has been created yet. Render refuses to start without `DATABASE_URL`, trusts the forwarded HTTPS signal only when Render identifies the runtime, and appends only Render's supplied hostname. Production collection processed 136 static files successfully after removing Leaflet's stale unvendored source-map reference.
-
-~~The isolated `design-preview` retains the approved mobile-first placement mock as a synthetic, network-free reference. Its composition has been translated into the production Django screen; it is no longer an unapproved draft.~~ **Retired (2026-08-24, ADR-0028).** `design-preview` is no longer used — `ci-dining-radar.yml` has never exercised it, and it predates `meta/adr/0050`'s retirement of the external-design-AI economy it was built for. Screen design review now flows through `design/wireframes/` (designer's `/design` output). architect has no git access; a human still needs to delete `projects/dining-radar/design-preview/` and the `dining-radar-design-preview` entry in `.claude/launch.json` (both listed in ADR-0028).
-
-The lens abstraction died by attrition and then by analysis. Three `ConceptKind` values were retired one at a time after live review, each because the lens produced no comparison the organizer could not already see (ADR-0016, ADR-0019). ADR-0023 then retired the concept itself: every surviving lens decomposed into a filter or a sort, so the abstraction was only wrapping those two operations in prose and hiding the controls. Repeat demotion went with it — `previouslyShownProviderPageUrls` and `build_concepts` no longer exist, and randomized pool selection now does the job that demotion was doing.
-
-Candidate cards show name, genre, description, regular holiday, a coarse total-seat reference (少なめ/標準/多め), a coarse non-smoking reference, a coarse dinner-budget reference explicitly labeled as a dinner figure, a caution on shops that do not accept credit cards, and the provider page link (ADR-0019). Access was dropped because the map already shows the same location; business hours were dropped as the largest contributor to mobile card height (ADR-0017), and the provider page remains the authoritative source for hours. The card-payment caution never asserts cash-only, because only credit-card acceptance is retrievable.
-
-So that the browser can show "how many candidates would this match" before the organizer commits a pending change, the response carries `populationAttributes` (ADR-0022): an anonymous attribute table — genre, non-smoking status, card acceptance, budget tier, and whether the genre is default-excluded — with no shop name, URL, coordinate, or identifier. `candidate.js` counts against it locally rather than issuing a provider request per toggle, so its predicate must mirror the server's exactly, izakaya/bar fallback included.
-
-Every machine gate is green on this branch, re-run independently by orchestrator rather than accepted from the roles' self-reports: L0 govlint; ruff and format; L1 (290 passed, 97% branch coverage, and the prior 99.61% mutation result against an 80% gate reused because no Python product source changed); L2 (12 passed); L3 (158 passed plus both Django checks); L4 (20/20 acceptance tests, no skips); and the ADR-0020 L5 render-invariant gate (11 passed plus 3 subtests). `TDR-CS-00` through `TDR-CS-13` execute against the real client-rendered screen through Playwright per ADR-0009; `TDR-AUTH-01` through `TDR-AUTH-05` and `TDR-AUTH-07` keep the plain-HTTP DSL (ADR-0009 decision 4). `reviews/audit-tdr-cs.md` and `reviews/audit-tdr-cs-filter-model.md` hold the independent reviewer's translation tables for `TDR-CS`.
-
-**Only orchestrator can measure rendered geometry** — developer and the role agents have no browser access. Four defects so far were invisible to L1–L4 and surfaced only through real-device measurement: marker attributes never applied, a scenario green without asserting its DOM outcome, template comment text rendering as page content, and a coarse budget tier rendering "情報なし" for every live candidate. Any claim about rendered size or appearance that orchestrator has not measured must be labeled 未実測.
-
-## Live provider measurements (2026-08-10, human's own key and private origin)
-
-These come from direct calls against the configured origin with `lunch=1`, `count=100`, and the configured range, plus the provider's budget master. They are measurements, not assumptions.
-
-- `results_available` = 64, `results_returned` = 64. **The whole population fits in one request; nothing is truncated.** Widening `range` to its maximum yields 94 with the lunch filter, still under the 100 cap.
-- `card`: 48 accept, 16 do not — 64/64 populated, no unknowns.
-- `non_smoking`: 37 全面禁煙, 14 一部禁煙, 13 禁煙なし — 64/64 populated, no unknowns.
-- `budget.name`: 64/64 populated. `budget.average` is 59/64 and mixes free-form prose (`通常平均：3000円 / 宴会平均：3500円`), so `normalize.py` reads `name`, not `average`.
-- Genre distribution: 居酒屋 24, 和食 9, カフェ・スイーツ 7, 創作 7, ラーメン 4, イタリアン・フレンチ 4, 洋食 3, 焼肉・ホルモン 2, ダイニングバー・バル 2, other 2. Default genre exclusion leaves 38.
-- Provider-side `non_smoking=1` returns 51, exactly 全面禁煙 + 一部禁煙; `card=1` returns 48, exactly the local count. Provider-side and local filtering agree exactly at the current population size.
-- The budget master has **17** codes (B009 〜500円 through B014 30001円〜) and the `budget` request parameter accepts **at most 2**. The three coarse tiers cannot be expressed provider-side: the low tier needs 4 codes and the high tier 11.
-
-## Confirmed policies
-
-- Do not commit real life-area names, coordinates, configured ranges, API keys, secrets, provider request URLs/responses, shop IDs, images, shop data, real-data migrations, fixtures, or database dumps. Use only synthetic test/design data.
-- Do not cache or persist provider responses. This product does not use durable provider IDs or HMAC-derived lookup data. Reopening that policy requires a new human decision, provider-terms review, and ADR (ADR-0018 examines both and remains `提案中`).
-- Send the API key only from the server to the provider; never expose a key-bearing URL, provider internals, or the private origin to a browser, public URL, log, error, or trace.
-- Use Leaflet with OpenStreetMap standard tiles only for small authenticated interactive use, with attribution and without tile prefetch, bulk download, or offline cache. The map must not expose the private search origin.
-- Leaflet itself (JS, CSS, marker icons) is vendored under `static/` and served same-origin (ADR-0010). The authenticated screen loads no third-party script.
-- Candidate-search endpoints depend on an authenticated organizer. ADR-0006 and the authentication contracts define that boundary; this slice implements it locally without choosing a deployment provider.
-- Controls on the authenticated candidate screen must appear in the server-rendered HTML, not be inserted by client JavaScript, wherever TDR-AUTH's plain-HTTP DSL observes them (`authentication-browser-interface.yaml` v0.2 `renderModel`).
-- Never assert what the provider data cannot confirm. Excluding izakaya/bar genres records uncertainty about lunch service, not its absence; the card-payment caution never claims cash-only.
-
-`manage.py` loads `projects/dining-radar/.env.local` when it exists, using a stdlib-only parser and `os.environ.setdefault`, so a real process environment always wins and a missing file is a no-op. That path is developer convenience only — deployment runs through `wsgi.py` and never depends on it.
-
-ADR-0014 establishes a client-side JavaScript unit-verification layer for `candidate.js`. It is not yet implemented. The ADR is explicit that none of the defects found in that layer so far would reliably have been caught by it — its value is forward-looking regression capture.
-
-ADR-0020's three layers are implemented. `tests/ui_invariants/test_render_invariants.py` (a new directory, outside `tests/acceptance/steps`/`dsl`, maintained by developer per the ADR) machine-checks decision 4's four gate invariants — narrow-width map reachability, keyboard reachability/activation, internal-enum non-exposure, and 44px minimum control size — as independent DOM/geometry assertions against the real screen (`StaticLiveServerTestCase` + `sync_playwright`, reused from the L4 harness; `CandidateSearchBrowserDsl` is reused only for its Given-seam setup and navigation, never for assertions). All nine test methods (12 assertions across three subtests) are green. Building the keyboard-activation check surfaced a real defect the ADR's own premise predicted: map markers were Tab-reachable (Leaflet's `keyboard: true` gives the marker icon `tabindex="0"`) but pressing Enter/Space did not select them, because Leaflet only translates that keypress into a `click` for a marker with a bound popup, which this screen's markers never have (confirmed by reading the vendored `leaflet.js`). `candidate.js` now attaches an explicit keydown handler to each marker, mirroring the candidate card's own existing one; reverting the fix and re-running the new test reproduces the original failure, confirming the test is a genuine regression catcher. `tools/render_observation.py` (decision 1, non-gate) signs in, loads a synthetic proposal, and screenshots the authenticated screen at three viewports (390×844, 730×900, 1440×900) to `.render-observations/` (gitignored, never committed); it performs no comparison. Using it surfaced one methodology lesson, not a product defect: reusing one already-loaded page across `set_viewport_size()` calls renders a stale Leaflet map (two markers appeared to vanish at narrow widths), because `candidate.js` never calls `invalidateSize()` on resize; the tool now loads a fresh page per viewport instead, and confirmed all candidates render correctly at every width once it does. That same absence — no resize handler re-fits the map — remains a real, unfixed latent gap for a user who resizes their window or rotates their device after the map has already rendered; it is not covered by any of decision 4's four invariants (which check the map container's own position/controls' own sizes, not whether Leaflet's internal view is still correct after a resize) and is left for a future slice to pick up. Orchestrator wired the new gate into `ci-dining-radar.yml` as its own `l5-ui-invariants` job with `needs: l4-acceptance` (ADR-0020 decision 6 left the placement to orchestrator; a separate job rather than a step inside `l4-acceptance` keeps "satisfies the approved scenarios" and "still holds the frozen render invariants" distinguishable, and `meta/verification.md` 3.3's ordering falls out of the dependency). Orchestrator re-ran every tier independently rather than accepting the role's self-report: L0 govlint, ruff, 196 unit tests at 96% branch coverage, 7 structural, both `manage.py check` profiles, 19 L4 acceptance tests, and the 9 new invariant tests, plus an independent revert-and-rerun of the `candidate.js` fix confirming exactly one test reddens and the other eight stay green. Mutation testing was not re-run and does not need to be: `pytest-gremlins` targets only `src/dining_radar/**.py`, and no Python source changed in this slice. The gate's own first CI run then failed where every local run had passed (FR-013): decision 4(e)'s 44px check measured *every* element carrying `data-candidate-control-purpose`, including the two controls inside the closed account-menu `<details>`, and `bounding_box()` on non-rendered `<details>` content is unspecified — the same Chromium build (151.0.7922.34) returned a real 161×44 box on one Windows run, a zero box on another, and consistently zero on Ubuntu. `is_visible()` returns a deterministic `False` there on both platforms, so the check now measures only currently-disclosed controls and asserts a non-zero measured count per phase, deferring (never excluding) the account-menu controls to the phase that opens the menu; orchestrator independently confirmed the deferral is real by shrinking that panel's CSS below 44px and watching `auth-password-change-open` redden at 25.59px. No threshold was lowered and no assertion was removed.
-
-## Deployment platform terms and measurements (2026-08-12, orchestrator)
-
-Reconfirmed from the providers' own current documentation, as `DEPLOYMENT.md` requires before any resource is created.
-
-- **Render free web**: health checks are sent **directly to the service port, not through the edge**, so they carry no `X-Forwarded-Proto`; the `Host` header is the service's `onrender.com` subdomain (or a verified custom domain). A check counts as successful on **`2xx` or `3xx` within five seconds**. A free service spins down after **15 minutes** without inbound traffic and takes about a minute to wake; a workspace gets **750 free instance hours** per calendar month; the filesystem is ephemeral and there is no SSH.
-- **Neon free**: **100 CU-hours and 0.5 GB per project**, scale-to-zero after **5 minutes** idle and always on for free, 10 branches, 6-hour instant-restore window. The plan is permanent, not a trial. Render's own free Postgres was **not** chosen because it expires 30 days after creation.
-- **Hot Pepper**: the required text credit is `Powered by <a href="http://webservice.recruit.co.jp/">ホットペッパーグルメ Webサービス</a>` and must appear on every page or application using the API. `serializers.PROVIDER_CREDIT` matches this exactly and `candidate.js` renders it, so the requirement is met on the successful-proposal screen. Use by a site that takes money from restaurants is prohibited; affiliate revenue is not.
-
-**Correction (2026-08-14).** The 2026-08-12 entry above originally said the provider states no caching rule and that this product's no-cache policy was purely its own choice. That was wrong. Orchestrator read the API reference and the ご利用案内, found no clause, and recorded the negative — without reading the 利用規約 itself (`regulation.html`), and, more to the point, **without reading `adr/0018`, this project's own ADR on exactly this question, which had quoted the clause verbatim including the 24-hour figure since 2026-08-09**. Orchestrator cited ADR-0018 by name repeatedly across that same period while never opening it. The lesson is not "check more web pages" but: before asserting that an external rule does not exist, read the repository's own record of that rule first — a negative finding about provider terms is exactly the kind of claim this project already keeps a document for. The 利用規約 does carry a caching clause — when the ご利用案内 sets no more specific rule, **a cache must be refreshed or deleted within 24 hours** (`個別に定める規定がない場合はキャッシュの更新頻度を24時間以内と定めます`). It also forbids copying retrieved information into a third-party database; browser-local `sessionStorage` on this origin is not one. So the no-cache policy is now backed by a real provider term as well as by this product's own choice, and any browser-held provider-derived value needs a bound at or under 24 hours.
-
-**Verified locally against the production settings module** (`RENDER` set, `DJANGO_DEBUG` unset, a throwaway SQLite standing in for Neon): `collectstatic` copies 136 files and post-processes 398 with no missing manifest entry; the login page renders 200 with `request.is_secure()` true through `X-Forwarded-Proto`; a CSRF-enforced login POST carrying a browser-like `Origin`/`Referer` returns 302 to `/`, so **no `CSRF_TRUSTED_ORIGINS` entry is needed** behind Render's proxy; the authenticated screen then returns 200 under `CompressedManifestStaticFilesStorage`, meaning every static reference resolves; `sessionid` is Secure+HttpOnly+SameSite=Lax and `csrftoken` is Secure+SameSite=Lax. `check --deploy` reports `security.W005` and `security.W021` (HSTS subdomains and preload), both deliberately off. This is a local stand-in, not the public origin.
-
-That local reading of `check --deploy` was incomplete in a way worth recording: the real build also emits **`security.W009`**, and the local probe could not have predicted it, because the probe supplied its own 50-character secret while Render's `generateValue: true` supplies a 256-bit random value base64-encoded to **44 characters**. Django's check fires on `len < 50 or unique < 5 or startswith("django-insecure-")`; only the length arm trips. The value is shorter because base64 packs about 6 bits per character against the roughly 5.64 of Django's own alphabet — 256 bits of entropy against the ~282 of Django's default `get_random_secret_key()`. It is a length heuristic misreading density, and replacing it would create a path where a human sees and pastes the signing key, which is worse than the warning. Left as is.
-
-**A measured defect found this way and since fixed**: under the production settings module with `RENDER` set, `GET /healthz` without `X-Forwarded-Proto` used to return **301**, because `SECURE_SSL_REDIRECT` is on and `SECURE_REDIRECT_EXEMPT` was empty. Combined with the two facts above — Render probes the port directly and accepts `3xx` — the readiness probe was **reported healthy without ever running its `SELECT 1`**, so a suspended or broken Neon compute would not have been detected, contradicting ADR-0021 decision 5 and `DEPLOYMENT.md` §3.6. `SECURE_REDIRECT_EXEMPT = [r"^healthz$"]` now exempts that one path. Re-measured independently: plain-HTTP `/healthz` returns 200 `ok`, while `/`, the login path, `/healthz/`, `/healthzz`, and `/x/healthz` all still return 301 — the exemption matches the exact path only, never as a prefix or substring. An unrecognized `Host` still returns 400, which is correct because Render probes with the service's own `onrender.com` hostname.
-
-## Public origin L5 (2026-08-14, orchestrator, against the live service)
-
-The service is deployed and reachable over HTTPS on a Route 53 subdomain (ADR-0021 addendum). Measured from outside with `curl`, following no redirects:
-
-- `/healthz` returns 200 with body `ok`; the first request after a spin-down took 15.2s, consistent with Render's stated wake time.
-- `http://…/` returns 301 to HTTPS. An unauthenticated `/` returns 302 to `/accounts/login/?next=/`.
-- The login page returns 200 and contains **no `href` at all** — no public signup and no email-reset affordance, which is what `TDR-AUTH-03` requires.
-- Security headers on a real response: `strict-transport-security: max-age=31536000` (no `includeSubDomains`, no preload, as designed), `x-content-type-options: nosniff`, `x-frame-options: DENY`, `referrer-policy: strict-origin-when-cross-origin`, `cross-origin-opener-policy: same-origin`.
-- `csrftoken` is `Secure` + `SameSite=Lax`. `sessionid` needs a signed-in session and was not exercised, since orchestrator holds no credentials.
-- No API key, coordinate, provider URL, or range appears in the served HTML or in any response header. A 404 returns 179 bytes and names no framework, traceback, or setting.
-
-The authenticated screen was checked by the human, since orchestrator holds no credentials: candidate cards and the map render, and both required credits appear — `Powered by ホットペッパーグルメ Webサービス` and `© OpenStreetMap contributors`. The only external requests observed were OSM tile fetches from `*.tile.openstreetmap.org`, which is the intended boundary: ADR-0010 vendors Leaflet itself same-origin, while the tiles are necessarily fetched from OSM, and `product-brief.md` §3 already accepts that the viewed map extent reaches the tile provider. `Referrer-Policy: strict-origin-when-cross-origin` (measured on a live response) keeps that disclosure to the origin alone, with no path or query — which is precisely why ADR-0021 chose it over `same-origin`. A `chrome-extension://` script also appeared; that scheme cannot be loaded by a page, so it is a locally installed browser extension injecting itself, not something the application serves. Note that a tile URL's `z/x/y` triple is itself a location disclosure and must not be pasted into an issue, pull request, or commit message.
-
-**The `/healthz` exemption works in production, and is now measured rather than inferred.** Enabling gunicorn's access log briefly showed the health check arriving as `"GET /healthz HTTP/1.1" 200 2` from a private RFC1918 address with user agent `Render/1.0`, every few seconds. The 200 rules out `SECURE_SSL_REDIRECT`; the 2-byte body is `ok`, so the view itself answered and its `SELECT 1` ran; and the private source address confirms first-hand what had until then been only Render's documented claim, that the check bypasses the edge.
-
-Getting there exposed a defect in the verification itself. The check written into `DEPLOYMENT.md` on 2026-08-12 — "plain-HTTP `/healthz` must return 200" — is unperformable from the public internet, because Render's edge terminates plain HTTP and answers 301 before gunicorn sees the request (that 301 carries none of Django's headers and no `x-render-origin-server`; the 200 carries both). Orchestrator then proposed watching Neon's compute as a substitute; the human tried it, found it decided nothing, and said so. They were right: the graph's time resolution is coarse and user traffic, verification traffic, and health checks all land on the same line, so the 5-minute and 15-minute idle thresholds cannot be told apart. `DEPLOYMENT.md` §3-3 now prescribes the access log and explicitly warns off the Neon method. The lesson is the one this whole fix was about — a check that looks green while verifying nothing is worse than no check, and that applies to the verification procedure as much as to the probe.
-
-## Live-feedback refinement in flight (ADR-0024, 2026-08-14)
-
-The human used the deployed service against real data and raised two complaints: shops repeating across two or three reloads, and a filter surface that was hard to use — the izakaya/bar toggle sitting under 「こだわり」 rather than with genres, and the population looking smaller than it is. Four changes answer three of them (the fourth, always-showing the match count, and wrapping the chip rails, were offered and declined).
-
-Genres are now ordered by how many candidates carry them, counted browser-side from `populationAttributes`, with the old string-length/collation rule kept only as a tie-break. The old order ignored size entirely: measured against the recorded real-data distribution it hid カフェ・スイーツ, the second-largest genre, behind the overflow chip, leaving 13 of 36 candidates (36%) unreachable without expanding; count order brings that to 25%. The izakaya/bar toggle moved into the genre row, at its head — placing it at the tail first pushed it entirely off-screen at 390px, measured, which made the change a regression in the very discoverability it was meant to fix. Selection dropped the fixed nearest-20 pool for distance-weighted sampling over the whole filtered population, since the old pool meant the farther candidates could never appear at all and randomness only rotated a fixed club (measured expected overlap between consecutive draws: 1.25 of 5, now 0.82). And the browser now remembers which candidates it has already shown, in `sessionStorage`, so a repeat is postponed until the rest of the population has had a turn.
-
-That memory is bounded at 20 hours per entry, pruned on every read, and never leaves the tab. The bound exists because Hot Pepper's terms require a cache to be refreshed or deleted within 24 hours; 20 leaves margin. `product-brief.md` §7's echo-back caveat is amended to match, which is a human re-approval point — the policy it protects (no history, no blacklist, no usage-driven recommendation) is unchanged, and ADR-0018 already established that storing shop identifiers is not itself forbidden, only unnecessary.
-
-Verification, all re-run by orchestrator: L0 govlint, ruff and format, L1–L3 (289 tests plus 30 subtests, 97% branch coverage), L4 (20 acceptance tests including the new `TDR-CS-14`), and the L5 render-invariant gate (10 plus 3 subtests). **Mutation is unmeasured on this branch** — see the defect below. Reviewer's independent audit of the L4 diff is in `reviews/audit-tdr-cs-14.md`; it caught a tautological reappearance assertion and a half-implemented expiry check, both since fixed, and orchestrator confirmed the repaired assertion reddens against a real injected defect (`select_with_shown_priority`'s exhausted branch returning nothing) rather than only against a synthetic response.
-
-**Open, deliberately carried rather than resolved.** `TDR-CS-11` clears `shownCandidateMemory` directly to isolate seed reproducibility; reviewer judged the necessity real but noted the contract never names that as an authorized seam, unlike the expiry case.
-
-~~At 390px the genre rail holds 464px of content in 328px, so the toggle and the overflow chip cannot both be visible~~ **解決した（2026-08-23 人間裁定、2026-08-24 PR #156 でマージ）**——「ほか N件…」を行の左端に固定し、横スクロールする領域から分離した。折り返しは採らなかった（2026-08-14 の見送りを維持）。契約は `controlGrouping.genreGroup.overflowPlacement` でDOM順序と入れ物の分離を機械観測する。**「スクロールしても視覚的に動かない」ところまでは検査していない**——そこまで保証するには `adr/0020` が L5 に置いた幾何測定の新設が要り、それは別の判断である。
-
-**A verification defect found while running this slice.** `tools/check_mutation_score.py` reads `coverage/gremlins/gremlins.json` without checking that it is fresh, so a failed mutation run leaves the previous run's score in place and the gate reports green over stale data. This surfaced because `pytest --gremlins` can no longer run on this Windows machine at all: the suite grew from 246 to 289 tests and the subprocess gremlins spawns now exceeds the command-line length limit (`WinError 206`). CI is unaffected — it runs on Ubuntu, and its `run:` block stops on the failing pytest before the score check — so the exposure is exactly the local path, which is also the path that produces "verified locally" claims. Orchestrator read a stale 99.61% this way before catching it. Fixing the freshness check belongs to developer, not orchestrator: it is the tooling that grades orchestrator's own work, which is the same reasoning that locked `meta/tools/**` under `meta/adr/0046` after FR-022.
+> P-11: このファイルは**現在だけ**を映す。歴史は git と ADR が持つ。
+>
+> **2026-09-11、全面圧縮した。** このファイルは 2026-08-24 以降ラウンドごとの実装ログを追記し続け、
+> 2,315行・276KB まで肥大して P-11 に違反していた（agent が起動時に安全に読めない大きさであると
+> architect が指摘）。圧縮前の全文は `094f323` の
+> `projects/dining-radar/activeContext.md` にある。消したのは「いつ誰が何を実装したか」の叙述で
+> あり、決定は ADR に、成果物は git に、摩擦は `friction-log.md` にそれぞれ残っている。
+> **追記運用へ戻さないこと。**ラウンドの記録を残したくなったら、それは ADR か friction-log の仕事。
+
+## この製品の現在地
+
+`dining-radar` は、**幹事が昼の会を立て、参加者が日程と店を答え、幹事が決める**ところまでを扱う
+Web アプリである。公開運用中（Render + Neon、カスタムドメイン。URL はリポジトリに書かれていない
+——`adr/0021` の 2026-08-14 追記。実データでの見え方を確かめたいときは人間に開いてもらう）。
+`main` へのマージは CI 通過後に Render が自動デプロイする（`render.yaml` の
+`autoDeployTrigger: checksPass`）。
+
+プロジェクト名は 2026-08-20 に `toyama-dining-radar` から改名した（`adr/0026`）。公開リポジトリに
+実在の県名を持ち込まないため（`product-brief.md` §4・`adr/0002`）。Python パッケージは元から
+`dining_radar` で、import・settings・static パス・CSS クラスは動いていない。シナリオ ID の接頭辞
+`TDR` もそのまま（承認済み契約を含め 738 箇所に出現するため）。**改名しても公開リポジトリから地域が
+消えたわけではない**——`toyama-weekend-radar` と `connpass-session-radar` は今も持っている。
+
+機能の骨格:
+
+- **店を絞る画面**（TDR-CS）: 認証済みの幹事が、徒歩圏・ジャンル・予算・設備で候補を絞り、地図と
+  カードで比べる。PC は2カラム（`renderModes.twoColumnLayout`）、スマホは地図主体。
+- **会の画面群**（TDR-GTH）: 会の作成、候補日の一括登録（カレンダー複数選択）、参加者への署名付き
+  共有リンク配布、日程の3段階回答、店の3段階投票、開催日と店の確定、会の削除。
+- **店選びは候補検索画面へ一本化した**（`adr/0049` 決定1）。会モード（`/?gatheringId=<id>`）で
+  候補検索画面を開き、カードのトグルで会に入れる/外す。会側に別の店選択画面は**もう無い**。
+
+`product-brief.md` は 2026-08-30（PR #174）で改訂され、会・日程調整・出欠・承認投票を製品境界の
+**内側**に入れた。**履歴（過去に行った店の記録）だけは今も境界の外**（§7）——再検討には人の決定と
+ADR が要る。
+
+## いま進行中のスライス（2026-09-11）
+
+**実機フィードバック大改訂**（人間が公開環境で使って出した12件＋追加3件）。ブランチ
+`integrate/gathering-field-feedback`。
+
+取り込んだ人間裁定と、それを載せた ADR:
+
+| ADR | 内容 |
+|---|---|
+| `adr/0049` | 店選びを候補検索画面へ一本化／候補日はカレンダー複数選択／PC 2カラム化（送りボタン・件数カウンタ廃止）／日程回答時は開いている店の**件数だけ**出す |
+| `adr/0050` | **可視性の反転**（自分が答える前から他人の回答が見える）／確定後の記録を1行へ簡素化／**会の削除を置く**（旧 D4 の「削除操作は置かない」を覆した） |
+| `adr/0051` | 会をつくる画面の候補日入力も同じカレンダーへ統一 |
+| `adr/0052` | `GATHERING_OPEN_SHOP_WEEKDAY_MATCH` の shopId 安定性と表示上限を文書化（Given 構築が曜日と表示上限に偶発的に依存していた3件の破綻を決定的な技法へ作り直した） |
+| `adr/0053` | TDR-GTH-26〜41 を店選択画面の撤去に対して1本ずつ棚卸し（結論: 16本すべて現状のまま成立） |
+
+ブランチの現在の状態:
+
+- `integrate/gathering-field-feedback` に実装・テスト・契約の全ブランチを合流済み。
+  `contracts/gathering-field-feedback`（`adr/0052`・`0053`、`test-support-api.yaml` v1.5.7）も
+  取り込んだので、**契約文面とコードの食い違いは解消している**（reviewer が「マージ順序の懸念」
+  として挙げた件）。
+- orchestrator が自分で再実行した検証（role の自己申告は採らない）:
+  L4 受け入れ 76件 OK（916s）／L5 `tests/ui_invariants` 14件＋10 subtests 緑／`ruff check .` 緑／
+  `govlint` エラーなし。
+- reviewer の独立監査は `reviews/audit-gathering-field-feedback-steps.md`。**Blocker 0**（検査内容に
+  対して）・Major 2・Minor 3。**Major 1・2 と Minor 1・3 は是正済み**（`569a231`）:
+  - **Major 1**（TDR-CS-18 の絞り込みが実質非検証）: Given を件数の分からない汎用母集団から
+    `GATHERING_OPEN_SHOP_WEEKDAY_MATCH` へ差し替え、**月曜**（既知の開店数5件）に固定して、
+    `search_again` を収束するまで回し、出現した distinct shopId がちょうど5件であることを数え上げる。
+    **月曜を選んだのが要点**——開店数5件が表示上限5件とちょうど一致するので、1回の応答だけでは
+    「絞り込み無し（実際は6件）」と「正しい絞り込み（5件）」を区別できない。だから収束まで回す。
+  - **Major 2・Minor 1**: `GET /gatherings/{id}` を直接叩き `shortlistedShops[].shopId` を読んで、
+    検索し直しの前後で5件の**集合が完全一致**すること（同一性の保存）と、帯の件数がサーバー実値と
+    一致することを検査する。
+  - **Minor 3**: answerLater/peekResults の機能化テストの末尾で FR-030 横断検査を1回呼ぶ。
+  - 4件とも**欠陥注入で赤くなることを実証済み**（ADR-0065 に従いコミットには残していない）。
+  - Minor 2（構造的に同一の画面のデータ違いバリエーションで FR-030 を再実行していない）は監査自身が
+    「実害リスクは低い」と判定しており、**次にこの画面群を触るラウンドへ送る**。
+- **TDR-GTH-48 の間欠失敗（`net::ERR_ABORTED`）の真因を特定して直した**（`b8a70db`）。削除が 204 を
+  返すと画面自身が `window.location.href` で遷移するのに、テスト側がその進行中の遷移に重ねて自分でも
+  `page.goto` を出していた。**契約は削除直後の遷移先を固定していない**（`deleteGathering.confirm.
+  requiredOutcome` は「その後この会が一覧に出ないこと」だけを要求する）ので、遷移先を要求せず
+  `expect_navigation()` をクリック**前**に登録して「何であれ起きた遷移が終わるまで」待つ形にした。
+  試して駄目だった案が2つあり、docstring に理由まで残してある（DELETE 応答の body を読む案は、
+  画面側の遷移がリソースを回収してしまうため**毎回確実に**失敗する。応答イベントだけ待って
+  `wait_for_load_state` を呼ぶ案は、まだ遷移が始まっていない時点では即座に返るため空振りする）。
+  **修正前に20回回して 2/20 の失敗を再現し、修正後は10/10 緑**。
+
+契約は `gathering-scheduling.feature`（TDR-GTH-01〜48）・`candidate-search.feature`
+（TDR-CS-00〜19、07 は廃止）・両 `-api.yaml`・両 `-browser-interface.yaml`。**いずれも
+2026-09-11 のチャットの合意として承認済み**（`meta/adr/0064` 決定1: 合意はチャットで取り、
+PR のマージは決まったことを公表する操作にする）。`adr/0052`・`0053` も同じ裁定で `承認済み` にした
+——**承認だけの追いPRを後から出す繰り返し**（リポジトリ全体で7回、FR-008/016/017）を
+ここで作らないための運用である。
+
+## 確定ポリシー
+
+- 実在の生活圏名・座標・設定した範囲・API キー・秘密・provider のリクエスト URL / レスポンス・
+  店 ID・画像・店データ・実データ移行・fixture・DB ダンプを**コミットしない**。合成データのみ使う。
+- provider のレスポンスを**キャッシュ・永続化しない**。恒久的な provider ID や HMAC 由来の照合
+  データも使わない。これを開け直すには新しい人間の決定・provider 規約の再確認・ADR が要る
+  （`adr/0018` は両方を検討したうえで `提案中` のまま）。
+- API キーはサーバから provider へだけ送る。キーを含む URL・provider の内部・私的な基点を、
+  ブラウザ・公開 URL・ログ・エラー・トレースへ出さない。
+- 地図は Leaflet + OpenStreetMap 標準タイルのみ、認証済みの小規模な対話利用に限る。帰属表示を出し、
+  タイルの先読み・一括取得・オフラインキャッシュをしない。地図が私的な基点を露出してはならない。
+- Leaflet 自体（JS・CSS・マーカー画像）と flatpickr（4.6.13、MIT）は `static/` 配下に vendoring し
+  同一オリジンで配る（`adr/0010` と同じ規約）。認証済み画面は third-party script を1本も読まない。
+- 候補検索の endpoint は認証済みの幹事に依存する（`adr/0006`）。参加者は署名付き共有リンク
+  （ログインなし・名前自己申告・使い捨てトークン）で入る（`adr/0034`）。
+- 認証済み候補画面のコントロールは、TDR-AUTH の素の HTTP DSL が観測する範囲では、クライアント JS が
+  差し込むのではなく**サーバがレンダリングした HTML に出ていなければならない**
+  （`authentication-browser-interface.yaml` v0.2 `renderModel`）。
+- **provider データが裏づけないことを主張しない。**居酒屋・バー系ジャンルの除外は「昼にやっている
+  か分からない」という不確かさの記録であって、やっていないことの主張ではない。カード払いの注意書きも
+  現金のみとは決して言わない。
+- 会は店の情報を持たない。**保存するのは店 ID だけで、表示のたびに provider から取り直す**
+  （`adr/0034` 決定6、live projection）。
+- ブラウザに持たせた provider 由来の値には 24時間以下の上限を必ず付ける（provider 規約。下記）。
+  `shownCandidateMemory` は 20時間、読むたびに刈る、タブの外へ出ない。
+
+`manage.py` は `projects/dining-radar/.env.local` があれば読む（stdlib のみ・`os.environ.setdefault`
+なので実プロセスの環境が必ず勝ち、ファイルが無ければ何もしない）。これは開発者の便宜専用で、
+デプロイは `wsgi.py` を通り、このパスに一切依存しない。
+
+## provider の実測値（2026-08-10、人間自身のキーと私的な基点）
+
+設定された基点に `lunch=1`・`count=100`・設定範囲で直接叩いた結果と、provider の予算マスタ。
+仮定ではなく実測である。
+
+- `results_available` = 64、`results_returned` = 64。**母集団全部が1リクエストに収まり、切り捨ては
+  起きていない。**`range` を最大にすると lunch フィルタ付きで 94、それでも 100 の上限未満。
+- `card`: 48 可 / 16 不可（64件すべて埋まっている）。`non_smoking`: 全面禁煙 37・一部禁煙 14・
+  禁煙なし 13（同上）。
+- `budget.name` は 64/64 埋まっている。`budget.average` は 59/64 で自由文が混ざる
+  （`通常平均：3000円 / 宴会平均：3500円`）ため、`normalize.py` は `name` を読む。
+- ジャンル分布: 居酒屋 24・和食 9・カフェ・スイーツ 7・創作 7・ラーメン 4・イタリアン/フレンチ 4・
+  洋食 3・焼肉/ホルモン 2・ダイニングバー/バル 2・その他 2。既定のジャンル除外後は 38。
+- provider 側 `non_smoking=1` は 51（＝全面＋一部）、`card=1` は 48（＝ローカル集計と一致）。
+  現在の母集団規模では provider 側フィルタとローカルフィルタは完全に一致する。
+- 予算マスタは **17コード**（B009 〜500円 〜 B014 30001円〜）あり、`budget` パラメータは**最大2個**
+  しか受け取らない。**3段階の粗い区分は provider 側では表現できない**（低位に4コード、高位に11コード
+  要る）。だからローカルで絞る。
+
+## デプロイ先の規約と実測（2026-08-12 確認、2026-08-14 訂正）
+
+- **Render 無料 web**: health check は**エッジを通さずサービスのポートへ直接届く**ので
+  `X-Forwarded-Proto` を持たない。`Host` はサービスの `onrender.com` サブドメイン（または検証済み
+  カスタムドメイン）。**5秒以内の 2xx か 3xx** で成功扱い。15分無通信でスピンダウンし、起床に約1分。
+  月 750 インスタンス時間。ファイルシステムは揮発、SSH 無し。
+- **Neon 無料**: プロジェクトあたり 100 CU時間・0.5GB、5分で scale-to-zero、10ブランチ、
+  6時間の instant-restore。無期限（試用ではない）。Render 自前の無料 Postgres は作成30日で失効する
+  ため採らなかった。
+- **Hot Pepper**: 必須のテキスト表記は
+  `Powered by <a href="http://webservice.recruit.co.jp/">ホットペッパーグルメ Webサービス</a>` で、
+  API を使う全ページに出す。`serializers.PROVIDER_CREDIT` がこの文字列と完全一致し、`candidate.js`
+  が描くので満たしている。飲食店から金を取るサイトでの利用は禁止（アフィリエイト収益は可）。
+- **キャッシュ条項は存在する。**利用規約に
+  `個別に定める規定がない場合はキャッシュの更新頻度を24時間以内と定めます` がある。取得情報を
+  第三者のデータベースへ複製することも禁じている（このオリジンの `sessionStorage` はそれに当たらない）。
+
+  > 2026-08-12 の記載は「provider はキャッシュ規則を定めていない」と書いていた。**これは誤り**で、
+  > API リファレンスとご利用案内だけを読み、利用規約本体（`regulation.html`）も、**この件について
+  > このプロジェクト自身が持っていた `adr/0018`（24時間という数字を 2026-08-09 から逐語で引用して
+  > いた）も読まずに**否定を記録していた。教訓は「もっと web を読め」ではない。**外部規則が存在
+  > しないと断言する前に、リポジトリ自身のその規則の記録を先に読め。**
+
+**本番設定モジュールに対するローカル実測**（`RENDER` あり・`DJANGO_DEBUG` なし・Neon の代わりに
+使い捨て SQLite）: `collectstatic` は 136 ファイルをコピーし 398 を後処理、manifest の欠落なし。
+`X-Forwarded-Proto` 経由で `request.is_secure()` が真。ブラウザ相当の `Origin`/`Referer` を付けた
+CSRF 有効なログイン POST が 302 を返すので、**Render のプロキシ配下では `CSRF_TRUSTED_ORIGINS` の
+登録は要らない**。`sessionid` は Secure+HttpOnly+SameSite=Lax、`csrftoken` は Secure+SameSite=Lax。
+`check --deploy` は `security.W005`・`W021`（HSTS の subdomains と preload、意図的に off）を出す。
+
+本番ビルドはこれに加えて **`security.W009`** を出す。ローカルの検査では予測できなかった——検査側が
+50文字の秘密を自前で与えていたのに対し、Render の `generateValue: true` は 256bit 乱数を base64 で
+**44文字**にして渡すため、Django の `len < 50` の腕だけが引っかかる。長さヒューリスティックが密度を
+読み違えているだけであり、これを回避しようとすると人間が署名鍵を見て貼る経路ができて却って悪い。
+**そのままにしてある。**
+
+**この方法で見つけて直した実害の欠陥**: `RENDER` あり・`X-Forwarded-Proto` なしの `GET /healthz` が
+**301** を返していた（`SECURE_SSL_REDIRECT` が on で `SECURE_REDIRECT_EXEMPT` が空だった）。
+Render はポートへ直接投げ 3xx を成功と見なすので、**readiness probe は `SELECT 1` を一度も走らせない
+まま健康と報告されていた**。`SECURE_REDIRECT_EXEMPT = [r"^healthz$"]` を入れた。再実測: 素の HTTP の
+`/healthz` は 200 `ok`、`/`・ログインパス・`/healthz/`・`/healthzz`・`/x/healthz` はすべて 301
+——**完全一致のみで、前方一致でも部分一致でもない。**
+
+## 公開オリジンの L5（2026-08-14、外部から curl で実測）
+
+- `/healthz` は 200 `ok`。スピンダウン明けの初回は 15.2s（Render の公称の起床時間と一致）。
+- `http://…/` は 301 で HTTPS へ。未認証の `/` は `/accounts/login/?next=/` へ 302。
+- ログインページは 200 で、**`href` が1つも無い**——公開サインアップもメール再設定の導線も無い
+  （`TDR-AUTH-03` の要求）。
+- 実レスポンスのセキュリティヘッダ: `strict-transport-security: max-age=31536000`
+  （includeSubDomains なし・preload なし、設計どおり）、`x-content-type-options: nosniff`、
+  `x-frame-options: DENY`、`referrer-policy: strict-origin-when-cross-origin`、
+  `cross-origin-opener-policy: same-origin`。
+- 配信 HTML にもヘッダにも、API キー・座標・provider URL・範囲は出ていない。404 は 179バイトで
+  フレームワーク名もトレースバックも設定も名指ししない。
+- 認証済み画面は人間が確認（orchestrator は資格情報を持たない）: カードと地図が出る。必須の表記
+  2件（`Powered by ホットペッパーグルメ Webサービス` と `© OpenStreetMap contributors`）とも出る。
+  外部通信は OSM のタイル取得のみ——これは意図した境界である（`adr/0010` が Leaflet 自体を同一
+  オリジンに vendoring し、タイルだけは必然的に OSM から取る。`product-brief.md` §3 が地図の表示
+  範囲が provider に届くことを既に受け入れている）。`Referrer-Policy` がその開示をオリジンだけに
+  抑える。**タイル URL の `z/x/y` は位置の開示そのものなので、issue・PR・コミットメッセージに
+  貼らないこと。**
+- **`/healthz` の除外は本番で効いていることを、推測ではなく実測した。**gunicorn のアクセスログを
+  一時的に有効にすると `"GET /healthz HTTP/1.1" 200 2` が RFC1918 の私的アドレスから user agent
+  `Render/1.0` で数秒おきに届いていた。200 は `SECURE_SSL_REDIRECT` を否定し、2バイトの body は
+  `ok` なので view 自身が `SELECT 1` を走らせて答えており、私的な送信元はエッジを迂回していること
+  の一次証拠になる。
+
+  > ここへ至る過程で**検証手順自身の欠陥**が出た。2026-08-12 に `DEPLOYMENT.md` へ書いた
+  > 「素の HTTP の `/healthz` が 200 を返すこと」は**公開インターネットからは実行不能**である
+  > （Render のエッジが gunicorn より手前で 301 を返す）。代わりに Neon の compute を見る案を出したが、
+  > 人間が試して「何も決まらない」と言った。**人間が正しい**——グラフの時間分解能が粗く、利用者の
+  > トラフィック・検証のトラフィック・health check が同じ線に乗るので、5分と15分の閾値を区別できない。
+  > `DEPLOYMENT.md` §3-3 はアクセスログ方式を規定し、Neon 方式を明示的に禁じている。**何も検証して
+  > いないのに緑に見える検査は、検査が無いより悪い**——これは検証手順そのものにも当てはまる。
+
+## 検証の層（いま動いているもの）
+
+`meta/verification.md` の L0〜L5 を CI（`ci-dining-radar.yml`）が全部回す。
+
+- **L0** govlint（統治文書の整合）＋ ADR 採番の衝突検査
+- **L1** 単体・ruff・カバレッジ・mutation（pytest-gremlins。対象は `src/dining_radar/**.py` のみ）
+- **L2** 構造境界 / **L3** 認証・provider・設定の境界（`manage.py check` ×2プロファイル）
+- **L4** 受け入れ（Playwright。`tests/acceptance`。TDR-AUTH・TDR-CS・TDR-GTH）
+- **L5** `tests/ui_invariants`（`adr/0020`）。`l4-acceptance` に `needs` で続く独立ジョブ。
+  DOM/幾何の不変量4件（狭い幅での地図到達性・キーボード到達と起動・内部 enum の非露出・
+  コントロール44px 下限）を実画面に対して測る。DSL は Given 構築と遷移にだけ再利用し、assert には
+  使わない。
+
+この層が実際に欠陥を捕まえた例（関所が飾りでないことの証拠として残す）: 地図マーカーは Tab で
+到達できるのに Enter/Space で選べなかった（Leaflet は popup を持つマーカーにしか keypress を click へ
+翻訳しない。vendoring した `leaflet.js` を読んで確認）。`candidate.js` に明示の keydown を足した。
+修正を戻すと当該テストだけが赤くなることまで確認している。
+
+**L5 の 44px 検査で踏んだ CI 固有の罠（FR-013）**: 閉じた `<details>` の中のコントロールに対する
+`bounding_box()` は未規定で、同じ Chromium でも Windows では実サイズ、Ubuntu では一貫してゼロを
+返した。`is_visible()` は両方で決定的に `False` を返すので、**いま開示されているコントロールだけを
+測り、各フェーズで測定件数が非ゼロであることを assert する**形にした（アカウントメニューのコントロールは
+除外ではなく、メニューを開くフェーズへ**先送り**）。閾値は下げていないし assert も外していない。
+
+**既知の検証ツールの欠陥（未修正）**: `tools/check_mutation_score.py` は
+`coverage/gremlins/gremlins.json` の鮮度を確かめずに読むので、mutation の実行が失敗すると前回の
+スコアが残ったまま**緑を報告する**。この Windows 機では `pytest --gremlins` がそもそも走らない
+（テストが増えて子プロセスのコマンドライン長が上限を超える。`WinError 206`）。CI は Ubuntu で、
+失敗した pytest の時点で止まるので影響を受けない——**露出しているのはローカル実行の経路だけで、
+そこはまさに「ローカルで検証した」と主張する経路である。**修正は developer の仕事（orchestrator の
+仕事を採点する道具だから）。`meta/tools/**` は `meta/adr/0046` でロックされており人間の解錠が要る。
+
+## ローカルで画面を確かめる手順
+
+```
+python manage.py runserver 127.0.0.1:8741 --settings=dining_radar.settings_localdemo --noreload --insecure
+```
+
+- `settings_localdemo.py` と `localdemo.sqlite3` は**リポジトリに入れない**（`.gitignore` 済み、
+  FR-027）。無ければ `settings_acceptance` を継承して sqlite のパスと `ALLOWED_HOSTS` を差し替える
+  だけの数行で作れる。
+- **サーバ起動のたびにデータの再投入が要る**（モードは LocMem キャッシュ保持のため再起動で消える）:
+
+  ```
+  curl -X PUT http://127.0.0.1:8741/test-support/candidate-proposals/state -H "Content-Type: application/json" -d "{\"mode\":\"NORMAL_WITH_WEIGHTED_SAMPLING\",\"randomSeed\":7}"
+  ```
+
+- **`home.html` を変えたらサーバの再起動が要る**（`DEBUG=False` で Django がテンプレートをキャッシュ
+  する）。これを忘れて「直っていない」と誤報告した事故がある（FR-025）。
+- **合成候補は経度0固定で南北一直線に並び、現在地は海の上**である。ピンが縦一列なのはデータの性質で
+  あって不具合ではない。**実データの2次元の散らばりでの見え方は、この環境では確かめられない。**
 
 ## Next work
 
-1. ~~Obtain a human go-ahead for the external Render/Neon account mutations and secret entry, then follow `DEPLOYMENT.md` and perform the public HTTPS/privacy/login L5 checks.~~ **完了（2026-08-26、人間が「公開しました」）。**
-   以降このサービスは公開運用されており、`main` へのマージは CI 通過後に Render が自動デプロイする（`render.yaml` の `autoDeployTrigger: checksPass`）。**次に読む人へ**: 公開先のURLはリポジトリに書かれていない（カスタムドメイン。`ADR-0021` の 2026-08-14 追記）。実データでの見え方を確かめたいときは人間に開いてもらう必要がある。
-   no-history/no-durable-identifier の製品方針を変えるには、着手前に新しい人間の決定が要る（これは変わらない）。
-2. Reconfirm the assumed Hot Pepper raw JSON field names against current official documentation. (The provider credit, free-plan, and health-check terms were reconfirmed on 2026-08-12 and are recorded under "Deployment platform terms" above.)
-3. Refresh or retire the `project/toyama-dining-radar` branch (the branch and its ruleset keep the old name; the 2026-08-20 rename deliberately left them alone). It is no longer the leading edge: `main` is well ahead of it and 0 behind, so the branch only lags. Decide whether to fast-forward it or drop it in favour of slicing directly off `main`, which is what recent slices have actually done.
-4. ~~Consider whether ADR-0003's stated design-preview stack (React, TypeScript, Tailwind, shadcn/ui) should match the receiver's actual dependencies (React, TypeScript, `lucide-react` only, with hand-written CSS), by installing the missing packages or amending the ADR. Designer worked around the gap by requiring visually self-contained artifacts; the divergence itself is unresolved.~~ **Moot (2026-08-24, ADR-0028)** — `design-preview` itself is retired, so its dependency mismatch no longer needs reconciling. Pending action item: a human deletes `projects/dining-radar/design-preview/` and the `dining-radar-design-preview` entry in `.claude/launch.json` (ADR-0028 decision 2).
-~~5. The candidate map never calls Leaflet's `invalidateSize()`/re-fits when its container is resized after the initial render (no resize handler in `candidate.js`).~~ **解決した（2026-08-24、developer）**——see below. The original framing was partly imprecise: Leaflet's own default `trackResize: true` (confirmed by reading the vendored `leaflet.js`) already re-fits on a plain browser-`window` resize, so a straightforward `page.set_viewport_size()`-style resize was already handled before this fix. The real remaining gap was a container-size change with **no accompanying `window` resize event** — reachable on a phone because `candidate-map`'s height is `dvh`/`vh`-sized, so a mobile browser's toolbar collapsing/reappearing while scrolling resizes the container purely through CSS. `candidate.js` now attaches a `ResizeObserver` directly to the map container (disconnected/reattached on every `initializeMap` re-render) that calls `invalidateSize()` on any container-size change regardless of cause.
-6. `meta/tools/govlint.py`'s `SCENARIO_ID` pattern cannot match `TDR-CS-01` or `TDR-AUTH-01`, so all 19 TDR scenario IDs have never been checked by L0. Fixing it needs a human unlock commit for `meta/tools/**` (`meta/adr/0046`).
-7. ~~実装が未着手（2026-08-24、`adr/0029`）: 迂回係数の定数を `pipeline.py`・`candidate.js` へ追加し、
-   `acceptance_state.py` の `WALKING_TIME_LIMIT_EXCLUDES` 合成データを新しい係数のもとで再計算する。~~
-   **実装済み（2026-08-25、developer、ブランチ `docs/ring-labels-contract`）。** 詳細は次項にまとめて記録する。
-8. ~~実装が未着手（2026-08-24、`adr/0030`）: 輪の分数ラベルと0件案内の操作化。~~
-   **実装済み（2026-08-25、developer）。** 併せて `adr/0029`・人間裁定の骨格変更（次項9）も同一ブランチで実装した。
-   要点:
-   - `pipeline.py`: `WALKING_METERS_PER_MINUTE`（80、無変更）とは別に `WALKING_DETOUR_FACTOR = 1.3` を新設し、
-     `walking_time_minutes()` を `ceil(距離 × 1.3 ÷ 80)` に変更（`adr/0029` 決定1・2）。リング・カードの徒歩時間・
-     `walkingTimeMaxMinutes` フィルタは引き続きこの1関数だけを経由する（同決定4、崩していない）。`candidate.js`
-     も同じ2定数を相互参照コメント付きでミラーしている。
-   - `acceptance_state.py` の `WALKING_TIME_LIMIT_EXCLUDES` 合成距離は 800/950/1100m → **600/710/830m** へ
-     再計算した（しきい値12分は無変更）。600m→10分（余裕を持って12分未満）、710m→12分（12分にceilする
-     区間 (676.9m, 738.5m] の中央付近、両端から30m前後の余裕）、830m→14分（余裕を持って12分超）——境界
-     ちょうどを避けるという既存のマージン設計方針は維持し、数値だけを新しい式に合わせて選び直した
-     （`adr/0029` 帰結2節）。symbolicな `_WALKING_TIME_LIMIT_EXCLUDES_THRESHOLD_MINUTES` を参照するテストは
-     無変更で緑のまま。
-   - `candidate.js`: 各リングに `aria-label`（属性値と一致）と、実際に画面上で読める `divIcon` ラベル
-     （`N分`）を追加した（`adr/0030` 決定1のMust）。ラベル位置はリングの真北点をコンテナ矩形へクランプし、
-     リングの境界が現在のビューポートを一切通らない場合はリングごと描画しない（円と矩形の最近点/最遠点
-     距離で判定）。輪の見せ方（designer artifact
-     `efe1c44f-ead4-40c6-9141-b801583aadd9` の5点）も実装した——白いケーシング（同じ破線パターン、幅+3px、
-     不透明度.9）／太さ 1.8px（アクセントは2.4px）／内側から段階化した破線・不透明度（実線.85→長破線.68→
-     短破線.55→点線.45、CSSクラス `--band-0`〜`--band-3`）／`currentFilters.walkingTimeMaxMinutes` と一致する
-     リングだけアクセント実線＋反転ラベル／最内リング半径の淡いアクセント塗り（fill-opacity 5%）。
-   - `candidate-no-results` 内に `candidate-no-results-revise-filters`（`data-candidate-control-purpose=
-     "candidate-no-results-open-filter"`、契約 `allowedPurposes` 済み登録）を追加し、押すと
-     `filterExpanded=true` にして即座にパネルを開く（`adr/0030` 決定2）。既存の `candidate-filter-open` の
-     トグル挙動には触れていない。
-   - designer が挙げた残り2件（輪と徒歩の上限の連動＝アクセントリングとして実装済みの範囲を超える機械観測、
-     地図リボンの高さ・役割）は `adr/0030` が意図的に決めていない範囲のまま——理由は同ADR決定3・4参照。
-9. ~~実装が未着手（2026-08-24、人間裁定）: 画面の骨格をワイヤフレームへ寄せる。~~
-   **実装済み（2026-08-25、developer）。** designer artifact
-   `https://claude.ai/code/artifact/efe1c44f-ead4-40c6-9141-b801583aadd9`（リスト主役＋高さ88pxの地図リボン＋
-   全面シート）を、**このURLを直接閲覧する手段が developer にはない**ため、依頼本文に記載された要約
-   （リスト主役／88pxの実地図リボン／タップで全面シート／全面シートは位置関係と選択中の1店のみ・他店は
-   ピンで切替）を最も忠実に翻訳する形で実装した。**キャンバス自体との細部の一致は未確認**——orchestrator
-   または人間による実測確認が必要（`meta/adr/0059` 決定5・「Only orchestrator can measure rendered
-   geometry」の既存方針どおり、developer はブラウザを持たない）。
-   - ~~リボンは本物のLeaflet地図（畳んだプレースホルダではない）。開閉は同じ地図インスタンスのCSS
-     サイズ変更だけで行う。~~ **2026-08-25、実機報告を受けて構成を変更した**——「地図が0高さに潰れる／
-     閉時は地図を出さない」節（上）参照。88pxの常時可視リボンは廃止し、閉時は`candidate-map-open`
-     （可視の入口のみ）を出す。地図インスタンスは1つのまま（`[data-testid="candidate-map"]`は
-     `candidate.js`内で1箇所のみ宣言、`tests/test_static_assets.py`で機械的に固定）という性質は維持
-     している——開閉はCSSサイズ変更ではなく`opacity`/`pointer-events`の切り替えに変わった（サイズを
-     常時一定に保つことが、今回見つかった0高さバグの直接の修正でもある）。ビュー再フィット・リング
-     再レイアウトは`refreshMapViewAndRings()`として一本化し、`ResizeObserver`だけでなく
-     `openMapSheet`/`closeMapSheet`/`selectCandidate`からも直接呼ぶよう変更した。
-   - 全面シートは選択中の1店の `candidate-card` 要素を**複製せず移動**して表示する
-     （`syncMapSheetPanelToSelection`）。リスト側に残る他の候補は `inert` 属性でTab順・アクセシビリティ
-     ツリーから外す（対応ブラウザのみ、feature-detect済み）。ピンをタップすると選択中候補が切り替わり、
-     シート内の表示・地図の中心も追従する。横スワイプの他店デッキは廃止した。
-   - リボン開閉のアフォーダンス（ribbon-open・sheet-close）は意図的に `<button>`/`role="button"` を使わず、
-     `tabindex` 付きの素の `<div>` にした——`candidate-origin-marker` と同じ様式に倣うことで、契約の
-     `allowedPurposes`（閉じたリスト、developer は変更できない）に無い新しい purpose 値を発明せずに済ませた
-     （`tests/acceptance/dsl/candidate_search_browser.py` の `FORM_CONTROL_SELECTOR` が literal `<button>`等
-     しか拾わないことを確認済み）。
-   - リング本数（現在4本）・リボンの有無は据え置き——**リボン無し比較案はこのスライスに含めない**（人間が
-     実物を見てから選ぶ、`adr/0030` 決定4）。
-   - 旧・横スワイプデッキ専用のCSS（`home.html`）と、それを固定していた `tests/test_static_assets.py` の
-     3件の回帰テストは、新しい骨格に合わせて書き換えた（1件は「地図インスタンスが1つだけ」を機械的に
-     固定する新規アサーションに置き換え）。
-
-10. 実装済み（2026-08-26、developer）: 実機報告2件への対応。
-   - **課題1（デスクトップ幅で中身が意味なく引き伸ばされる）**: `E:\AWS\dsg-out\Desktop.dc.html`
-     が提示した3つの未決着案から人間が当日チャットで選んだ決定（決定1=案1「1列のまま幅を絞る」、
-     決定2=案い「同じ開閉パターンを維持（サイドに地図列は置かない）」、決定3=器の最大幅を決定1に
-     合わせる）を実装した。`home.html`の`@media (min-width: 64rem)`の`.app-shell`を
-     `min(100% - 3rem, 90rem)`から`min(100% - 3rem, 30rem)`へ変更——中身の列（filter bar・地図帯・
-     カード）の目標幅26rem（Main.dc.html案1の「375px板とほぼ同じ・約390〜420px相当」）に、
-     `.app-card`自身の左右padding（clamp上限2rem×2）を足した値。ヘッダーはこの1つのshellを共有する
-     ため一緒に狭まる——依頼文が明示的に許容した読み方（「ヘッダーは全幅のままで構いません」）。
-     カード自体の内部レイアウト・地図の開閉方式は無変更（決定2により側の地図列を新設していないため）。
-   - **課題2（「地図で見る」がちょっとだけ地図を写すように）**: `E:\AWS\dsg-out\Main.dc.html`
-     76〜107行の設計（88px帯・左上「N件の位置」ピル・右上44x44拡大アイコン・右下OSMクレジット）を、
-     既存の単一Leafletインスタンス（`[data-testid="candidate-map"]`）を再利用して実装した——2つ目の
-     地図インスタンスは作っていない（`tests/test_static_assets.py`が引き続き機械的に1個だけであることを
-     固定）。`.candidate-map-wrapper`自身に明示的な非auto高さ（5.5rem/88px、`overflow:hidden`）を
-     持たせたのが今回の要——2026-08-25に一度直した「wrapperが子要素の在flow配置に依存して0高さへ
-     潰れる」バグの再発条件（wrapperがどの子要素にも依存しない高さを持たない状態）を今回は満たさない
-     ため、地図のbox modelを再びclosed=position:absolute（帯に充填）/open=position:fixed
-     （全画面）で切り替えても安全。閉時の当たり判定は帯全体が`candidate-map-open`——中のピル・拡大
-     アイコン・`candidate-map-attribution`（OSMクレジット、帯右下へ再配置。2つ目の要素は作らず既存の
-     ものを再利用）はすべて`pointer-events:none`の装飾。過去の実機バグの防波堤
-     （`.candidate-main-layout:not([data-map-sheet-open="true"]) [data-testid="candidate-map"] *`
-     への`pointer-events: none !important`、Leaflet自身の`.leaflet-interactive`が祖先の
-     `pointer-events:none`を上書きする問題の対策）は文字どおり無変更のまま維持した。地図を開いた後の
-     挙動（全画面・選択中1店のみ・下の全項目パネル・戻るバーとズームボタンの位置関係）にも触れていない。
-     `home.html`のキャッシュバスターを`?v=20260826-desktop-width-and-map-band`へ更新した。
-   - 検証（developerが自分で実行）: ruff check/format（対象ファイル）緑、単体テスト352件+48
-     subtests緑（97%ブランチカバレッジ、Pythonソースは無変更のためmutation再測定は不要）、
-     `tests/test_static_assets.py`（構造テスト、地図帯の新アサーションを追加）29件緑、
-     `manage.py check`緑。加えて任意で`tests/acceptance`（L4、22件）と`tests/ui_invariants`
-     （ADR-0020のL5回帰ゲート、12件+3 subtests——1440x900の44pxコントロールサイズ検査を含む）も
-     実行し、いずれも緑（凍結済みL5回帰を壊していないことの機械的確認）。
-
-11. 実装済み（2026-08-26 round 9、developer）: 人間が`E:/AWS/run2`のローカルデモで実測した4件の
-   不具合に対応した。いずれも上記10.の「課題2」実装が生んだ新しい不具合で、`Main.dc.html`
-   76〜109行の設計（帯にはピンとOSMクレジットのみ・ズームコントロール無し・輪と分数ラベル無し）
-   からの逸脱を実測ベースで解消した。
-   - **不具合1・2（ズームコントロールと徒歩圏リング/ラベルが閉時の帯に出る）**: どちらもLeafletが
-     `L.map()`のデフォルトで無条件に足すもの（ズームコントロールは`zoomControl`オプションを
-     candidate.js側で明示的に無効化していなかったため。リングは`layoutWalkingRadiusRings`が
-     開閉に関わらず常時実行され続ける既存設計のため）。`home.html`のCSSで、閉時のみ
-     `.leaflet-top`/`.leaflet-bottom`（ズームコントロールの祖先ペイン）と
-     `[class*="candidate-walking-radius-ring"]`（リング本体・白casing・内側tint・分数ラベルの
-     全レイヤーを共通クラス接頭辞でまとめて捕捉）へ`display: none`。DOM・属性
-     （`data-walking-radius-minutes`・`aria-label`）はどちらも無変更のまま残しており、開いた
-     ときの`contracts/candidate-search-browser-interface.yaml`の`bandLabel`要件
-     （存在・可読性）は影響を受けない——`tests/acceptance`のリング関連2チェックは
-     `get_attribute`（表示に依存しない）と`locator.count()`（可視性でフィルタしない）だけを
-     読むことを確認済み。
-   - **不具合3（「N件の位置」ピルと拡大アイコンが見えない）**: 根本原因はLeafletの内部ペイン
-     （tilePane 200・markerPane 600等、`leaflet.css`）がposition:absoluteかつ明示z-indexを
-     持つのに対し、`.candidate-map-open`とその子（ピル・拡大アイコン）・`candidate-map-attribution`
-     はposition:absoluteのままz-index未指定（auto）だったこと——CSSの積み上げ順仕様により、
-     z-index:autoの位置指定要素は同じ積み上げ文脈内の明示z-index要素より必ず下に描画される
-     （DOM順に関係なく）。閉時のみ`.candidate-map-wrapper`自身に`z-index: 0`を与えて
-     独立した積み上げ文脈を作り（開時はこのルールが効かず、`position: relative`のまま——
-     全画面シート用の`z-index: 500`がページ全体を覆う既存の挙動を壊さないため）、その文脈の中で
-     `.candidate-map-open`と閉時の`candidate-map-attribution`に`z-index: 700`
-     （markerPaneの600を上回る値）を与えた。**この修正を最初に帯全体へ無条件のz-indexとして
-     入れたところ、`tests/acceptance`の絞り込みパネル関連4件が実際に赤くなった**——展開中の
-     モバイル絞り込みパネル（`z-index: 8`）が閉じた地図帯の下に隠れてクリックを奪われなくなる
-     はずが、無条件z-index:700がページ全体で絞り込みパネルより上に出てしまい、その逆（パネルが
-     押せなくなる）を引き起こしたため。`.candidate-map-wrapper`側で閉時限定の積み上げ文脈へ
-     封じ込める形に直し、`tests/acceptance`を再実行して解消を確認した——実機計測が無いと
-     気づけなかった類の回帰であり、他のUI要素とのz-index競合は今後も同じ手口
-     （帯を閉時限定で積み上げ文脈として封じ込める）で対処すべきことを記録しておく。
-   - **不具合4（5件のピンが帯の中央で重なる）**: `refreshMapViewAndRings`/`initializeMap`の
-     `fitBounds`が開閉共通で`padding: [24, 24]`を使っており、88px高の帯では上下パディングだけで
-     48px（実質40px）を消費し、単一のzoomレベルで幅・高さ両方を満たそうとする結果、実際に必要な
-     幅よりはるかにズームアウトした——候補間の画面距離が縮み、団子状に重なって見えた。閉時専用の
-     `MAP_BAND_FIT_PADDING_PX = [16, 6]`（左右16px・上下6pxの非対称値）を新設し、
-     `mapSheetOpen`で開時用`MAP_OPEN_FIT_PADDING_PX = [24, 24]`と出し分けた。実測（375×812）で
-     ピン最上端〜最下端の広がりが23px→47pxへ約2倍改善。**完全な分離は達成していない**——
-     ローカルデモの`NORMAL_WITH_WEIGHTED_SAMPLING`合成候補は`acceptance_state.py`の意図的な
-     設計により全候補`longitude=0.0`固定（`_latitude_degrees_for_meters`のdocstring参照、
-     徒歩時間境界を1次元の緯度差だけで正確に作るため）なので、5候補は南北一直線に並んでおり、
-     どんなパディングでも東西方向には広がらない。実測でパディングをさらに`[16, 2]`まで削っても
-     広がりは変化しなかった（Leafletの`fitBounds`は`zoomSnap`既定1でズームを整数へ切り捨てる
-     ため、あるしきい値を跨がない限り効果が出ない）。本番の実データ（実店舗）は経度も分散するため、
-     同じ修正が両軸で効くはずだが**未実測**。
-   - `home.html`のキャッシュバスターを`?v=20260826-map-band-review-round9`へ更新した。
-   - 検証（developerが自分で実行、すべて緑）: ruff check/format（対象ファイル）、単体テスト352件
-     （97%ブランチカバレッジ、Pythonソース無変更のためmutation再測定は不要）、L2構造12件+9
-     subtests、L3境界181件+23 subtests+Django check×2、`tests/acceptance`（L4）22件全件、
-     `tests/ui_invariants`（L5）12件+3 subtests。加えて`E:/AWS/run2`のローカルデモを自分で
-     起動し（`settings_localdemo`、`NORMAL_WITH_WEIGHTED_SAMPLING`・seed 7）、Playwrightの
-     一時測定スクリプト（コミット対象外、リポジトリには置いていない）で閉時・開時それぞれの
-     実際の要素位置・可視性・`elementFromPoint`をこの契約された測定手法で確認し、
-     `closed_band_375.png`/`closed_band_1440.png`/`open_sheet_375.png`のスクリーンショットで
-     目視も行った。
-
-12. 実装済み（2026-08-27 round 10、developer着手／orchestrator検証）: デスクトップ幅（1024px以上）を
-   カード1列＋右に地図sticky常時表示の2カラムへ組み替えた。
-
-   **上記10.の記述の射程について（重要）**: 10.が「決定2=案い（同じ開閉パターンを維持・サイドに
-   地図列は置かない）」と書いているのは、2026-08-26に人間が一度出した裁定であり、**同日中に人間が
-   撤回した**。人間の言葉:「デスクトップは閉じてなくていいんじゃないかな。ずっと右に表示とかで」。
-   10.の記述はその時点の事実として残すが、**現在のコードは10.の決定2には従っていない**——従うのは
-   本項の決定2（案あ「常時表示」）である。撤回の経緯は`E:/AWS/dsg-out/Desktop.dc.html`の
-   「訂正（2026-08-26、同日中の再裁定）」節に一次記録がある。
-
-   - **決定1（人間裁定 2026-08-26）**: 案1「1列のまま幅を絞る」。カード列は`flex: 0 0 25rem`
-     （400px、実機実測のカード幅351〜414pxの中間）で固定。
-   - **決定2（人間裁定 2026-08-26、同日の再裁定）**: 案あ「常時表示（開閉トグルなし）」。
-     `.candidate-main-layout`を`flex-direction: row-reverse`にして、candidate.js側のDOM順
-     （地図が先・カードが後、モバイルの帯／全画面シート骨格と同じ）を変えずに、地図列を視覚的に
-     右へ置いた。`.candidate-map-wrapper`は`position: sticky`（`fixed`はモバイル全画面シート専用
-     のまま）。
-   - **決定3（orchestrator裁定、数値はdesignerが比率から算出した未実測の提案）**: 器の最大幅
-     `76rem`、カード列`25rem`、地図列は残り（1440px幅で実測 730px）。**実測で破綻するなら
-     詰め直してよい**という前提の値であり、確定値ではない。
-   - **決定4（orchestrator裁定）**: 地図には候補全件のピンを常時表示。構造的には既にそうだった
-     （candidate.jsの`initializeMap`は幅に関わらず候補1件につきマーカー1個を作る）。
-   - **決定5（人間裁定）**: 地図側はピンと徒歩圏の輪のみ。**選択中の店の情報パネルは地図側に
-     置かない**——詳細はカード列側だけ。モバイルの`candidate-map-sheet-panel`はこの幅では
-     populateされない。
-   - **決定6（orchestrator裁定）**: モバイル専用の「地図で見る」帯・全画面シート・戻るバー
-     （`candidate-map-open`／`candidate-map-sheet-close`）は1024px以上では**DOMに出さない**。
-     CSSで隠すのではなくcandidate.js側の`isDesktopLayout`分岐で出し分けている。
-
-   **1024px未満（モバイル）の画面には変更を加えていない**——上記11.で直した88px帯（ズーム
-   コントロール非表示・輪と分数ラベル非表示・「N件の位置」ピル・拡大アイコン・OSMクレジット・
-   帯用`fitBounds`パディング）と全画面シートの挙動はそのまま。
-
-   `home.html`のキャッシュバスターを`?v=20260827-desktop-two-column-sticky-map`へ更新した。
-
-   **検証の出どころ（正直に記録する）**: この回を担当したdeveloperのバックグラウンド実行は、
-   完了報告を出す前にプロセスが異常終了した。**developer自身の検証記録は存在しない**。
-   以下はすべて**orchestratorが落ちた後の作業ツリーに対して自分で実行し直したもの**である。
-   - `ruff check`（対象ファイル）緑
-   - 単体テスト 352件+48 subtests 緑（Pythonソース無変更のためmutation再測定は不要）
-   - `tests/acceptance`（L4）・`tests/ui_invariants`（L5）・`tests/test_static_assets.py`
-     を合わせて 63件+11 subtests 緑
-   - ローカルデモ（`settings_localdemo`、`NORMAL_WITH_WEIGHTED_SAMPLING`・seed 7）に対する
-     Playwright実測（コミット対象外）: 1440×900と1555×950で器1216px・カード列400px（x=203）・
-     地図列730px（x=623）・`position: sticky`・`candidate-map-open`と
-     `candidate-map-sheet-close`がDOMに不在・マーカー5個・輪のラベル重なり0件。375×812では
-     帯88px・カード351px・`candidate-map-open`が存在——モバイル無変更を機械的に確認した。
-   - スクリーンショット目視（`desktop1440.png`／`wide1555.png`／`mobile375.png`）でも確認した。
-
-   **測定上の注意**: このローカルデモの合成候補は経度が0.0固定で一直線に並ぶ
-   （`acceptance_state.py`が徒歩時間の境界計算を厳密にするため意図的にそうしている）。地図上で
-   ピンが縦一列に見えるのはこのフィクスチャの性質であって配置の不具合ではない。実データ（2次元に
-   散る）での見え方は**未測定**である。
-
-13. 実装済み（2026-08-28 round 11、developer着手／orchestrator検証・完了）: **本番の実データで
-   カードが自分の列からはみ出し、徒歩分数のバッジが地図列の下に隠れていた**のを直した。
-
-   - 事象: 人間が公開先を実データで見て「レイアウト崩れてるね」と報告。デスクトップで、店名が
-     長い候補ほどカードの右端（徒歩◯分のバッジ）が地図列に隠れて切れていた。
-   - 原因: `[data-testid="candidate-proposal-cards"]` は `display: grid` であり、**グリッド
-     アイテムの `min-width` の初期値は `auto`**。アイテムは自分の min-content 幅より小さく
-     ならないため、`white-space: nowrap` の長い店名が大きな min-content 幅を作り、カードが
-     400px のトラックを突き破っていた。orchestrator の実測（幅1253px、店名を実データ相当に
-     置換）: **カード列 400px に対しカード本体 449px**、id-row 419px、店名 288px（切り詰め
-     されず）。`min-width: auto` はカード本体と `.candidate-card-id-row` の両方で効いていた。
-   - 修正: `[data-testid="candidate-proposal-cards"] > [data-testid="candidate-card"]` と
-     `.candidate-card-id-row` に `min-width: 0`。既存の `[data-testid="candidate-card-name"]`
-     の `text-overflow: ellipsis` が初めて効くようになる。**幅を問わない不具合なので、
-     デスクトップのメディアクエリの中ではなく全幅に適用した**（モバイル幅442pxでも
-     カード列418px対カード449pxで同じはみ出しが出ていた）。
-
-   **なぜ今まで一度も出なかったか（本項の要点）**: ローカルデモの合成候補の店名が
-   `合成母集団食堂 NN号店` のように**短く、かつ長さが揃っていた**ため。実データの店名は
-   「ドラゴンレッドリバー DRAGON RED RIVER」「福寿林 ホテルグランテラス富山」のように長く、
-   ばらつく。**合成データが実データの分布を代表していなかった**ことが、10ラウンドの実機報告を
-   経てもこの不具合が残った理由である。対策として2つ入れた。
-   - `acceptance_state.py` の合成母集団の1件（index 0）の**店名だけ**を実データ相当の長さに
-     置き換えた。座標・ジャンル・席数・禁煙・カード可否・予算は一切変えていないため、
-     距離・順序・境界に依存する既存シナリオの観測結果は変わらない
-   - `tests/ui_invariants` に回帰テストを新設。**合成データに依存せず**、応答を route 傍受で
-     差し替えて実データ相当の長い店名を注入し、幅1253px（デスクトップ2カラム）と442px
-     （モバイル）の両方で「カードが自分のトラックを超えないこと」を検査する
-
-   検証（すべて orchestrator が自分で実行）: ruff check/format 緑、単体352件+48 subtests 緑、
-   `tests/acceptance`・`tests/ui_invariants`・`tests/test_static_assets.py` 併せて64件+13
-   subtests 緑。実測でも幅1253/1440/375のすべてで**はみ出し0px・カードが地図に潜らない・
-   長い店名が省略記号で切り詰まる・横スクロールなし**を確認した。
-   **欠陥注入も行った**（`meta/adr/0065`）: `min-width: 0` の2行を外すと新設の回帰テストが
-   `AssertionError: 639.671875 not less than or equal to 430.5` で落ちることを確認し、戻して
-   緑に戻ることも確認した。
-
-   `candidate.js` は無変更のため、キャッシュ回避文字列は更新していない（変更したのは
-   `home.html` 内のCSSのみで、これはページ本体と一緒に配信される）。
-
-   **あわせて分かったこと（不具合ではない）**: 人間から「地図も開かないね」という報告も出たが、
-   これは不具合ではなかった。幅の判定（`candidate.js` の `isDesktopLayout`）は `renderResult`
-   の中で描画のたびに1回だけ評価され、**描画後に幅が変わっても再評価されない**。人間は
-   DevTools の Device type を切り替えたが再読み込みしていなかったため、表示はPCのままで、
-   決定6により「地図で見る」は**DOMに存在しなかった**。押せなかったのではなく無かった。
-   これは実装時に意図して選ばれた割り切りであり、コード中にその旨のコメントがある。実害が
-   出るのはタブレットを縦横に回したとき（1024px以上→未満）に限られるため、今回は変更していない。
-
-14. 実装済み（2026-08-29、developer）: デスクトップ幅（1024px以上）を、決定7（案A・地図全面＋
-    下部インセットの横デッキ）・決定8（案あ・送りボタン＋件数カウンタ）・決定9（カードのdeck版
-    レイアウト）に沿って作り直した（`adr/0031`・`adr/0032`、human decision 2026-08-28）。上記
-    13.までの「カード1列＋右に地図sticky常時表示の2カラム」は**この回で全面的に置き換えた**
-    （retire）——`candidate.js`の`isDesktopLayout`は`isMapPrimaryLayout`に改名し、意味も
-    「2カラムか」から「地図が主役で、カードが地図上のデッキに乗っているか」（`renderModes.
-    mapPrimaryLayout`）に変わった。1024px未満（モバイル）は88px帯・全画面シート含め一切変更して
-    いない。
-
-    - **デッキの実装**: `candidate-proposal-cards`（既存のカード列、DOM/renderCardは無変更）を
-      地図の下部インセットに重ねて表示する固定ウィンドウ方式のスライダー。カード1枚の幅は
-      16.25rem（260px）で固定、実際に何枚同時に見えるかはデッキ実測幅から動的に算出する
-      （`recomputeDeckWindow`）——1024px幅で2枚、1280pxで3枚、1440pxで4枚、1920pxで5枚（全件）
-      を実測で確認した。送りは`candidate-deck-previous`/`-next`（`<button>`、契約の新設purpose
-      `candidate-deck-page-previous`/`-next`）をクリックすると窓が1件ずつ移動する
-      （`translateX`によるCSSトランジション、ネイティブscrollLeftは使わない——理由は
-      `recomputeDeckWindow`のコメント参照）。件数カウンタ`candidate-deck-position`は
-      `data-deck-visible-start`/`-end`/`-total`を1始まりの整数文字列で持つ。地図上のピンを
-      選ぶと、選択された候補がデッキの表示窓の外にあれば自動的に窓を動かして含める
-      （`selectCandidate`→`recomputeDeckWindow(candidateRef)`、契約`selectMarker.
-      requiredOutcome.deckVisibility`）。
-    - **実装中に見つけて直した実バグ（自分のPlaywright実測で発見）**:
-      (1) デッキのビューポート要素`overflow:hidden`に`flex:1 1 auto`で幅を持たせていたため、
-      「N枚見えている」という件数カウンタの主張に反して、次の1枚が窓の隙間から最大192px（8割）
-      はみ出して見えてしまっていた。デッキのビューポート幅を実際の表示枚数ぶんの厳密な幅へ
-      `max-width`で都度キャップする形に直した（`updateDeckPositionDisplay`）。ウィンドウリサイズ
-      で再計測する際はこのキャップを一旦`none`に戻してから測る必要がある（そうしないと前回の
-      キャップ値がそのまま`clientWidth`として読まれ、窓のサイズが二度と大きくならなくなる）
-      ——`recomputeDeckWindow`冒頭のコメント参照。
-      (2) デッキの店名がid行の元々のモバイル向けフォントサイズ（1.0625rem）のままだったため、
-      「合成母集団食堂 05号店」のような短い合成名でも「合成母…」まで縮んでいた。デッキ内の
-      `candidate-card-name`・`.candidate-walk-chip`・`.candidate-marker-badge`だけフォント
-      サイズを縮小するCSSをデッキ配下限定で追加した（モバイル側は無変更）。
-      (3) `.candidate-map-wrapper`の高さを`calc(100vh - 11rem)`とまず置いたところ、
-      実測でヘッダー・条件バー・`candidate-provider-credit`行・`.app-card`/`.app-shell`の
-      パディング合計が実際には233pxあり、1024〜1440px幅でページ縦スクロールが発生した
-      （`documentElement.scrollHeight`が`window.innerHeight`を最大57px超過）。1280x800で
-      各要素の実測値を積み上げて`15rem`（240px、実測233pxに約束のマージンを足した値）へ
-      修正し、1024/1280/1440/1920pxいずれもページ縦スクロールが0になることを確認した。
-    - **designerが「未検証」と明記していた2点への回答（本スライスで自分のPlaywright実測で
-      決着）**:
-      1. **デッキと輪・ピンの重なり**: 実装当初、非対称`fitBounds`パディング
-        （`mapPrimaryFitPaddingOptions`、上=24px・下=デッキ実測高さ+24px）で試したところ、
-        1440px幅で5件中1件のピンがデッキに重なった（`pinsUnderDeck: 1`）。下側のパディングを
-        `deckHeight + 64`へ増やしたところ、1024/1280/1440/1920pxの4幅すべてでピン・輪ラベルの
-        デッキへの重なりが0件になった（`NORMAL_WITH_WEIGHTED_SAMPLING`・seed 7の合成データで
-        実測）。**ただし**この合成データは経度0固定で南北一直線に並ぶ意図的な作りのため
-        （`acceptance_state.py`）、実データ（2次元に散る）でも同じ余裕があるかは未実測のまま
-        残る——designerが板の「穴」で記した懸念どおり、完全解決ではなく緩和である。
-      2. **カード内リンク行の44px**: designerが板で提示した26px「案i」は採らず、既存の44px
-        （2.75rem min-height、モバイルカードと同じ値）をデッキでもそのまま維持した——縮めていない
-        ので凍結済み`ADR-0020`決定4(e)のゲートに抵触する余地がない。副次的に気づいたこと:
-        この要素は`data-candidate-control-purpose`を持たない（契約が"observation, not a
-        control"と分類している）ため、決定4(e)の44pxゲートが実際に問い合わせる
-        `[data-candidate-control-purpose]`の集合にはそもそも入らない——designerが「抵触する
-        可能性」と書いていた懸念は、ゲートの実装を読む限り成立しない。今回は44pxのまま統一する
-        判断をしたため、この論点を深追いする必要はなかった。
-    - **`ADR-0032`決定1(f)の実装**: `tests/ui_invariants/test_render_invariants.py`に
-      `test_f_render_mode_matches_viewport_width_on_independent_page_loads`を新設した。
-      `listPrimaryLayout`側は既存の`NARROW_VIEWPORTS`（390/730/1023px）をそのまま流用
-      （ADR-0032決定1が明示的に許可）、`mapPrimaryLayout`側は新設の`MAP_PRIMARY_VIEWPORTS`
-      （1024×768・1440×900、developer保守）を使う。各幅は`page.set_viewport_size`の直後に
-      `open_candidate_screen()`（`page.goto`）で独立したページロードを行ってから検査する
-      （ADR-0032決定3）。**既存の(e)44pxテストにも同じ「幅ごと独立ページロード」の欠落バグが
-      あったことに気づいた**——旧実装は1回サインインした後`set_viewport_size`だけで3幅を回って
-      いたが、初期ロード時（Playwright既定ビューポート1280x720、map-primary）でDOMが一度
-      map-primaryとして構築された後、390px（list-primary幅）へリサイズしてもDOMは再構築され
-      ない（`isMapPrimaryLayout`は描画時に1回だけ判定される、`adr/0032`決定3の既定の割り切り）
-      ため、390px検査時に地図-primary専用の`candidate-deck-previous`がCSSの効かないまま
-      37px幅で残っていて誤って赤くなった。これは実装のバグではなく**テスト側が新しい
-      「幅で存在が変わる要素」という設計と噛み合わなくなっていたための検査バグ**と判断し、
-      (e)テストにも同じ「幅ごとに`open_candidate_screen()`で作り直す」修正を入れた——アサーション
-      自体（44px以上）は一切変更していない。同様に`test_a_long_shop_name_does_not_push_the_
-      card_past_its_own_column`も、1253px幅での「カード幅=トラック幅」という前提が
-      デッキ導入で構造的に成り立たなくなった（トラックは全カードを横に並べた行になった）ため、
-      map-primary幅の分岐を「カードが自分の固定幅（260px）を超えて伸びないこと」という等価な
-      主張に書き換えた（442px側は無変更）。
-    - **`meta/adr/0065`欠陥注入**: 新設した(f)テストについて、`isMapPrimaryLayout`の判定式を
-      `"(min-width: 64rem)"`→`"(min-width: 999rem)"`に書き換えて実行し、
-      `candidate-deck-previous`が見つからず2件（両map-primary幅）が赤くなることを確認、
-      元に戻して緑に戻ることを確認した。既存の(e)テストについても、`.candidate-deck-nav`の
-      サイズを2.75rem→1.5remへ縮めて実行し、1440x900で`34px < 44px`として正しく赤くなること
-      （かつ以前のように誤って390pxで赤くなるのではなく正しい幅で検出すること）を確認、元に
-      戻して緑に戻ることを確認した。注入用コードはコミットしていない。
-    - **検証（すべてdeveloperが実行）**: L1（ruff・ruff format・単体テスト352件、Pythonソース
-      無変更のためmutation再実行は不要）/ L2（`test_static_assets`29件、上記352件に含まれる）/
-      L3（`manage.py check`・`check --deploy`、既存の想定内warning 4件のみ）/ L4
-      （`tests.acceptance`22件、21件緑・1件既知の失敗）/ L5（`tests.ui_invariants`14件、
-      すべて緑）。L4の1件の失敗は`tests/acceptance/dsl/candidate_search_browser.py`の
-      `ALLOWED_CONTROL_PURPOSES`（tester管轄、契約の`allowedPurposes`とは別に同DSLが独自に
-      持つローカル集合）に`candidate-deck-page-previous`/`-next`が未登録なことによるもの
-      （`test_tdr_cs_04_private_search_location_and_range_cannot_be_selected`、
-      `AssertionError: 'candidate-deck-page-previous' not found in {...}`）——developerの
-      担当外（tests/acceptance/**）であり、テストを緩めずにそのまま報告する。契約
-      （`candidate-search-browser-interface.yaml`）自体の`allowedPurposes`にはこの2つの
-      purposeが既に`adr/0031`で登録済みであることを確認済み。
-    - `candidate.js`のキャッシュ回避文字列を`?v=20260829-desktop-map-primary-deck`へ更新した。
-    - **検証環境で気づいた開発環境固有の落とし穴（コードの不具合ではない）**: `manage.py
-      runserver`をバックグラウンド起動する際、ポート8741を既に別プロセスが掴んでいるのに
-      新しい起動コマンド自体はエラーなく見えることがあり（起動ログが空のまま）、実際には古い
-      プロセスが応答し続けていて`home.html`/`candidate.js`の変更が全く反映されないという
-      罠を踏んだ——`netstat`でLISTENING中のPIDを確認し、`taskkill`で明示的に止めてから
-      再起動することで解消した。`home.html`変更後は必ずサーバ再起動が要る、という検証環境の
-      注意書きどおりだが、**「起動コマンドを打った」ことと「新しいコードが実際に返っている」
-      ことは別に確認する必要がある**、という教訓として記録する。
-
-15. 実装済み（2026-08-29 round 2、developer）: **デッキのカードで店名が切れる**のを、人間裁定
-    （2026-08-29チャット、3択のうち「徒歩◯分をジャンルの行に移す」を選択）どおりに直した。
-
-    - 事象: orchestratorが実測し、幅1440px・カード幅260pxで合成データの短い店名ですら
-      表示率75〜79%しか出せていないと報告。原因は`.candidate-card-id-row`（番号バッジ＋店名＋
-      徒歩◯分チップ）が260pxの中で店名の取り分を圧迫していたこと。
-    - 修正: `candidate.js`の`isMapPrimaryLayout`は`renderResult`で描画のたびに1回だけ確定し
-      `renderCard`呼び出しより前に読めるため、`renderCard`内で分岐した——**デッキ（≧64rem）
-      のときだけ**、徒歩◯分チップ（既存の`data-testid="candidate-card-walking-time"`要素、
-      属性・文言は無変更で使い回す）をid行から外し、新設`.candidate-genre-row`でジャンル行と
-      並べる。list-primary/モバイルはid行の構造・DOM・CSSとも一切変更していない（`if
-      (!isMapPrimaryLayout)`でスペーサー・チップの追加を分岐、契約の
-      `walkingTimeEstimateWording`はplacementを実装裁量としているため契約は無傷）。id行から
-      チップが消えた分、店名`[data-testid="candidate-card-name"]`に`.candidate-deck-viewport`
-      スコープで`flex: 1 1 auto`を追加し、バッジ＋gap以外の行幅をほぼ丸ごと店名に渡した
-      （flex-grow:0のままだと余った横幅を誰も吸収せず店名がmin-content幅のままになるため）。
-    - **検証（一度に見える件数は不変）**: 1024px2枚・1280px3枚・1440px4枚・1920px5枚は
-      `recomputeDeckWindow`のロジックに触れていないため変化なし（実測でも確認）。
-    - **実測（Playwright、`settings_localdemo`・seed 7、合成データと実データ相当の店名の両方
-      を検査——後者は`page.route`でAPI応答の店名を「ドラゴンレッドリバー DRAGON RED RIVER」
-      「福寿林 ホテルグランテラス富山」に置換）**。修正前後を同一環境で比較（修正前は
-      developerが自分の変更だけを一時的に巻き戻して再測定、直後に復元して再実測——両方とも
-      `L4`/`L5`再実行で緑を確認済み）:
-
-      | 幅 | 店名（例） | 修正前 出したい/出せている(比率) | 修正後 出したい/出せている(比率) |
-      |---|---|---|---|
-      | 1280 | 合成母集団食堂 03号店 | 176.6px/113.3px(64%) | 176.6px/205px(116%、全表示) |
-      | 1280 | ドラゴンレッドリバー DRAGON RED RIVER | 287.7px/113.0px(39%) | 287.7px/205px(71%) |
-      | 1280 | 福寿林 ホテルグランテラス富山 | 208.2px/113.2px(54%) | 208.2px/205px(99%、ほぼ全表示) |
-      | 1440 | 合成母集団食堂 05号店 | 176.6px/113.0px(64%) | 176.6px/205px(116%、全表示) |
-      | 1440 | ドラゴンレッドリバー DRAGON RED RIVER | 287.7px/113.3px(39%) | 287.7px/205px(71%) |
-      | 1440 | 福寿林 ホテルグランテラス富山 | 208.2px/113.0px(54%) | 208.2px/205px(99%、ほぼ全表示) |
-      | 1920 | 合成母集団食堂 01号店 | 174.0px/113.3px(65%) | 174.0px/205px(118%、全表示) |
-      | 1920 | ドラゴンレッドリバー DRAGON RED RIVER | 287.7px/113.3px(39%) | 287.7px/205px(71%) |
-      | 1920 | 福寿林 ホテルグランテラス富山 | 208.2px/113.5px(55%) | 208.2px/205px(99%、ほぼ全表示) |
-
-      合成データの短い店名は3幅とも修正後は完全表示（比率100%超＝余白あり）になった。実データ
-      相当の2つのうち「福寿林 ホテルグランテラス富山」はほぼ全表示（99%）、「ドラゴンレッド
-      リバー DRAGON RED RIVER」は依然71%で省略記号が入る——固定260pxカードの中でバッジと
-      パディングを引いた実効幅（約205px）を超える、日英併記の特に長い店名であり、これ以上は
-      カード幅そのものを広げる（3案のうち今回不採用の案）以外に解消できない。人間裁定が承知の
-      上で受け入れた代償どおりであり、退行ではない。
-    - **地図の輪・ピンとの重なり（前回0件だったので維持されているか再確認、要求どおり）**:
-      候補ピン（`.candidate-map-marker-icon`、5個）・輪の可視ラベル（`.candidate-walking-
-      radius-ring-label-visual`）とも、1024/1280/1440/1920pxの4幅すべてでデッキとの重なり
-      0件を確認した（探索起点マーカー`.candidate-origin-marker-icon`が1440px以外の3幅で
-      デッキの上端と最大15px程度重なる形跡があったが、これは修正前後で同一——本スライスの
-      変更が触れていない既存の状態であり、かつ契約の`displayOnlyOriginException`が
-      display-onlyと明示する要素であって「ピン」（候補マーカー）には該当しない）。
-    - **スクロール**: 1280/1440/1920pxいずれも`document.documentElement.scrollWidth`が
-      `clientWidth`と一致（横スクロールなし）、`scrollHeight`が`window.innerHeight`(900)以下
-      （縦スクロールなし）を確認した。
-    - **人間が画面を見て気づく見た目の変化（漏れなく列挙）**:
-      1. デッキのカードで、徒歩◯分のバッジが店名の右隣（1行目）から消え、ジャンルの行の右端
-         （2行目相当）に移った。
-      2. その結果、デッキのカードの店名が大きく伸び、これまで途中で切れていた合成データの
-         店名は完全に表示されるようになった。実データ相当の長い店名も、以前よりずっと多くの
-         文字が見えるようになった（依然省略される場合はある）。
-      3. デッキ以外（1024px未満のモバイルの全画面シート・カード一覧）は見た目の変更なし。
-      4. 一度に見えるカードの枚数・送りボタンの動き・件数カウンタ・地図の輪やピンの見え方は
-         変化なし。
-    - **検証（すべてdeveloperが実行）**: L1 —
-      `ruff check .`/`ruff format --check .`緑（`settings_localdemo.py`は
-      リポジトリ非コミット・import順のみ`--fix`で整えた）、
-      `coverage run --branch -m pytest <L1の12ファイル>`で352 passed+48 subtests、
-      `coverage report --fail-under=90`で97%（Pythonソース無変更のためmutation
-      再実行は不要）。L2 — `pytest tests/test_structure.py`で12 passed+9 subtests。
-      L3 — 上記L1の7ファイル分`pytest`で181 passed+23 subtests、`manage.py check`・
-      `manage.py check --settings=dining_radar.settings_test`とも「0 silenced」。
-      L4 — `manage.py test tests.acceptance --verbosity 1`で23 tests OK（前ラウンドの
-      既知の1件の失敗——`ALLOWED_CONTROL_PURPOSES`未登録——はtester側の
-      `tests/acceptance/dsl/candidate_search_browser.py`が既にこのブランチで直しており
-      再発なし）。L5 — `pytest tests/ui_invariants -q`で14 passed+10 subtests。
-      L4+L5を`pytest tests/acceptance tests/ui_invariants -q`でまとめて実行しても
-      37 passed+10 subtests（内訳は変わらない——`tests/acceptance/**`の2ファイルは
-      `subTest`を使っていないため、subtestsは全てL5由来）。**依頼文にあった「66件+18
-      subtests」という基準値は、上記のどの実行方法でも再現できなかった**（`manage.py test`
-      引数無しでの全件実行では352+23+14=389件が一致した——L1相当のunittestベースの数字と
-      整合する別の集計軸であり、developerが試した組み合わせのいずれとも一致しなかった）。
-      本スライスは`tests/acceptance/**`を一切変更していないため、この数値の食い違いの原因
-      調査はorchestrator/testerの領分と考え、深追いしていない——**少なくとも、developerが
-      実行できたあらゆる組み合わせで、現存する全テストが緑であり、1件も減っていないことは
-      確認済み**。
-    - `candidate.js`のキャッシュ回避文字列を`?v=20260829-deck-genre-row-walk-chip`へ更新した。
-    - コミットはしていない。
-
-16. 実装済み（2026-08-29、developer＋tester／orchestrator検証）: **スマホ（1024px未満）を地図主体にし、
-   カードを地図の上に浮かせ、指のスワイプで送る**構成へ作り直した。開閉の仕掛け（「地図で見る」帯・
-   全画面シート・戻るバー・inert制御・`mapSheetOpen` の状態機械）は**機構ごと廃止**した。
-
-   - **人間裁定（2026-08-29 チャット）**: 「もう地図主体にしてクリックして開く意味もなくしたほうが
-     いいかもしれないね」→ 選択肢提示後「少なくともスマホは前のやつでいいかな…地図に店舗カードを
-     浮かせて、スクロールで切り替え」。**方針の巻き戻しではない**——`activeContext.md` は
-     2026-08-24 時点で「人間は比較用にリボン無し案も別途作る予定」と記録しており、地図主体の
-     スマホ案が却下されたことは一度もない
-   - 契約 v1.6.0（`adr/0033`、承認済み）の `mapPrimaryTouchLayout` / `swipeSurface` /
-     `pageDeckSwipeForward`・`Backward` / `boundaryOvershoot` / `selectMarker.deckVisibility` を実装。
-     `adr/0033` 決定6に従い、L5（`adr/0032` 決定1(f)）の狭幅側の期待モードを読み替えた
-   - PC版（1024px以上）は無変更
-
-   **合流して初めて出た実バグを1件直した（このスライスで最も記録に値すること）。**
-   - **developer 単独の検証では緑だった。** tester は実装を読まずに契約から検査を書いており、
-     **その2つを合流させた瞬間に落ちた**（`AssertionError: 4 not less than 4`）
-   - 症状は「戻す方向が効かない」に見えた。orchestrator が独立に測ったところ、実際には
-     **ドラッグ中にポインタイベントが 11個→4個 で途切れ、以降は前送りも効かなくなる**というもの
-     だった。方向のロジックの問題ではない
-   - 原因は、ドラッグの出だし（方向確定前で `preventDefault()` を呼ばない数px）に広がる
-     **ブラウザの文字選択**。往復のたびに選択が蓄積し、選択済み範囲の内側から次のドラッグを
-     始めると Chromium が「選択テキストのネイティブドラッグ」と解釈して `pointercancel` を
-     即発火していた
-   - 修正はスワイプ面への `user-select: none` のみ。**イベント処理・`setPointerCapture`・
-     `preventDefault` のタイミングには一切触れていない**
-   - **orchestrator が最初に立てた仮説（`setPointerCapture` の失敗）は、実測で否定された**
-     ——`hasPointerCapture` は常に `true` だった。仮説をブリーフに書いたが「そのまま信じるな」と
-     添えており、developer は実測で否定して別の原因に到達している
-
-   **役割分離が効いた実例として記録する。** 実装者単独では緑、契約から独立に書かれた検査との
-   合流で赤。`meta/adr/0036`・`meta/agents.md` が role separation に期待している性質が、
-   このスライスで初めて「実装者が気づけなかった実バグを捕まえる」形で観測された。
-
-   もう1件、2026-08-29 の「徒歩◯分をジャンル行に移す」裁定が PC 版にしか入っておらず、
-   スマホの店名が半分しか出ていなかったのも直した（同じデッキ形式になった以上、裁定の素直な適用と
-   判断。orchestrator 裁定）。実データ相当の長い店名で **46〜71% → 81〜100%**。
-
-   検証（すべて orchestrator が合流後に自分で実行）: ruff check/format 緑、単体352件+48 subtests 緑、
-   `tests/acceptance`・`tests/ui_invariants`・`tests/test_static_assets.py` 併せて **67件+18 subtests 緑**。
-   実測（幅390/375/1440、店名を実データ相当に差し替え）: 輪ラベル・ピンがカードに隠れる数 **0**、
-   縦横スクロールなし。スワイプ往復はポインタイベント11個で安定。
-   **独立監査を実施**（`reviews/audit-mobile-swipe-deck-navigation.md`）: ブロッカーなし、
-   指摘1件（Low、未使用のstepが2つ）。
-
-   **測定上の限界（実データでは未確認）**: 輪ラベル・ピンの非重なりは、合成候補が経度0固定で
-   南北一直線に並ぶフィクスチャでしか測っていない。実データの2次元の散らばりでの見え方は未測定。
-
-10. **次の大きな一手（2026-08-29 時点。人間の意向）: 会そのものを扱う画面群（幹事の画面）へ移る。**
-   店を絞る画面は 2026-08-29 までに PC・スマホとも地図主体で仕上がり、公開運用に載っている。
-   人間は 2026-08-29 に「幹事とかできるようにする画面…そっちのほうが大きかったかな」と述べ、
-   **スマホを仕上げてから移る**ことを選んだ。その仕上げは完了している（16節）。
-
-   **着手前に必ず要ること**: 会・日程調整・出欠・承認投票は `product-brief.md` §6 が
-   **「現時点では製品境界の外」**と明記しており、**取り込むにはブリーフの改訂（＝製品が何であるかの
-   再定義）が要る**。これは人間の決定であり、AI が先に進めてはならない。**着手前に人間へ問うこと。**
-
-   **入口は2か所**（どちらも `product-brief.md` §6 に記録済み）:
-   - `https://claude.ai/code/artifact/503d1b46-d560-43e2-bf6d-3744f33c5b3c`（キャンバス8枚。うち
-     リポジトリに取り込んだのは店を絞る3枚だけ。会・日程調整・出欠・承認投票・履歴の5枚は未取り込み）
-   - issue #104「dining-radarの画面刷新案」（OPEN。ラフ4枚。案A 幹事ダッシュボード／案B スマホ
-     一問一答／案C 候補ボード／地図）
-
-   **どちらも designer のパイプラインを通っていない**（`design/explorations/README.md` と同じ由来の
-   問題）。取り込むなら **designer に描き直させる前提**で扱うこと。
-
-   **履歴だけは扱いが違う**——§7 が「現在の製品方針として採用しない」と明記しており、他の4つと
-   同列に並べてはならない。再検討には人の意思決定と ADR を要する。
-
-   **人間の決定が下りた（2026-08-29、チャットの選択肢UIで4問を確定）**:
-   1. **取り込み範囲**: キャンバスの F（会の進みかた）／A（幹事ダッシュボード）／B（参加者の回答）／
-      B-2（承認投票）の4枚ぶんを取り込む。**履歴（D）は外す**（§7 の除外は現状維持）。
-   2. **参加者アクセス**: 署名付き共有リンク方式（ログインなし・名前自己申告）。使い捨てトークン・
-      有効期限・レート制限が必要条件。幹事=招待制・認証済みの境界（§5）は維持。
-   3. **issue #104**: クローズ済み（2026-08-29、キャンバスに吸収済みのため。参照コメントを残した）。
-      判断材料はキャンバスに一本化。
-   4. **手続き**: designer が正規経路で描き直す（`design/explorations/README.md` の案(ii)。同READMEの
-      未決はこれで決着）。ラフは人間へのインプット扱い。
-
-   ブリーフ改訂＋`adr/0034` は **PR #174 のマージで承認済み（2026-08-30）**。
-
-   **designer の正規描き直しが完了した（2026-08-30）**: キャンバス
-   `https://claude.ai/code/artifact/af115c3f-a057-44dc-bf64-c255b7dcec5b`（6枚: 読みかた／F 会の
-   進みかた／A 幹事ダッシュボード PC／B 参加者の回答 スマホ／B-2 店の投票（前・後2状態）／判断が
-   要る点）。元ファイルは `E:\AWS\dsg-out\party\`（リポジトリ外。旧 dsg-out 直下とは別）。決定7の
-   履歴要素は除去済み。旧ラフからの変更9件と、designer が決めずに残した判断7件（D1〜D7）は
-   キャンバスの板に明記されている。**会の契約はまだ1本も無いため、板には契約対応の注記が書けて
-   いない**（要素識別子・44px検査等はすべて契約スライス待ち）。
-
-   **人間裁定8件（2026-08-30、チャットの選択肢UI）**——designer がキャンバスへ反映済み（同URLへ
-   再発行。Decisions板は「決着した判断8件」となり、採用案・決着日・落選案の代償が残置されている）:
-   - **同時決め（人間の追加要望）**: 「日程を聞き中」のまま候補日を仮選択すると「その日に開いて
-     いる店」のプレビューが見え、突き合わせてから「この日にする」を押せる導線を足す。状態を進める
-     操作は従来どおり3つのみ（状態機械は無変更）。
-   - **D1=案A**: 確定後は決定内容を見せて終わり（§8 の未決1件がこれで決着。ブリーフ§8の文面更新は
-     契約スライスの改訂に同梱する）。
-   - **D2=案B**: 「まだn人が未回答」の分母は配ったリンクの本数（発行トークン数。§2の固定分母禁止
-     とは別物）。
-   - **D3=案A**: 幹事の店リストは票の多い順に固定、切替なし（投票前は並びが無意味という代償は承知
-     の上）。
-   - **D4=案A**: 会の削除操作は置かない（保持期間・削除方針は§8の未決のまま契約スライスへ）。
-   - **D5=案C**: 名無しでも回答可・名前はいつでも付けられる（トークンが参加者ごとなのでD2の
-     カウントとは機構的に両立）。
-   - **D6=案B**: 日程回答画面には「この日に開いている店 N件」の件数だけ出す（店名なし。候補日ごと
-     のprovider問い合わせが要る点は契約・実装スライスの論点）。
-   - **D7=案B**: 投票開始後も幹事は5件を差し替えられ、残った店の票は引き継ぐ（新しく入った店は
-     投票済みの人には未回答のまま——この帰結は人間が承知の上。§2の幹事3操作は「状態を進める操作」
-     の列挙なので差し替え追加と矛盾しない）。
-
-   **裁定の枠内で designer が裁量で決めた描写3件**（人間が見て差し戻せるようキャンバスに明記あり）:
-   (1) 名無しの見せ方——幹事画面は「8人が回答（うち2人は名前なし）」の1行開示のみ、個々の列挙なし。
-   (2) 差し替えで入った店の印——B-2で注意色の枠＋「あとから入りました」「あなたはまだ答えていません」、
-   その行だけ分母を「入れたあとに答えた人数」で表記。(3) プレビュー——Aを2画面（①日程を聞き中＝
-   仮選択＋プレビュー、②店を選び中・投票中）に分け、仮選択は緑の輪郭のみ・「仮に選ぶだけでは会は
-   進みません」をフッタに明記。プレビューは並び替え切替なし（「近い順」静的ラベル）。
-
-   **architect への申し送り（designer から、契約スライスで扱う）**:
-   - 同じ幹事画面に2種類の分母が並ぶ（未回答＝発行トークン本数（D2）、票＝回答者数）。契約で明示的に
-     区別すること。
-   - プレビュー（同時決め）とD6の件数表示は、どちらも局面ごとにproviderへの問い合わせが発生する
-     （会は店の情報を持たない。`adr/0034`決定6）。
-   - D7の差し替えは§2の幹事3操作に無い操作（状態は進めないので矛盾はしないが、§2への織り込みは
-     architectの領分）。D1は§8の未決を解消済みなので§8の文面更新も同梱すること。
-   - 残る未決は2件: 会データの保持期間・削除方針（D4は「画面に置かない」のみ決着）／トークン設計の
-     詳細。**参加者側のエラー画面は後者が決まるまで描けない**（設計の穴として残る）。
-   - A板が2画面ぶんに伸びたため、PC 1120px幅にプレビュー欄が収まるかは orchestrator の実測が要る
-     （寸法はすべて作図上の値。`meta/adr/0059`決定5）。
-
-   **契約スライス第1弾を起草した（2026-08-30、architect起草／orchestrator検証）**: `adr/0035`
-   （裁定8件の耐久記録＋会スコープの4スライス分割——第1弾「会の作成と日程調整」・第2弾「店の
-   絞り込み連携」・第3弾「承認投票」・第4弾「確定」）、`contracts/gathering-scheduling.feature`
-   （`TDR-GTH-01`〜`15`）、`contracts/gathering-scheduling-api.yaml`、ブリーフ§2/§3/§6/§8への
-   織り込み。トークン設計は「使い捨て＝会×参加者枠ごとに一意（1回で失効ではない。回答の変更に
-   必要）」「128bitエントロピー」「有効期限90日（根拠の薄い値と明記）」。ブラウザ契約は起こして
-   いない——画面承認が契約を駆動する既存の順序（ADR-0013）を守り、designerの画面承認後に起こす
-   （`adr/0035`決定5）。
-
-   **同日の追加裁定（人間、チャット選択肢UI）**: architectがFR-028の教訓どおり「解消せず上げた」
-   承認済みブリーフ内部の矛盾——§2・裁定は候補日ごとの定休日照合を要求、§3・§6は「営業日の自動
-   判定は持たない」と明記——に対し、**案A「曜日照合をスコープへ」で決着**。曜日だけの緩い
-   `regularHoliday`照合を会スコープのために正式採用（祝日・営業時間・特定日の断定は引き続き外。
-   照合は除外の目安であって営業の保証ではない——ADR-0015の原則と整合）。§3/§6/§8と`adr/0035`
-   決定6・契約の但し書きを確定表現へ更新済み。
-
-   **orchestrator実測（2026-08-30）**: designerが申し送っていた「A板のPC 1120px幅にプレビュー欄が
-   収まるか」はPlaywright実測で確認——画面枠2枚（1120×664・1120×764）とも水平はみ出し0件・
-   テキスト切り詰め0件。ただし板の店名は合成の短い名前であり、実データ相当の長い店名での挙動は
-   実装スライスの検査対象。
-
-   契約第1弾は **PR #176 のマージで承認済み（2026-08-30）**。
-
-   **画面骨格の承認とブラウザ契約（2026-08-30）**: 人間がチャット（選択肢UI）で第1弾の画面骨格
-   （キャンバスの F・A①②・B）を承認。orchestrator実測はB板（375×812）も追加で実施——はみ出し0・
-   切り詰め0・44px未満のタップ対象0。これを受け architect が
-   `contracts/gathering-scheduling-browser-interface.yaml`（`organizerDashboard`＝認証済み／
-   `participantAnswer`＝署名付きリンク・非認証・CSRF不要（理由は契約に記載）の2 namespace 1ファイル
-   構成）と `adr/0036`（骨格承認の記録＋観測面の設計判断）を起草した。D3の「並び替えを置かない」は
-   `forbiddenPurposes: manual-ordering` として抽象化され、第3弾の投票リストにも自動で効く。F板は
-   観測面を持たない（静的な説明図）。
-
-   **同日の追加裁定2件（人間、キャンバスDecisions板ではD8・D9として決着記録済み）**:
-   - **D8「1クリック=1本」**: 承認済み画面（コピーボタン1個）とマージ済みAPI（本数指定のまとめ
-     発行）の食い違い——architectがFR-028の流儀で解消せず提示——の決着。押すたびに1本発行・
-     コピーし、その場で配る運用。APIの`count`はスキーマ上の余地として残る（本スライスは常に1）。
-   - **D9「一覧＋再コピー＋失効」**: 人間の懸念「リンクがわからなくなったら管理されなくなっちゃう
-     かもね」を受けた裁定。幹事画面に発行済みリンク一覧（発行順・回答状態・名前・再コピー・失効）を
-     置く。**失効したリンクはD2の分母からも外れる**（分母の定義は「有効な発行本数＝発行総数−失効数」
-     へ精密化）。失効は未回答のリンクに限る。契約はv0.2.0（`listParticipantLinks`/`recopyParticipant
-     Link`/`revokeParticipantLink`、`TDR-GTH-16`〜`20`、ブラウザ観測面）へ拡張済み。architectの
-     枠内判断: 一覧レスポンスはトークン本体を再露出しない（再コピーの単発呼び出しだけが返す）、
-     幹事側は`linkId`・参加者側は`token`と識別子を分離、失効済み行は消さず表示（監査可視性）。
-     designerはA①に全幅パネルとして反映済み（見出しに「13本 発行 − 1本 失効 = 12本 が有効」の式を
-     明示。**D5の描写を1点調整**——回答者の名前はこの一覧の行の中にだけ置く。orchestrator再実測で
-     ①1120×1084・②1120×764とも、はみ出し0・切り詰め0）。
-
-   **申し送り（実装前に要るもの・境界ギャップ）**:
-   - `test-support-api.yaml` の TDR-GTH 向け拡張が、tester/developer の着手前に必要（`adr/0036`
-     起草時の architect 指摘）。
-   - FINALIZED局面の観測面ギャップ: APIは `GATHERING_FINALIZED`(409) を定義済みだが、確定後画面は
-     第4弾スライスの範囲のため、本ブラウザ契約は確定後の `gathering-schedule-response-option` の
-     表示可否を定めていない。第4弾の画面設計時に解消する。
-   - `.feature` ヘッダコメントの TDR-GTH-11 説明ずれは architect が修正（本PRに同梱）。
-
-   ブラウザ契約は **PR #177 のマージで承認済み（2026-08-30）**。
-
-   **test-support契約のTDR-GTH拡張を起草した（2026-08-30、architect起草／orchestrator検証）**:
-   `test-support-api.yaml` v1.5.0（`resetGatheringSchedulingAcceptanceState`・
-   `seedExpiredParticipantLink`・`seedRateLimitedParticipantLink`・合成母集団モード
-   `GATHERING_OPEN_SHOP_WEEKDAY_MATCH`——曜日ごとの開店数が既知の6候補）＋`adr/0037`（提案中、
-   マージが承認）。設計の要点: (1) 会・リンク・回答のGiven状態は**公開API境界経由**でしか作らない
-   （新しいseamを最小化、`meta/verification.md`の原則）、(2) seamはトークンを生成・予測しない——
-   公開APIが返した実トークンを受け取って期限切れ/レート制限状態にするだけ（本番の生成経路を
-   無改変のまま検査）、(3) 期限90日・レート閾値の実値の正しさはL1へ、境界の振る舞い
-   （`LINK_EXPIRED`/`LINK_RATE_LIMITED`）だけをL4で検査——`seedThrottledSignInAttempt`の先例踏襲。
-
-   test-support拡張は **PR #178 のマージで承認済み（2026-08-31）**。
-
-   **実装スライスを完了した（2026-08-31、developer＋tester並行／orchestrator合流検証／reviewer監査）**:
-   - **developer**（worktree、`impl/gathering-scheduling`）: 新設アプリ `src/dining_radar/gathering/`
-     （models=本製品初の永続データ・services・tokens 128bit・serializers・views・2画面）、
-     `pipeline.py` に `capacity_tier`公開化・`is_confirmed_closed_on_weekday`・`open_shop_population`、
-     test-support seam 3種、`GATHERING_OPEN_SHOP_WEEKDAY_MATCH` 母集団。L1（単体505件+103 subtests・
-     97%・mutation変更箇所生存0）/L2/L3/L5 緑。
-   - **tester**（worktree、`test/gathering-scheduling-steps`）: 実装を読まずに契約だけから
-     TDR-GTH-01〜20 の DSL・step・テストを作成。TDR-GTH-18 は欠陥注入で検出力を実証。
-   - **合流で実バグ1件（役割分離の実例、2例目）**: 発行ボタンの `data-issued-link-url` が
-     (a) 一覧再描画でDOMごと消える、(b) 2回目以降の発行では古い非空値が新しい応答を待たずに
-     検査を通してしまう競合、の複合で L4 6件が赤。developerが実測で(b)を特定し
-     「リクエスト発行前に属性を同期的に消し、クリックごとに無→有の観測可能なエッジを作る」
-     方式で修正（`8514e4a`）。初回全体実行の失敗8件と単独6件の差も同一競合のタイミング差と判明。
-   - **人間裁定（2026-08-31）**: 参加者の日程回答は**承認骨格どおり一問一答ウィザードに直させる**
-     （developerの「全候補日同時表示」の実装裁量は不採用、`44bfef9`）。骨格からの意図的逸脱1点:
-     **回答済みカードにも3択を残す**——§2「回答はいつでも変更できる」と GTH-06/10/15（再回答
-     シナリオ）が骨格どおりだと物理的に操作不能になるため。未到達の候補日はDOMに作らない
-     （契約のcardinality非固定の範囲）。
-   - **reviewer独立監査**（`reviews/audit-gathering-scheduling-steps.md`）: **Blocker 0**・Major 3・
-     Minor 3。うち Major#2（GTH-15のtally検査欠落）・Major#3（unavailableControls／
-     disclosureObservationsの横断検査欠落——非認証の参加者面に対する境界検査）・Minor 2件を
-     tester が反映（`5fd4a5a`、欠陥注入6/6検出、新検査での実装違反は0件）。
-   - **orchestrator自身の検証**: L4全44件 OK・L5+構造27件+27 subtests・ruff 全緑（統合状態で実行）。
-
-   **architectへの申し送り（監査由来、契約改訂の判断待ち）**:
-   - Major#1: `addCandidateDateOpen` の入力サーフェスが契約未定義のため「クリックで入力面が
-     到達可能になる」という正の Must を機械検査できない（GTH-02は無副作用検査＋API追加の2段構成）。
-     候補日追加フォームの designer 設計→契約化とセットで解消する（`adr/0036`未決事項に既出）。
-   - GTH-08 の「近い順」は自己整合性検査のみ（`OpenShopPreviewItem` が距離を持たないため独立検証
-     不能）——過去の F1 系と同型の構造的限界。
-
-   実装スライスは **PR #181 のマージで承認済み・本番デプロイ済み（2026-09-01。`build.sh` が
-   `migrate --no-input` を実行、gathering のテーブルは自動作成）**。
-
-   **実機確認で入口の欠落が判明し、裁定6件で閉じた（2026-09-01）**: 人間が本番を確認し
-   「幹事画面ってあるの？新機能が見て取れない」——幹事画面は実在する（/gatherings/<id>/）が、
-   (a) ランチ候補画面からの導線なし、(b) 会をつくる画面なし（契約自身が「作成画面は無い」前提で
-   API検査のみ）、(c) 会一覧なし。あわせて候補画面deckの見た目3件の指摘
-   （PCカード高さ不揃い・件数ピル位置・スマホカード広すぎ）。designerが入口3板
-   （Entry/AddDate/Handoff）＋D-fix板を描き、人間裁定6件:
-   - **D10**: 作成→即「日程を聞き中」。**下書き局面は廃止**（3局面に。実装のSCHEDULING開始と
-     ADR-0035決定1が正式承認された形。§2改訂済み）
-   - 候補日追加=インライン展開／導線=ヘッダーに「会」ボタン＋進行中件数バッジ（進行中=
-     日程を聞き中＋店を選び中、0なら非表示）／PCカード高さ=場所確保で揃える（空き場所に
-     payment-cautionのtest idを付けない）／件数=送りボタンの間のページャー／スマホ=高さを削る
-   - **裁定の記号ずれの裁定（orchestrator）**: 依頼文の「案A」表記が板の記号と2件（D10・スマホ）で
-     食い違ったが、人間は選択肢UIの**記述内容**で選んでおり板の記号は見ていない——**内容が正**。
-     designer・architectとも内容どおり反映済み（経緯は板とADR-0038に記録）。
-   - architectの契約追補: api v0.3.0（`listGatherings`・`getInProgressGatheringCount`・
-     `DUPLICATE_CANDIDATE_DATE`=重複候補日は409で拒否）／browser-interface v0.3
-     （一覧・作成のnamespace、インライン候補日フォーム=**reviewer監査Major#1をこれで解消**）／
-     `TDR-GTH-21`〜`25`／candidate-search-browser-interface v1.7.0（`candidate-gathering-entry`、
-     purposeless要素の既存先例踏襲で最小追補）。deck見た目3件は契約影響なし確認済み。
-
-   **入口ラウンドを完了した（2026-09-02〜03、developer＋tester並行／orchestrator合流検証・実測／
-   reviewer監査／architect契約修正）**。12.のdeveloper実装に加えて:
-   - **tester**: TDR-GTH-21〜25のstep・TDR-GTH-02の書き直し（前回監査Major#1の完全解消——
-     インラインフォームをブラウザ完結で駆動）・横断検査の新namespace適用。
-   - **合流で実バグ2件＋契約の穴1件**（役割分離の実例、3例目）:
-     (1) 空状態で`gathering-list`コンテナ自体を描画しない実装バグ——契約の「必須＝常時存在」の
-     読みで実装側を修正。
-     (2) **9時間ずれの真因確定**——サーバは無罪。`datetime-local`（TZ情報なし）の値を
-     `new Date().toISOString()`に通すとJS仕様どおりホストのローカルTZ（JST）で解釈される。
-     developerのtest client検証で再現しなかったのはJS変換を経由しないため。リテラルUTCタグ付けの
-     決定的変換へ修正し、JSソース回帰テストで固定。**重複候補日が409にならない件も同根**で同時解消。
-     (3) 値入力欄に対応するpurpose語彙が契約に無い穴——architectが`adr/0039`で
-     `operationalControlScope`／`valueEntryControlTestIds`（登録制・消費先明記・未登録inputは
-     引き続き検出）を導入（browser-interface v0.4）。`formControl: false`の虚偽宣言は不採用。
-     参加者名前入力の「たまたま緑」も構造化エントリ化で解消。
-   - **reviewer監査**（`reviews/audit-gathering-entry-steps.md`）: Blocker 0・Major 3・Minor 4。
-     Major#1（一覧属性2つ未検査）・Major#2（作成フォームの成功経路が一度も実走しない→
-     **TDR-GTH-01を作成画面のブラウザ操作E2Eへ書き直し**。送信のページ遷移でPlaywrightの応答本文が
-     読めなくなる実挙動を踏み、`getGathering`での読み戻し検証へ切替）・Major#3（インラインフォーム
-     展開中の横断検査）・Minor#4（input type ガード）をtesterが反映（`eaab493`）。欠陥注入は
-     全ラウンド累計で検出確認済み。
-   - **orchestrator実測（受け入れ基盤上、2026-09-02）**: スマホ「会」ボタン44×44・ヘッダー内・
-     横スクロール0／スマホカード高さ291.5px＝**画面の35.9%**（指摘前は大半を占有）／PCカード
-     **5枚とも290pxで等高**／ページャーは送りボタンの間／インラインフォームはパネル190→282px
-     （+92px、設計見積り~130pxより小さい）・縦スクロール発生なし。
-   - **orchestrator最終検証**: L4全49件 OK（統合状態、606秒）。
-
-   入口実装は **PR #183 のマージで承認済み・本番デプロイ済み（2026-09-02）**。
-
-   **人間の実機確認「まあ作りかけですね。見て判断できるところまで作りこんでほしい」（2026-09-03）を
-   受け、会フロー後半（ADR-0035決定2の第2〜4弾）を1本にまとめて作りきった。** 実態としても
-   前半（作成→日程→この日にする）しか動いておらず、店を絞る・投票・確定は契約すら無かった。
-
-   - **designer**（未描画3点を追加）: `PickFive.dc.html`（5件の選定導線）・`Final.dc.html`
-     （A③幹事の確定後／B-3参加者の確定後）。**人間裁定 P1〜P6**（選択肢UI）で全決着——
-     P1=**ダッシュボード内でチェックして選ぶ**（既存の候補画面に触れず、D7の差し替えと同じ面で完結）、
-     P2=1件から投票可、P3=会の中に絞り込みは置かない、P4=確定後も再コピーは残す（新規発行・失効は
-     出さない）、P5=**確定後の参加者画面で自分の回答と自分が選んだ店を振り返れる**（他者のものは
-     含めない）、P6=**§2の「局面を進める操作」を3→2へ**（「この5件で投票する」は局面内の操作という
-     実態に文言を合わせる。architectがFR-028として報告した食い違いの決着）。
-   - **architect**: `adr/0040`（統合の決定）・`0041`（P1〜P6）・`0042`（ブラウザ契約と骨格承認の
-     束ね）・`0043`（契約の自己矛盾修正）。api v0.5.1（`setShortlistedShops`・`setShopVotes`・
-     `finalizeGathering`・`OpenShopPreviewItem.shopId`——**自己監査で見つけた「幹事のチェック一覧が
-     どの店を送るか識別できない」抜けの修正**）、browser-interface v0.5.1、feature `TDR-GTH-26`〜`36`、
-     test-support v1.5.1。**長く未解消だったFINALIZED局面の観測面ギャップがここで閉じた**。
-   - **developer**: バックエンド（新モデル`ShortlistedShop`/`ShopVoteSubmission`、D7の店ごと分母、
-     投票後開示のゲート、確定の不可逆性。単体約100件追加・mutation 272/272生存0）→ 画面
-     （5件選定は保留→送信／参加者の投票はトグル即時送信という契約の非対称を実装）→ **見た目**
-     （`organizer.css`新設。designer板のトークンを適用。人間の「作りかけに見える」の直接の原因は
-     幹事画面にCSSが1行も無かったこと）。**CSSコメント内の`*/`が最初のルールを丸ごと消していた
-     実バグを自力で発見・修正**（`document.styleSheets`のCSSOM実測で検出）。
-   - **合流検証（orchestrator）**: developerの実装とtesterの独立検査の合流で **L4全60件が一発で緑**
-     ——前3ラウンドは毎回ここで実バグが出ていたが、今回は初回から満たした。
-   - **reviewer監査**（`reviews/audit-gathering-shortlist-vote-steps.md`）: **Blocker 0**・Major 3・
-     Minor 1。核心の5約束（投票後開示・D7の票引き継ぎ・確定の不可逆性・FINALIZEDで消える操作の
-     全一覧・確定後に他者情報を含まないこと）は「シナリオ本文以上に厚く検査されている」と評価。
-     Major 3件（**横断検査が新設6画面状態のどれにも呼ばれていない＝前回監査Major#3と同族の再発**／
-     確定後の名前変更操作の不在が未検査／エラーコード2つと`INVALID_SHOP_SELECTION`の残り誘発条件が
-     未検査）をtesterが反映し、実画面への欠陥注入で検出も確認。
-
-   統合PRは **PR #184 のマージで承認済み・本番デプロイ済み（2026-09-04）**。
-
-   **人間の実機フィードバック3点（2026-09-04）と、それへの対応（2026-09-04〜06）**:
-   人間が本番の会フローを通しで触り、(1)「行ってもいい店選ぶたびにソートがかかってるぽい？動作
-   キモいね」(2)「やっぱり店舗はちゃんとマップとか情報みて選びたいかも」(3)「店も日程みたいに
-   三段階あるといいかも」。
-
-   - **(1)は契約由来の不具合だった**——`ParticipantView.shopVoteQuestions` の説明文が
-     「幹事側と同じ approvalCount 降順」と明記しており、実装はそのとおりに動いていた。designer が
-     指摘（orchestrator は当初ブラウザ契約しか見ておらず「契約は参加者側の並びを定めていない」と
-     誤認した）。**直す場所は契約**。人間裁定で**近い順**へ——距離は投票結果に依存しないので
-     「答えても動かない」も自動的に満たす。
-   - **人間裁定 Q1〜Q6・P追加分（2026-09-04〜06、選択肢UI）**: 参加者の並び＝近い順／**参加者の
-     地図に基点を出す**（ADR-0025 の「認証済み画面に限る」境界を広げるため `adr/0045` で脅威モデルの
-     変化を記録）／既存の二値票は移行しない／幹事の並び＝「行きたい＋行ってもいい」の合算降順／
-     呼び名＝**行きたい／行ってもいい／むり**／選択の見せ方は日程と同じ（緑）／**確定後は自分が
-     答えなかった店も「答えないまま締まりました」と出す**（P5に忠実な側）／**読み込みに失敗したら
-     短いお知らせを出す**（やり直すボタンは置かない）。
-   - **契約**: api v0.8.0（三段階 `WANT_TO_GO`/`OK_TO_GO`/`NOT_GOING`、店の情報は**会に永続化せず
-     表示のたびに引き直す生きた投影**＝ADR-0034決定6の維持、確定後は未回答も含む全件）／
-     browser-interface v0.8.0／feature `TDR-GTH-37`〜`42`／test-support v1.5.4
-     （`seedParticipantLinkServerError`——公開境界だけでは作れない状態のため新設）／
-     `adr/0044`〜`0047`。
-   - **合流検証**: L4 全65件が緑。ただし**1回目の実行で6件が失敗**——すべて日程回答まわりの既存
-     シナリオで、症状は「参加者画面に設問要素が現れない」。developer が5回再現を試みて再現せず
-     （うち1回は別テストで別症状のフレーク）、**環境要因（負荷による待ち時間切れ）と判断**。
-     再実行で緑を確認。**この調査で本物の弱点が1つ見つかった**——参加者用JSにエラー処理が無く、
-     サーバ側で何か起きると**画面が真っ白**（設問もエラーも出ない）。人間裁定を経て `adr/0047` で
-     契約化し、実装した。
-   - **reviewer監査**（`reviews/audit-gathering-three-tier-steps.md`）: **Blocker 0**・Major 1・
-     Minor 3。核心の約束（近い順の安定・合算降順・三段階と未回答の区別・確定後のUNANSWERED・
-     基点マーカー）は「緩められずに正しく検査されている」。**FR-030 で2回続けて指摘されていた
-     横断検査の呼び忘れは、今回は起きなかった**（依頼文に最初から条件として明記した効果）。
-     Major（地図のマーカー対応が集合一致だけで、重複や件数のずれを見逃す）は姉妹契約の既存先例
-     （並び順一致＋重複なし）に揃えて解消し、欠陥注入で検出も実証した。
-
-   **次**: 統合PRのマージ（＝契約・`adr/0044`〜`0047`・実装の承認）→ 本番デプロイ→人間の実機確認。
-   残る未決: 会データの保持期間・削除方針／トークン期限90日・レート制限の見直し時期／
-   会一覧の「名前」のdata属性は契約化済みだが検査は未（次に`tests/acceptance/**`を触る人が拾う）。
-
-12. **入口追補（会の一覧・作成・インライン候補日フォーム・ヘッダー導線）とdeck見た目3件を実装した
-   （2026-09-02、developer、ブランチ`impl/gathering-entry`）**。契約（`gathering-scheduling-api.yaml`
-   v0.3.0・`gathering-scheduling-browser-interface.yaml` v0.3・`candidate-search-browser-interface.yaml`
-   v1.7.0、いずれもPR #182で承認済み）どおりに実装した——契約・`tests/acceptance/**`は変更していない。
-
-   **バックエンド**（`src/dining_radar/gathering/`）: `listGatherings`（`GET /gatherings`、
-   createdAt降順）・`getInProgressGatheringCount`（`GET /gatherings/in-progress-count`、SCHEDULING・
-   SELECTING_SHOPのみ計上）を新設。`Gathering.createdAt`をシリアライザに追加。`createGathering`・
-   `addCandidateDate`双方に`DuplicateCandidateDateError`→`DUPLICATE_CANDIDATE_DATE`（409）を追加
-   （同一`startAt`の重複——リクエスト内重複・既存候補日との重複の両方、集合の要素数比較とDBクエリの
-   2箇所）。画面: `organizer_gathering_list.html`/`gathering_list.js`（会一覧、`gathering-list`・
-   `gathering-list-item`・`gathering-list-empty`・`gathering-create-open`の2インスタンス構成）、
-   `organizer_gathering_create.html`/`gathering_create.js`（会をつくる、候補日行の追加/削除・
-   disabledState・409時に入力値保持）を新設。既存`gathering.js`の`renderAddCandidateDateOpen`を
-   contract-compliant なインラインフォーム（`gathering-add-candidate-date-form`/`-input`/`-submit`/
-   `-cancel`、`gathering-candidate-date-list`の最後の子として配置——「その場で開く」というAddDate.dc.html
-   案Aの要求）へ作り直した。成功後もフォームは開いたまま（人間裁定どおり）、409時は入力値を保持したまま
-   フォームを開いたまま維持する。
-
-   **候補画面ヘッダーの導線**（`home.html`/`candidate.js`）: `candidate-gathering-entry`
-   （素の`<a href>`、`allCandidateScreenFormControlsMustDeclarePurpose`の走査対象外——
-   `candidate-origin-marker`/`candidate-map-open`と同じ様式）をサーバレンダリングの静的HTMLとして
-   ヘッダーへ追加し、`candidate-gathering-entry-badge`（`data-in-progress-gathering-count`、0件で
-   非表示）はcandidate.jsが`/gatherings/in-progress-count`をfetchして構築する。
-
-   **deck見た目3件**（`candidate.js`/`home.html`、契約影響なし——designer確認済み・decision8で再確認）:
-   (1) PCカード高さ: `isMapPrimaryLayout`のときだけ、`cardPaymentAvailable`が`false`でないカードにも
-   同じ文言・同じCSSボックスの`<p>`を`visibility:hidden`（`display:none`ではなく、高さを保持するため）
-   で追加し、**`candidate-card-payment-caution`のtest idは付けない**（契約`presenceRule`の維持を
-   D-fix案Bの警告どおり確認済み）。(2) 件数ページャー: `.candidate-deck`を横1行から縦2段
-   （カード列→`.candidate-deck-pager`に`‹ 位置 ›`をまとめる行）へ組み替えた——`candidate-deck-position`
-   のtest id・`data-deck-visible-*`属性・値は無変更（DOM位置のみ変更、契約はここを固定していない）。
-   (3) スマホカード高さ: `<64rem`のfacts grid（padding/gap/font-size）とカード自体のpadding/gapを
-   >=64remのdeck版と同じ値まで縮めた——定休日フッタ（`candidate-card-detail-footer`）は独立ブロックの
-   まま変更していない（凍結ゲート`test_long_regular_holiday_wraps_inside_a_narrow_card_without_
-   truncation`に抵触しないため、D-fix板自身の警告どおり）。削り幅は出発点の値であり、
-   orchestratorの実測での追加調整を前提とする（依頼どおり）。
-
-   **合流で見つけた実バグ1件（developer単独では気づけなかった）**: 候補画面ロード直後に
-   `candidate-gathering-entry-badge`のfetchを`/candidate-proposals`と**並行**で発火したところ、
-   既存の`tests/ui_invariants`が使う`page.wait_for_load_state("networkidle")`の待ち条件が変わり、
-   `test_c_candidate_map_marker_selection_is_keyboard_operable`・
-   `test_e_activatable_controls_meet_44px_minimum_target`・`test_f_render_mode_matches_viewport_
-   width_on_independent_page_loads`の一部subtestが`/candidate-proposals`応答待ちで30秒タイムアウト
-   するようになった（実測で確認、mainへの巻き戻しで再現しないことも確認）。修正はバッジのfetchを
-   `requestProposal(null)`の`.then()/.catch()`の**後**（`.finally()`）へ直列化しただけ——イベント
-   処理・DOM構築のロジックには触れていない。修正後、L5（14件+10 subtests）・L4（44件）とも全緑。
-
-   **調査依頼への回答（coordinator、2026-09-02、`addCandidateDate`のtimezone疑い）**: `startAt`に
-   `2026-09-22T12:00:00+00:00`を送ると9時間ずれて返るという疑いを調査した。`createGathering`・
-   `addCandidateDate`の両エンドポイントを、Django test client経由で本番と同じ設定値
-   （`TIME_ZONE="Asia/Tokyo"`・`USE_TZ=True`、settings_acceptanceが継承する同じsqlite `:memory:`）で
-   直接叩き、`startAt`の値をそのまま往復させて確認した——**両方とも入力と完全に同じ文字列
-   （`"2026-09-22T12:00:00+00:00"`）が返り、ずれは再現しなかった**。パース（`datetime.fromisoformat`）
-   →保存（Django ORM、aware datetimeはUTCへ正規化して保存・UTCで返す）→直列化（`.isoformat()`）の
-   経路をすべて自分の目で確認済み。**バグは解消せず報告する（FR-028）**——`tests/acceptance/**`は
-   読むことも禁止されているため、tester側の実際の再現手順（実ブラウザ経由か、別のsettings/DB経由かなど）
-   を確認できず、環境差（例: Windows上のPythonが`tzdata`パッケージを欠く場合の`zoneinfo`挙動、実際の
-   HTTPサーバ経由 vs Django test clientの違い）が原因である可能性を排除できていない。**恒久的な回帰
-   ガードとして両エンドポイントに固定の単体テストを追加した**
-   （`test_a_utc_offset_start_at_round_trips_through_the_same_instant`、`CreateGatheringApiTests`・
-   `AddCandidateDateApiTests`各1件）——今回の依頼どおり、報告されたのと同一の入力値で固定した。
-
-   **検証（すべてdeveloperが実行）**: L1（ruff check/format緑、単体539件+103 subtests緑、カバレッジ
-   97%——新規コード（`services.py`・`views.py`・`serializers.py`）はいずれも新規行がMissing一覧に
-   含まれない）。mutation testingは変更した3ファイルに`--gremlin-targets`で個別スコープして実行し、
-   いずれも生存ミュータント0件（services.py 43件・views.py 135件・serializers.py 10件、全て
-   Zapped 100%）。L2（構造13件+17 subtests）/L3（境界7ファイル181件+24 subtests、`manage.py check`
-   ×2とも「0 silenced」）緑。L4（`manage.py test tests.acceptance`、依頼により実行・担当外）は
-   **44件全緑**（既存シナリオのみ——TDR-GTH-21〜25のstepはまだこのブランチに無い、想定どおり）。
-   L5（`pytest tests/ui_invariants`）は**14件+10 subtests全緑**（上記の実バグ1件を発見・修正した後）。
-
-   **契約との食い違い・実装裁量（FR-028、解消せず報告）**:
-   - 会をつくる画面の提出後の遷移先（`/gatherings/{id}/`）は契約が固定していない実装裁量
-     （`organizerGatheringCreate.submit.requiredOutcome`が明示的に「この契約は直後の遷移先画面を
-     固定しない」としている）。
-   - 会をつくる画面・候補日追加フォームとも、日付・時刻を1つの`datetime-local`入力にまとめた
-     （契約は2入力に分ける余地も認めている）。**このラウンドで`new Date(...).toISOString()`
-     から固定UTCタグ付けへ変更した——13.参照**。
-   - PCカードの空き場所確保は`isMapPrimaryLayout`（PC deck）にのみ適用した——D-fix板の見出しが
-     「1. PC」と明記しているため、スマホの1枚表示デッキ（隣同士の高さ比較が生じない）には適用して
-     いない。
-   - スマホのfacts圧縮は既存の2列グリッドの寸法を縮めるにとどめ、DeckFix.dc.htmlのモックが示す
-     4列単一行へは変えていない（狭幅で日本語ラベル4列は折り返す恐れがあり、モック自体も「模式図であり
-     実寸ではない」と明記しているため、安全側に倒した）。orchestratorの実測で追い込みが要る。
-
-13. **合流検証（tester `test/gathering-entry-steps` マージ後）の3件の失敗を診断・修正した
-   （2026-09-02、developer）**。作業前に`git fetch && git merge origin/test/gathering-entry-steps`
-   （tester step/DSLを1文字も変更していない）。orchestrator実測の49件中3件失敗（TDR-GTH-22・23・24）
-   をすべて診断し、2件を修正、1件を根拠を添えて未解消のまま報告する（FR-028）。
-
-   **TDR-GTH-22・23（修正済み）——`gathering-list`がDOMに存在しない**: 原因は`gathering_list.js`の
-   `render()`が、会が0件のとき`gathering-list-empty`だけを描画して早期returnし、
-   `data-testid="gathering-list"`の`<ul>`自体を一度も構築していなかったこと。**契約
-   （`gathering-scheduling-browser-interface.yaml`）の`organizerGatheringList.requiredTestIds`は
-   `list: gathering-list`を`createOpen`と並べて列挙しており**、これは`organizerDashboard.
-   requiredTestIds`が`gathering-candidate-date-list`（既存`gathering.js`が件数に関わらず常時構築
-   している）を扱うのと同じ「必須＝常時存在」のグルーピングである。`gathering-list-empty`の
-   `presenceRule`は「0件のとき存在」としか書いておらず、`gathering-list`自体の不在は要求していない
-   ——**契約は空でも`gathering-list`の存在を要求している側と判断し、実装を直した**（`<ul>`を常に
-   構築し、0件のときは`gathering-list-empty`をその後ろの追加要素として並べる）。修正後、TDR-GTH-21・
-   22とも全緑。
-
-   **TDR-GTH-24（修正済み）——重複候補日が409にならない（真因: timezoneではなくクライアントJSの
-   ホストタイムゾーン依存）**: 前回コーディネーターへ「再現しない」と報告したのは、Django test client
-   でAPI境界を直接叩く検証（WSGI直・ブラウザを介さない）だったため。今回、acceptanceと同じ経路
-   （実HTTPサーバ+実Chromiumブラウザ、`StaticLiveServerTestCase`+Playwright）で再現を試み、
-   **サーバー側ではなくクライアント側JSに真因を特定した**。tester側`_fill_candidate_date_time_input`
-   ヘルパーは、UTCタグ付き`datetime.now(UTC)`から作った既存候補日の時刻数字（例:「12:00」）を
-   そのまま`<input type="datetime-local">`へ流し込む。これに対し実装側（`gathering.js`の
-   `submitAddCandidateDate`・`gathering_create.js`の`toStartAtIso`）は`new Date(value).toISOString()`
-   を使っており、**タイムゾーン情報を持たない`datetime-local`の値をJavaScript仕様どおり「ホストマシン
-   自身のローカルタイムゾーン」として解釈する**。orchestrator実行環境のホストが+09:00（JST）である
-   ため、「12:00」はJST正午と解釈され、UTCへ変換すると「03:00Z」になる——**これが報告された
-   「12:00+00:00→03:00+00:00」の9時間ずれの正体**であり、Djangoのtimezone設定・ORM・保存経路には
-   一切バグが無かった（前回の「再現しない」報告はこの意味で正しかった——Django test clientはこの
-   JS変換を一切経由しないため、バグの発生箇所を通っていなかった）。既存候補日はAPI直叩きで作られる
-   ため常にUTCタグ付き、対して新規候補日はブラウザ経由でホストのローカルタイムゾーン依存というズレが
-   生じ、重複判定の等値比較（`services.add_candidate_date`のインスタント比較。前回追加した
-   `test_same_instant_different_offset_representation_is_still_a_duplicate`等でオフセット表現非依存
-   であることは既に確認済み）が実際には異なる瞬間を比較してしまっていた。**修正**: `new Date(...)
-   .toISOString()`をやめ、`datetime-local`の生の数字をリテラルUTCとしてタグ付けする専用関数
-   （`dateTimeLocalValueToIso`/`toStartAtIso`、`value + ":00Z"`）に置き換えた——ホストマシンの
-   タイムゾーンに一切依存しない決定的な変換になる。修正後、TDR-GTH-24全緑。**申し送り（FR-028、
-   architectへ）**: この修正は「入力された数字をUTCとして扱う」という選択であり、実際の組織（日本
-   限定・招待制のランチ調整）で幹事が入力する時刻は本来JSTの意図である可能性が高い。ブラウザの
-   ホストタイムゾーンに依存する現状の代替（`new Date`のambient変換）は本番でJSTホストなら偶然正しく
-   動くが、tester環境依存で崩れる脆さを持っていた。今回はtesterの既存試験規約（UTC前提の固定fixture、
-   全TDR-GTH共通で使われる`days_from_now_iso`/`_fill_candidate_date_time_input`）に合わせてUTCタグ
-   付けを選んだが、**実在の組織が入力する時刻をJSTとして扱う方が業務的により正しいかもしれない**
-   という論点は契約もADRも決めていない実装裁量の範囲であり、人間/architectの判断を仰ぐ。
-
-   **TDR-GTH-23（未解消・報告のみ、FR-028）——`gathering-create-name-input`/`gathering-create-
-   candidate-date-input`が`allGatheringScreenFormControlsMustDeclarePurpose`のクローズドリストに
-   適合しない**: 上記2件を直した結果、TDR-GTH-23は「gathering-listが無い」の症状を通過し、**別の、
-   これまでマスクされていた失敗**に到達した——`assert_gathering_screen_has_no_forbidden_surfaces`
-   （`GATHERING_FORM_CONTROL_SELECTOR`＝`select, input:not([type='hidden']), textarea, button,
-   [role=...]`にマッチする全要素が`data-gathering-control-purpose`をクローズドリスト
-   `GATHERING_ALLOWED_PURPOSES`から持つことを要求）が、会の名前欄（`gathering-create-name-input`）・
-   候補日欄（`gathering-create-candidate-date-input`、単一行時）に対し`purpose=None`で失敗する。
-   契約`gathering-scheduling-browser-interface.yaml`の`nameInput`/`candidateDateRow.dateInput`定義
-   にはいずれも`purpose`キーが無く（ボタン系要素だけがpurposeを持つ）、`allowedPurposes`の17件は
-   すべて動詞的な操作名（open/submit/cancel/select/copy/recopy/revoke/add-row/remove-row）で、
-   「素のテキスト・日時入力欄そのもの」に対応する語彙が1つも存在しない——**候補画面側の
-   `candidate-gathering-entry`が`formControl: false`宣言で走査対象外になっているような、この契約
-   バージョンには存在しない逃げ道がここには無い**。純粋なテキスト/日時入力を、ネイティブの
-   `<input>`要素を使わずに実装する手段は無い（`contenteditable`div等で回避するのは、走査を欺くための
-   実装改悪であり採らない）。**contracts/**・tests/acceptance/**はいずれも変更禁止のため、developerの
-   権限内で解消できない、正真正銘の契約の穴と判断した**。architectへの推奨: (a)
-   `nameInput`/`candidateDateRow.dateInput`/`addCandidateDateForm.dateInput`に
-   `candidate-gathering-entry.entry.formControl: false`と同様の除外宣言を追加する、または(b)
-   `allGatheringScreenFormControlsMustDeclarePurpose`の対象を「アクティベートすると何かが起きる
-   操作的要素」に限定する一文を加え、値保持のみの入力欄を明示的に除外する、のいずれか。
-
-   **検証（すべてdeveloperが実行）**: L1（ruff check/format緑、単体542件+103 subtests緑、カバレッジ
-   97%、Python側の新規変更なし——今回の修正はJS 3ファイル＋テスト1ファイルのみ、前ラウンドの
-   services.py/views.py/serializers.pyへのmutation結果100%は無変更のため再実行不要）。新設の
-   JSソース回帰テスト2件（`DateTimeLocalConversionSourceTests`・
-   `GatheringListAlwaysPresentSourceTests`、`tests/test_static_assets.py`の既存流儀を踏襲）で
-   両修正を固定した。L2（構造13件+17 subtests）/L3（`manage.py check`×2とも「0 silenced」）緑。
-   L4（`manage.py test tests.acceptance`）は**49件中48件緑**——TDR-GTH-23のみ上記の契約の穴により
-   失敗。L5（`tests/ui_invariants`）は14件+10 subtests全緑（candidate.js無変更のため再確認のみ）。
-   `gathering.js`・`gathering_create.js`・`gathering_list.js`のキャッシュ回避文字列を更新した
-   （FR-025）。
-
-14. **参加者画面の読み込み失敗に短いお知らせを実装した（2026-09-06、developer、`adr/0047`・
-    `TDR-GTH-42`）。** ブランチ`impl/participant-load-failure`、基点は
-    `origin/integrate/gathering-three-tier`（`8d57607`）。契約（`gathering-scheduling-browser-
-    interface.yaml` v0.8.0の`unexpectedLoadFailureOutcome`/`loadFailure`、`test-support-api.yaml`
-    v1.5.4の`seedParticipantLinkServerError`）・ADR-0047・`gathering-scheduling.feature`の
-    `TDR-GTH-42`はいずれも既に本ブランチの基点に合流済みで、architectが用意した契約に沿って実装した
-    だけであり、今回は契約変更を伴っていない。
-
-    **バグの実体**: `participant.js`の`requestJson`が`fetch().then(r => r.json())`のみで、
-    `response.json()`のreject（本文が空・非JSON）にも`fetch()`自体のreject（ネットワーク断）にも
-    `.catch`が無かった。`loadView()`の`.then`が一度も呼ばれないため`applyResult`/`render()`が発火
-    せず、画面はサーバが最初に返した空のマウント要素のまま——ADR-0047が報告した「真っ白」の直接原因。
-
-    **実装**: `requestJson`をpromiseが決して reject しない形に直した（`response.json()`のreject→
-    `{status, body: null}`、`fetch()`のreject→`{status: null, body: null}`のsentinelへ正規化）。
-    `loadView()`を新設し、結果を`validLinkOutcome`（200）／`invalidLinkOutcome`（`linkError`の4つの
-    既知コードのいずれか）／`unexpectedLoadFailureOutcome`（それ以外すべて）の3つへ排他的に分類、
-    `state.loadFailure`を立てる。`render()`は`state.loadFailure`を最初に分岐し、真なら
-    `gathering-participant-load-error`だけを描画して即returnする（他の要素は一切構築しない——
-    設問・エラー面・名前操作のいずれも出ない）。可視文言は「うまく読み込めませんでした。時間を
-    おいて開き直してください。」（ADR-0047の趣旨どおり、正確な日本語は裁量）。操作は置いていない
-    （`data-gathering-control-purpose`無し、`<button>`無し——人間裁定どおり）。技術的な内部情報
-    （HTTPステータス・例外・トレースID・ホスト名）は表示ロジックが失敗レスポンスの中身を一切読まない
-    構造にしたことで構造的に漏れない。
-
-    **サーバ側**: `ParticipantLink.server_error_once`（一発flag、`rate_limited_once`と同型だが
-    `getParticipantView`だけに効く——seamの仕様どおり）をマイグレーション`0004`で追加。
-    `services.get_participant_view`が消費・`services.seed_participant_link_server_error`が新設。
-    `views.participant_view`は`ParticipantLinkServerErrorSeededError`を裸の`HTTP 500`（本文なし、
-    `ProblemResponse`ではない——意図的に`linkError`の4コードのいずれとも一致しない形）で返す。
-    `test_support/views.py`/`urls.py`に`seedParticipantLinkServerError`のエンドポイントを、既存2
-    seamと同じ`_acceptance_only()`ガード方式で新設した。
-
-    **検証（すべてdeveloperが実行）**: L1（ruff check/format緑、単体637件+98 subtests緑
-    ［`-k "not acceptance"`］、カバレッジ96%［`coverage report --fail-under=90`通過、
-    `test_support/views.py`の未到達行は既存2seamの400分岐と同型の既存ギャップで今回の後退ではない
-    ことを行番号で確認済み］、`manage.py makemigrations --check`差分なし）。mutation testingは
-    Windowsの既知の制約（`WinError 206`、コマンドライン長超過——`tests/test_gathering.py`
-    フル+`tests/test_test_support.py`を同時に渡すと発生）に当たったため、変更ファイル単位で分割して
-    実行した: `services.py`+`views.py`を対象に`tests/test_gathering.py`単体で271/271ゼロ生存
-    （100%）、`test_support/views.py`を対象に関連クラス（`ParticipantViewApiTests`・
-    `TestSupportGatheringApiTests`・`ParticipantEndpointGuardTests`）+`tests/test_test_support.py`
-    で78/78ゼロ生存（100%）——`tools/check_mutation_score.py`は100.00%（必要80.00%）と報告。
-    L2（構造13件+17 subtests）/L3（境界181件、`manage.py check`×3——`settings_test`・
-    `settings_acceptance`・`settings`（`DJANGO_SECRET_KEY`付与）のいずれも「0 silenced」）緑。
-    L4（`manage.py test tests.acceptance`）は**既存65件全緑のまま**（767秒、tester領分の
-    `TDR-GTH-42`のstepは本ブランチに無い——契約どおり）。L5（`tests/ui_invariants`）は14件+10
-    subtests全緑（candidate.js無変更）。`participant.js`のキャッシュ回避文字列を`?v=20260906-
-    load-failure-notice`へ更新した（FR-025）。
-
-    **実測（Playwright、使い捨てスクリプトでコミット前に削除）**: 有効なリンクを開く→ヘッダーが
-    出る（ベースライン）→`seedParticipantLinkServerError`を叩く（204）→同じリンクを開き直す→
-    `gathering-participant-load-error`が出現し可視文言は「うまく読み込めませんでした。時間を
-    おいて開き直してください。」→`gathering-participant-header`/`-schedule-question`/
-    `-name-open`/`-link-error`/`-shop-vote-question`/`-decision`のいずれも0件（DOM上に存在しない）
-    →お知らせの中に`<button>`は0個→お知らせ要素自身の`outerHTML`に`500`/`Traceback`/`Exception`/
-    `trace`/`hostname`/両canary文字列のいずれも含まれない→もう一度同じリンクを開くとヘッダーが
-    正常に戻る（一発flagの消費を確認）。
-
-    **契約との食い違い（FR-028）**: 無し。契約・ADR・feature本文のとおりに実装できた。
-
-15. **受け入れテストの間欠失敗（`gathering-schedule-question`が現れない）の真因を特定し修正した
-    （2026-09-06、developer、ブランチ`fix/intermittent-schedule-question`）。** 直前のスライス13
-    （2026-09-02、上のログの「合流検証」段落）で「1回目の実行で6件が失敗、developerが5回再現を
-    試みて再現せず、**環境要因（負荷による待ち時間切れ）と判断**」と記録されていたのは誤りだった
-    ——orchestratorが後日、他エージェントを止めた無負荷状態でも失敗することを確認して「負荷」説を
-    否定しており、今回はその依頼を受けて再調査した。
-
-    **捕まえた証拠**: Playwright越しの実失敗を14往復以上の全件実行で待ったが一度も再現しなかった
-    （このマシンではヒット率が低い）。かわりに、ブラウザを介さない**使い捨ての並行アクセス検査**
-    （`urllib`で`GET /participant-links/{token}`と`PUT .../responses/{id}`を30スレッドから同時に
-    叩くだけ、コミット前に削除）を書いて`settings_acceptance`の実際のライブサーバに向けたところ、
-    数回に1回、`django.request`ロガーへ次のトレースバックが出て**素の非JSON HTTP 500**が返ることを
-    直接再現した: `django.db.utils.DatabaseError: not an error`（`connection.savepoint_commit`内、
-    `services.set_schedule_response`の`ScheduleResponse.objects.update_or_create(...)`から）。
-
-    **真因**: 受け入れテストだけが使う`settings_acceptance`のsqlite `:memory:`データベースが原因
-    だった。Django自身の`LiveServerTestCase._make_connections_override`（`django/test/testcases.py`）
-    は`conn.is_in_memory_db()`のときに限り、開いている**唯一の接続オブジェクト**をThreadedWSGIServer
-    が起こす**すべてのリクエスト処理スレッドに共有**する（`:memory:`は接続ごとに別データベースに
-    なってしまうため）。この共有こそが壊れる——2つのリクエストが2つのスレッドで同時に処理され、
-    どちらも（`update_or_create`が内部で使う）SAVEPOINTを同じ接続上で開閉すると、片方の
-    savepointスタックがもう片方に壊される。返ってきた素の500（`linkError`の4コードのいずれとも
-    一致しない非JSON本文）は、まさに`browserControlSurface.participantAnswer`の
-    `unexpectedLoadFailureOutcome`（`adr/0047`）が契約どおり要求する分類——`participant.js`の
-    `loadView`は正しく`gathering-participant-load-error`だけを描き`gathering-schedule-question`
-    を一切組み立てない。つまり**参加者用JSの読み込み失敗処理（`adr/0047`）にもサーバ側の
-    `services.py`/`views.py`にもバグは無い**——本番はPostgreSQL（`settings.py`）でこの競合自体が
-    起きない。原因はこの受け入れ専用プロファイルが選んだsqlite設定そのものだった。
-
-    **修正**: `settings_acceptance.py`の`DATABASES["default"]["TEST"]["NAME"]`（Djangoのテスト
-    ランナーが実際に読むキーで、素朴に上書きした最初の版はトップレベルの`NAME`を直しただけで
-    効かず、同じ検査で再確認した）に、プロセスIDを含む一時ディレクトリ上の実ファイルパスを設定
-    した。実ファイルは`is_in_memory_db()`が偽になるため、`LiveServerTestCase`は接続共有を一切
-    行わず、各リクエストスレッドが独立した接続を持つ（Djangoの通常のスレッドローカル接続管理）。
-    実ファイル化だけだと今度はsqliteのfsync-per-commitでスイート全体が大幅に遅くなった（CPU時間は
-    低いまま数分間ブロック）ため、`OPTIONS`に`timeout: 30`（既定5秒の余裕を確保）と
-    `init_command: "PRAGMA synchronous=OFF;"`（テスト専用・毎回破棄するDBにクラッシュ耐性は不要）
-    も加えた。`settings_test.py`本体・`manage.py test tests`（L1単体）・本番`settings.py`は
-    無変更（このバグが起きるのは`StaticLiveServerTestCase`を使う受け入れプロファイルだけ）。
-
-    **検証（すべてdeveloperが実行）**: 修正後、`manage.py test tests.acceptance
-    --settings=dining_radar.settings_acceptance`を**間を空けずに3回連続実行し、3回とも66件
-    全緑**（785.2秒・785.9秒・788.2秒——修正前の`:memory:`基準と同等の所要時間、性能後退なし）。
-    上記の並行アクセス検査も同じ修正後設定で再実行し、致命的な破損（`not an error`／
-    `no such savepoint`）が0件になったことを確認（残るのは検査自身が意図的に起こす極端な同一行
-    多重書き込みでの通常の`database is locked`のみ——実際の受け入れスイートのシーケンシャルな
-    DSLフローでは起こりえない負荷）。L1（ruff check/format緑、単体666件緑、カバレッジ98%
-    ［`--fail-under=90`通過。`settings_acceptance.py`は0%のままだが本スライス以前から単体テストの
-    対象外で後退ではない］）。L2（`tests.test_structure`が上記666件に含まれ緑）。L3
-    （`manage.py check`×3——`settings_test`・`settings_acceptance`・`settings`のいずれも
-    「0 silenced」）。L5（`tests.ui_invariants`14件緑、JS/テンプレート無変更のため再確認のみ）。
-    JS/テンプレートを変更していないためキャッシュ回避文字列の更新（FR-025）は不要。mutation
-    testingは変更がsettings辞書リテラルのみ（分岐なし）で対象外と判断し実行していない。
-
-    **契約との食い違い**: 無し。`tests/acceptance/**`・`contracts/**`は一切変更していない
-    （読むのみ）。真因が「参加者の設問の並びが得票に依存する」（orchestratorの未確認の観察）
-    ではなかったため、その観察について契約変更の要否は判断していない——別途の検討課題として残す。
-
-16. **残っている間欠失敗の真因を2つ特定し修正した（2026-09-06、developer、ブランチ
-    `fix/participant-render-race`。項目15のDB修正後もorchestratorが67件中3件の失敗を実測——
-    症状は`gathering-schedule-question`が現れない系統[TDR-GTH-20・43相当]と、
-    `gathering-participant-name-status`が書き込み成功後も"false"のまま残る系統[TDR-GTH-16
-    相当]の2種類）。**
-
-    **真因A（参加者画面の応答の入れ違い）**: `page.route`で、schedule-response PUTを
-    「サーバへは即座に到達・処理させるが応答の返送だけを1.2秒遅らせる」よう細工し、待たずに直後へ
-    display-name PUTを撃つ使い捨てスクリプトを書いたところ、`gathering-participant-name-status`の
-    `data-participant-named`が確定的に`false`のまま固まることを再現した（自然発生の反復——40回・
-    200回——は一度も再現せず、この環境の低再現率は項目15と同じ）。`participant.js`の`applyResult`/
-    `loadView`は、複数の参加者向けリクエストの応答を発行順ではなく**到着順**にそのまま`state.view`
-    へ上書きしていた——display-name PUTの応答（新しい書き込みを含む）が先に届いて正しく描画された
-    後、より早く発行されていたschedule-response PUTの応答（display-name書き込みより前の状態を
-    反映）が遅れて届き、無条件に`state.view`を上書きしていた。**修正**: 全ての参加者向け呼び出し
-    （`loadView`/`answerScheduleQuestion`/`selectShopVote`/`submitDisplayName`）に世代番号ガード
-    （`requestSequence`/`beginRequest`/`isStaleResponse`）を追加し、発行時点より新しいリクエストが
-    既に発行されていれば、その応答を`state.view`/`render()`へ一切適用しない——`gathering.js`の
-    `tentativelySelectCandidateDate`が既に同じ形の場当たり的ガードを1箇所だけ持っていたので、それを
-    一般化した。修正後、同じ細工スクリプトで`named='true'`のまま保たれることを確認した。
-
-    **真因B（前任のDB修正が実際には効いていなかった）**: `manage.py test`を明示`--settings`無しで
-    実行する呼び方（=CIの`l4-acceptance`ジョブ本体・pytestの`DJANGO_SETTINGS_MODULE`既定値と同一）
-    では`settings_test.py`が使われる。ところが項目15のsqlite修正は`settings_acceptance.py`という
-    別モジュールにしか入っておらず、**そのモジュールは`manage.py`自身のルーティング（明示
-    `--settings`が無ければ`settings_test`を選ぶ）にもpytestの設定にも一度も選ばれない、実質使われて
-    いないファイルだった**——項目15の診断自体（LiveServerTestCaseがメモリsqliteの接続をスレッド間で
-    共有しsavepointスタックが壊れる）は正しかったが、直した場所が実際に実行される経路と食い違って
-    おり、CIや素の`manage.py test tests.acceptance`実行では何も直っていなかった。実測で確認: 修正前の
-    `settings_test.py`のまま`python manage.py test tests --settings=dining_radar.settings_test`を
-    実行し、`getParticipantView`からの素の非JSON HTTP 500（項目15が記録したのと同一の
-    `django.db.utils.DatabaseError: not an error`系トレースバック）を実際に再現した。**修正**:
-    sqlite強化設定（`TEST.NAME`を実ファイル・pid付きパスへ、`timeout=30`、
-    `init_command: "PRAGMA synchronous=OFF;"`）を`settings_test.py`側へ移し、`settings_acceptance.py`
-    は`settings_test`を再エクスポートするだけの薄いエイリアスにした（`--settings=dining_radar.
-    settings_acceptance`という呼び方が万一どこかに残っていても同じ修正済み設定を受け取るようにする
-    ため、削除はしなかった）。
-
-    **検証（すべてdeveloperが実行）**: L1（ruff check/format緑、CIが指定する12ファイルへの
-    `pytest`実行666件緑・6.45秒、カバレッジ98%［`--fail-under=90`通過。`settings_acceptance.py`は
-    薄いエイリアスのため0%のままだが後退ではない］）。JS単体テストとして新規
-    `tests/js_unit/participant_request_sequencer.test.js`を追加した——Node組み込みの`node:test`/
-    `node:assert`のみ（追加依存無し）で、`participant.js`が実際に出荷する該当ブロックを
-    `request-sequencer:start`/`:end`マーカーで検証時に逐語抽出して実行する4件が緑
-    （`node --test tests/js_unit/participant_request_sequencer.test.js`——手打ちで再実装した別コード
-    ではなく出荷コードそのものを検査する）。これは`adr/0014`が定めるcandidate.js向けの本格的な
-    jsdom単体検証層（未着手）を代替・拡張するものではなく、その層の対象外で自己完結する追加と
-    位置づけている。L2（`tests.test_structure`13件緑）。L3（`manage.py check`×3——
-    `settings_test`・`settings_acceptance`・`settings`のいずれも「0 silenced」）。L5
-    （`tests.ui_invariants`14件+10 subtests緑）。mutation testingは変更がJS
-    （`participant.js`、Python対象外）とsettings辞書リテラル（分岐なし）のみのため対象外と判断し
-    実行していない（項目15の同種判断を踏襲。Windows環境の既知の制約`WinError 206`も同様に再現し、
-    フル対象では実行不能なことも確認済み）。**CIと同一の呼び方
-    （`python manage.py test tests.acceptance --verbosity 1`、明示`--settings`無し）を、間を空けず
-    5回連続で実行し、5回とも66件全緑**（各回780〜783秒。1回目はさらに別プロセスで同じコマンドを
-    もう一系統同時に走らせ、2系統が競合する状態でも両方66件緑——orchestratorが報告した「主ツリー
-    では高頻度で失敗（直近5回中4回）」という負荷条件を模す意図）。JS/テンプレートを変更したため
-    キャッシュ回避文字列を更新した（`participant.js?v=20260906-stale-response-guard`、FR-025）。
-
-    **契約との食い違い**: 無し。`contracts/**`・`tests/acceptance/**`（`dsl/`・`steps/`含む）は
-    一切変更していない（読むのみ）。真因A・真因Bはいずれも実装・テスト基盤側の問題であり、契約の
-    記述と矛盾しない。
-
-    **気づいたが今回は対応しなかったこと**: `gathering.js`（幹事側画面）にも同種の「応答の到着順で
-    状態を上書きする」書き方をした関数が複数ある（`loadGathering`・`copyParticipantLink`・
-    `confirmDate`・`loadParticipantLinksOnly`・`fetchOpenShopListForShortlist`）。今回の実測で
-    参加者側（`participant.js`）にのみ確定的な不具合を再現・特定できたため、`gathering.js`側は
-    対象を広げず現状維持とした——推測で直すと予防的な変更の正しさの根拠が実測ではなく類推になる
-    （P-01の精神）と判断した。将来、幹事側で同種の間欠症状が観測された場合、同じ`requestSequence`
-    パターンを移植することを推奨する。
-
-11. **ローカルで画面を確かめる手順**（このスライスで何度も踏んだので残す）。
-    - `python manage.py runserver 127.0.0.1:8741 --settings=dining_radar.settings_localdemo --noreload --insecure`
-    - `settings_localdemo.py` と `localdemo.sqlite3` は**リポジトリに入れない**（`.gitignore` 済み、FR-027）。
-      無ければ `settings_acceptance` を継承して sqlite のパスと `ALLOWED_HOSTS` を差し替えるだけの数行で作れる
-    - **サーバ起動のたびにデータの再投入が要る**（モードは LocMem キャッシュ保持のため再起動で消える）:
-      `curl -X PUT http://127.0.0.1:8741/test-support/candidate-proposals/state -H "Content-Type: application/json" -d '{"mode":"NORMAL_WITH_WEIGHTED_SAMPLING","randomSeed":7}'`
-    - **`home.html` を変えたらサーバの再起動が要る**（`DEBUG=False` で Django がテンプレートをキャッシュする）。
-      これを忘れて「直っていない」と誤報告した事故がある（FR-025）
-    - **合成候補は経度0固定で南北一直線に並び、現在地は海の上**である。ピンが縦一列なのはデータの
-      性質であって不具合ではない。**実データの2次元の散らばりでの見え方は、この環境では確かめられない**
+1. **実機フィードバック大改訂を着地させる**（進行中。上記「いま進行中のスライス」）。
+   監査の是正と TDR-GTH-48 の競合修正は取り込み済み。orchestrator による全層の再検証と PR が残り。
+2. **Hot Pepper の生 JSON のフィールド名**を、現行の公式ドキュメントに対して再確認する
+   （provider 表記・無料プラン・health check の規約は 2026-08-12 に再確認済みで上記に記録済み）。
+3. **`project/toyama-dining-radar` ブランチの処遇を決める。**ブランチ名と ruleset は旧名のまま
+   （2026-08-20 の改名が意図的に触らなかった）。`main` はこのブランチより大きく先行し 0 behind なので、
+   このブランチは遅れるだけである。fast-forward するか、`main` から直接スライスを切る（最近のスライスが
+   実際にやっていること）方へ寄せて捨てるかを決める。
+4. **`design-preview` の残骸を人間が消す**（`adr/0028` 決定2）:
+   `projects/dining-radar/design-preview/` と `.claude/launch.json` の
+   `dining-radar-design-preview` エントリ。
+5. **govlint の `SCENARIO_ID` パターンが `TDR-CS-01`・`TDR-AUTH-01` にマッチしない**ので、
+   TDR 系のシナリオ ID は L0 で一度も検査されていない。修正には `meta/tools/**` の人間による解錠
+   コミットが要る（`meta/adr/0046`）。
+6. **`candidate.js` のクライアント側 JS 単体検証層**（`adr/0014`）は未実装。ADR 自身が「この層で
+   見つかったはずの欠陥は、これまでのところ1件も無い」と明記している——価値は将来の回帰捕捉であって、
+   過去の埋め合わせではない。
+7. **余白とボタンの小ささの是正**は、カレンダーと削除ダイアログの新規 CSS で部分的に対応したのみ。
+   既存画面全体を designer のボードに対して px 単位で突き合わせる作業は**していない**。
+8. **スマホでカードが1枚ずつきっちり止まるか**は未計測。人間の実機報告（スワイプでカードが見切れる）は
+   再現しなかった。`candidate.js` の `deckSwipeState` には既に手の込んだ実装がある。
 
 ## Open questions
 
-- Email delivery and SSO remain deferred; accounts stay invite-only and local. The custom-domain question is closed — a Route 53 subdomain fronts the service, recorded in ADR-0021's 2026-08-14 addendum.
-- Whether the "approved screen drives the test-infrastructure control-surface contract" pattern (ADR-0011, ADR-0013) should be generalized into a meta ADR beside `meta/adr/0023`, since other UI projects can hit the same friction. Architect raised this; drafting a meta ADR belongs to orchestrator (`meta/adr/0047`).
-- One L4 run failed intermittently and was never explained. Developer's hypothesis (concurrent file edits during the run) was never confirmed; it may or may not be the same class of failure as the confirmed-and-fixed one below (Current state item 15) — never confirmed either way, and this specific incident has not recurred since.
-- Whether ADR-0020's harness should be generalized to the meta layer (a shared `meta/verification.md` revision and/or a reusable harness for other UI projects). ADR-0020 decision 10 deliberately scopes itself to this project as the human's chosen proving ground, and defers the generalization judgment to orchestrator once enough evidence accumulates (`meta/adr/0047`). The first evidence is in: the gate caught a real keyboard-activation defect on the slice that introduced it. Note that a meta-layer move would also have to answer how the same invariants reach `reservation-frontend`, whose stack (Playwright/TypeScript) differs from this project's (Playwright/Python), and that `meta/tools/**` is locked by `meta/adr/0046` so a shared harness there needs a human unlock.
-- **新規（2026-08-24、architect）**: 輪と徒歩の上限の連動を将来契約化するなら、フィルタチップの「選択中」状態を機械観測する属性（`data-selected` 相当）をこの契約に新設する設計判断が先に要る（`filterPanel.constraints` は現状これを散文でしか述べていない）。地図リボンの高さ・役割を将来契約化するなら、人間のリボン有り無し比較の結果と、それに応じた `ADR-0020` の対象拡張が先に要る。
-- **新規（2026-08-27、reviewer再監査）**: 徒歩圏の輪の分数ラベル（`bandLabel`）の検査は、**可視ラベルの分数の集合と輪の `data-walking-radius-minutes` の集合が一致すること**までしか証明していない（F1b、Medium）。値の集合が保たれたまま**輪とラベルの対応だけが入れ替わる欠陥**（5分の輪に「15分」と出る等）は検出できない。現在の実装は同一ループ内で半径とラベル文言を同じ変数から生成しているため発現しにくく、reviewerはマージ前必須のブロッカーとはしていない。**恒久的に閉じるには実装と契約の両方が要る**: ラベル要素に輪と相関する属性（`bandAttribute` と同名の値）を持たせ、それを `bandLabel` の Must として契約に載せる。architect の判断が要る。
-- **新規（2026-08-27、tester申し送り＋reviewer見解）**: 可視ラベル要素には `data-testid` が無く、テストDSLはCSSクラス（`.candidate-walking-radius-ring-label-visual`）を手がかりにしている——このプロジェクトの `by_test_id` 規約からの逸脱である。reviewerの見解は「`data-testid` を足すだけでは不十分で、上記の相関属性と契約改訂をセットで行うべき」。上のF1bと同じ1件として扱ってよい。
-- **未解決のまま（2026-08-27）**: ラベルがピン等に**遮蔽されて読めない**ケースは、Playwright の可視判定が遮蔽をモデル化しないため、今回の検査では証明できない。人間の実機報告「15分の表記が店の位置により隠れて見えない」に直接対応する性質であり、現状は実装側の回避（ラベルの衝突回避配置）に依存している。機械的な関所は無い。
-- **新規（2026-08-29、reviewer監査）**: デッキ送りの前後で「未適用の絞り込み条件（`pendingFilters`）が
-  変わらないこと」は、**スマホのスワイプ側では検査されたが、PC のボタン側は未検査のまま**である。
-  契約（`browserActions.pageDeckPrevious`／`pageDeckNext` の `unaffected`）は既に両方を要求しており、
-  欠けているのはテスト側のコードだけ。次に `tests/acceptance/**` を触る人が拾うこと。
-- **新規（2026-08-29、reviewer監査、Low）**: `organizer_swipes_the_deck_forward`／`_backward` の単発版
-  step が、テストから一度も呼ばれていない（対応するDSLメソッド自体は `_until_` ループ経由で使われて
-  いるため機能の欠落ではない）。掃除の対象。
-- **新規（2026-08-29、orchestrator）**: 作業ツリー `E:/AWS/arc2` が、マージ済みブランチ
-  `docs/walking-time-detour`（PR #161、2026-08-26 マージ）のまま残っている。**別セッションが使って
-  いる可能性があるため触っていない。** 放置すると `meta/adr/0062` が記録した「古いツリーのまま作業して
-  役割定義が届かない」事故の再発条件になる。所有者を確かめて片付けること。
-- **未解決のまま（2026-08-29）**: 輪のラベル・ピンがカードに隠れないことは、**合成データ（経度0固定・
-  南北一直線）でしか測っていない**。実データの2次元の散らばりでの見え方は未測定であり、この環境では
-  測れない（Next work 11 参照）。
+- メール配信と SSO は先送りのまま。アカウントは招待制・ローカルのまま。カスタムドメインの件は決着済み
+  （Route 53 のサブドメイン。`adr/0021` の 2026-08-14 追記）。
+- 「承認済み画面がテスト基盤のコントロール面契約を駆動する」型（`adr/0011`・`adr/0013`）を
+  `meta/adr/0023` の隣に meta ADR として一般化すべきか。architect が提起した。meta ADR の起草は
+  orchestrator の領分（`meta/adr/0047`）。
+- `adr/0020` のハーネスを meta 層へ一般化すべきか。ADR 決定10 は意図的にこのプロジェクトに閉じ、
+  判断を orchestrator へ預けている。最初の証拠は出た（導入したスライスで実際にキーボード起動の欠陥を
+  捕まえた）。一般化するなら、Playwright/TypeScript の `reservation-frontend` へ同じ不変量をどう届けるか
+  と、`meta/tools/**` のロック解錠（`meta/adr/0046`）に答える必要がある。
+- **輪とラベルの対応（F1b、Medium、2026-08-27 reviewer）**: 徒歩圏の輪の分数ラベルの検査は
+  「可視ラベルの分数の集合」と「輪の `data-walking-radius-minutes` の集合」が一致することまでしか
+  証明していない。**集合が保たれたまま対応だけが入れ替わる欠陥**（5分の輪に「15分」と出る）は
+  検出できない。恒久的に閉じるには実装と契約の両方が要る（ラベル要素に輪と相関する属性を持たせ、
+  それを契約の Must に載せる）。architect の判断が要る。可視ラベル要素に `data-testid` が無く DSL が
+  CSS クラスを手がかりにしている件（`by_test_id` 規約からの逸脱）も、**同じ1件として扱ってよい**。
+- **ラベルの遮蔽は機械的に証明できない**（2026-08-27）。人間の実機報告「15分の表記が店の位置により
+  隠れて見えない」に直接対応する性質だが、Playwright の可視判定は遮蔽をモデル化しない。現状は
+  実装側の衝突回避配置に依存しており、関所は無い。
+- **輪のラベル・ピンがカードに隠れないことは合成データでしか測っていない**（経度0固定・南北一直線）。
+  実データの2次元の散らばりでの見え方はこの環境では測れない。
+- **デッキ送りの `pendingFilters` 不変検査が PC のボタン側だけ未実装**（2026-08-29 reviewer）。
+  契約（`browserActions.pageDeckPrevious`/`pageDeckNext` の `unaffected`）は既に両方を要求しており、
+  欠けているのはテスト側のコードだけ。**注意: `adr/0049` 決定4 で PC は2カラム化され送りボタン自体が
+  廃止されたので、この項目が今も成立するかは次に触る人が確かめること。**
+- **監査 Minor 2**（2026-09-11 reviewer）: FR-030 横断検査が、構造的に同一の画面のデータ違い
+  バリエーション（TDR-GTH-12/29 の tally 可視状態、TDR-CS-18 の絞り込み状態、TDR-CS-19 の 5件到達
+  状態）で再実行されていない。監査自身が実害リスクは低いと判定。次にこの画面群を触るラウンドで拾う。
+- **未説明の L4 間欠失敗が1件ある。**developer の仮説（実行中の同時ファイル編集）は確認されていない。
+  2026-09-06 に真因を特定して直した3件（Django が in-memory SQLite で LiveServerTestCase の複数
+  スレッドに1本の接続を共有して savepoint が壊れる件ほか）と同じ種類かどうかも分からないまま。
+  その後この事象は再発していない。
+- **作業ツリー `E:/AWS/arc2` がマージ済みブランチ `docs/walking-time-detour`（PR #161）のまま
+  残っている。**別セッションが使っている可能性があるため触っていない。放置すると `meta/adr/0062` が
+  記録した「古いツリーのまま作業して役割定義が届かない」事故の再発条件になる。所有者を確かめて
+  片付けること。
+- **`TDR-CS-11` が `shownCandidateMemory` を直接消している。**reviewer は必要性は本物と判断したが、
+  契約はこれを認可された seam として名指ししていない（有効期限の件とは違って）。意図的に解決せず
+  抱えている。
 
-## Approval state
+## 承認の状態
 
-`product-brief.md` is human-approved (2026-07-31 chat); its no-history/no-durable-identifier amendment was approved in chat on 2026-08-03, and its dinner-budget revision became durable through merged PR #88. The candidate-search interaction revision, ADR-0005, API v0.4, and the Codex-authored design receiver became durable through merged PR #66. ADR-0006 and the authentication contracts became durable through merged PR #67 under ADR-0035 approval mode (i), and the verified authentication implementation through merged PR #71. ADR-0008, the candidate-search contract amendment, the browser interface, and the amended acceptance-only test-support contract became durable through merged PR #76. `TDR-CS` itself, ADR-0009, ADR-0010, ADR-0011, and `candidate-search-browser-interface.yaml` v0.2 became durable through merged PR #82. ADR-0012, ADR-0013, `candidate-search-browser-interface.yaml` v0.3, and `authentication-browser-interface.yaml` v0.2 became durable through merged PR #84, together with the candidate-card refinement. ADR-0014 and the `.env.local` loader became durable through merged PR #87. ADR-0015, ADR-0016, ADR-0017, ADR-0019, API v0.9.0, browser interface v0.7, test-support v0.7.0, and the amended `candidate-search.feature` became durable through merged PR #88. The filter model's four contracts (`candidate-search-api.yaml` v1.0.2, the browser interface, `test-support-api.yaml` v1.0.2, and the amended `candidate-search.feature`), ADR-0021, ADR-0022, and the ADR-0020/FR-013 renumbering became durable through merged PR #90, together with the implementation, the deployment preparation, and the `/healthz` readiness fix.
+`product-brief.md` は 2026-07-31 にチャットで人間承認、以後の改訂は PR のマージで durable になって
+いる（no-history/no-durable-identifier の追補、夕食予算の改訂、フィルタ模型に伴う「決定的ルールのみ」
+の緩和の明記、2026-08-30 の会スコープの取り込み）。個々の ADR・契約・実装がどの PR で durable に
+なったかは、**ADR の frontmatter と git が持っている**——ここで PR 番号を並べ直さない（下記の慣行）。
 
-ADR-0023, the amended `product-brief.md`, and the ADR-0021/ADR-0022 approval records became durable through merged PR #91 and PR #92. ADR-0023 chose ADR-0035 mode (ii) and withheld its own approval until the human re-approved the already-approved statements it contradicts — chiefly `product-brief.md`'s "初期のコンセプト生成と順位付けは、説明可能な決定的ルールで行う" and the concept model the brief was built on. Those statements were still unamended when PR #90 merged the implementation, so an approved document contradicted the shipped product for a real interval. The brief now describes the filter model and states plainly that randomized selection loosens the original deterministic-only promise, and bounds what was loosened: filtering and ordering stay deterministic, and only the draw from the pool is random.
+2026-08-01 の人間裁定: `TDR-AUTH-01`〜`05`・`07` は L4 のブラウザ検証、`TDR-AUTH-06` は L3 検証、
+HTTPS の transport 検証はデプロイまで先送り。
 
-Closing those records took two follow-up pull requests rather than one, both avoidable. `record-update-needs-second-pr` has now occurred seven times repository-wide; FR-008 named the fifth as the point to prefer a mechanism over a convention, and FR-016 and FR-017 are the sixth and seventh. FR-017's proposed check — govlint failing an ADR whose body declares "approved by merging this PR" while its frontmatter still says `提案中` — remains unimplemented because `meta/tools/**` is locked by `meta/adr/0046` and unlocking needs a human commit.
+**機械的な関所が無い箇所として記録しておく。**`tests/acceptance/**` を変更した PR に対する reviewer の
+独立監査（`meta/agents.md` §4 step 7）は、PR #88 と PR #156 の2回、実施されないままマージされた。
+どちらも orchestrator が事前に申告し、人間がそのままマージした——`meta/adr/0035` 方式(i) では
+**マージが承認行為**なので規程違反ではなく人間の判断である。ただし**監査を回すかどうかが毎回
+orchestrator の申告と人間の裁量に委ねられており、PR テンプレのチェック欄は自己申告にすぎない。**
 
-Human resolution on 2026-08-01 approved L4 browser verification for `TDR-AUTH-01` through `TDR-AUTH-05` and `TDR-AUTH-07`, L3 verification for `TDR-AUTH-06`, and deferral of HTTPS transport verification to deployment.
+`record-update-needs-second-pr`（ADR の承認記録を閉じるのに追加の PR が要る）はリポジトリ全体で
+7回起きている。FR-008 が5回目を「慣行より仕組みを選ぶ地点」と名指しし、FR-016・FR-017 が6・7回目。
+FR-017 が提案した検査——本文で「この PR のマージで承認」と宣言している ADR の frontmatter が
+`提案中` のままなら govlint を落とす——は、`meta/tools/**` が `meta/adr/0046` でロックされていて
+人間の解錠コミットが要るため未実装のまま。
 
-PR #88 merged without the independent reviewer audit that `meta/agents.md` §4 step 7 calls for on `tests/acceptance/**` changes. Orchestrator raised this twice before the merge and received no instruction to run it; the human merged, which under `meta/adr/0035` mode (i) is the approval act. Recorded here so the gap is visible rather than inferred.
-
-**同じことが PR #156 でも起きた（2026-08-24）。** `tests/acceptance/**` を変更しているが reviewer の独立監査を実施していない。orchestrator はPR本文に「未実施。承認前に必要なら実施します」と明記し、人間はそのままマージした——`meta/adr/0035` 方式(i) では**マージが承認行為**なので、これは規程違反ではなく人間の判断である。**2回目なので形として記録する**: 監査を回すかどうかが毎回 orchestrator の申告と人間の裁量に委ねられており、機械的な関所は無い（PRテンプレのチェック欄は自己申告）。
-
-**Convention for this file (FR-008):** do not describe the approval status of an in-flight pull request here. The pull request, the ADR frontmatter, and git already own that fact, and duplicating it guarantees this file becomes false the moment the merge happens (P-04). Describe what exists; let the approval record live where the approval act is.
+**このファイルの慣行（FR-008）**: 進行中の PR の承認状態をここに書かない。PR・ADR の frontmatter・
+git が既にその事実を持っており、複製すればマージした瞬間にこのファイルが嘘になる（P-04）。
+**存在するものを書き、承認の記録は承認行為が起きる場所に置く。**

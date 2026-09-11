@@ -115,9 +115,21 @@
 .gth-btn-primary:hover {
   background: #0e4736;
 }
+/* Human real-device report, 2026-09-08 (repeated: "余白が気になりますね、
+   ボタンが小さいのも相まってデザインが悪く見える"), reflected in
+   Organizer.dc.html's own before/after table ("ボタンの高さ...32px...文字
+   11.5px" -> "44px。文字13px"): this variant used to shrink below this
+   file's own stated 44px floor (module docstring above) for two genuinely
+   activatable controls -- gathering-participant-link-recopy/-revoke
+   (gathering.js's renderParticipantLinkItem) -- despite the file's own
+   claim that every activatable control meets it. Raised to match the
+   shared .gathering-btn/.gth-btn floor instead of keeping a separate,
+   smaller minimum; only the padding/font-size stay compact, which is what
+   "small" is meant to express (a lower-emphasis action, not a smaller tap
+   target). */
 .gathering-btn-small,
 .gth-btn-small {
-  min-height: 2.25rem;
+  min-height: 2.75rem;
   padding: 0 0.75rem;
   font-size: 0.8125rem;
 }
@@ -201,13 +213,18 @@
   margin-bottom: 1rem;
 }
 
+/* Row spacing and each row's own inner padding both widened (2026-09-08
+   human report, repeated: "余白が気になりますね..."), matching the same
+   card-gap/screen-padding delta this product's participant screen applies
+   for the identical complaint (participant_answer.html's own .gth-body,
+   Answer.dc.html board: gap 10->12px, vertical padding 12->14px). */
 .gathering-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.625rem;
+  gap: 0.75rem;
 }
 
 .gathering-list-item {
@@ -218,7 +235,7 @@
   background: #fff;
   border: 1px solid #dfe4de;
   border-radius: 0.75rem;
-  padding: 0.75rem 1rem;
+  padding: 0.875rem 1rem;
 }
 
 .gathering-list-item-title {
@@ -347,12 +364,52 @@
   align-items: center;
   gap: 0.625rem 1rem;
 }
-.gth-title {
+.gth-header-row {
   flex-basis: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.gth-title {
   font-size: 1.125rem;
   font-weight: 700;
   color: #17201b;
   overflow-wrap: break-word;
+}
+
+/* --- deleteGathering (adr/0050 decision 4) ------------------------------- */
+
+.gth-delete {
+  flex: 0 0 auto;
+  position: relative;
+}
+.gth-btn-danger {
+  border-color: #b4531c;
+  color: #b4531c;
+}
+.gth-btn-danger:hover {
+  background: #fbf1ea;
+}
+.gth-delete-dialog {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.5rem);
+  z-index: 5;
+  width: max(16rem, 100%);
+  background: #fff;
+  border: 1px solid #dfe4de;
+  border-radius: 0.625rem;
+  box-shadow: 0 0.5rem 1.5rem rgba(23, 32, 27, 0.15);
+  padding: 0.875rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.gth-delete-dialog-text {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #4b564e;
 }
 
 .gth-phase {
@@ -394,14 +451,16 @@
   font-weight: 700;
 }
 
+/* Widened for the same reason .gathering-list-item above was (2026-09-08
+   human report, repeated: "余白が気になりますね..."). */
 .gth-pane {
   background: #fff;
   border: 1px solid #dfe4de;
   border-radius: 0.75rem;
-  padding: 0.9rem 1rem;
+  padding: 1rem 1.125rem;
   display: flex;
   flex-direction: column;
-  gap: 0.625rem;
+  gap: 0.75rem;
 }
 .gth-pane-head {
   display: flex;
@@ -528,6 +587,63 @@
   flex: 1 1 12rem;
 }
 
+/* --- candidate-date calendars (adr/0049 decision 3 / adr/0051) ---------
+   Shared by addCandidateDateForm.calendar (gathering.js, .gth-calendar) and
+   organizerGatheringCreate.calendar (gathering_create.js,
+   .gathering-calendar) -- one ruleset, two container classes, since both
+   wrap the same vendored flatpickr markup the same way. flatpickr's own
+   required `<input>` is never attached to the document at all (see
+   gathering.js's own buildCandidateDateCalendar) -- `.flatpickr-calendar.
+   inline` is appended directly into this container instead, so there is no
+   separate anchor element to hide here. Day-cell sizing is bumped past
+   flatpickr's own ~39px default toward this file's own 44px tap-target
+   quality bar (see this file's header comment) -- not gate-enforced for
+   these screens (ADR-0020 decision 4(e) scopes that gate to
+   candidate-search only), but a real fix for the "ボタンが小さい" feedback
+   this round responds to. */
+.gth-calendar,
+.gathering-calendar {
+  display: block;
+  /* showMonths: 3 (gathering.js/gathering_create.js's own
+     buildCandidateDateCalendar) renders wider than this screen's own
+     min(100% - 2rem, 60rem) column on narrow viewports -- horizontal
+     scroll (a common, well-understood pattern for wide multi-month
+     calendars) keeps every day cell simultaneously reachable rather than
+     clipping or attempting a wrap flatpickr's own flex layout does not
+     natively support gracefully. */
+  overflow-x: auto;
+}
+.gth-calendar .flatpickr-calendar.inline,
+.gathering-calendar .flatpickr-calendar.inline {
+  width: auto;
+  max-width: none;
+  border: 1px solid #dfe4de;
+  border-radius: 0.625rem;
+  box-shadow: none;
+  font-family: inherit;
+}
+.gth-calendar .flatpickr-day,
+.gathering-calendar .flatpickr-day {
+  height: 2.75rem;
+  line-height: 2.75rem;
+  max-width: 2.75rem;
+  border-radius: 0.5rem;
+}
+.gth-calendar .flatpickr-day.today,
+.gathering-calendar .flatpickr-day.today {
+  border-color: #14614a;
+}
+.gth-calendar .flatpickr-day[data-selected="true"],
+.gathering-calendar .flatpickr-day[data-selected="true"] {
+  background: #14614a;
+  border-color: #14614a;
+  color: #fff;
+}
+.gth-calendar .flatpickr-day.flatpickr-disabled,
+.gathering-calendar .flatpickr-day.flatpickr-disabled {
+  color: #c6cfc6;
+}
+
 .gth-preview {
   background: #eaf0ea;
   border: 1px solid #dfe4de;
@@ -615,7 +731,10 @@
   align-items: center;
   justify-content: center;
 }
-.gth-shop-row--vote:first-child .gth-shop-rank {
+/* adr/0050 decision 5: driven by data-current-leader, the contract's own
+   attribute, rather than :first-child -- keeps the highlight tied to the
+   actual leader signal even if this list's DOM structure changes later. */
+.gth-shop-row--vote[data-current-leader="true"] .gth-shop-rank {
   background: #b4531c;
   border-color: #b4531c;
   color: #fff;
@@ -726,10 +845,13 @@
   color: #4b564e;
   white-space: nowrap;
 }
+/* A real, clickable <a> (a genuine activatable control), raised to this
+   file's own stated 44px floor for the same reason .gth-btn-small was
+   (2026-09-08 human report). */
 .gth-shop-link {
   display: inline-flex;
   align-items: center;
-  min-height: 2.25rem;
+  min-height: 2.75rem;
   padding: 0 0.75rem;
   border: 1px solid #14614a;
   border-radius: 0.5rem;

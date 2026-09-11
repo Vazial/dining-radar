@@ -307,34 +307,23 @@ class CandidateSearchSteps:
     def fetch_failure_is_announced(self) -> None:
         self.dsl.assert_fetch_failure_is_announced()
 
-    # renderModes and deck navigation (adr/0031, contractVersion 1.5.0) ----
+    # renderModes and deck navigation (adr/0031/0033, adr/0049 decision 4,
+    # contractVersion 1.8.0) ------------------------------------------------
 
     def render_mode_test_ids_are_mutually_exclusive(self) -> None:
         self.dsl.assert_render_mode_test_ids_are_mutually_exclusive()
 
-    def organizer_compares_candidates_at_map_primary_viewport(self) -> None:
-        self.dsl.open_candidate_screen_at_map_primary_viewport()
+    def organizer_compares_candidates_at_two_column_viewport(self) -> None:
+        self.dsl.open_candidate_screen_at_two_column_viewport()
 
-    def map_primary_layout_holds(self) -> None:
-        self.dsl.assert_map_primary_layout_holds()
+    def two_column_layout_holds(self) -> None:
+        self.dsl.assert_two_column_layout_holds()
+
+    def all_cards_visible_without_paging(self) -> None:
+        self.dsl.assert_all_cards_visible_without_paging()
 
     def deck_position_counter_is_well_formed(self) -> None:
         self.dsl.assert_deck_position_counter_is_well_formed()
-
-    def deck_paging_controls_declare_correct_purposes(self) -> None:
-        self.dsl.assert_deck_paging_controls_declare_correct_purposes()
-
-    def deck_paging_controls_disabled_state_matches_window(self) -> None:
-        self.dsl.assert_deck_paging_controls_disabled_state_matches_window()
-
-    def organizer_pages_the_deck_forward(self) -> None:
-        self.dsl.page_deck_next_and_verify_window_advances()
-
-    def organizer_pages_the_deck_backward(self) -> None:
-        self.dsl.page_deck_previous_and_verify_window_recedes()
-
-    def organizer_pages_the_deck_forward_until_it_reaches_the_end(self) -> None:
-        self.dsl.page_deck_forward_until_the_window_reaches_the_end()
 
     def selecting_a_marker_outside_the_deck_window_brings_its_card_into_view(self) -> None:
         self.dsl.select_marker_outside_deck_window_and_verify_it_becomes_visible()
@@ -364,3 +353,66 @@ class CandidateSearchSteps:
 
     def deck_swipe_backward_is_a_no_op_at_the_boundary(self) -> None:
         self.dsl.assert_deck_swipe_backward_is_a_no_op_at_the_boundary()
+
+    # gatheringMode (TDR-CS-17/18/19, adr/0049 decision 1) ------------------
+
+    def gathering_open_shop_population_is_available(self) -> None:
+        """test-support-api.yaml's GATHERING_OPEN_SHOP_WEEKDAY_MATCH (TDR-CS-19's
+        own Given, adr/0049 decision 1's 2026-09-09 header addendum): a
+        6-open-shop weekday lets 5 be shortlisted through this screen's own
+        cardToggle while leaving exactly 1 not-yet-shortlisted spare
+        reachable via a search-again replay (mirrors gathering-scheduling.
+        feature's TDR-GTH-45, the same requirement from that other file's
+        own Given).
+        """
+        self.dsl.set_candidate_state("GATHERING_OPEN_SHOP_WEEKDAY_MATCH")
+
+    def organizer_has_a_selecting_shop_gathering(
+        self, title: str, candidate_date_iso: str | None = None
+    ) -> str:
+        return self.dsl.given_a_selecting_shop_gathering(title, candidate_date_iso)
+
+    def organizer_opens_this_screen_in_gathering_mode(self, gathering_id: str) -> None:
+        self.dsl.open_gathering_mode_from_dashboard(gathering_id)
+
+    def gathering_mode_band_shows(self, *, shortlisted: int, max_shortlisted: int = 5) -> None:
+        self.dsl.assert_gathering_mode_band_shows(
+            shortlisted=shortlisted, max_shortlisted=max_shortlisted
+        )
+
+    def organizer_adds_a_candidate_to_the_gathering(self) -> None:
+        self.dsl.toggle_first_candidate_into_gathering()
+
+    def organizer_removes_the_shop_from_the_gathering(self) -> None:
+        self.dsl.toggle_off_the_first_shortlisted_candidate()
+
+    def organizer_searches_again_on_shop_selection_entry(self) -> None:
+        self.dsl.search_again()
+
+    def unselected_candidate_toggle_is_disabled(self) -> None:
+        self.dsl.assert_unselected_candidate_toggle_is_disabled()
+
+    def selected_candidate_toggle_is_enabled(self) -> None:
+        self.dsl.assert_selected_candidate_toggle_is_enabled()
+
+    def gathering_mode_candidates_are_within_the_open_shop_population(
+        self, gathering_id: str, expected_open_shop_count: int
+    ) -> None:
+        self.dsl.assert_gathering_mode_candidates_are_within_open_shop_population(
+            gathering_id, expected_open_shop_count
+        )
+
+    # gatheringMode server-truth cross-checks (reviewer audit Major#2/Minor#1) -
+
+    def gathering_shortlisted_count_matches_server(
+        self, gathering_id: str, expected_count: int
+    ) -> None:
+        self.dsl.assert_gathering_shortlisted_count_matches_server(gathering_id, expected_count)
+
+    def gathering_shortlisted_shop_ids_via_api(self, gathering_id: str) -> set[str]:
+        return self.dsl.fetch_shortlisted_shop_ids_via_api(gathering_id)
+
+    def gathering_shortlisted_shop_ids_match_server(
+        self, gathering_id: str, expected_shop_ids: set[str]
+    ) -> None:
+        self.dsl.assert_gathering_shortlisted_shop_ids_match_server(gathering_id, expected_shop_ids)

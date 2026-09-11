@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from itertools import product
 from pathlib import Path
 
@@ -24,8 +25,10 @@ from tests.acceptance.dsl.js_browser_mechanics import (
     assert_all_absent,
     assert_all_present,
     assert_present,
+    build_captured_response,
     by_test_id,
     capture_candidate_proposal_response,
+    csrf_token,
     is_candidate_proposal_request,
     require,
     wait_for_at_least_one,
@@ -123,44 +126,49 @@ PROBLEM = "candidate-proposal-problem"
 PROBLEM_GUIDANCE = "candidate-proposal-problem-guidance"
 MANUAL_ORDERING = "candidate-manual-ordering"
 
-# contractVersion 1.6.0 (adr/0033) renderModes -- two mutually exclusive
-# "implementation-chosen rendering condition" element sets, both map-primary.
+# contractVersion 1.8.0 (adr/0033/adr/0049) renderModes -- two mutually
+# exclusive "implementation-chosen rendering condition" element sets.
 # adr/0033 retired the pre-adr/0031 list-primary mode (candidate-map-open /
 # candidate-map-sheet-close) outright: no width selects it any longer, so
 # this contract no longer defines it and this DSL no longer references it
 # (mirrors adr/0023's TDR-CS-07 retirement precedent -- a dead mode is
-# removed, not kept around as an always-false condition). The two
-# currently-named modes differ only in how the card deck is paged: buttons
-# (mapPrimaryLayout, adr/0031, desktop) or a swipe gesture
-# (mapPrimaryTouchLayout, adr/0033, mobile).
-DECK_PREVIOUS = "candidate-deck-previous"
-DECK_NEXT = "candidate-deck-next"
+# removed, not kept around as an always-false condition). **adr/0049
+# decision 4 (2026-09-08 human decision: "微妙。右に地図で一覧左とかじゃ
+# なかったっけ") retired mapPrimaryLayout (the desktop, button-paged deck)
+# the same way, replacing it with twoColumnLayout** -- a plain side-by-side
+# list-and-map layout that owns no test id of its own (all up to 5 cards fit
+# in one unpaged column) -- so candidate-deck-previous/-next and their two
+# purposes no longer exist anywhere in this DSL either, mirroring the same
+# dead-mode-removal precedent. The two currently-named modes are
+# twoColumnLayout (desktop, no deck) and mapPrimaryTouchLayout (mobile,
+# swipe-paged deck, unchanged by adr/0049).
 DECK_SWIPE_SURFACE = "candidate-deck-swipe-surface"
 DECK_POSITION = "candidate-deck-position"
-# renderModes.mapPrimaryLayout.testIds / renderModes.mapPrimaryTouchLayout.
-# testIds (v1.6.0): candidate-deck-position is deliberately *not* a member of
-# either list below -- adr/0033 decision 2 moved it out of both modes'
-# exclusivity arrays because deckNavigation.position.presenceRule makes it
-# common to both currently-named modes, not a distinguishing element.
-MAP_PRIMARY_LAYOUT_TEST_IDS = [DECK_PREVIOUS, DECK_NEXT]
+# renderModes.mapPrimaryTouchLayout.testIds (v1.8.0): twoColumnLayout's own
+# testIds array is empty by contract design (renderModes.twoColumnLayout.
+# testIds: [] -- it owns no exclusive element), so there is no analogous
+# TWO_COLUMN_LAYOUT_TEST_IDS constant to define; the mode is identified only
+# by mapPrimaryTouchLayout's own test id being absent (see
+# assert_render_mode_test_ids_are_mutually_exclusive below).
 MAP_PRIMARY_TOUCH_LAYOUT_TEST_IDS = [DECK_SWIPE_SURFACE]
 DECK_VISIBLE_START_ATTRIBUTE = "data-deck-visible-start"
 DECK_VISIBLE_END_ATTRIBUTE = "data-deck-visible-end"
 DECK_TOTAL_ATTRIBUTE = "data-deck-total"
-DECK_PAGE_PREVIOUS_PURPOSE = "candidate-deck-page-previous"
-DECK_PAGE_NEXT_PURPOSE = "candidate-deck-page-next"
-# adr/0031 決定4: the contract deliberately does not fix a pixel threshold
+# adr/0049 決定4: the contract deliberately does not fix a pixel threshold
 # (renderModes.verificationAllocation.L4/L5); this DSL is the one place that
-# chooses a single fixed viewport wide enough that mapPrimaryLayout (a
-# desktop-only surface per human decision 2026-08-28, decision7) is the mode
-# expected to hold, for the deckNavigation/selectMarker.deckVisibility checks
-# that apply only while it does. Deliberately far from any plausible
-# narrow/mobile breakpoint so this choice cannot be read as testing the
-# breakpoint value itself (that remains ADR-0032/L5's job, not this file's).
-DESKTOP_MAP_PRIMARY_VIEWPORT = {"width": 1440, "height": 900}
+# chooses a single fixed viewport wide enough that twoColumnLayout (a
+# desktop-only surface, replacing mapPrimaryLayout 2026-09-08) is the mode
+# expected to hold, for the selectMarker.deckVisibility ("trivially
+# satisfied" under this mode) checks that apply only while it does.
+# Deliberately far from any plausible narrow/mobile breakpoint so this
+# choice cannot be read as testing the breakpoint value itself (that remains
+# ADR-0032/L5's job, not this file's). Same 1440x900 value
+# DESKTOP_MAP_PRIMARY_VIEWPORT used before this rename -- only the mode this
+# viewport is chosen to reach has changed, not the viewport itself.
+DESKTOP_TWO_COLUMN_VIEWPORT = {"width": 1440, "height": 900}
 # adr/0033 決定1: mapPrimaryTouchLayout is the mobile/narrow surface (human
 # decision 2026-08-29, all widths under the still-unfixed threshold). Chosen
-# well below any plausible breakpoint (mirrors DESKTOP_MAP_PRIMARY_VIEWPORT's
+# well below any plausible breakpoint (mirrors DESKTOP_TWO_COLUMN_VIEWPORT's
 # own reasoning in the opposite direction) so this choice cannot be read as
 # testing the breakpoint value itself.
 MOBILE_MAP_PRIMARY_TOUCH_VIEWPORT = {"width": 390, "height": 844}
@@ -239,21 +247,36 @@ CARD_PAYMENT_CAUTION_TEST_ID = "candidate-card-payment-caution"
 CARD_PAYMENT_CAUTION_ATTRIBUTE = "data-card-payment-available"
 CARD_PAYMENT_VALUE_STATE_ATTRIBUTE = "data-card-payment-value-state"
 PROVIDER_PAGE_LINK_TEST_ID = "candidate-card-provider-page-link"
+# Verified 1:1 against candidate-search-browser-interface.yaml v1.8.0's own
+# unavailableControls.allowedPurposes list (18 entries, contract lines
+# ~1207-1217) -- every entry below has a matching contract entry and vice
+# versa. **Resynced 2026-09-09 (adr/0049)**: removed DECK_PAGE_PREVIOUS_
+# PURPOSE/DECK_PAGE_NEXT_PURPOSE (decision 4 -- twoColumnLayout replaces
+# mapPrimaryLayout, which owned the only desktop paging buttons; deck paging
+# survives only as mapPrimaryTouchLayout's swipe gesture, which carries no
+# purpose-declared control at all). Added candidate-no-results-open-filter
+# and candidate-filter-walking-time-max-selection, both of which this set
+# had never carried even though adr/0025 decision 3 and adr/0030 decision 2
+# added their own controls earlier -- a genuine pre-existing gap this
+# tester's own 1:1 resync (this round's own explicit instruction) surfaced,
+# not something adr/0049 itself changed. Added candidate-card-gathering-
+# toggle (decision 1's gatheringMode).
 ALLOWED_CONTROL_PURPOSES = {
     "candidate-card-selection",
     "candidate-map-marker-selection",
     "candidate-filter-open",
+    "candidate-no-results-open-filter",
     "candidate-filter-genre-selection",
     "candidate-filter-genre-overflow-toggle",
     "candidate-filter-izakaya-bar-toggle",
     "candidate-filter-non-smoking-toggle",
     "candidate-filter-card-payment-toggle",
     "candidate-filter-budget-tier-selection",
+    "candidate-filter-walking-time-max-selection",
     "candidate-filter-apply",
     "candidate-filter-revert",
     "candidate-search-again",
-    DECK_PAGE_PREVIOUS_PURPOSE,
-    DECK_PAGE_NEXT_PURPOSE,
+    "candidate-card-gathering-toggle",
     "auth-sign-out",
     "auth-password-change-open",
     "auth-account-menu-toggle",
@@ -299,6 +322,41 @@ LOCATION_RANGE_FORBIDDEN_TOKENS = [
     "distance",
 ]
 STATUS_BY_PROBLEM_CODE = {"PROVIDER_UNAVAILABLE": 503, "PROPOSAL_RATE_LIMITED": 429}
+
+# gatheringMode (TDR-CS-17/18/19, adr/0049 decision 1): the consolidated
+# shop-selection screen reached via gathering-scheduling-browser-interface.
+# yaml's shopSelectionEntry.open. This module does not import
+# gathering_scheduling_browser.py (module boundary already established the
+# other direction by that file's own TDR-GTH-25/44/45 handling) -- Given-
+# state construction (creating and confirming a gathering) and the entry
+# navigation (clicking that other contract's gathering-shortlist-open
+# button) are driven here as raw JSON calls / raw test ids instead.
+GATHERING_MODE_BAND = "candidate-gathering-mode-band"
+GATHERING_MODE_SHORTLISTED_COUNT_ATTR = "data-gathering-shortlisted-count"
+GATHERING_MODE_MAX_SHORTLISTED_ATTR = "data-gathering-max-shortlisted"
+CANDIDATE_CARD_GATHERING_TOGGLE = "candidate-card-gathering-toggle"
+CANDIDATE_GATHERING_SHORTLISTED_ATTR = "data-gathering-shortlisted"
+GATHERING_SHORTLIST_OPEN = "gathering-shortlist-open"
+GATHERING_PHASE_INDICATOR = "gathering-phase-indicator"
+# Duplicated from gathering_scheduling_browser.py's own OPEN_SHOP_COUNT_BY_
+# WEEKDAY (test-support-api.yaml's GATHERING_OPEN_SHOP_WEEKDAY_MATCH
+# description's per-weekday openShopCount table) rather than imported,
+# mirroring this pair of DSL files' established next_weekday_iso precedent
+# above (each owns its own small Given-state utilities, no cross-import
+# between the two sibling suites). Reviewer audit Major#1's own fix
+# (assert_gathering_mode_candidates_are_within_open_shop_population below)
+# needs this to know, per confirmed weekday, exactly how many distinct
+# shopIds a fully-converged gatheringMode population must contain.
+OPEN_SHOP_COUNT_BY_WEEKDAY = {0: 5, 1: 5, 2: 4, 3: 6, 4: 6, 5: 6, 6: 5}
+# Reviewer audit Major#1: upper bound on assert_gathering_mode_candidates_
+# are_within_open_shop_population's own search-again convergence loop --
+# GATHERING_OPEN_SHOP_WEEKDAY_MATCH's fixed 6-shop synthetic population
+# converges to any weekday's own known count within at most 3 rounds (see
+# that method's own docstring for the round-by-round trace); this leaves
+# ample headroom while still failing fast and explicitly, rather than
+# looping unboundedly, if a future change to the seam ever breaks that
+# guarantee.
+_GATHERING_MODE_NARROWING_MAX_ROUNDS = 5
 # adr/0030 決定1 bandLabel: "whose leading digits, parsed as an integer,
 # equal that same bandAttribute value". Only a run of digits at the very
 # start of the text counts -- a label like "徒歩10分" (digits not leading)
@@ -315,6 +373,26 @@ def _leading_minutes(text: str | None) -> int | None:
     if match is None:
         return None
     return int(match.group(1))
+
+
+def next_weekday_iso(weekday: int, hour: int = 12) -> str:
+    """The next future occurrence (never "today") of ``weekday`` (Python's
+    date.weekday(): Monday=0 ... Sunday=6) as an RFC3339 string, for
+    given_a_selecting_shop_gathering's candidate_date_iso.
+
+    Identical in behavior to gathering_scheduling_browser.py's own
+    next_weekday_iso (TDR-GTH-44/45's own technique for the same
+    test-support-api.yaml GATHERING_OPEN_SHOP_WEEKDAY_MATCH population) --
+    duplicated here rather than imported, mirroring this pair of DSL files'
+    existing precedent of each owning its own small Given-state utilities
+    rather than cross-importing between the two sibling suites.
+    """
+    now = datetime.now(UTC)
+    days_ahead = (weekday - now.weekday()) % 7 or 7
+    target = (now + timedelta(days=days_ahead)).replace(
+        hour=hour, minute=0, second=0, microsecond=0
+    )
+    return target.isoformat()
 
 
 @dataclass(frozen=True)
@@ -453,18 +531,20 @@ class CandidateSearchBrowserDsl:
             self._applied_filters = self._normalized_filters(self._current_filters())
             self._pending_filters = dict(self._applied_filters)
 
-    def open_candidate_screen_at_map_primary_viewport(self) -> None:
-        """renderModes.mapPrimaryLayout is the desktop deck-navigation layout
-        adr/0031 introduces (human decision 2026-08-28, decision7=案A).
+    def open_candidate_screen_at_two_column_viewport(self) -> None:
+        """renderModes.twoColumnLayout is the desktop, unpaged side-by-side
+        layout adr/0049 decision 4 introduces (2026-09-08 human decision:
+        "微妙。右に地図で一覧左とかじゃなかったっけ"), replacing
+        mapPrimaryLayout's button-paged deck.
 
         L4 fixes a single viewport per scenario rather than switching width
         mid-test (verificationAllocation.L4/L5 -- width-dependent mode
         *selection* correctness is ADR-0032/L5's job, not this file's); this
-        method is the one place DESKTOP_MAP_PRIMARY_VIEWPORT is applied, for
-        the deckNavigation/selectMarker.deckVisibility checks that apply
-        only while mapPrimaryLayout holds.
+        method is the one place DESKTOP_TWO_COLUMN_VIEWPORT is applied, for
+        the selectMarker.deckVisibility ("trivially satisfied" under this
+        mode) checks that apply only while twoColumnLayout holds.
         """
-        self.page.set_viewport_size(DESKTOP_MAP_PRIMARY_VIEWPORT)
+        self.page.set_viewport_size(DESKTOP_TWO_COLUMN_VIEWPORT)
         self.open_candidate_screen()
 
     def open_candidate_screen_at_map_primary_touch_viewport(self) -> None:
@@ -472,7 +552,7 @@ class CandidateSearchBrowserDsl:
         adr/0033 introduces (human decision 2026-08-29: mobile widths become
         map-primary too, paged by a swipe gesture instead of buttons).
 
-        Mirrors open_candidate_screen_at_map_primary_viewport's own reasoning
+        Mirrors open_candidate_screen_at_two_column_viewport's own reasoning
         in the opposite direction: MOBILE_MAP_PRIMARY_TOUCH_VIEWPORT is the
         one fixed viewport this file applies for the deckNavigation.
         swipeSurface / pageDeckSwipeForward/Backward checks that apply only
@@ -481,6 +561,304 @@ class CandidateSearchBrowserDsl:
         """
         self.page.set_viewport_size(MOBILE_MAP_PRIMARY_TOUCH_VIEWPORT)
         self.open_candidate_screen()
+
+    # gatheringMode (TDR-CS-17/18/19, adr/0049 decision 1) ------------------
+    # Given-state construction and entry navigation cross into gathering-
+    # scheduling-api.yaml/gathering-scheduling-browser-interface.yaml's own
+    # surfaces (module-boundary note above) -- mirrors gathering_scheduling_
+    # browser.py's own TDR-GTH-25/44/45 precedent in the opposite direction.
+
+    def _gathering_api(
+        self, method: str, path: str, json_body: dict | None = None, *, csrf: bool = False
+    ) -> CapturedApiResponse:
+        headers: dict[str, str] = {}
+        data: bytes | None = None
+        if json_body is not None:
+            headers["Content-Type"] = "application/json"
+            data = json.dumps(json_body).encode("utf-8")
+        if csrf:
+            headers["X-CSRFToken"] = csrf_token(self.page)
+        response = self.page.context.request.fetch(
+            f"{self.base_url}{path}", method=method, headers=headers, data=data
+        )
+        return build_captured_response(response)
+
+    def given_a_selecting_shop_gathering(
+        self, title: str, candidate_date_iso: str | None = None
+    ) -> str:
+        """Given-state builder for TDR-CS-17/18/19's own Given ("幹事が会から
+        店を選ぶためにこの画面を開いている（会モード）"): creates and confirms
+        one candidate date on a gathering, through gathering-scheduling-
+        api.yaml's own public boundary (mirrors gathering_scheduling_
+        browser.py's create_selecting_shop_gathering, adr/0037 decision 1),
+        returning the gathering's id.
+
+        ``candidate_date_iso`` lets a caller pin the confirmed date's
+        weekday (e.g. TDR-CS-19's need for test-support-api.yaml's
+        GATHERING_OPEN_SHOP_WEEKDAY_MATCH population, whose openShopCount is
+        known per weekday -- see this file's own next_weekday_iso below,
+        mirroring gathering_scheduling_browser.py's identical helper for the
+        sibling TDR-GTH-44/45 scenarios). Omitted, this keeps the prior
+        arbitrary "+3 days" default TDR-CS-17/18 do not depend on.
+        """
+        start_at = (
+            datetime.fromisoformat(candidate_date_iso)
+            if candidate_date_iso is not None
+            else (datetime.now(UTC) + timedelta(days=3)).replace(
+                hour=12, minute=0, second=0, microsecond=0
+            )
+        )
+        create_response = self._gathering_api(
+            "POST",
+            "/gatherings",
+            {"title": title, "candidateDates": [{"startAt": start_at.isoformat()}]},
+            csrf=True,
+        )
+        self.assertions.assertEqual(create_response.status, 201, create_response.body)
+        gathering = create_response.payload
+        candidate_date_id = gathering["candidateDates"][0]["id"]
+        confirm_response = self._gathering_api(
+            "POST",
+            f"/gatherings/{gathering['id']}/confirm-date",
+            {"candidateDateId": candidate_date_id},
+            csrf=True,
+        )
+        self.assertions.assertEqual(confirm_response.status, 200, confirm_response.body)
+        return gathering["id"]
+
+    def open_gathering_mode_from_dashboard(self, gathering_id: str) -> None:
+        """Navigates to the organizer dashboard for ``gathering_id`` and
+        activates shopSelectionEntry.open (gathering-scheduling-browser-
+        interface.yaml), landing on this file's own gatheringMode screen.
+        """
+        self.page.goto(f"{self.base_url}/gatherings/{gathering_id}/")
+        wait_for_at_least_one(self.page, GATHERING_PHASE_INDICATOR)
+        self.initial = capture_candidate_proposal_response(
+            self.page, lambda: by_test_id(self.page, GATHERING_SHORTLIST_OPEN).first.click()
+        )
+        self.current = self.initial
+        wait_for_at_least_one(self.page, GATHERING_MODE_BAND)
+        if self.initial.status == 200:
+            self._current_proposal()
+            self._applied_filters = self._normalized_filters(self._current_filters())
+            self._pending_filters = dict(self._applied_filters)
+
+    def _read_gathering_mode_band(self) -> dict[str, int]:
+        node = assert_present(self.assertions, self.page, GATHERING_MODE_BAND)
+        return {
+            "shortlisted": int(node.get_attribute(GATHERING_MODE_SHORTLISTED_COUNT_ATTR)),
+            "max": int(node.get_attribute(GATHERING_MODE_MAX_SHORTLISTED_ATTR)),
+        }
+
+    def assert_gathering_mode_band_shows(
+        self, *, shortlisted: int, max_shortlisted: int = 5
+    ) -> None:
+        band = self._read_gathering_mode_band()
+        self.assertions.assertEqual(band["shortlisted"], shortlisted)
+        self.assertions.assertEqual(band["max"], max_shortlisted)
+
+    def toggle_first_candidate_into_gathering(self) -> None:
+        """gatheringMode.cardToggle's requiredOutcome (TDR-CS-17): toggles the
+        first currently-rendered, not-yet-shortlisted card in. Calls
+        setShortlistedShops immediately (no separate submit).
+
+        **Fixed**: the prior version located its target with an attribute
+        filter (`[data-gathering-shortlisted="false"]`) and re-asserted on
+        that *same, still-attribute-filtered* Locator after clicking --
+        since a Playwright Locator re-resolves its selector on every
+        interaction rather than pinning the element it first found, once the
+        click flips the clicked card's own attribute to "true" that locator
+        no longer matches the clicked card at all; with more than one
+        not-yet-shortlisted card still on screen (TDR-CS-19 toggles five in a
+        row), it silently starts matching a *different*, still-"false" card
+        instead, so the following assertion polled a moving target and timed
+        out waiting for a card that was never clicked to turn "true"
+        (reproduced empirically: the underlying setShortlistedShops call
+        always succeeded and the band count always advanced, only the
+        re-resolved locator's own attribute check hung). Locating by
+        position (`nth`) instead pins a stable target: toggling never
+        triggers a fresh proposeCandidates call (it calls
+        setShortlistedShops on gathering-scheduling-api.yaml instead, per
+        toggleCardGatheringShortlist's own requiredOutcome elsewhere in this
+        contract), so this screen's own card order is unaffected by the
+        click and the same index continues to identify the same card across
+        it -- mirroring gathering_scheduling_browser.py's own identical fix
+        for this same gatheringMode screen's cardToggle.
+        """
+        toggles = self.page.locator(f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]')
+        target_index = next(
+            index
+            for index in range(toggles.count())
+            if toggles.nth(index).get_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR) == "false"
+        )
+        target = toggles.nth(target_index)
+        before = self._read_gathering_mode_band()["shortlisted"]
+        target.click()
+        expect(target).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "true")
+        self.assertions.assertEqual(self._read_gathering_mode_band()["shortlisted"], before + 1)
+
+    def toggle_off_the_first_shortlisted_candidate(self) -> None:
+        """See toggle_first_candidate_into_gathering's docstring above for why
+        this targets by position (`nth`) rather than by the toggled
+        attribute itself: TDR-CS-17 clicks this immediately after that one,
+        so it is exposed to the identical retargeting bug once more than one
+        shortlisted card is on screen.
+        """
+        toggles = self.page.locator(f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]')
+        target_index = next(
+            index
+            for index in range(toggles.count())
+            if toggles.nth(index).get_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR) == "true"
+        )
+        target = toggles.nth(target_index)
+        before = self._read_gathering_mode_band()["shortlisted"]
+        target.click()
+        expect(target).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "false")
+        self.assertions.assertEqual(self._read_gathering_mode_band()["shortlisted"], before - 1)
+
+    def assert_unselected_candidate_toggle_is_disabled(self) -> None:
+        toggle = self.page.locator(
+            f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]'
+            f'[{CANDIDATE_GATHERING_SHORTLISTED_ATTR}="false"]'
+        ).first
+        expect(toggle).to_be_disabled()
+
+    def assert_selected_candidate_toggle_is_enabled(self) -> None:
+        """gatheringMode.cardToggle.disabledState's second half (adr/0049
+        decision 8): a card already in the gathering
+        (data-gathering-shortlisted="true") remains enabled even once the
+        5-shop cap is reached, so removing it to choose a different shop is
+        never blocked -- only an unselected card at the cap disables.
+        """
+        toggle = self.page.locator(
+            f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]'
+            f'[{CANDIDATE_GATHERING_SHORTLISTED_ATTR}="true"]'
+        ).first
+        expect(toggle).to_be_enabled()
+
+    def assert_gathering_mode_candidates_are_within_open_shop_population(
+        self, gathering_id: str, expected_open_shop_count: int
+    ) -> None:
+        """TDR-CS-18: 会モードでは、候補はその会の開催日に開いている店に絞
+        られる.
+
+        **Fixed (reviewer audit Major#1)**: the prior version checked only
+        that `gatheringContext.gatheringId` matched the target gathering
+        and that each candidate's `shopId`/`isShortlisted` were non-null --
+        true even if the population were not narrowed at all, so it proved
+        nothing about the Then's actual claim. This instead drives
+        search_again through this screen's own shown-pool-priority
+        accumulation (the same technique TDR-CS-19 already established for
+        this screen, adr/0052 decision 3 -- see search_again's own callers)
+        until the set of distinct `shopId` values actually returned stops
+        growing, then asserts that set's size exactly equals
+        ``expected_open_shop_count``, not merely at-least: narrowing that
+        failed to exclude a closed shop would converge to the unnarrowed
+        6-shop population's own larger, also-known size instead
+        (test-support-api.yaml's GATHERING_OPEN_SHOP_WEEKDAY_MATCH fixes
+        the raw synthetic population at exactly 6 regardless of weekday, so
+        an unnarrowed response and a correctly-narrowed one are
+        indistinguishable from a single round's count alone whenever the
+        confirmed weekday's own known count coincides with the 5-candidate
+        display cap -- this method's only caller deliberately picks such a
+        weekday, Monday, `OPEN_SHOP_COUNT_BY_WEEKDAY[0] == 5`, for exactly
+        this reason: a single round already returns 5 candidates whether or
+        not narrowing actually ran, so this loop must keep searching past
+        that coincidental match). Each round either draws exclusively from
+        the not-yet-shown partition (adding only new shopIds) or, once that
+        partition is smaller than the display cap, draws every remaining
+        not-yet-shown shopId plus already-shown repeats
+        (candidate-search-api.yaml's proposeCandidates description) -- so
+        growth is monotonic and a round that adds nothing new is a reliable,
+        non-flaky convergence signal, not a lucky sampling coincidence
+        (mirrors gathering_scheduling_browser.py's own
+        fetch_confirmed_date_open_shop_ids_with_a_spare "guaranteed, not
+        merely likely" reasoning).
+        """
+        proposal = self._current_proposal()
+        gathering_context = require(
+            proposal.get("gatheringContext"), "response carries no gatheringContext"
+        )
+        self.assertions.assertEqual(gathering_context["gatheringId"], gathering_id)
+        seen_shop_ids: set[str] = set()
+        for _round_index in range(_GATHERING_MODE_NARROWING_MAX_ROUNDS):
+            shop_id_count_before_this_round = len(seen_shop_ids)
+            for candidate in proposal["candidates"]:
+                self.assertions.assertIsNotNone(candidate["shopId"])
+                self.assertions.assertIsNotNone(candidate["isShortlisted"])
+                seen_shop_ids.add(candidate["shopId"])
+            if len(seen_shop_ids) == shop_id_count_before_this_round:
+                break
+            self.search_again()
+            proposal = self._current_proposal()
+        else:
+            self.assertions.fail(
+                "gathering-mode candidate population did not converge within "
+                f"{_GATHERING_MODE_NARROWING_MAX_ROUNDS} search-again rounds "
+                f"(distinct shopIds seen so far: {sorted(seen_shop_ids)})"
+            )
+        self.assertions.assertEqual(
+            len(seen_shop_ids),
+            expected_open_shop_count,
+            f"gathering-mode candidate population converged to "
+            f"{sorted(seen_shop_ids)} ({len(seen_shop_ids)} shops), expected "
+            f"exactly {expected_open_shop_count} for this confirmed weekday",
+        )
+
+    def fetch_shortlisted_shop_ids_via_api(self, gathering_id: str) -> set[str]:
+        """Given/Then-state technique for reviewer audit Major#2/Minor#1:
+        reads gathering-scheduling-api.yaml's own getGathering directly
+        (this module's own established _gathering_api convention, mirroring
+        gathering_scheduling_browser.py's refresh_gathering_from_api /
+        fetch_confirmed_date_open_shop_ids "direct API call sharing the same
+        authenticated session" precedent), rather than through this
+        screen's own DOM -- candidate-search-browser-interface.yaml's
+        gatheringMode carries no shopId-to-card DOM correlation a caller
+        could otherwise read identity back from (the same reason
+        gathering_scheduling_browser.py's own TDR-GTH-45 must return to the
+        organizer dashboard rather than stay on this screen; this screen
+        has no such dashboard to return to, so it reads the same
+        server-side truth directly instead). This is server truth, not the
+        client's own optimistic DOM state --
+        assert_gathering_mode_band_shows reads only the latter.
+        """
+        response = self._gathering_api("GET", f"/gatherings/{gathering_id}")
+        self.assertions.assertEqual(response.status, 200, response.body)
+        return {shop["shopId"] for shop in response.payload["shortlistedShops"]}
+
+    def assert_gathering_shortlisted_count_matches_server(
+        self, gathering_id: str, expected_count: int
+    ) -> None:
+        """Reviewer audit Minor#1: TDR-CS-17's final gathering_mode_band_shows
+        check reads only this screen's own `data-gathering-shortlisted-
+        count` attribute -- a client that optimistically re-renders the
+        band without the underlying setShortlistedShops write actually
+        landing would still pass that check. This closes the gap by
+        cross-checking the same count against gathering-scheduling-api.
+        yaml's own server-held `shortlistedShops` (mirrors gathering_
+        scheduling_browser.py's own TDR-GTH-44/45 refresh_gathering_from_
+        api asymmetry, now resolved on this screen too).
+        """
+        actual = self.fetch_shortlisted_shop_ids_via_api(gathering_id)
+        self.assertions.assertEqual(len(actual), expected_count)
+
+    def assert_gathering_shortlisted_shop_ids_match_server(
+        self, gathering_id: str, expected_shop_ids: set[str]
+    ) -> None:
+        """Reviewer audit Major#2: TDR-CS-19's "既に入れている5件はそのまま
+        変わらない" is an exact-identity claim, not merely a count -- the
+        collective disabled/enabled toggle-state checks around this
+        method's only caller are true even if the 5 members had been
+        silently swapped for a different 5. gatheringMode's own cardToggle
+        carries no shopId-to-card DOM correlation this suite could
+        otherwise read identity from (mirrors gathering_scheduling_
+        browser.py's own TDR-GTH-45 fix note), so this reads
+        gathering-scheduling-api.yaml's own getGathering directly, both
+        before and after the search-again replay that surfaces the excluded
+        6th shop, and asserts the shopId set truly did not change.
+        """
+        actual = self.fetch_shortlisted_shop_ids_via_api(gathering_id)
+        self.assertions.assertEqual(actual, expected_shop_ids)
 
     def open_filter_panel(self) -> None:
         url_before = self.page.url
@@ -1165,166 +1543,107 @@ class CandidateSearchBrowserDsl:
     # Then: renderModes and deck navigation (adr/0031, contractVersion 1.5.0) --
 
     def assert_render_mode_test_ids_are_mutually_exclusive(self) -> None:
-        """renderModesの2モードは互いに排他的である (adr/0033 決定1; contractVersion 1.6.0).
+        """renderModesの2モードは互いに排他的である
+        (adr/0033 決定1、adr/0049 決定4; contractVersion 1.8.0).
 
         renderModes.invariant: exactly one named mode holds at any time, and
-        every test id of the *other* mode is absent while it does. adr/0033
-        retired listPrimaryLayout, so the two currently-named modes compared
-        here are mapPrimaryLayout (buttons) and mapPrimaryTouchLayout (swipe
-        surface) -- both map-primary. This reads DOM presence directly for
-        both id sets -- it does not compare two attributes the
-        implementation derived from a single shared source, so a defect that
-        leaks one mode's element while the other mode's elements are already
-        present is genuinely detectable (unlike a same-origin-value
-        comparison). candidate-deck-position is deliberately excluded from
-        both id sets (MAP_PRIMARY_LAYOUT_TEST_IDS /
-        MAP_PRIMARY_TOUCH_LAYOUT_TEST_IDS): adr/0033 decision 2 made it
-        common to both modes, so it cannot itself say which one holds.
+        every test id of the *other* mode is absent while it does.
+        twoColumnLayout (adr/0049 decision 4, replacing mapPrimaryLayout) owns
+        no test id of its own (renderModes.twoColumnLayout.testIds: [] --
+        showing every card in one unpaged column needs no paging control),
+        so this mode is identified only by elimination: whenever
+        mapPrimaryTouchLayout's own swipe-surface test id is absent, this
+        contract's invariant requires twoColumnLayout to be the mode
+        holding instead (exactly one of the two always holds). This still
+        genuinely detects a defect that leaks mapPrimaryTouchLayout's own
+        test id while twoColumnLayout is expected to hold (the branch below
+        that runs only when the swipe surface is absent) -- it just has
+        nothing of twoColumnLayout's own to assert as *present*, since the
+        contract defines nothing (this is the "vacuously... for its own,
+        empty test id set" property renderModes.twoColumnLayout's own note
+        describes). candidate-deck-position is likewise absent while
+        twoColumnLayout holds (asserted here too, matching
+        deckNavigation.position.presenceRule) -- unlike under adr/0033, it
+        is no longer common to both modes.
         """
-        map_primary_present = any(
-            by_test_id(self.page, test_id).count() > 0 for test_id in MAP_PRIMARY_LAYOUT_TEST_IDS
-        )
         map_primary_touch_present = any(
             by_test_id(self.page, test_id).count() > 0
             for test_id in MAP_PRIMARY_TOUCH_LAYOUT_TEST_IDS
         )
-        self.assertions.assertTrue(
-            map_primary_present or map_primary_touch_present,
-            "neither renderModes.mapPrimaryLayout nor renderModes.mapPrimaryTouchLayout test "
-            "ids are present at this fixed viewport, but renderModes.invariant requires "
-            "exactly one named mode to hold",
-        )
-        self.assertions.assertFalse(
-            map_primary_present and map_primary_touch_present,
-            "test ids from both renderModes.mapPrimaryLayout and renderModes."
-            "mapPrimaryTouchLayout are present simultaneously, but renderModes.invariant "
-            "requires exactly one named mode to hold",
-        )
-        if map_primary_present:
-            assert_all_absent(self.assertions, self.page, MAP_PRIMARY_TOUCH_LAYOUT_TEST_IDS)
+        if map_primary_touch_present:
+            assert_all_present(self.assertions, self.page, [DECK_POSITION])
         else:
-            assert_all_absent(self.assertions, self.page, MAP_PRIMARY_LAYOUT_TEST_IDS)
+            assert_all_absent(self.assertions, self.page, [DECK_POSITION])
 
-    def assert_map_primary_layout_holds(self) -> None:
-        """このスライスのデッキ検査は renderModes.mapPrimaryLayout が成立する前提である
-        (adr/0031 決定4; deckNavigation.description).
+    def assert_two_column_layout_holds(self) -> None:
+        """このスライスのデッキ検査は renderModes.twoColumnLayout が成立する前提である
+        (adr/0049 決定4; deckNavigation.description, replacing
+        assert_map_primary_layout_holds).
 
-        Unchanged assertions from before contractVersion 1.6.0: still
-        requires candidate-deck-previous/-next *and* candidate-deck-position
-        present, and every mapPrimaryTouchLayout-only test id absent.
-        candidate-deck-position is listed explicitly here (rather than via
-        MAP_PRIMARY_LAYOUT_TEST_IDS) only because adr/0033 decision 2 moved
-        it out of that array's contract definition -- it is still required
-        while mapPrimaryLayout holds (deckNavigation.position.presenceRule).
+        twoColumnLayout owns no exclusive test id of its own (its testIds
+        array is empty by contract design), so "this mode holds" is
+        asserted as the absence of every mapPrimaryTouchLayout-only test id
+        (the swipe surface and the position counter, which deckNavigation.
+        position.presenceRule ties to mapPrimaryTouchLayout only as of
+        contractVersion 1.8.0) -- mirroring
+        assert_render_mode_test_ids_are_mutually_exclusive's own by-
+        elimination reasoning.
         """
-        assert_all_present(
-            self.assertions, self.page, [*MAP_PRIMARY_LAYOUT_TEST_IDS, DECK_POSITION]
+        assert_all_absent(
+            self.assertions, self.page, [*MAP_PRIMARY_TOUCH_LAYOUT_TEST_IDS, DECK_POSITION]
         )
-        assert_all_absent(self.assertions, self.page, MAP_PRIMARY_TOUCH_LAYOUT_TEST_IDS)
 
     def assert_map_primary_touch_layout_holds(self) -> None:
         """このスライスのデッキ検査は renderModes.mapPrimaryTouchLayout が成立する前提である
-        (adr/0033 決定1; deckNavigation.description). Mirrors
-        assert_map_primary_layout_holds for the touch-driven mobile mode:
-        requires candidate-deck-swipe-surface and candidate-deck-position
-        present, and every mapPrimaryLayout-only (button) test id absent.
+        (adr/0033 決定1; deckNavigation.description). Requires
+        candidate-deck-swipe-surface and candidate-deck-position present
+        (twoColumnLayout owns no test id of its own to assert absent here,
+        adr/0049 decision 4 -- assert_render_mode_test_ids_are_mutually_
+        exclusive already proves the by-elimination exclusivity property).
         """
         assert_all_present(
             self.assertions, self.page, [*MAP_PRIMARY_TOUCH_LAYOUT_TEST_IDS, DECK_POSITION]
         )
-        assert_all_absent(self.assertions, self.page, MAP_PRIMARY_LAYOUT_TEST_IDS)
+
+    def assert_all_cards_visible_without_paging(self) -> None:
+        """twoColumnLayoutは専有のtest idを持たない代わりに、送りボタンなしで
+        最大5件のカードをすべて同時に見せることそのものが成立の証拠である
+        (adr/0049 決定4: "5件が一覧に収まるため"). candidate-deck-position が
+        不在の場合、この suite にはデッキの窓を機械観測する手段が無い
+        (adr/0049 decision4 の設計どおり)ため、その代わりに現在の応答が持つ
+        候補の総数と、実際にPlaywrightの可視判定で見えているカードの枚数が
+        一致することを、送りボタン不在の直接証拠として確認する。
+        """
+        candidates = self._current_proposal()["candidates"]
+        cards = by_test_id(self.page, CARD)
+        self.assertions.assertEqual(cards.count(), len(candidates))
+        for index in range(cards.count()):
+            expect(cards.nth(index)).to_be_visible()
 
     def assert_deck_position_counter_is_well_formed(self) -> None:
         """件数カウンタは表示窓の位置を1始まりの整数で示す
-        (adr/0031 決定2; deckNavigation.position.valueShape)."""
+        (adr/0031 決定2; deckNavigation.position.valueShape). **Strengthened
+        2026-09-09 (adr/0049 決定5, 2026-09-08 human decision: "スワイプが
+        途中で止まって見切れる症状を直す")**: deckNavigation.swipeSurface's
+        stopBehavior now always settles on exactly one full card, so
+        visibleStart must always equal visibleEnd while candidate-deck-
+        position is present (it is present only while mapPrimaryTouchLayout
+        holds as of contractVersion 1.8.0) -- this equality is the
+        contract's own stated indirect, machine-observable proof that
+        "exactly one card is visible" (this suite does not otherwise measure
+        rendered card geometry, that remains L5's job).
+        """
         start, end, total = self._deck_window()
         self.assertions.assertEqual(total, len(self._card_candidate_refs()))
         self.assertions.assertGreaterEqual(start, 1)
         self.assertions.assertLessEqual(start, end)
         self.assertions.assertLessEqual(end, total)
-
-    def assert_deck_paging_controls_declare_correct_purposes(self) -> None:
-        """送りボタンはそれぞれ別名の目的を宣言する (adr/0031 決定1)."""
-        expect(by_test_id(self.page, DECK_PREVIOUS)).to_have_attribute(
-            "data-candidate-control-purpose", DECK_PAGE_PREVIOUS_PURPOSE
-        )
-        expect(by_test_id(self.page, DECK_NEXT)).to_have_attribute(
-            "data-candidate-control-purpose", DECK_PAGE_NEXT_PURPOSE
-        )
-
-    def assert_deck_paging_controls_disabled_state_matches_window(self) -> None:
-        """送りボタンは窓の端で無効化される。不在ではなく disabled であること
-        (adr/0031 決定2; deckNavigation.disabledState)."""
-        position = assert_present(self.assertions, self.page, DECK_POSITION)
-        start = position.get_attribute(DECK_VISIBLE_START_ATTRIBUTE)
-        end = position.get_attribute(DECK_VISIBLE_END_ATTRIBUTE)
-        total = position.get_attribute(DECK_TOTAL_ATTRIBUTE)
-        previous = assert_present(self.assertions, self.page, DECK_PREVIOUS)
-        next_ = assert_present(self.assertions, self.page, DECK_NEXT)
-        if start == "1":
-            expect(previous).to_be_disabled()
-        else:
-            expect(previous).to_be_enabled()
-        if end == total:
-            expect(next_).to_be_disabled()
-        else:
-            expect(next_).to_be_enabled()
-
-    def page_deck_next_and_verify_window_advances(self) -> None:
-        """次へを押すと表示窓が動くが、カード集合・選択・条件は変えない
-        (adr/0031 決定3; browserActions.pageDeckNext)."""
-        start_before, end_before, total = self._deck_window()
-        self.assertions.assertLess(
-            end_before, total, "deck window already covers every card; cannot exercise pageDeckNext"
-        )
-        snapshot = self._display_snapshot()
-        self._perform_without_candidate_request(lambda: by_test_id(self.page, DECK_NEXT).click())
-        start_after, end_after, total_after = self._deck_window()
-        self.assertions.assertEqual(total_after, total)
-        self.assertions.assertGreater(start_after, start_before)
-        self.assertions.assertGreaterEqual(end_after, end_before)
-        self.assertions.assertLessEqual(end_after, total)
-        self._assert_display_snapshot(snapshot)
-
-    def page_deck_previous_and_verify_window_recedes(self) -> None:
-        """前へを押すと表示窓が動くが、カード集合・選択・条件は変えない
-        (adr/0031 決定3; browserActions.pageDeckPrevious)."""
-        start_before, end_before, total = self._deck_window()
-        self.assertions.assertGreater(
-            start_before, 1, "deck window is already at the start; cannot exercise pageDeckPrevious"
-        )
-        snapshot = self._display_snapshot()
-        self._perform_without_candidate_request(
-            lambda: by_test_id(self.page, DECK_PREVIOUS).click()
-        )
-        start_after, end_after, total_after = self._deck_window()
-        self.assertions.assertEqual(total_after, total)
-        self.assertions.assertLess(end_after, end_before)
-        self.assertions.assertLessEqual(start_after, start_before)
-        self.assertions.assertGreaterEqual(start_after, 1)
-        self._assert_display_snapshot(snapshot)
-
-    def page_deck_forward_until_the_window_reaches_the_end(self) -> None:
-        """次へを、窓の末尾 (data-deck-visible-end) が data-deck-total に一致する
-        まで繰り返し押す。デッキの窓の枚数は幅ごとに異なる (adr/0032) ため回数を
-        決め打ちにしない。1クリックごとに page_deck_next_and_verify_window_advances
-        を経由するため、送りの途中も含めて並び・data-candidate-ref集合が保たれる
-        こと (deckNavigation.orderingInvariant) を毎回検査する。無限ループ防止の
-        上限 (data-deck-total 回) に達しても末尾へ到達していなければ、それ自体を
-        成功とはせず明示的に失敗させる
-        (adr/0031 決定3; browserActions.pageDeckNext, deckNavigation.disabledState)."""
-        _, end, total = self._deck_window()
-        clicks = 0
-        while end < total and clicks < total:
-            self.page_deck_next_and_verify_window_advances()
-            clicks += 1
-            _, end, total = self._deck_window()
         self.assertions.assertEqual(
+            start,
             end,
-            total,
-            f"deck window did not reach the end after {clicks} forward clicks "
-            f"(data-deck-visible-end={end}, data-deck-total={total}); "
-            "candidate-deck-next may not be advancing the window toward the last card",
+            "candidate-deck-position's visibleStart must always equal visibleEnd while "
+            "mapPrimaryTouchLayout holds (adr/0049 decision 5: the swipe surface always "
+            "settles on exactly one full card, never a partial one at either edge)",
         )
 
     def select_marker_outside_deck_window_and_verify_it_becomes_visible(self) -> None:
@@ -1556,8 +1875,8 @@ class CandidateSearchBrowserDsl:
 
     def page_deck_swipe_forward_until_the_window_reaches_the_end(self) -> None:
         """指のスワイプ（前方向）を、窓の末尾が総数に一致するまで繰り返す。
-        page_deck_forward_until_the_window_reaches_the_end と同じ理由で回数を
-        決め打ちにしない (adr/0033 決定3; browserActions.pageDeckSwipeForward)."""
+        デッキの窓の枚数は幅ごとに異なる (adr/0032) ため回数を決め打ちにしない
+        (adr/0033 決定3; browserActions.pageDeckSwipeForward)."""
         _, end, total = self._deck_window()
         swipes = 0
         while end < total and swipes < total:

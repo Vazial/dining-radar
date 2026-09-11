@@ -42,7 +42,25 @@ PROVIDER_CREDIT = {
 }
 
 
-def serialize_candidate(candidate: NormalizedCandidate, index: int, origin: Origin) -> dict:
+def serialize_candidate(
+    candidate: NormalizedCandidate,
+    index: int,
+    origin: Origin,
+    *,
+    shortlisted_shop_ids: frozenset[str] | None = None,
+) -> dict:
+    """``components.schemas.Candidate``.
+
+    ``shortlisted_shop_ids`` (adr/0049 decision 1, gathering mode): ``None``
+    for the ordinary (non-gathering) screen, in which case ``shopId``/
+    ``isShortlisted`` are both ``null`` (schema-legal, nullable: true). A
+    ``frozenset`` (possibly empty) in gathering mode -- ``shopId`` is then
+    always non-null (this candidate's own opaque
+    ``NormalizedCandidate.provider_page_url``, the same identifier
+    ``gathering-scheduling-api.yaml``'s ``setShortlistedShops`` consumes) and
+    ``isShortlisted`` reflects this exact set's membership.
+    """
+    gathering_mode = shortlisted_shop_ids is not None
     return {
         "candidateRef": f"candidate-{index}",
         "name": candidate.name,
@@ -61,6 +79,10 @@ def serialize_candidate(candidate: NormalizedCandidate, index: int, origin: Orig
         # of truth for the calculation), never computed here -- see that
         # module's walking_time_minutes for the estimate/rounding rationale.
         "walkingTimeMinutes": walking_time_minutes(origin, candidate),
+        "shopId": candidate.provider_page_url if gathering_mode else None,
+        "isShortlisted": (
+            candidate.provider_page_url in shortlisted_shop_ids if gathering_mode else None
+        ),
     }
 
 
@@ -93,10 +115,47 @@ def serialize_search_origin(origin: Origin) -> dict:
     return {"latitude": origin.latitude, "longitude": origin.longitude}
 
 
-def serialize_result(result: ProposalResult) -> dict:
+def serialize_gathering_context(
+    *,
+    gathering_id: str,
+    title: str,
+    confirmed_candidate_date_iso: str,
+    shortlisted_shop_count: int,
+    max_shortlisted_shops: int = 5,
+) -> dict:
+    """``components.schemas.GatheringContext`` (adr/0049 decision 1)."""
+    return {
+        "gatheringId": gathering_id,
+        "title": title,
+        "confirmedCandidateDate": confirmed_candidate_date_iso,
+        "shortlistedShopCount": shortlisted_shop_count,
+        "maxShortlistedShops": max_shortlisted_shops,
+    }
+
+
+def serialize_result(
+    result: ProposalResult,
+    *,
+    shortlisted_shop_ids: frozenset[str] | None = None,
+    gathering_context: dict | None = None,
+) -> dict:
+    """``CandidateProposalResponse``.
+
+    ``shortlisted_shop_ids``/``gathering_context`` are both ``None`` for the
+    ordinary (non-gathering) screen -- ``gatheringContext`` is then ``null``
+    on the wire, and every candidate's own ``shopId``/``isShortlisted`` are
+    ``null`` too (adr/0049 decision 1). Both are provided together in
+    gathering mode; there is no valid combination of one present and the
+    other absent.
+    """
     return {
         "candidates": [
-            serialize_candidate(candidate, index, result.search_origin)
+            serialize_candidate(
+                candidate,
+                index,
+                result.search_origin,
+                shortlisted_shop_ids=shortlisted_shop_ids,
+            )
             for index, candidate in enumerate(result.candidates)
         ],
         "izakayaBarFallbackApplied": result.izakaya_bar_fallback_applied,
@@ -110,4 +169,5 @@ def serialize_result(result: ProposalResult) -> dict:
         # from the full eligible population because every eligible candidate
         # was already present in the request's shownProviderPageUrls.
         "shownPoolExhausted": result.shown_pool_exhausted,
+        "gatheringContext": gathering_context,
     }

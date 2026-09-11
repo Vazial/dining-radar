@@ -35,6 +35,7 @@ from urllib.parse import urlparse
 
 from django.test import SimpleTestCase
 from playwright.sync_api import Locator, Page, Response, expect
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from tests.acceptance.dsl.authentication_browser import AuthenticationBrowserDsl
 from tests.acceptance.dsl.browser_mechanics import HttpBrowser, assert_no_content
@@ -46,6 +47,7 @@ from tests.acceptance.dsl.js_browser_mechanics import (
     assert_present,
     build_captured_response,
     by_test_id,
+    capture_candidate_proposal_response,
     csrf_token,
     require,
     wait_for_at_least_one,
@@ -89,18 +91,23 @@ PARTICIPANT_LINK_REVOKE = "gathering-participant-link-revoke"
 CONFIRM_DATE_SELECT = "gathering-confirm-date-select"
 OPEN_SHOP_PREVIEW = "gathering-open-shop-preview"
 OPEN_SHOP_COUNT_ATTR = "data-open-shop-count"
-OPEN_SHOP_PREVIEW_ITEM = "gathering-open-shop-preview-item"
-OPEN_SHOP_PREVIEW_ITEM_NAME = "gathering-open-shop-preview-item-name"
+# gathering-open-shop-preview-item / -name were retired 2026-09-09 (adr/0049
+# decision 2, TDR-GTH-08 rewrite): this preview now carries a count only, no
+# item sub-structure -- see assert_open_shop_preview_shows_expected_count
+# below.
 
-# organizerDashboard.shortlistSelection / shortlistedShopVotes / finalize
-# (TDR-GTH-26..33/35/36, adr/0042 -- shop shortlisting, D7 replace, finalize;
-# three-tier tally attributes and map/detail fields added adr/0044, TDR-GTH-38/40).
+# organizerDashboard.shopSelectionEntry / shortlistedShopVotes / finalize
+# (TDR-GTH-26/27/31-33/35/36/40/44/45, adr/0042/0044/0048/0049/0050). The
+# separate shop-checklist screen (organizerDashboard.shortlistSelection,
+# PickFive.dc.html) this section used to define was retired 2026-09-09
+# (adr/0049 decision 1) -- shop selection now happens exclusively on
+# candidate-search-browser-interface.yaml's gatheringMode, reached through
+# shopSelectionEntry.open (SHORTLIST_OPEN below, unchanged test id, hoisted
+# out of shortlistedShopVotes into its own section). This file reads
+# gatheringMode's own test ids directly, mirroring the existing
+# CANDIDATE_GATHERING_ENTRY precedent (TDR-GTH-25) -- not importing
+# candidate_search_browser.py, keeping this slice's own module boundary.
 SHOP_ID_ATTR = "data-shop-id"
-OPEN_SHOP_LIST = "gathering-open-shop-list"
-OPEN_SHOP_LIST_ITEM = "gathering-open-shop-list-item"
-SHORTLISTED_ATTR = "data-shortlisted"
-OPEN_SHOP_SELECT = "gathering-open-shop-select"
-SHORTLIST_SUBMIT = "gathering-shortlist-submit"
 SHORTLISTED_SHOP_LIST = "gathering-shortlisted-shop-list"
 SHORTLISTED_SHOP_ITEM = "gathering-shortlisted-shop-item"
 # Three-tier tally attributes (adr/0044, replacing the retired single
@@ -109,21 +116,39 @@ SHORTLISTED_SHOP_ITEM = "gathering-shortlisted-shop-item"
 # attribute-name strings CandidateDate/ShortlistedShop already share.
 WANT_TO_GO_COUNT_ATTR = "data-want-to-go-count"
 OK_TO_GO_COUNT_ATTR = "data-ok-to-go-count"
+# data-current-leader (adr/0050 decision 5): "true" for exactly the first
+# item in shortlistedShopVotes.list's own orderingInvariant order.
+CURRENT_LEADER_ATTR = "data-current-leader"
 SHORTLIST_OPEN = "gathering-shortlist-open"
 FINALIZE_SHOP_SELECT = "gathering-finalize-shop-select"
 FINALIZE_SELECTED_ATTR = "data-finalize-selected"
 FINALIZE_SUBMIT = "gathering-finalize-submit"
 
-# organizerDashboard.shortlistSelection.list's map and per-shop detail fields
-# (TDR-GTH-38, adr/0044). PickFive.dc.html's checklist only -- deliberately
-# not shortlistedShopVotes' tally view (this contract's own asymmetry note).
-OPEN_SHOP_MAP = "gathering-open-shop-map"
-OPEN_SHOP_MAP_MARKER = "gathering-open-shop-map-marker"
-OPEN_SHOP_LIST_ITEM_WALKING_TIME = "gathering-open-shop-list-item-walking-time"
-OPEN_SHOP_LIST_ITEM_CAPACITY_TIER = "gathering-open-shop-list-item-capacity-tier"
-OPEN_SHOP_LIST_ITEM_NON_SMOKING = "gathering-open-shop-list-item-non-smoking"
-OPEN_SHOP_LIST_ITEM_DINNER_BUDGET = "gathering-open-shop-list-item-dinner-budget"
-OPEN_SHOP_LIST_ITEM_PROVIDER_PAGE_LINK = "gathering-open-shop-list-item-provider-page-link"
+# candidate-search-browser-interface.yaml v1.8.0's gatheringMode (adr/0049
+# decision 1): the consolidated shop-selection screen shopSelectionEntry.open
+# navigates to. Read directly as raw test ids/attributes (see module-boundary
+# note above) -- not imported from candidate_search_browser.py.
+GATHERING_MODE_BAND = "candidate-gathering-mode-band"
+GATHERING_MODE_SHORTLISTED_COUNT_ATTR = "data-gathering-shortlisted-count"
+GATHERING_MODE_MAX_SHORTLISTED_ATTR = "data-gathering-max-shortlisted"
+CANDIDATE_CARD = "candidate-card"
+CANDIDATE_CARD_GATHERING_TOGGLE = "candidate-card-gathering-toggle"
+CANDIDATE_GATHERING_SHORTLISTED_ATTR = "data-gathering-shortlisted"
+# candidate-search-again (adr/0024 decision 4's shownCandidateMemory replay,
+# reused unchanged in gathering mode -- this file's own module-boundary
+# note) -- used by TDR-GTH-45's shown-pool-priority technique below.
+CANDIDATE_SEARCH_AGAIN = "candidate-search-again"
+# The subset of candidate-search-browser-interface.yaml's own, pre-existing
+# card/map detail fields TDR-GTH-38 requires be visible from gatheringMode
+# (adr/0044's map/detail requirement, now satisfied entirely by this other
+# contract's unchanged card shape rather than a duplicate organizer-side
+# rendering, adr/0049 decision 1).
+CANDIDATE_MAP = "candidate-map"
+CANDIDATE_CARD_WALKING_TIME = "candidate-card-walking-time"
+CANDIDATE_CARD_TOTAL_SEATS = "candidate-card-total-seats"
+CANDIDATE_CARD_NON_SMOKING = "candidate-card-non-smoking"
+CANDIDATE_CARD_DINNER_BUDGET = "candidate-card-dinner-budget"
+CANDIDATE_CARD_PROVIDER_PAGE_LINK = "candidate-card-provider-page-link"
 
 # participantAnswer.shopVoteQuestion / finalizedView (TDR-GTH-28..30/34,
 # adr/0042; restructured to three tiers, map/detail fields, and search-origin
@@ -136,8 +161,12 @@ SHOP_VOTE_TALLY = "gathering-shop-vote-tally"
 PARTICIPANT_PROGRESS = "gathering-participant-progress"
 PARTICIPANT_DECISION = "gathering-participant-decision"
 YOUR_SCHEDULE_RESPONSE_ATTR = "data-your-schedule-response"
-PARTICIPANT_DECISION_SHOP_VOTE = "gathering-participant-decision-shop-vote"
-VOTE_STATUS_ATTR = "data-vote-status"
+# gathering-participant-decision-shop-vote / data-vote-status were retired
+# 2026-09-09 (adr/0050 decision 3, TDR-GTH-34 simplification): the finalized
+# record no longer carries a per-shop breakdown, only yourScheduleResponse.
+# RETIRED_PARTICIPANT_DECISION_SHOP_VOTE is kept only as a negative-assertion
+# constant (see assert_participant_decision below), not as an observed field.
+RETIRED_PARTICIPANT_DECISION_SHOP_VOTE = "gathering-participant-decision-shop-vote"
 SHOP_VOTE_MAP = "gathering-shop-vote-map"
 SHOP_VOTE_MAP_MARKER = "gathering-shop-vote-map-marker"
 SEARCH_ORIGIN_MARKER = "gathering-search-origin-marker"
@@ -157,13 +186,35 @@ GATHERING_LIST_ITEM_OPEN = "gathering-list-item-open"
 GATHERING_LIST_EMPTY = "gathering-list-empty"
 GATHERING_CREATE_OPEN = "gathering-create-open"
 GATHERING_CREATE_NAME_INPUT = "gathering-create-name-input"
-GATHERING_CREATE_CANDIDATE_DATE_ROW = "gathering-create-candidate-date-row"
-GATHERING_CREATE_CANDIDATE_DATE_INPUT = "gathering-create-candidate-date-input"
-GATHERING_CREATE_ADD_CANDIDATE_DATE_ROW = "gathering-create-add-candidate-date-row"
 GATHERING_CREATE_SUBMIT = "gathering-create-submit"
+GATHERING_CREATE_CANCEL = "gathering-create-cancel"
 GATHERING_ADD_CANDIDATE_DATE_FORM = "gathering-add-candidate-date-form"
-GATHERING_ADD_CANDIDATE_DATE_INPUT = "gathering-add-candidate-date-input"
 GATHERING_ADD_CANDIDATE_DATE_SUBMIT = "gathering-add-candidate-date-submit"
+GATHERING_ADD_CANDIDATE_DATE_CANCEL = "gathering-add-candidate-date-cancel"
+
+# Candidate-date calendars (adr/0049 decision 3, adr/0051 decision 1): the
+# row-based add/remove-row inputs both organizerGatheringCreate.
+# candidateDateRow and addCandidateDateForm's single dateInput used to expose
+# (gathering-create-candidate-date-row/-input/addRow/removeRow,
+# gathering-add-candidate-date-input) are retired. Both screens now use a
+# multi-select calendar of the same shape but with distinct, per-screen test
+# ids (architect design judgment, adr/0051 decision 1: the two screens render
+# separate DOM elements with different post-submit behavior, so one test id
+# must not carry two different requiredOutcome contracts).
+GATHERING_CREATE_CANDIDATE_DATE_CALENDAR = "gathering-create-candidate-date-calendar"
+GATHERING_CREATE_CANDIDATE_DATE_DAY = "gathering-create-candidate-date-day"
+GATHERING_ADD_CANDIDATE_DATE_CALENDAR = "gathering-add-candidate-date-calendar"
+GATHERING_ADD_CANDIDATE_DATE_DAY = "gathering-add-candidate-date-day"
+# Both calendars' day cells share the same attribute names (dayCell.attributes).
+CALENDAR_DAY_DATE_ATTR = "data-date"
+CALENDAR_DAY_SELECTED_ATTR = "data-selected"
+
+# organizerDashboard.deleteGathering (adr/0050 decision 4, TDR-GTH-48): the
+# organizer's explicit, irreversible, two-step gathering-deletion control.
+GATHERING_DELETE_OPEN = "gathering-delete-open"
+GATHERING_DELETE_CONFIRM_DIALOG = "gathering-delete-confirm-dialog"
+GATHERING_DELETE_CONFIRM = "gathering-delete-confirm"
+GATHERING_DELETE_CANCEL = "gathering-delete-cancel"
 
 # candidate-search-browser-interface.yaml v1.7.0's gatheringEntry section
 # (adr/0038). TDR-GTH-25 crosses into the candidate-search screen's own entry
@@ -194,14 +245,40 @@ LINK_ERROR_CODE_ATTR = "data-link-error-code"
 # does not.
 PARTICIPANT_LOAD_ERROR = "gathering-participant-load-error"
 
+# answerLater / peekResults (adr/0050 decision 1, 2026-09-08〜09 human
+# decision: 「あとで答える」「結果をのぞく」を実際に動く操作にする -- both
+# previously visual-only). Neither owns a dedicated TDR-GTH-4x scenario (the
+# contract's own note: "no dedicated TDR-GTH-4x scenario names these two
+# controls, but they are real, present controls... so they must still be
+# declared"), so this suite verifies their requiredOutcome directly as a UI
+# implementation detail, the same precedent TDR-GTH-43's ordering check and
+# TDR-CS-02's desktop/mobile split already establish for contract Musts with
+# no scenario of their own.
+ANSWER_LATER = "gathering-participant-answer-later"
+ANSWER_LATER_CONFIRMATION = "gathering-participant-answer-later-confirmation"
+PEEK_RESULTS = "gathering-participant-peek-results"
+
 # unavailableControls (both namespaces; gathering-scheduling-browser-interface.yaml).
 # Mirrors candidate_search_browser.py's ALLOWED_CONTROL_PURPOSES /
 # assert_map_has_no_forbidden_surfaces convention for the sibling contract.
 GATHERING_CONTROL_PURPOSE_ATTR = "data-gathering-control-purpose"
+# Verified 1:1 against gathering-scheduling-browser-interface.yaml v0.11.0's
+# own unavailableControls.allowedPurposes list (26 entries, contract lines
+# ~768-782) -- every entry below has a matching contract entry and vice
+# versa. This is a full resync, not an incremental diff: v0.11.0 retired 4
+# entries this set previously carried (gathering-create-add-candidate-date-
+# row/-remove-candidate-date-row, adr/0051 decision 3's row-to-calendar
+# swap; gathering-open-shop-select/-shortlist-submit, adr/0049 decision 1's
+# shortlistSelection retirement) and added 7 (gathering-add-candidate-date-
+# day-select, gathering-create-candidate-date-day-select, adr/0049 decision
+# 3 / adr/0051 decision 3's calendars; gathering-delete-open/-confirm/
+# -cancel, adr/0050 decision 4; gathering-participant-answer-later/
+# -peek-results, adr/0050 decision 1).
 GATHERING_ALLOWED_PURPOSES = {
     "gathering-add-candidate-date-open",
     "gathering-add-candidate-date-submit",
     "gathering-add-candidate-date-cancel",
+    "gathering-add-candidate-date-day-select",
     "gathering-participant-link-copy",
     "gathering-candidate-date-tentative-select",
     "gathering-confirm-date-select",
@@ -216,18 +293,26 @@ GATHERING_ALLOWED_PURPOSES = {
     # cross-cutting check below never scanned these controls.
     "gathering-create-open",
     "gathering-list-item-open",
-    "gathering-create-add-candidate-date-row",
-    "gathering-create-remove-candidate-date-row",
+    "gathering-create-candidate-date-day-select",
     "gathering-create-submit",
     "gathering-create-cancel",
-    # shortlist selection / D7 replace / finalize / participant shop-vote
-    # (adr/0042, browser-interface v0.5's allowedPurposesNote2026_09_04).
-    "gathering-open-shop-select",
-    "gathering-shortlist-submit",
+    # shopSelectionEntry (hoisted out of shortlistedShopVotes 2026-09-09,
+    # adr/0049 decision 1) / finalize / participant shop-vote (adr/0042,
+    # browser-interface v0.5's allowedPurposesNote2026_09_04).
     "gathering-shortlist-open",
     "gathering-finalize-shop-select",
     "gathering-finalize-submit",
     "gathering-shop-vote-select",
+    # deleteGathering (adr/0050 decision 4, TDR-GTH-48).
+    "gathering-delete-open",
+    "gathering-delete-confirm",
+    "gathering-delete-cancel",
+    # answerLater / peekResults (adr/0050 decision 1) -- no dedicated
+    # TDR-GTH-4x scenario names these two controls, but they are real,
+    # present controls on participantAnswer once rendered, so they must
+    # still be declared here for the cross-cutting purpose scan.
+    "gathering-participant-answer-later",
+    "gathering-participant-peek-results",
 }
 # unavailableControls.valueEntryControlTestIds (ADR-0039, v0.4): native
 # input/textarea value-entry controls exempt from purpose declaration --
@@ -236,10 +321,15 @@ GATHERING_ALLOWED_PURPOSES = {
 # native input remains subject to the general purpose requirement below
 # (this is the point of ADR-0039's design: traceable exemption, not a
 # blanket one -- see operationalControlScope in the contract).
+# Verified 1:1 against v0.11.0's own valueEntryControlTestIds (contract line
+# 714-715, 2 entries). gathering-create-candidate-date-input and
+# gathering-add-candidate-date-input are retired 2026-09-09 (adr/0049
+# decision 3, adr/0051 decision 3): both screens' calendar day cells are
+# operational controls (each activation toggles pending selection), not
+# value-entry controls, so they declare a *-day-select purpose in
+# GATHERING_ALLOWED_PURPOSES above instead of appearing here.
 GATHERING_VALUE_ENTRY_CONTROL_TEST_IDS = {
     "gathering-create-name-input",
-    "gathering-create-candidate-date-input",
-    "gathering-add-candidate-date-input",
     "gathering-participant-name-input",
 }
 # operationalControlScope (ADR-0039) scopes the exemption to a native input
@@ -670,28 +760,37 @@ class GatheringSchedulingBrowserDsl:
     # click + direct API POST) construction; TDR-GTH-24 reuses the same
     # submit path for its duplicate-rejection branch.
 
-    def _fill_candidate_date_time_input(
-        self, base_test_id: str, iso: str, scope: Locator | Page | None = None
-    ) -> None:
-        """Fills a candidate-date input whose exact shape this contract leaves
-        open (one merged date-time input, or a date input plus a sibling
-        `-time-input`-suffixed time input -- organizerGatheringCreate.
-        candidateDateRow.note / addCandidateDateForm.note, adr/0038). Detects
-        the two-input shape by the unambiguous suffixed test id; otherwise
-        treats the base input as accepting the full merged value. ``scope``
-        narrows the lookup to one element (e.g. one candidateDateRow among
-        several sharing the same test id); defaults to the whole page for
-        the dashboard's single, unique inline-form input.
+    def _calendar_day_locator(self, calendar_day_test_id: str, iso: str) -> Locator:
+        """Locates one calendar day cell by its data-date (YYYY-MM-DD, no time
+        component -- both organizerGatheringCreate.calendar.dayCell and
+        addCandidateDateForm.calendar.dayCell share this exact shape,
+        adr/0049 decision 3 / adr/0051 decision 1). ``iso`` is a full
+        RFC3339 CandidateDateInput.startAt string; only its date part is
+        used to find the cell -- the calendar's own "12:00始まり" UI aid
+        supplies the time-of-day server-side, so ``iso`` must itself carry
+        12:00 for the resulting round trip to match (days_from_now_iso/
+        next_weekday_iso above both default to hour=12 for this reason).
         """
-        root = scope if scope is not None else self.page
-        dt = datetime.fromisoformat(iso)
-        time_input = root.locator(f'[data-testid="{base_test_id}-time-input"]')
-        base_input = by_test_id(root, base_test_id)
-        if time_input.count() > 0:
-            base_input.fill(dt.strftime("%Y-%m-%d"))
-            time_input.fill(dt.strftime("%H:%M"))
-        else:
-            base_input.fill(dt.strftime("%Y-%m-%dT%H:%M"))
+        date_part = datetime.fromisoformat(iso).strftime("%Y-%m-%d")
+        return self.page.locator(
+            f'[data-testid="{calendar_day_test_id}"][{CALENDAR_DAY_DATE_ATTR}="{date_part}"]'
+        )
+
+    def _select_calendar_days(self, calendar_day_test_id: str, isos: list[str]) -> None:
+        for iso in isos:
+            cell = self._calendar_day_locator(calendar_day_test_id, iso)
+            expect(cell).to_be_enabled()
+            cell.click()
+            expect(cell).to_have_attribute(CALENDAR_DAY_SELECTED_ATTR, "true")
+
+    def _selected_calendar_day_dates(self, calendar_day_test_id: str) -> list[str]:
+        selected = self.page.locator(
+            f'[data-testid="{calendar_day_test_id}"][{CALENDAR_DAY_SELECTED_ATTR}="true"]'
+        )
+        return [
+            selected.nth(index).get_attribute(CALENDAR_DAY_DATE_ATTR)
+            for index in range(selected.count())
+        ]
 
     def open_add_candidate_date_form(self) -> None:
         """addCandidateDateOpen.requiredOutcome: reveals
@@ -707,74 +806,83 @@ class GatheringSchedulingBrowserDsl:
         self.assertions.assertEqual(self._read_gathering_phase_from_dom(), before_phase)
         self.assertions.assertEqual(self._read_candidate_dates(), before_dates)
 
-    def submit_add_candidate_date_form(self, candidate_date_iso: str) -> CapturedApiResponse:
-        self._fill_candidate_date_time_input(GATHERING_ADD_CANDIDATE_DATE_INPUT, candidate_date_iso)
+    def submit_add_candidate_date_form(self, candidate_date_isos: list[str]) -> CapturedApiResponse:
+        """addCandidateDateForm.calendar/submit (adr/0049 decision 3): selects
+        one calendar day per ISO date, then submits the batch addCandidateDates
+        call -- replacing the retired single-input, singular-addCandidateDate
+        flow. Accepts a list (even for a single date, TDR-GTH-02/24) so the
+        same method drives TDR-GTH-46's own multi-date batch unchanged.
+        """
+        self._select_calendar_days(GATHERING_ADD_CANDIDATE_DATE_DAY, candidate_date_isos)
         response = self._capture_gathering_response(
             "candidate-dates",
             lambda: by_test_id(self.page, GATHERING_ADD_CANDIDATE_DATE_SUBMIT).click(),
         )
         if response.status == 201:
-            self._created_candidate_date_isos.append(candidate_date_iso)
+            self._created_candidate_date_isos.extend(candidate_date_isos)
             self._set_gathering(response.payload)
         return response
 
     def candidate_dates_snapshot(self) -> list[dict[str, object]]:
         return self._read_candidate_dates()
 
-    def assert_candidate_date_added_via_inline_form(
+    def assert_candidate_dates_added_via_inline_form(
         self,
         response: CapturedApiResponse,
         before_dates: list[dict[str, object]],
         expected_phase: str,
+        expected_new_count: int = 1,
     ) -> None:
         """addCandidateDateForm.submit.requiredOutcome's success branch
-        (TDR-GTH-02): exactly one new gathering-candidate-date appears, phase
-        is unchanged, and the form remains present ready for another entry
-        (human decision 2026-09-01, AddDate.dc.html 案A: "足したあとフォームは
-        閉じない"). Identifies "the new one" as a before/after id-set diff
-        (caller supplies a pre-submit candidate_dates_snapshot()) rather than
-        looking it up by the submitted startAt string -- deliberately
-        avoiding the same class of fragility a prior audit flagged for
-        candidate_date_id_at (byte-identity between what a client sends and
-        what the server echoes back is not guaranteed, and here the value
-        additionally round-trips through a real browser date-input widget
-        before ever reaching the API).
+        (TDR-GTH-02/46): exactly ``expected_new_count`` new
+        gathering-candidate-date elements appear, phase is unchanged, the
+        form remains present ready for another entry (human decision
+        2026-09-01, AddDate.dc.html 案A: "足したあとフォームは閉じない"), and
+        every day cell resets to unselected (adr/0049 decision 3's own
+        requiredOutcome text). Identifies "the new ones" as a before/after
+        id-set diff (caller supplies a pre-submit candidate_dates_snapshot())
+        rather than looking them up by the submitted startAt strings --
+        deliberately avoiding the same class of fragility a prior audit
+        flagged for candidate_date_id_at (byte-identity between what a
+        client sends and what the server echoes back is not guaranteed).
         """
         self.assertions.assertEqual(response.status, 201)
         before_ids = {date["id"] for date in before_dates}
         after_ids = {date["id"] for date in self._read_candidate_dates()}
         new_ids = after_ids - before_ids
         self.assertions.assertEqual(
-            len(new_ids), 1, f"expected exactly one new candidate date, got {new_ids}"
+            len(new_ids),
+            expected_new_count,
+            f"expected exactly {expected_new_count} new candidate date(s), got {new_ids}",
         )
         self.assertions.assertEqual(self._read_gathering_phase_from_dom(), expected_phase)
         assert_present(self.assertions, self.page, GATHERING_ADD_CANDIDATE_DATE_FORM)
+        self.assertions.assertEqual(
+            self._selected_calendar_day_dates(GATHERING_ADD_CANDIDATE_DATE_DAY), []
+        )
 
     def assert_duplicate_candidate_date_rejected_by_inline_form(
         self,
         response: CapturedApiResponse,
-        candidate_date_iso: str,
+        candidate_date_isos: list[str],
         before_dates: list[dict[str, object]],
     ) -> None:
-        """TDR-GTH-24 / addCandidateDateForm.submit.requiredOutcome's
-        DUPLICATE_CANDIDATE_DATE branch: no candidate date is added (dates
-        unchanged from the pre-submit snapshot), the form stays present, and
-        the entered value remains intact (adr/0038).
+        """TDR-GTH-24/46 / addCandidateDateForm.submit.requiredOutcome's
+        whole-batch DUPLICATE_CANDIDATE_DATE branch: no candidate date is
+        added (dates unchanged from the pre-submit snapshot), the form stays
+        present, and every day cell's data-selected is unchanged -- not one
+        of them resets, even the ones that did not themselves collide
+        (adr/0049 decision 3: "全部やるか全部やめるか").
         """
         self.assertions.assertEqual(response.status, 409)
         self.assertions.assertEqual(response.payload["code"], "DUPLICATE_CANDIDATE_DATE")
         self.assertions.assertEqual(self._read_candidate_dates(), before_dates)
         assert_present(self.assertions, self.page, GATHERING_ADD_CANDIDATE_DATE_FORM)
-        dt = datetime.fromisoformat(candidate_date_iso)
-        time_input = self.page.locator(
-            f'[data-testid="{GATHERING_ADD_CANDIDATE_DATE_INPUT}-time-input"]'
-        )
-        base_input = by_test_id(self.page, GATHERING_ADD_CANDIDATE_DATE_INPUT)
-        if time_input.count() > 0:
-            self.assertions.assertEqual(base_input.input_value(), dt.strftime("%Y-%m-%d"))
-            self.assertions.assertEqual(time_input.input_value(), dt.strftime("%H:%M"))
-        else:
-            self.assertions.assertEqual(base_input.input_value(), dt.strftime("%Y-%m-%dT%H:%M"))
+        expected_selected = {
+            datetime.fromisoformat(iso).strftime("%Y-%m-%d") for iso in candidate_date_isos
+        }
+        actual_selected = set(self._selected_calendar_day_dates(GATHERING_ADD_CANDIDATE_DATE_DAY))
+        self.assertions.assertEqual(actual_selected, expected_selected)
 
     # organizerGatheringList (TDR-GTH-21/22, adr/0038) -----------------------
 
@@ -874,24 +982,14 @@ class GatheringSchedulingBrowserDsl:
     def fill_gathering_create_name(self, title: str) -> None:
         by_test_id(self.page, GATHERING_CREATE_NAME_INPUT).fill(title)
 
-    def _candidate_date_row_locator(self, index: int) -> Locator:
-        return self.page.locator(f'[data-testid="{GATHERING_CREATE_CANDIDATE_DATE_ROW}"]').nth(
-            index
-        )
-
-    def fill_gathering_create_candidate_date_row(self, index: int, iso: str) -> None:
-        row = self._candidate_date_row_locator(index)
-        self._fill_candidate_date_time_input(GATHERING_CREATE_CANDIDATE_DATE_INPUT, iso, scope=row)
-
-    def add_gathering_create_candidate_date_row(self) -> None:
-        """candidateDateRow.addRow.requiredOutcome (reviewer audit Major#2):
-        appends one new gathering-create-candidate-date-row. Not previously
-        exercised by any TDR-GTH-XX scenario.
+    def select_gathering_create_candidate_date_days(self, isos: list[str]) -> None:
+        """organizerGatheringCreate.calendar.dayCell.select (adr/0051 decision
+        1): replaces the retired row-based candidateDateRow/addRow -- selects
+        one calendar day per prepared ISO date on this screen's own,
+        distinct calendar (not addCandidateDateForm's, per adr/0051's
+        design judgment that the two screens do not share one test id).
         """
-        rows = self.page.locator(f'[data-testid="{GATHERING_CREATE_CANDIDATE_DATE_ROW}"]')
-        before_count = rows.count()
-        by_test_id(self.page, GATHERING_CREATE_ADD_CANDIDATE_DATE_ROW).click()
-        expect(rows).to_have_count(before_count + 1)
+        self._select_calendar_days(GATHERING_CREATE_CANDIDATE_DATE_DAY, isos)
 
     def _extract_gathering_id_from_dashboard_url(self) -> str:
         match = re.search(r"/gatherings/([^/]+)/?$", self.page.url)
@@ -900,12 +998,12 @@ class GatheringSchedulingBrowserDsl:
         )
 
     def create_prepared_gathering_via_browser(self) -> None:
-        """TDR-GTH-01, now driven end-to-end through organizerGatheringCreate
+        """TDR-GTH-01, driven end-to-end through organizerGatheringCreate
         (browser-interface.yaml v0.4: "Supports TDR-GTH-01 (now browser-
         verifiable)") instead of createGathering direct-API -- reviewer audit
-        Major#2. Fills the name, fills the first (always-present) candidate-
-        date row, appends and fills one row per additional prepared date
-        (exercising addRow for the first time), then submits.
+        Major#2. **Rewritten 2026-09-09 (adr/0051 decision 1)**: fills the
+        name, then selects one calendar day per prepared date (replacing the
+        retired per-row date inputs and addRow), then submits.
 
         Clicking submit here also navigates (this implementation's own
         choice, within the contract's own "does not fix the immediate
@@ -921,10 +1019,7 @@ class GatheringSchedulingBrowserDsl:
         dates = require(self._prepared_candidate_date_isos, "no candidate dates were prepared")
         self.open_gathering_create_from_header()
         self.fill_gathering_create_name(title)
-        self.fill_gathering_create_candidate_date_row(0, dates[0])
-        for index, iso in enumerate(dates[1:], start=1):
-            self.add_gathering_create_candidate_date_row()
-            self.fill_gathering_create_candidate_date_row(index, iso)
+        self.select_gathering_create_candidate_date_days(dates)
         by_test_id(self.page, GATHERING_CREATE_SUBMIT).click()
         wait_for_at_least_one(self.page, GATHERING_PHASE_INDICATOR)
         gathering_id = self._extract_gathering_id_from_dashboard_url()
@@ -968,6 +1063,102 @@ class GatheringSchedulingBrowserDsl:
         self._assert_api_ok(response, 200, "listGatherings")
         titles = [gathering["title"] for gathering in response.payload["gatherings"]]
         self.assertions.assertNotIn(title, titles)
+
+    # TDR-GTH-47 (new, adr/0049 decision 3 / adr/0051 decision 2): 明日以降
+    # のみ, verified from organizerGatheringCreate (its own Given "幹事が会を
+    # つくろうとしている") -- the calendar's day-cell disabledState is not
+    # checked directly here: the contract does not fix the calendar's
+    # rendered month range (organizerGatheringCreate.calendar.note), so
+    # today's own date cell being present at all is not guaranteed. The
+    # contract itself names CANDIDATE_DATE_NOT_IN_FUTURE's server-side
+    # rejection "the authoritative enforcement" of this rule, so this
+    # bypasses the (contract-optional) UI affordance the same way
+    # TDR-GTH-20/23 already bypass a disabled control to prove server-side
+    # enforcement. ---------------------------------------------------------
+
+    def attempt_create_gathering_via_api_with_a_past_candidate_date(
+        self, title: str, past_or_today_iso: str
+    ) -> CapturedApiResponse:
+        return self._api(
+            "POST",
+            "/gatherings",
+            {"title": title, "candidateDates": [{"startAt": past_or_today_iso}]},
+            csrf=True,
+        )
+
+    def assert_create_rejected_because_date_not_in_future(
+        self, response: CapturedApiResponse
+    ) -> None:
+        """gathering-scheduling-api.yaml's createGathering documents
+        CANDIDATE_DATE_NOT_IN_FUTURE under its '400' response (shared with
+        REQUEST_REJECTED, distinguished by `code`) -- 409 there is reserved
+        for DuplicateCandidateDate only. **Fixed**: this assertion previously
+        expected 409, which this same rejection can never carry.
+        """
+        self.assertions.assertEqual(response.status, 400)
+        self.assertions.assertEqual(response.payload["code"], "CANDIDATE_DATE_NOT_IN_FUTURE")
+
+    # deleteGathering (TDR-GTH-48, adr/0050 decision 4) ----------------------
+
+    def delete_gathering_via_dashboard(self) -> None:
+        """deleteGathering's open-then-confirm two-step pattern (adr/0050
+        decision 4, mirroring addCandidateDateForm's own open/submit shape).
+        Calls the cross-cutting check while the confirm dialog is open --
+        FR-030's repeated lesson: a new screen state (the dialog itself,
+        carrying gathering-delete-confirm/-cancel) must be exercised, not
+        only the pre- and post-delete dashboard states.
+
+        **Fixed (intermittent net::ERR_ABORTED)**: deleteGathering.confirm.
+        requiredOutcome (gathering-scheduling-browser-interface.yaml)
+        deliberately leaves the immediate post-delete destination screen
+        unspecified -- it fixes only that the gathering subsequently no
+        longer appears in organizerGatheringList.list -- so this method must
+        not assert or require any particular destination, including
+        /gatherings/ itself. It only needs to not return control to its
+        caller (assert_gathering_absent_from_list, which navigates to
+        organizerGatheringList.list to observe the required outcome) while
+        a navigation this same confirm click set in motion is still
+        in-flight, because a second, independent navigation racing an
+        in-flight one is exactly what Playwright surfaces as
+        net::ERR_ABORTED / "interrupted by another navigation".
+
+        page.expect_navigation() (registered *before* the click, per
+        Playwright's own documented idiom for a click whose navigation is
+        delayed behind an async network call) is what actually closes this
+        race: two earlier attempts did not. Reading the DELETE response's
+        body first (mirroring _capture_gathering_response below) failed
+        deterministically -- not intermittently -- with "Response body is
+        not available for a response that was navigated away from", because
+        the screen's own client-side navigation had already reclaimed the
+        network resource before Playwright's second round-trip
+        (Network.getResponseBody) could land. Waiting only for the response
+        *event* (no body read) followed by wait_for_load_state("load")
+        narrowed the race but did not close it -- wait_for_load_state
+        resolves immediately against the page's already-settled state if no
+        navigation has started yet at the moment it is called, so it cannot
+        by itself wait for a navigation that has not begun. expect_navigation
+        avoids this because entering its `with` block subscribes to the
+        frame's next navigation event before running the click, so whatever
+        the confirm click triggers -- now or a moment later, once its DELETE
+        call resolves -- is the exact same navigation this method waits on.
+        If the click causes no navigation at all (not currently expected,
+        given the confirm click here always triggers one, but not something
+        this contract fixes either), expect_navigation times out and that is
+        treated as "nothing to wait for", not a failure.
+        """
+        by_test_id(self.page, GATHERING_DELETE_OPEN).click()
+        wait_for_at_least_one(self.page, GATHERING_DELETE_CONFIRM_DIALOG)
+        self.assert_gathering_screen_has_no_forbidden_surfaces()
+        try:
+            with self.page.expect_navigation(wait_until="load"):
+                by_test_id(self.page, GATHERING_DELETE_CONFIRM).click()
+        except PlaywrightTimeoutError:
+            pass
+
+    def assert_gathering_absent_from_list(self, gathering_id: str) -> None:
+        self.open_organizer_gathering_list()
+        ids = {item["id"] for item in self._read_gathering_list_items()}
+        self.assertions.assertNotIn(gathering_id, ids)
 
     # candidate-search screen's gatheringEntry (TDR-GTH-25,
     # candidate-search-browser-interface.yaml v1.7.0, adr/0038) ------------
@@ -1127,27 +1318,30 @@ class GatheringSchedulingBrowserDsl:
         )
         expect(node).to_have_attribute(TENTATIVE_SELECTED_ATTR, "true")
 
-    def assert_open_shop_preview_shows_expected_count_and_order(
-        self, expected_open_shop_count: int
-    ) -> None:
+    def assert_open_shop_preview_shows_expected_count(self, expected_open_shop_count: int) -> None:
+        """**Narrowed 2026-09-09 (adr/0049 decision 2, TDR-GTH-08 rewrite)**:
+        this preview no longer carries a shop-name/item sub-structure --
+        gathering-open-shop-preview-item and the OpenShopPreviewItem schema
+        it projected are both retired. This checks the count only, plus the
+        stronger prohibition the rewritten scenario now states explicitly
+        ("店名やその他の店舗情報は示されない"): no shop-item element renders
+        inside the preview at all.
+        """
         response = require(self._current_open_shop_preview, "no open-shop preview was captured")
         self.assertions.assertEqual(response.status, 200)  # type: ignore[union-attr]
         payload = response.payload  # type: ignore[union-attr]
         self.assertions.assertEqual(payload["openShopCount"], expected_open_shop_count)
+        self.assertions.assertNotIn("previewShops", payload)
         preview = assert_present(self.assertions, self.page, OPEN_SHOP_PREVIEW)
         self.assertions.assertEqual(
             preview.get_attribute(OPEN_SHOP_COUNT_ATTR), str(payload["openShopCount"])
         )
-        expected_names = [shop["name"] for shop in payload["previewShops"]]
-        if expected_names:
-            items = wait_for_at_least_one(self.page, OPEN_SHOP_PREVIEW_ITEM)
-        else:
-            items = by_test_id(self.page, OPEN_SHOP_PREVIEW_ITEM)
-        dom_names = [
-            by_test_id(items.nth(index), OPEN_SHOP_PREVIEW_ITEM_NAME).inner_text().strip()
-            for index in range(items.count())
-        ]
-        self.assertions.assertEqual(dom_names, expected_names)
+
+    def assert_open_shop_preview_shows_no_shop_details(self) -> None:
+        preview = assert_present(self.assertions, self.page, OPEN_SHOP_PREVIEW)
+        self.assertions.assertEqual(
+            preview.locator('[data-testid="gathering-open-shop-preview-item"]').count(), 0
+        )
 
     def confirm_tentatively_selected_date(self) -> None:
         by_test_id(self.page, CONFIRM_DATE_SELECT).click()
@@ -1203,27 +1397,102 @@ class GatheringSchedulingBrowserDsl:
         return response.payload
 
     def fetch_confirmed_date_open_shop_ids(self) -> list[str]:
-        """Given-state technique: reads the confirmed date's open-shop population
-        directly via previewOpenShopsForCandidateDate (adr/0042's shopId field)
-        without driving the tentative-selection UI, for scenarios where the
-        organizer's own shortlist-building action (not the preview itself,
-        already covered by TDR-GTH-08) is what's under test.
+        """Given-state technique. **Rewired 2026-09-09 (adr/0049 decision 1/2)**:
+        previewOpenShopsForCandidateDate no longer returns a shop list (only
+        openShopCount, decision 2) -- shop identity for the confirmed date now
+        comes exclusively from candidate-search-api.yaml's own proposeCandidates
+        called with this gathering's id (decision 1's gatheringId narrowing).
+        This is a direct JSON call sharing the same authenticated session
+        (mirrors this file's own _api convention for organizer Given-state,
+        adr/0037 decision 1), not a browser click-through -- candidate-search-
+        browser-interface.yaml's own screen is exercised separately by
+        TDR-GTH-44/45 and TDR-CS-17..19. **Capped at 5** (candidate-search-
+        api.yaml's own `candidates` maxItems: 5) -- for a confirmed date whose
+        openShopCount exceeds 5 (Thursday/Friday/Saturday, 6 open), this
+        returns only 5 of them; callers needing a shop from beyond that cap
+        use fetch_shop_id_closed_only_on (a second, temporary probe
+        gathering confirmed on a day whose openShopCount is at or under 5,
+        complete, no sampling loss) or, for a shop that is open on *this*
+        confirmed date but merely excluded by the display cap,
+        fetch_confirmed_date_open_shop_ids_with_a_spare below (adr/0052
+        decision 3's shown-pool-priority technique, no probe gathering
+        needed).
         """
         gathering = require(self.gathering, "no gathering exists")
-        candidate_date_id = require(
-            gathering["confirmedCandidateDateId"],  # type: ignore[index]
-            "no candidate date is confirmed",
-        )
+        require(gathering["confirmedCandidateDateId"], "no candidate date is confirmed")  # type: ignore[index]
         response = self._api(
-            "GET",
-            f"/gatherings/{self.gathering_id}/candidate-dates/{candidate_date_id}/open-shop-preview",
+            "POST", "/candidate-proposals", {"gatheringId": self.gathering_id}, csrf=True
         )
-        self._assert_api_ok(response, 200, "previewOpenShopsForCandidateDate")
-        return [shop["shopId"] for shop in response.payload["previewShops"]]
+        self._assert_api_ok(response, 200, "proposeCandidates (gathering mode, given-state)")
+        return [candidate["shopId"] for candidate in response.payload["candidates"]]
+
+    def fetch_confirmed_date_open_shop_ids_with_a_spare(self) -> tuple[list[str], str]:
+        """Given-state technique for TDR-GTH-31/32 (D7 replace's "1 spare,
+        not-yet-shortlisted" shop). **Replaces a retired weekday-probe
+        technique** (a since-removed fetch_a_shop_id_not_open_on, built on
+        fetch_shop_id_closed_only_on's two-probe-gathering diff) that
+        identified a shop merely "not open on Monday" and assumed it would
+        therefore also be absent from *this* confirmed Thursday's own
+        display-cap sample -- true of the population (Thursday's own 6 shops
+        are all open, so that assumption never held for population
+        membership) but false of the *sample*: whether that probed shop
+        actually survived Thursday's own unseeded 6-into-5 display-cap draw
+        was incidental, not guaranteed, and reproduced empirically failing
+        (the probed shop appeared in the confirmed date's own 5-shop sample,
+        breaking the caller's assertNotIn).
+
+        adr/0052 decision 3's shown-pool-priority technique fixes this
+        deterministically instead: round 1 is fetch_confirmed_date_open_shop
+        _ids' own single proposeCandidates call (this confirmed date's
+        population, capped at 5 of 6 open shops); round 2 replays round 1's
+        own providerPageUrl values as shownProviderPageUrls, which
+        candidate-search-api.yaml's own shownPoolPriority invariant
+        guarantees draws every not-yet-shown candidate first regardless of
+        randomSeed -- since the confirmed date's population has exactly 1
+        not-yet-shown shop after round 1 (6 total minus the 5 shown), round
+        2 is guaranteed (not merely likely) to include it. No probe
+        gathering, no weekday assumption -- both rounds run against this
+        same, already-confirmed gathering. Returns (round 1's 5 shopIds, the
+        guaranteed-spare 6th shopId).
+        """
+        gathering = require(self.gathering, "no gathering exists")
+        require(gathering["confirmedCandidateDateId"], "no candidate date is confirmed")  # type: ignore[index]
+        round1 = self._api(
+            "POST", "/candidate-proposals", {"gatheringId": self.gathering_id}, csrf=True
+        )
+        self._assert_api_ok(round1, 200, "proposeCandidates (gathering mode, round 1)")
+        round1_candidates = round1.payload["candidates"]
+        round1_shop_ids = [candidate["shopId"] for candidate in round1_candidates]
+        shown_provider_urls = [candidate["providerPageUrl"] for candidate in round1_candidates]
+        round2 = self._api(
+            "POST",
+            "/candidate-proposals",
+            {"gatheringId": self.gathering_id, "shownProviderPageUrls": shown_provider_urls},
+            csrf=True,
+        )
+        self._assert_api_ok(round2, 200, "proposeCandidates (gathering mode, round 2)")
+        spare_ids = [
+            candidate["shopId"]
+            for candidate in round2.payload["candidates"]
+            if candidate["shopId"] not in round1_shop_ids
+        ]
+        self.assertions.assertEqual(
+            len(spare_ids),
+            1,
+            f"expected exactly one shop beyond the display cap, got {spare_ids} "
+            f"(round1={round1_shop_ids})",
+        )
+        return round1_shop_ids, spare_ids[0]
 
     def set_shortlisted_shops_via_api(self, shop_ids: list[str]) -> dict:
         """Given-state builder for scenarios where setShortlistedShops itself is
         not the action under test (adr/0037 decision 1's public-API path).
+        Also used as the WHEN step for D7 replace (TDR-GTH-31/32, adr/0049
+        decision 1): the operation itself is unchanged by that decision (only
+        the screen calling it moved to candidate-search-browser-interface.
+        yaml's gatheringMode) -- see replace_shortlisted_shop's own docstring
+        for why this file drives that swap at the API boundary rather than
+        through gatheringMode's own cardToggle.
         """
         response = self._api(
             "PUT",
@@ -1235,84 +1504,72 @@ class GatheringSchedulingBrowserDsl:
         self._set_gathering(response.payload)
         return response.payload
 
-    def current_preview_shop_ids(self) -> set[str]:
-        response = require(self._current_open_shop_preview, "no open-shop preview was captured")
-        return {shop["shopId"] for shop in response.payload["previewShops"]}  # type: ignore[union-attr,index]
-
-    def identify_a_shop_closed_on_the_confirmed_date(
-        self, all_open_candidate_date_id: str, confirmed_candidate_date_id: str
-    ) -> str:
-        """Test-arrangement technique for TDR-GTH-27: diffs
-        previewOpenShopsForCandidateDate's shopId sets between a candidate
-        date where every synthetic shop is open
-        (GATHERING_OPEN_SHOP_WEEKDAY_MATCH's Thursday/Friday/Saturday) and the
-        date the scenario will confirm, naming one shop this contract's own
-        weekday-matching excludes on the confirmed date -- without assuming
-        any shopId naming convention (OpenShopPreviewItem.shopId's value is
-        implementation-chosen). Both dates must still be reachable by tentative
-        selection, so this must run while phase is still SCHEDULING.
+    def _probe_open_shop_ids_on(self, candidate_date_iso: str) -> set[str]:
+        """Creates and confirms a throwaway probe gathering on ``candidate_date_iso``,
+        then reads back its complete open-shop shopId set via
+        fetch_confirmed_date_open_shop_ids above. Only used with a date whose
+        GATHERING_OPEN_SHOP_WEEKDAY_MATCH openShopCount is <= 5 (the
+        candidate-search-api.yaml display cap), so the returned set is always
+        *complete* for that day -- no sampling loss, unlike a day with 6 open
+        shops. Does not disturb self.gathering/self.gathering_id, or
+        candidate_date_id_at's own index space (saves and restores all four
+        -- **fixed**: an earlier version restored only gathering/gathering_id,
+        leaving _created_candidate_date_isos/_candidate_date_id_by_start_at
+        permanently shifted by this probe's own throwaway date. A caller that
+        runs this probe *before* building its own gathering -- e.g. TDR-GTH-
+        27's `shop_id_closed_only_on` before `organizer_has_a_scheduling_
+        gathering` -- would then have candidate_date_id_at(0) resolve to
+        this probe's own candidate date instead of its own gathering's first
+        one, confirming the wrong gathering's date and getting back
+        CANDIDATE_DATE_NOT_FOUND; reproduced empirically before this fix),
+        so callers can freely interleave this with their own gathering's own
+        state regardless of call order.
         """
-        self.tentatively_select_candidate_date(all_open_candidate_date_id)
-        all_open_ids = self.current_preview_shop_ids()
-        self.tentatively_select_candidate_date(confirmed_candidate_date_id)
-        confirmed_ids = self.current_preview_shop_ids()
-        closed_ids = all_open_ids - confirmed_ids
-        self.assertions.assertEqual(
-            len(closed_ids), 1, f"expected exactly one closed shop, got {closed_ids}"
+        saved_gathering, saved_gathering_id = self.gathering, self.gathering_id
+        saved_isos = list(self._created_candidate_date_isos)
+        saved_id_by_start_at = dict(self._candidate_date_id_by_start_at)
+        self._create_gathering("会（一時プローブ）", [candidate_date_iso])
+        candidate_date_id = self.candidate_date_id_at(-1)
+        self.confirm_candidate_date_via_api(self.gathering_id, candidate_date_id)
+        self._set_gathering(self._api("GET", f"/gatherings/{self.gathering_id}").payload)
+        open_ids = set(self.fetch_confirmed_date_open_shop_ids())
+        self.gathering, self.gathering_id = saved_gathering, saved_gathering_id
+        self._created_candidate_date_isos = saved_isos
+        self._candidate_date_id_by_start_at = saved_id_by_start_at
+        return open_ids
+
+    def fetch_shop_id_closed_only_on(self, closed_weekday: int, open_weekday: int) -> str:
+        """Test-arrangement technique for TDR-GTH-27: GATHERING_OPEN_SHOP_
+        WEEKDAY_MATCH's population is fixed at exactly 6 shops (test-support-
+        api.yaml's own documented shape); this identifies one real shopId
+        that is open on ``open_weekday`` but not on ``closed_weekday`` by
+        diffing two *complete* (<=5-open, cap-safe) probe days' shopId sets
+        -- both weekdays must themselves have openShopCount <= 5 for their
+        probe sets to be complete (e.g. Monday=5 vs Wednesday=4, both under
+        OPEN_SHOP_COUNT_BY_WEEKDAY's cap). Replaces the retired
+        identify_a_shop_closed_on_the_confirmed_date, which read
+        previewOpenShopsForCandidateDate's now-removed previewShops directly.
+
+        **The diff is not guaranteed to be a singleton**: test-support-
+        api.yaml documents only each weekday's total openShopCount, not
+        which of the 6 fixed shops individually belong to which weekday --
+        empirically, Monday(5)/Wednesday(4) yields two shops open on
+        Wednesday but not Monday, not one (this method's own only caller
+        needs *some* shop meeting the criterion, not a uniquely-identified
+        one, so this no longer over-asserts a cardinality the contract
+        never promised). Picks the lexicographically smallest candidate for
+        determinism across runs.
+        """
+        open_ids = self._probe_open_shop_ids_on(next_weekday_iso(open_weekday))
+        closed_ids = self._probe_open_shop_ids_on(next_weekday_iso(closed_weekday))
+        candidates = open_ids - closed_ids
+        self.assertions.assertGreaterEqual(
+            len(candidates),
+            1,
+            f"expected at least one shop open on open_weekday but not closed_weekday, got none "
+            f"(open={open_ids}, closed={closed_ids})",
         )
-        return next(iter(closed_ids))
-
-    def _read_open_shop_list_items(self) -> list[dict[str, object]]:
-        nodes = wait_for_at_least_one(self.page, OPEN_SHOP_LIST_ITEM)
-        result = []
-        for index in range(nodes.count()):
-            node = nodes.nth(index)
-            result.append(
-                {
-                    "shopId": node.get_attribute(SHOP_ID_ATTR),
-                    "shortlisted": node.get_attribute(SHORTLISTED_ATTR) == "true",
-                }
-            )
-        return result
-
-    def _open_shop_list_item_locator(self, shop_id: str) -> Locator:
-        return self.page.locator(
-            f'[data-testid="{OPEN_SHOP_LIST_ITEM}"][{SHOP_ID_ATTR}="{shop_id}"]'
-        )
-
-    def toggle_open_shop_selection(self, shop_id: str) -> None:
-        item = self._open_shop_list_item_locator(shop_id)
-        expect(item).to_be_attached()
-        before = item.get_attribute(SHORTLISTED_ATTR)
-        by_test_id(item, OPEN_SHOP_SELECT).click()
-        expect(item).to_have_attribute(SHORTLISTED_ATTR, "false" if before == "true" else "true")
-
-    def select_first_n_open_shops_for_shortlist(self, n: int) -> list[str]:
-        """gathering-open-shop-select's requiredOutcome (TDR-GTH-26): selecting is
-        client-side pending state only -- this does not itself call
-        setShortlistedShops (submit_shortlist below does).
-        """
-        chosen = [item["shopId"] for item in self._read_open_shop_list_items()[:n]]
-        for shop_id in chosen:
-            self.toggle_open_shop_selection(shop_id)
-        return chosen
-
-    def assert_no_shortlist_recorded_yet(self) -> None:
-        """Proves gathering-open-shop-select's activation is pending-only (no
-        network call) -- unlike the participant's shop-vote options
-        (answer_shop_vote_question below), which call setShopVotes immediately
-        on every activation. Both models are individually documented in
-        gathering-scheduling-browser-interface.yaml's renderModel; this
-        asserts the organizer side of that documented asymmetry actually holds.
-        """
-        response = self._api("GET", f"/gatherings/{self.gathering_id}")
-        self._assert_api_ok(response, 200, "getGathering (pending-shortlist check)")
-        self.assertions.assertEqual(response.payload["shortlistedShops"], [])
-
-    def submit_shortlist(self) -> None:
-        by_test_id(self.page, SHORTLIST_SUBMIT).click()
-        wait_for_at_least_one(self.page, SHORTLISTED_SHOP_LIST)
-        assert_absent(self.assertions, self.page, OPEN_SHOP_LIST)
+        return sorted(candidates)[0]
 
     def _read_shortlisted_shop_items(self) -> list[dict[str, object]]:
         nodes = wait_for_at_least_one(self.page, SHORTLISTED_SHOP_ITEM)
@@ -1326,6 +1583,7 @@ class GatheringSchedulingBrowserDsl:
                     "okToGoCount": int(node.get_attribute(OK_TO_GO_COUNT_ATTR)),
                     "notGoingCount": int(node.get_attribute(NOT_GOING_COUNT_ATTR)),
                     "respondedCount": int(node.get_attribute(RESPONDED_COUNT_ATTR)),
+                    "currentLeader": node.get_attribute(CURRENT_LEADER_ATTR) == "true",
                 }
             )
         return result
@@ -1365,74 +1623,172 @@ class GatheringSchedulingBrowserDsl:
         ]
         self.assertions.assertEqual(combined, sorted(combined, reverse=True))
 
-    def assert_shop_not_offered_in_open_shop_list(self, shop_id: str) -> None:
-        wait_for_at_least_one(self.page, OPEN_SHOP_LIST)
-        ids = {item["shopId"] for item in self._read_open_shop_list_items()}
-        self.assertions.assertNotIn(shop_id, ids)
-
-    def fetch_confirmed_date_open_shop_preview(self) -> dict:
-        """Full previewOpenShopsForCandidateDate payload (not just the shopId
-        list fetch_confirmed_date_open_shop_ids above already returns) -- used
-        by TDR-GTH-38 to compare a rendered provider-page link's href against
-        OpenShopPreviewItem.providerPageUrl's own exact value.
+    def assert_shortlisted_shop_current_leader(self, shop_id: str) -> None:
+        """data-current-leader (adr/0050 decision 5): "true" for exactly the
+        shop that is first in this list's own orderingInvariant order;
+        "false" for every other item.
         """
-        gathering = require(self.gathering, "no gathering exists")
-        candidate_date_id = require(
-            gathering["confirmedCandidateDateId"],  # type: ignore[index]
-            "no candidate date is confirmed",
-        )
-        response = self._api(
-            "GET",
-            f"/gatherings/{self.gathering_id}/candidate-dates/{candidate_date_id}/open-shop-preview",
-        )
-        self._assert_api_ok(response, 200, "previewOpenShopsForCandidateDate (detail read)")
-        return response.payload
+        items = self._read_shortlisted_shop_items()
+        leaders = [item["shopId"] for item in items if item["currentLeader"]]
+        self.assertions.assertEqual(leaders, [shop_id], f"expected exactly {shop_id} to lead")
 
-    def assert_open_shop_list_shows_map_and_shop_details(self) -> None:
-        """TDR-GTH-38 (adr/0044): shortlistSelection.list's map
-        (gathering-open-shop-map) shows one marker per currently rendered
-        gathering-open-shop-list-item, correlated by data-shop-id, and every
-        item exposes the detail-field test ids the contract requires. This
-        contract does not fix a data-value-state attribute for these fields
-        (unlike candidate-search-browser-interface.yaml's cardDataAttributes,
-        shortlistSelection.list.item.detailFields.requirement's own note), so
-        this only asserts presence -- except providerPageLink, the one field
-        the contract does fix an exact value for (href equals
-        OpenShopPreviewItem.providerPageUrl).
+    # shopSelectionEntry / candidate-search-browser-interface.yaml's
+    # gatheringMode (TDR-GTH-38/44/45, adr/0049 decision 1) -----------------
+    # organizerDashboard.shortlistSelection's own map/detail-field screen was
+    # retired 2026-09-09 along with the rest of that section -- TDR-GTH-38's
+    # "地図と店の情報" observation now lives entirely on candidate-search-
+    # browser-interface.yaml's own, pre-existing card/map (unchanged by
+    # adr/0049, which only adds the toggle+band on top of it). Read directly
+    # as raw test ids (module-boundary note, top of file) rather than
+    # importing candidate_search_browser.py.
+
+    def open_shop_selection_entry(self) -> None:
+        """shopSelectionEntry.open.requiredOutcome (adr/0049 decision 1):
+        navigates from the organizer dashboard to candidate-search-browser-
+        interface.yaml's gatheringMode.
         """
-        wait_for_at_least_one(self.page, OPEN_SHOP_LIST)
-        items = self._read_open_shop_list_items()
-        preview = self.fetch_confirmed_date_open_shop_preview()
-        shops_by_id = {shop["shopId"]: shop for shop in preview["previewShops"]}
-        assert_present(self.assertions, self.page, OPEN_SHOP_MAP)
-        marker_nodes = wait_for_at_least_one(self.page, OPEN_SHOP_MAP_MARKER)
-        marker_ids = [
-            marker_nodes.nth(index).get_attribute(SHOP_ID_ATTR)
-            for index in range(marker_nodes.count())
-        ]
-        item_ids = [item["shopId"] for item in items]
-        # Reviewer audit Major#1 (candidate_search_browser.py's
-        # assert_cards_and_map_show_current_proposal precedent): a set
-        # comparison alone cannot tell a duplicated marker plus a missing one
-        # apart from a correct 1-to-1 correlation, nor detect a marker count
-        # that simply differs from the item count -- sorted-list equality
-        # catches both, and the explicit no-duplicates check catches the rest.
-        self.assertions.assertEqual(sorted(marker_ids), sorted(item_ids))
-        self.assertions.assertEqual(len(marker_ids), len(set(marker_ids)))
-        for item in items:
-            shop_id = item["shopId"]
-            row = self._open_shop_list_item_locator(shop_id)
-            assert_present(self.assertions, row, OPEN_SHOP_LIST_ITEM_WALKING_TIME)
-            assert_present(self.assertions, row, OPEN_SHOP_LIST_ITEM_CAPACITY_TIER)
-            assert_present(self.assertions, row, OPEN_SHOP_LIST_ITEM_NON_SMOKING)
-            assert_present(self.assertions, row, OPEN_SHOP_LIST_ITEM_DINNER_BUDGET)
-            link = assert_present(self.assertions, row, OPEN_SHOP_LIST_ITEM_PROVIDER_PAGE_LINK)
-            expected_shop = require(
-                shops_by_id.get(shop_id), f"shop {shop_id} not in preview payload"
-            )
-            self.assertions.assertEqual(
-                link.get_attribute("href"), expected_shop["providerPageUrl"]
-            )  # type: ignore[index]
+        by_test_id(self.page, SHORTLIST_OPEN).first.click()
+        wait_for_at_least_one(self.page, GATHERING_MODE_BAND)
+
+    def _read_gathering_mode_band(self) -> dict[str, int]:
+        node = assert_present(self.assertions, self.page, GATHERING_MODE_BAND)
+        return {
+            "shortlisted": int(node.get_attribute(GATHERING_MODE_SHORTLISTED_COUNT_ATTR)),
+            "max": int(node.get_attribute(GATHERING_MODE_MAX_SHORTLISTED_ATTR)),
+        }
+
+    def assert_gathering_mode_band_shows(
+        self, *, shortlisted: int, max_shortlisted: int = 5
+    ) -> None:
+        band = self._read_gathering_mode_band()
+        self.assertions.assertEqual(band["shortlisted"], shortlisted)
+        self.assertions.assertEqual(band["max"], max_shortlisted)
+
+    def select_first_n_candidates_into_gathering(self, n: int) -> list[str]:
+        """gatheringMode.cardToggle's requiredOutcome (TDR-GTH-26/44), called
+        while already on candidate-search-browser-interface.yaml's screen
+        (open_shop_selection_entry above). Unlike this file's own retired
+        shortlistSelection (pending-select-then-submit), each toggle calls
+        setShortlistedShops immediately (adr/0049 decision 1) -- there is no
+        separate submit step. Clicks the first ``n`` currently-rendered
+        toggles in DOM order: gatheringMode's own contract correlates no
+        known shopId to a card via any DOM attribute, so which shops end up
+        selected is discovered afterward via the public getGathering
+        readback, not chosen by name in advance (only safe for n <= 5, the
+        confirmed date's OWN open-shop count only when that count is itself
+        <= candidate-search-api.yaml's 5-item display cap -- e.g. Monday/
+        Tuesday's 5, not Thursday's 6 -- so every rendered card really is
+        one of that date's open shops with none held back by the cap).
+        """
+        toggles = wait_for_at_least_one(self.page, CANDIDATE_CARD_GATHERING_TOGGLE)
+        for index in range(n):
+            toggle = toggles.nth(index)
+            expect(toggle).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "false")
+            toggle.click()
+            expect(toggle).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "true")
+        gathering = self.refresh_gathering_from_api()
+        selected = [shop["shopId"] for shop in gathering["shortlistedShops"]]
+        self.assertions.assertEqual(len(selected), n)
+        return selected
+
+    def assert_gathering_mode_shows_map_and_shop_details(self) -> None:
+        """TDR-GTH-38: candidate-search-browser-interface.yaml's own map and
+        per-card detail fields (walking time, seating tier, non-smoking,
+        dinner budget, provider page link) are unchanged by adr/0049 -- this
+        checks their presence from gatheringMode, not this file's own
+        (now-retired) shortlistSelection map/detail rendering. This only
+        asserts presence (not exact values, e.g. provider-page href) --
+        candidate_search_browser.py's own TDR-CS suite already checks those
+        values against candidate-search-api.yaml's own response, and this
+        file does not import that sibling module (module-boundary note).
+        """
+        assert_present(self.assertions, self.page, CANDIDATE_MAP)
+        cards = wait_for_at_least_one(self.page, CANDIDATE_CARD)
+        for index in range(cards.count()):
+            card = cards.nth(index)
+            assert_present(self.assertions, card, CANDIDATE_CARD_WALKING_TIME)
+            assert_present(self.assertions, card, CANDIDATE_CARD_TOTAL_SEATS)
+            assert_present(self.assertions, card, CANDIDATE_CARD_NON_SMOKING)
+            assert_present(self.assertions, card, CANDIDATE_CARD_DINNER_BUDGET)
+            assert_present(self.assertions, card, CANDIDATE_CARD_PROVIDER_PAGE_LINK)
+
+    def toggle_off_the_first_shortlisted_candidate_card(self) -> None:
+        """gatheringMode.cardToggle's own "press again to remove" behavior
+        (TDR-GTH-44, adr/0049 decision 8): toggling a currently-"true" card
+        removes it from the gathering's shortlist.
+
+        **Fixed**: the prior version located its target with an attribute
+        filter (`[data-gathering-shortlisted="true"]`) and re-asserted on
+        that *same, still-attribute-filtered* Locator after clicking --
+        since a Playwright Locator re-resolves its selector on every
+        interaction rather than pinning the element it first found, once
+        the click flips the clicked card's own attribute to "false" that
+        locator no longer matches the clicked card at all; with more than
+        one card shortlisted, it silently starts matching a *different*
+        still-"true" card instead, so the following assertion polled a
+        moving target and never observed the clicked card's own change
+        (reproduced empirically: the request/response showed the click
+        correctly removed the intended shop, but the reused locator kept
+        reporting "true" from the other, untouched shortlisted card).
+        Locating by position (`nth`) instead pins a stable target: this
+        screen's own card order does not depend on shortlist membership
+        (candidate-search-browser-interface.yaml's own confirmed/nearest-
+        first ordering, unaffected by adr/0049's card-toggle addition), so
+        the same index continues to identify the same card across the
+        click's own re-render.
+        """
+        all_toggles = self.page.locator(f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]')
+        target_index = next(
+            index
+            for index in range(all_toggles.count())
+            if all_toggles.nth(index).get_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR) == "true"
+        )
+        target = all_toggles.nth(target_index)
+        before = self._read_gathering_mode_band()["shortlisted"]
+        target.click()
+        expect(target).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "false")
+        self.assertions.assertEqual(self._read_gathering_mode_band()["shortlisted"], before - 1)
+
+    def search_again_on_shop_selection_entry(self) -> None:
+        """ADR-0052 decision 3's shown-pool-priority technique, driven
+        through the browser (TDR-GTH-45's own "6th, not-yet-selected shop"
+        need, the same one adr/0052 names). **Fixed**: this scenario's
+        confirmed Thursday population has 6 open shops against the 5-item
+        display cap, so opening shopSelectionEntry draws its own independent
+        random 5-of-6 sample -- generally *not* the same 5 a separate, prior
+        setShortlistedShops call already shortlisted (two unrelated draws
+        from the same population), so whether a not-yet-shortlisted 6th shop
+        is even rendered to test disabledState against was previously
+        incidental, not guaranteed (reproduced empirically: failed roughly
+        2 of 3 runs with "no [data-gathering-shortlisted=false] element
+        found" when the two independent draws happened to coincide).
+        Clicking candidate-search-again replays this screen's own already-
+        accumulated shownCandidateMemory (candidate-search-browser-
+        interface.yaml's adr/0024 decision 4 mechanism, reused unchanged in
+        gathering mode) -- since the up-to-5 shops this test's own prior
+        organizer_selects_first_n_candidates_into_gathering call rendered
+        (and therefore already recorded as "shown") are exactly the ones it
+        also shortlisted, candidate-search-api.yaml's shownPoolPriority
+        invariant guarantees this replay surfaces the confirmed date's one
+        not-yet-shown (and therefore not-yet-shortlisted) 6th shop
+        deterministically, not merely probably.
+        """
+        capture_candidate_proposal_response(
+            self.page, lambda: by_test_id(self.page, CANDIDATE_SEARCH_AGAIN).click()
+        )
+
+    def assert_unselected_candidate_card_toggle_is_disabled(self) -> None:
+        """TDR-GTH-45 / TDR-CS-19 (adr/0049 decision 8): once
+        shortlistedShopCount >= maxShortlistedShops (5), every not-yet-
+        selected card's toggle carries the native disabled state -- boundary
+        conditions disable, they do not remove the element (this contract's
+        established convention, mirrored from deckNavigation.disabledState).
+        """
+        toggle = self.page.locator(
+            f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]'
+            f'[{CANDIDATE_GATHERING_SHORTLISTED_ATTR}="false"]'
+        ).first
+        expect(toggle).to_be_disabled()
 
     def attempt_set_shortlisted_shops_via_api(self, shop_ids: list[str]) -> CapturedApiResponse:
         return self._api(
@@ -1481,22 +1837,29 @@ class GatheringSchedulingBrowserDsl:
             "POST", f"/gatherings/{self.gathering_id}/finalize", {"shopId": shop_id}, csrf=True
         )
 
-    def open_shortlist_replace(self) -> None:
-        by_test_id(self.page, SHORTLIST_OPEN).first.click()
-        wait_for_at_least_one(self.page, OPEN_SHOP_LIST)
-
-    def replace_shortlisted_shop(self, old_shop_id: str, new_shop_id: str) -> None:
-        """D7 replace (TDR-GTH-31/32): opens shortlistedShopVotes.replaceOpen,
-        confirms the D7 pre-check contract (a kept shop starts data-shortlisted
-        ="true" when the replace panel reopens), swaps exactly one shop for a
-        previously-unlisted one, and submits.
+    def replace_shortlisted_shop(self, old_shop_id: str, new_shop_id: str) -> dict:
+        """D7 replace (TDR-GTH-31/32). **Rewired 2026-09-09 (adr/0049 decision
+        1)**: this file's own shortlistedShopVotes.replaceOpen picker
+        (a pending-select-then-submit flow scoped to this dashboard) is
+        retired along with the rest of organizerDashboard.shortlistSelection
+        -- shop selection, including D7 replace, now happens exclusively on
+        candidate-search-browser-interface.yaml's gatheringMode, reached via
+        shopSelectionEntry.open. That screen's own contract exposes no
+        shopId-to-card DOM correlation (gatheringMode.cardToggle), so this
+        file drives the swap directly through setShortlistedShops (the same
+        public operation gatheringMode's own cardToggle calls per-card,
+        adr/0049 decision 1's cross-file requestBody note: "the complete
+        replacement shopIds array") rather than through that screen's own
+        per-card toggles -- see fetch_confirmed_date_open_shop_ids_with_a_
+        spare's own docstring for why (the 6th, currently-unlisted shop a
+        replace needs is beyond candidate-search-api.yaml's 5-item display
+        cap for a 6-open-shop day).
         """
-        self.open_shortlist_replace()
-        old_item = self._open_shop_list_item_locator(old_shop_id)
-        expect(old_item).to_have_attribute(SHORTLISTED_ATTR, "true")
-        self.toggle_open_shop_selection(old_shop_id)
-        self.toggle_open_shop_selection(new_shop_id)
-        self.submit_shortlist()
+        current = require(self.gathering, "no gathering exists")["shortlistedShops"]  # type: ignore[index]
+        current_ids = [shop["shopId"] for shop in current]
+        self.assertions.assertIn(old_shop_id, current_ids)
+        new_ids = [new_shop_id if shop_id == old_shop_id else shop_id for shop_id in current_ids]
+        return self.set_shortlisted_shops_via_api(new_ids)
 
     def select_shop_for_finalize(self, shop_id: str) -> None:
         item = self.page.locator(
@@ -1701,24 +2064,33 @@ class GatheringSchedulingBrowserDsl:
 
     def assert_schedule_question_no_shop_details(self, candidate_date_id: str) -> None:
         """D6 (2026-08-30): "店名やその他の店舗情報は示されない" -- a stronger
-        prohibition than organizerDashboard's own preview, which does show names.
+        prohibition than organizerDashboard's own preview, which does show
+        names. gathering-open-shop-preview-item/-name (the retired item
+        sub-structure this check used to name explicitly, adr/0049 decision
+        2) no longer exist anywhere in this contract at all -- checked here
+        as literal test ids (not named constants) precisely because they no
+        longer denote a real, defined observation surface.
         """
         question = self._schedule_question_locator(candidate_date_id)
         self.assertions.assertEqual(
-            question.locator(f'[data-testid="{OPEN_SHOP_PREVIEW_ITEM}"]').count(), 0
+            question.locator('[data-testid="gathering-open-shop-preview-item"]').count(), 0
         )
-        assert_absent(self.assertions, self.page, OPEN_SHOP_PREVIEW_ITEM)
-        assert_absent(self.assertions, self.page, OPEN_SHOP_PREVIEW_ITEM_NAME)
-
-    def assert_schedule_question_tally_absent(self, candidate_date_id: str) -> None:
-        question = self._schedule_question_locator(candidate_date_id)
         self.assertions.assertEqual(
-            question.locator(f'[data-testid="{SCHEDULE_TALLY}"]').count(), 0
+            self.page.locator('[data-testid="gathering-open-shop-preview-item"]').count(), 0
         )
 
     def assert_schedule_question_tally(
         self, candidate_date_id: str, *, going: int, maybe: int, not_going: int
     ) -> None:
+        """scheduleQuestion.tally's presenceRule (adr/0050 decision 2, TDR-GTH-12):
+        always present regardless of this question's own data-your-response
+        -- `to_have_count(1)` below fails if the tally is missing, not only
+        if its counts are wrong. Its own sibling
+        assert_schedule_question_tally_absent (the pre-reversal "answer
+        first, then see others" observation) is retired along with this
+        Must's own reversal -- no scenario names an UNANSWERED question
+        whose tally is absent any longer.
+        """
         question = self._schedule_question_locator(candidate_date_id)
         tally = question.locator(f'[data-testid="{SCHEDULE_TALLY}"]')
         expect(tally).to_have_count(1)
@@ -1746,6 +2118,52 @@ class GatheringSchedulingBrowserDsl:
     def assert_valid_participant_view_is_shown(self) -> None:
         assert_all_present(self.assertions, self.page, [PARTICIPANT_HEADER, SCHEDULE_QUESTION])
         assert_absent(self.assertions, self.page, PARTICIPANT_LINK_ERROR)
+
+    # answerLater / peekResults (adr/0050 decision 1) ------------------------
+
+    def assert_answer_later_and_peek_results_present(self) -> None:
+        """Both share one presenceRule: present exactly when
+        ParticipantView.decision is null (the same phase scheduleQuestion/
+        shopVoteQuestion render in)."""
+        assert_all_present(self.assertions, self.page, [ANSWER_LATER, PEEK_RESULTS])
+
+    def assert_answer_later_and_peek_results_absent(self) -> None:
+        """Mirrors nameControl.open's own presenceRule once finalized --
+        both controls disappear once ParticipantView.decision is non-null."""
+        assert_all_absent(self.assertions, self.page, [ANSWER_LATER, PEEK_RESULTS])
+
+    def activate_answer_later_and_verify_it_changes_no_state(
+        self, candidate_date_id: str, expected_response: str
+    ) -> None:
+        """answerLater.requiredOutcome: reveals a confirmation surface with
+        non-empty text and calls no public operation -- checked here as
+        "the already-recorded answer is unchanged by activating it" (this
+        suite has no network-interception convention in this file the way
+        candidate_search_browser.py's _perform_without_candidate_request
+        does; before/after DOM comparison of the one value this action could
+        plausibly disturb is the equivalent proof for this contract).
+        """
+        by_test_id(self.page, ANSWER_LATER).click()
+        confirmation = assert_present(self.assertions, self.page, ANSWER_LATER_CONFIRMATION)
+        self.assertions.assertNotEqual(confirmation.inner_text().strip(), "")
+        self.assert_schedule_question_your_response(candidate_date_id, expected_response)
+
+    def activate_peek_results_and_verify_tallies_are_visible(self, candidate_date_id: str) -> None:
+        """peekResults.requiredOutcome: makes every currently reachable
+        gathering-schedule-tally/gathering-shop-vote-tally simultaneously
+        visible in the DOM. scheduleQuestion.tally/shopVoteQuestion.tally
+        are already unconditionally present as of adr/0050 decision 2 (this
+        suite's own assert_schedule_question_tally/assert_shop_vote_tally
+        already prove DOM presence elsewhere) -- this checks the property
+        peekResults specifically adds: actual Playwright visibility (not
+        merely DOM attachment), for whichever tallies are currently
+        reachable, after activation.
+        """
+        by_test_id(self.page, PEEK_RESULTS).click()
+        tally = self._schedule_question_locator(candidate_date_id).locator(
+            f'[data-testid="{SCHEDULE_TALLY}"]'
+        )
+        expect(tally).to_be_visible()
 
     # unexpectedLoadFailureOutcome / loadFailure (TDR-GTH-42, adr/0047) -----
 
@@ -1882,12 +2300,6 @@ class GatheringSchedulingBrowserDsl:
             YOUR_VOTE_ATTR, expected
         )
 
-    def assert_shop_vote_tally_absent(self, shop_id: str) -> None:
-        question = self._shop_vote_question_locator(shop_id)
-        self.assertions.assertEqual(
-            question.locator(f'[data-testid="{SHOP_VOTE_TALLY}"]').count(), 0
-        )
-
     def assert_shop_vote_tally(
         self, shop_id: str, *, want_to_go: int, ok_to_go: int, not_going: int, responded: int
     ) -> None:
@@ -1897,7 +2309,12 @@ class GatheringSchedulingBrowserDsl:
         own invariant). wantToGoCount + okToGoCount + notGoingCount must
         always equal respondedCount, same invariant its twin
         assert_shortlisted_shop_tally already checks here too, not only
-        trusted (reviewer audit Minor#1).
+        trusted (reviewer audit Minor#1). **presenceRule reversed 2026-09-09
+        (adr/0050 decision 2, TDR-GTH-29)**: always present regardless of
+        this question's own data-your-vote -- `to_have_count(1)` below fails
+        if the tally is missing. Its own sibling
+        assert_shop_vote_tally_absent (the pre-reversal observation) is
+        retired along with this Must's own reversal.
         """
         question = self._shop_vote_question_locator(shop_id)
         tally = question.locator(f'[data-testid="{SHOP_VOTE_TALLY}"]')
@@ -2041,19 +2458,17 @@ class GatheringSchedulingBrowserDsl:
     # Finalized decision (TDR-GTH-34, adr/0041/0044/0046) --------------------
 
     def _read_participant_decision(self) -> dict[str, object]:
+        """**Simplified 2026-09-09 (adr/0050 decision 3, TDR-GTH-34)**: no
+        longer reads a per-shop breakdown -- gathering-participant-decision-
+        shop-vote and decision.yourShopVotes/ParticipantDecisionShopVote are
+        all retired. See assert_participant_decision_has_no_shop_breakdown
+        below for the accompanying negative assertion.
+        """
         node = assert_present(self.assertions, self.page, PARTICIPANT_DECISION)
-        vote_nodes = self.page.locator(f'[data-testid="{PARTICIPANT_DECISION_SHOP_VOTE}"]')
-        shop_votes = {
-            vote_nodes.nth(index).get_attribute(SHOP_ID_ATTR): vote_nodes.nth(index).get_attribute(
-                VOTE_STATUS_ATTR
-            )
-            for index in range(vote_nodes.count())
-        }
         return {
             "confirmedCandidateDate": node.get_attribute(GATHERING_CONFIRMED_CANDIDATE_DATE_ATTR),
             "shopId": node.get_attribute(SHOP_ID_ATTR),
             "yourScheduleResponse": node.get_attribute(YOUR_SCHEDULE_RESPONSE_ATTR),
-            "shopVotes": shop_votes,
         }
 
     def assert_participant_decision(
@@ -2062,18 +2477,23 @@ class GatheringSchedulingBrowserDsl:
         confirmed_candidate_date: str,
         shop_id: str,
         your_schedule_response: str,
-        shop_votes: dict[str, str],
     ) -> None:
-        """shop_votes: shopId -> expected data-vote-status (adr/0044's
-        WANT_TO_GO/OK_TO_GO/NOT_GOING, or "UNANSWERED" for a shop this
-        participant never voted on -- adr/0046 open item 3, 2026-09-05: such
-        a shop is now included with a null status rather than omitted).
-        """
         decision = self._read_participant_decision()
         self.assertions.assertEqual(decision["confirmedCandidateDate"], confirmed_candidate_date)
         self.assertions.assertEqual(decision["shopId"], shop_id)
         self.assertions.assertEqual(decision["yourScheduleResponse"], your_schedule_response)
-        self.assertions.assertEqual(decision["shopVotes"], shop_votes)
+
+    def assert_participant_decision_has_no_shop_breakdown(self) -> None:
+        """TDR-GTH-34's simplified Then ("店ごとの回答の一覧は示されない",
+        adr/0050 decision 3): the retired per-shop test id must not appear
+        anywhere on the page -- checked as a literal string (not a named
+        constant) precisely because it no longer denotes a real, defined
+        observation surface in this contract.
+        """
+        self.assertions.assertEqual(
+            self.page.locator(f'[data-testid="{RETIRED_PARTICIPANT_DECISION_SHOP_VOTE}"]').count(),
+            0,
+        )
 
     def assert_participant_question_surfaces_are_replaced(self) -> None:
         """replacesQuestionSurfaces (adr/0042): once ParticipantView.decision is

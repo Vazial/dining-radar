@@ -153,42 +153,21 @@
   var CANDIDATE_MAP_MARKER_HALF_SIZE_PX = 22;
   var CANDIDATE_ORIGIN_MARKER_HALF_SIZE_PX = 14;
 
-  // Map-primary layout at every width (adr/0031 introduced this for >=64rem;
-  // adr/0033, human decision 2026-08-29, extends it below 64rem too,
-  // retiring the earlier 88px "closed band" this file used to fit against
-  // with its own asymmetric, band-specific padding -- there is no longer a
-  // small, wide-short box to special-case, so every width now shares the
-  // same full-viewport-minus-chrome box and the same deck-aware fitBounds
-  // padding, mapPrimaryFitPaddingOptions below).
-
-  // adr/0031 decisions 1-3 (desktop map-primary deck paging). Card width/gap
-  // mirror Desktop.dc.html decision9's dcard (250px design value, rounded
-  // here to 16.25rem/260px, measured to leave the shop name enough room to
-  // read past 2-3 characters before ellipsizing at this card's own font
-  // size, see activeContext.md) and this file's own 0.75rem inter-card gap
-  // -- mirrored here (not just in CSS) so the sliding-window transform math
-  // below (recomputeDeckWindow) stays exact rather than approximated from a
-  // measured width, the same manual-sync obligation this file already
-  // carries for WALKING_TIME_MAX_PRESETS_MINUTES/WALKING_DETOUR_FACTOR
-  // above. Update these two values in the same change that edits
-  // .candidate-deck-viewport [data-testid="candidate-card"]'s own
-  // width/flex-basis and .candidate-deck-viewport [data-testid="candidate-
-  // proposal-cards"]'s own gap rule in home.html.
-  var DECK_CARD_WIDTH_PX = 260;
-  var DECK_CARD_GAP_PX = 12;
-
-  // adr/0031 decision7 (Desktop.dc.html "デッキを地図の下部4割程度に収め、
-  // 上部6割を開けておく" -- the map-primary deck overlaps the bottom of the
-  // map by design, human decision 2026-08-28). Leaflet's fitBounds `padding`
-  // option applies one [x,y] pair symmetrically to every edge; `paddingTopLeft`/
-  // `paddingBottomRight` accept an asymmetric box instead, which is what
-  // actually lets the fitted view bias toward the map's own upper region,
-  // clear of the deck's own measured height, rather than the deck's bottom
-  // inset squeezing every edge equally. This is a best-effort mitigation,
-  // not a guarantee -- a wide-enough candidate spread can still place a
-  // marker or a ring under the deck regardless of padding (Desktop.dc.html's
-  // own "穴" section calls this unverified; see activeContext.md for this
-  // slice's own real-device measurement of how well it holds up).
+  // Leaflet's fitBounds `padding` option applies one [x,y] pair
+  // symmetrically to every edge; `paddingTopLeft`/`paddingBottomRight`
+  // accept an asymmetric box instead. adr/0033's mobile map-primary-touch
+  // deck still overlaps the bottom of its own map by design (human decision
+  // 2026-08-29), so this asymmetric padding biases the fitted view toward
+  // the map's own upper region, clear of the deck's own measured height,
+  // whenever a deck is actually present -- adr/0049 decision4 retired the
+  // desktop deck this used to also account for (isTwoColumnLayout's map
+  // column has no overlay at all, so mapWrapperEl there never contains a
+  // .candidate-deck element and this naturally falls back to the plain,
+  // symmetric 24px padding below without any mode check needed here). This
+  // is a best-effort mitigation, not a guarantee -- a wide-enough candidate
+  // spread can still place a marker or a ring under the deck regardless of
+  // padding (see activeContext.md for this project's own real-device
+  // measurement of how well it holds up).
   function mapPrimaryFitPaddingOptions() {
     var deckEl = mapWrapperEl ? mapWrapperEl.querySelector(".candidate-deck") : null;
     var deckHeight = deckEl ? deckEl.getBoundingClientRect().height : 0;
@@ -215,6 +194,29 @@
   var SHOWN_CANDIDATE_MEMORY_KEY = "dining-radar:shown-provider-page-urls";
   var SHOWN_CANDIDATE_MEMORY_MAX_AGE_MS = 20 * 60 * 60 * 1000;
 
+  // adr/0049 decision 1: gathering mode. This contract does not fix the
+  // exact navigation mechanism into this mode (gatheringMode's own
+  // description) -- a URL query parameter is this implementation's choice,
+  // read once at module load and carried unchanged on every later
+  // applyFilters/searchAgain request while this screen stays in gathering
+  // mode (requestProposal below attaches it whenever non-null).
+  function readGatheringIdFromUrl() {
+    var params = new URLSearchParams(window.location.search);
+    var value = params.get("gatheringId");
+    return value ? value : null;
+  }
+  var gatheringModeId = readGatheringIdFromUrl();
+  // The most recent response's gatheringContext (null outside gathering
+  // mode, or before any proposal has loaded) -- renderResult/renderCard
+  // read this to decide whether to render gatheringMode's band/cardToggle
+  // at all (their own presenceRule: present exactly when non-null).
+  var currentGatheringContext = null;
+  // This render's Candidate objects keyed by candidateRef -- lets
+  // toggleCardGatheringShortlist read each currently-displayed card's own
+  // shopId without a dedicated DOM attribute (mirrors cardElementsByRef's
+  // own by-ref lookup convention).
+  var currentCandidatesByRef = {};
+
   var currentFilters = defaultFilters();
   // The organizer's working copy. Editing a chip changes only this; nothing
   // is searched until the apply control is used, which is what the
@@ -240,48 +242,47 @@
   // applyPendingFilters/handleProposalResponse below).
   var hasDisplayedProposal = false;
 
-  // Map-primary, always -- there is exactly one Leaflet map instance
-  // throughout a render, and the deck (candidate.js's renderDeck) always
-  // floats over its own bottom inset (adr/0031, extended below 64rem by
-  // adr/0033, human decision 2026-08-29). selectedCandidateRef mirrors the
-  // currently selected candidate outside of selectCandidate's own DOM
-  // bookkeeping; latLngByRef lets a later re-center (selectMarker's
-  // deckVisibility) re-use a candidate's coordinates without re-deriving
-  // them. orderedCardElements/cardsContainerEl support the deck's own
-  // sliding-window paging (recomputeDeckWindow) without ever cloning a
-  // candidate-card element.
+  // There is exactly one Leaflet map instance throughout a render.
+  // selectedCandidateRef mirrors the currently selected candidate outside of
+  // selectCandidate's own DOM bookkeeping; latLngByRef lets a later re-center
+  // (selectMarker's deckVisibility) re-use a candidate's coordinates without
+  // re-deriving them. orderedCardElements/cardsContainerEl support the
+  // mobile deck's own sliding-window paging (recomputeDeckWindow) without
+  // ever cloning a candidate-card element.
   var selectedCandidateRef = null;
   var latLngByRef = {};
   var orderedCardElements = [];
   var cardsContainerEl = null;
   var mapWrapperEl = null;
 
-  // adr/0031 (desktop map-primary deck, Desktop.dc.html decision7=案A/
-  // decision8=案あ) and adr/0033 (mobile map-primary-touch deck, human
-  // decision 2026-08-29, Mobile.dc.html) -- isMapPrimaryLayout/
-  // isMapPrimaryTouchLayout are mutually exclusive, render-time flags
-  // renderResult sets once per response (adr/0032 decision3: no live-resize
-  // mode switching) that selectCandidate (defined before renderResult in
-  // this file, hence these module-scope variables rather than local ones)
-  // also needs to decide whether to page the deck to reveal a newly
-  // selected candidate (deckVisibility, adr/0031 decision3/adr/0033
-  // decision5). deckWindowStart/deckWindowSize track the sliding window's
-  // own state (1-based, see recomputeDeckWindow); the *El variables are
-  // renderDeck's own built elements, reset on every renderResult call the
-  // same way cardsContainerEl/mapWrapperEl already are above.
-  // deckSwipeState tracks an in-progress pointer gesture on
+  // adr/0049 decision 4 (2026-09-08 human decision: "微妙。右に地図で一覧左
+  // とかじゃなかったっけ") retired adr/0031's desktop map-primary,
+  // button-paged deck in favor of a plain two-column list-and-map layout --
+  // isTwoColumnLayout (renamed from isMapPrimaryLayout) and
+  // isMapPrimaryTouchLayout (adr/0033's mobile map-primary-touch deck,
+  // human decision 2026-08-29, unchanged by this revision) remain mutually
+  // exclusive, render-time flags renderResult sets once per response
+  // (adr/0032 decision3: no live-resize mode switching) that selectCandidate
+  // (defined before renderResult in this file, hence these module-scope
+  // variables rather than local ones) also needs to decide whether to page
+  // the mobile deck to reveal a newly selected candidate (deckVisibility,
+  // adr/0033 decision5 -- trivially satisfied while isTwoColumnLayout holds,
+  // since every card is already visible at once). deckWindowStart/
+  // deckWindowSize track the mobile deck's own sliding window state (1-based,
+  // see recomputeDeckWindow); the *El variables are renderDeck's own built
+  // elements (only ever populated while isMapPrimaryTouchLayout holds, since
+  // renderResult calls renderDeck only in that branch now), reset on every
+  // renderResult call the same way cardsContainerEl/mapWrapperEl already are
+  // above. deckSwipeState tracks an in-progress pointer gesture on
   // candidate-deck-swipe-surface (mapPrimaryTouchLayout only; see
   // attachSwipeGesture below).
-  var isMapPrimaryLayout = false;
+  var isTwoColumnLayout = false;
   var isMapPrimaryTouchLayout = false;
   var deckWindowStart = 1;
   var deckWindowSize = 1;
   var deckViewportEl = null;
-  var deckPreviousEl = null;
-  var deckNextEl = null;
   var deckPositionEl = null;
   var deckPeekEl = null;
-  var deckResizeObserver = null;
   var deckSwipeState = null;
 
   function defaultFilters() {
@@ -425,6 +426,13 @@
     if (shownProviderPageUrls.length > 0) {
       body.shownProviderPageUrls = shownProviderPageUrls;
     }
+    // adr/0049 decision 1: every request carries the same gatheringId while
+    // this screen remains in gathering mode (gatheringMode's own
+    // description: "every applyFilters/searchAgain ... carries that same
+    // gatheringId").
+    if (gatheringModeId) {
+      body.gatheringId = gatheringModeId;
+    }
     return fetch("/candidate-proposals", {
       method: "POST",
       credentials: "same-origin",
@@ -499,17 +507,18 @@
         inline: "center",
       });
     }
-    // adr/0031 decision3 (deckVisibility), generalized to
-    // mapPrimaryTouchLayout by adr/0033 decision5: while either named
-    // renderMode holds -- always true, since the deck now floats over the
-    // map at every width -- the newly selected candidate's own card must be
-    // inside the deck's visible window immediately after selection,
-    // regardless of whether selection came from a card click (already
-    // visible, since only visible cards are clickable outside the deck's
-    // clipped overflow) or a marker click/keydown (may name a candidate
-    // currently outside the window). Applying this unconditionally, not
-    // only for the marker path, keeps one shared rule rather than branching
-    // on the caller.
+    // browserActions.selectMarker's deckVisibility (adr/0033 decision5):
+    // while isMapPrimaryTouchLayout holds, the newly selected candidate's
+    // own card must be inside the deck's visible window immediately after
+    // selection, regardless of whether selection came from a card click
+    // (already visible, since only visible cards are clickable outside the
+    // deck's clipped overflow) or a marker click/keydown (may name a
+    // candidate currently outside the window). Applying this
+    // unconditionally, not only for the marker path, keeps one shared rule
+    // rather than branching on the caller. recomputeDeckWindow itself is a
+    // no-op while isTwoColumnLayout holds (deckViewportEl stays null then),
+    // which is exactly deckVisibility's "trivially satisfied" clause for
+    // that mode -- every card is already visible in the unpaged list.
     recomputeDeckWindow(candidateRef);
   }
 
@@ -558,26 +567,21 @@
     // the synthetic population's own longest name, and far worse for real
     // names ("ドラゴンレッドリバー DRAGON RED RIVER" etc). Human decision
     // (2026-08-29 chat, choosing among three costed options) moved the
-    // walking-time chip out of the id row and onto the genre line -- at
-    // the time, scoped to isMapPrimaryLayout (>=64rem) only, because the
-    // mobile width (<64rem) was still listPrimaryLayout's own plain,
-    // non-deck card. adr/0033 (later the same day) retired
-    // listPrimaryLayout outright and gave every width the same fixed-width
-    // deck card (renderDeck/.candidate-deck-viewport, shared by class name
-    // across both mapPrimaryLayout and mapPrimaryTouchLayout) -- the same
-    // cut-off-name problem this decision fixed for >=64rem was later
-    // real-device-reported at mobile widths too (orchestrator, 2026-08-29:
-    // name display down to 46-71% of card width at 375-390px), which is
-    // exactly the deck-card geometry this decision already addressed, not
-    // a new problem needing a new decision. Applying the same placement to
-    // isMapPrimaryTouchLayout is therefore this same decision's own logic
-    // carried to its now-only-other render mode, not a PC-only rule
-    // extended past its original scope -- there is no longer a
-    // non-deck/list-primary card left for the original "id-row chip"
-    // placement to apply to, so it is retired instead of kept behind a
-    // dead branch. isMapPrimaryLayout/isMapPrimaryTouchLayout are each
-    // read once per render before renderCard is ever called (renderResult,
-    // above), so this placement is decided once per render, not per card.
+    // walking-time chip out of the id row and onto the genre line for
+    // every fixed-width deck card (adr/0033 later the same day gave both
+    // render modes' cards this same narrow, fixed width, so the fix that
+    // started scoped to >=64rem carried unchanged to mobile too). adr/0049
+    // decision4 (2026-09-08 human decision) retired the desktop deck's own
+    // fixed-width card in favor of isTwoColumnLayout's plain list column
+    // (E:\AWS\dsg-out\party\Deck.dc.html's own board, whose card markup
+    // restores the chip to the id row now that the column is wide enough
+    // that cramming does not recur -- board's own `.top`/`.genre` split).
+    // isMapPrimaryTouchLayout's own deck card is unchanged by this
+    // revision (still fixed-width, still narrow, per DeckPhone.dc.html) --
+    // this is therefore a per-mode placement choice again, not the single
+    // shared one adr/0033 settled on, and isTwoColumnLayout is read once
+    // per render before renderCard is ever called (renderResult, above),
+    // so it is decided once per render, not per card.
     var walkChip = el(
       "span",
       {
@@ -616,6 +620,9 @@
         [candidate.name]
       ),
     ];
+    if (isTwoColumnLayout) {
+      idRowChildren.push(walkChip);
+    }
     var idRow = el("div", { "class": "candidate-card-id-row" }, idRowChildren);
     card.appendChild(idRow);
 
@@ -624,12 +631,15 @@
       { "data-testid": "candidate-card-genre", "data-field-label": "ジャンル", "data-value-state": "provided", "class": "candidate-genre-text" },
       [candidate.genre]
     );
-    // Genre and the walking-time chip share one row (both render modes,
-    // see the walkChip comment above) so the id row above can give the
-    // shop name essentially the whole card width (home.html's own
+    // isTwoColumnLayout already placed walkChip in the id row above (a
+    // plain genre line, matching Deck.dc.html's board); isMapPrimaryTouchLayout
+    // keeps sharing genre and the walking-time chip on one row (see the
+    // walkChip comment above) so its own narrow id row can give the shop
+    // name essentially the whole card width (home.html's own
     // .candidate-deck-viewport [data-testid="candidate-card-name"]
     // flex-grow rule) instead of splitting it with the chip.
-    card.appendChild(el("div", { "class": "candidate-genre-row" }, [genreText, walkChip]));
+    var genreRowChildren = isTwoColumnLayout ? [genreText] : [genreText, walkChip];
+    card.appendChild(el("div", { "class": "candidate-genre-row" }, genreRowChildren));
 
     // Design realignment (E:\AWS\dsg-out\Main.dc.html): description is a
     // plain paragraph directly under genre, not a labelled fact row inside
@@ -696,25 +706,15 @@
     // is exactly false, stating only the confirmed fact -- never a "cash
     // only" claim.
     //
-    // Human real-device report (2026-09-01, D-fix 案B, deck見た目3件): on
-    // the PC deck (isMapPrimaryLayout), cards with the caution and cards
-    // without it sit side by side in one row and their bottom edges no
-    // longer lined up ("ツールチップのバランスが悪いですね") -- this
-    // element's own conditional presenceRule (contract's own text: "a
-    // caution about a confirmed unavailability is not itself an
-    // unavailable-field display") is exactly what created the height
-    // difference. 案B reserves the same box for every deck card whether or
-    // not the caution actually renders, **without ever giving the reserved,
-    // empty box the candidate-card-payment-caution test id** -- doing so
-    // would violate this same presenceRule (DeckFix.dc.html's own explicit
-    // warning). The reserved box shares the caution's exact text and CSS
-    // box model but is rendered `visibility: hidden` (not `display: none`,
-    // which would collapse its height back to zero) -- this guarantees an
-    // identical reserved height without depending on a second, separately
-    // measured/maintained constant. Scoped to isMapPrimaryLayout only
-    // (mobile's touch deck shows one card at a time, so uneven height
-    // across cards is not a side-by-side comparison problem there -- the
-    // D-fix board's own title names this "1. PC" only).
+    // The 2026-09-01 D-fix 案B height-equalization reserved box (a hidden
+    // placeholder occupying this same space on every card, so the PC deck's
+    // side-by-side cards' bottom edges lined up regardless of which ones
+    // showed the caution) is retired along with the PC deck itself
+    // (adr/0049 decision4's own "D-fix 1・D-fix 2の前提消滅": isTwoColumnLayout's
+    // cards stack in a single column, not side by side, so there is no
+    // shared row of bottom edges left to line up). isMapPrimaryTouchLayout
+    // never used this reservation either (its own deck shows one card at a
+    // time).
     if (candidate.cardPaymentAvailable === false) {
       card.appendChild(
         el(
@@ -723,17 +723,6 @@
             "data-testid": "candidate-card-payment-caution",
             "data-card-payment-available": "false",
             "class": "candidate-payment-caution",
-          },
-          ["クレジットカード非対応（支払い方法は要確認）"]
-        )
-      );
-    } else if (isMapPrimaryLayout) {
-      card.appendChild(
-        el(
-          "p",
-          {
-            "class": "candidate-payment-caution candidate-payment-caution-reserved",
-            "aria-hidden": "true",
           },
           ["クレジットカード非対応（支払い方法は要確認）"]
         )
@@ -763,8 +752,149 @@
       ])
     );
 
+    // adr/0049 decision 1: gatheringMode.cardToggle -- present on every
+    // candidate-card exactly when response.gatheringContext is non-null.
+    if (currentGatheringContext) {
+      var toggle = renderGatheringCardToggle(candidate);
+      card.appendChild(toggle);
+    }
+
     cardElementsByRef[candidate.candidateRef] = card;
     return card;
+  }
+
+  // adr/0049 decision 8: disabled exactly when this card is not currently
+  // shortlisted and the gathering has already reached its 5-shop cap.
+  function gatheringCardToggleDisabled(isShortlisted) {
+    return (
+      !isShortlisted &&
+      currentGatheringContext.shortlistedShopCount >= currentGatheringContext.maxShortlistedShops
+    );
+  }
+
+  function renderGatheringCardToggle(candidate) {
+    var isShortlisted = candidate.isShortlisted === true;
+    var button = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "candidate-card-gathering-toggle",
+        "data-candidate-control-category": "button",
+        "data-candidate-control-purpose": "candidate-card-gathering-toggle",
+        "data-gathering-shortlisted": isShortlisted ? "true" : "false",
+        "class": "candidate-gathering-toggle" + (isShortlisted ? " candidate-gathering-toggle--on" : ""),
+      },
+      [isShortlisted ? "この会に入れました" : "この会に入れる"]
+    );
+    if (gatheringCardToggleDisabled(isShortlisted)) {
+      button.disabled = true;
+    }
+    button.addEventListener("click", function (event) {
+      event.stopPropagation();
+      toggleCardGatheringShortlist(candidate.candidateRef);
+    });
+    return button;
+  }
+
+  // adr/0049 decision 1 (toggleCardGatheringShortlist): the complete
+  // replacement shopIds array is built from every currently-displayed
+  // card's own data-gathering-shortlisted="true" state at the moment of
+  // activation, with this card's shopId added (if it was "false") or
+  // removed (if it was "true") -- this action never calls
+  // candidate-search-api.yaml's own /candidate-proposals; it targets
+  // gathering-scheduling-api.yaml's setShortlistedShops directly (this
+  // contract's first browserAction whose publicOperation targets a
+  // different contract's endpoint).
+  function toggleCardGatheringShortlist(candidateRef) {
+    if (!currentGatheringContext) {
+      return;
+    }
+    var shopIds = [];
+    var thisShopId = null;
+    orderedCardElements.forEach(function (cardEl) {
+      var toggleEl = cardEl.querySelector('[data-testid="candidate-card-gathering-toggle"]');
+      if (!toggleEl) {
+        return;
+      }
+      var ref = cardEl.getAttribute("data-candidate-ref");
+      var shopId = currentCandidatesByRef[ref] ? currentCandidatesByRef[ref].shopId : null;
+      var isOn = toggleEl.getAttribute("data-gathering-shortlisted") === "true";
+      if (ref === candidateRef) {
+        thisShopId = shopId;
+        isOn = !isOn;
+      }
+      if (isOn && shopId) {
+        shopIds.push(shopId);
+      }
+    });
+    if (thisShopId === null) {
+      return;
+    }
+    fetch("/gatherings/" + encodeURIComponent(currentGatheringContext.gatheringId) + "/shortlisted-shops", {
+      method: "PUT",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": csrfToken(),
+      },
+      body: JSON.stringify({ shopIds: shopIds }),
+    })
+      .then(function (response) {
+        return response.status === 200 ? response.json() : null;
+      })
+      .then(function (gathering) {
+        // errorOutcome: a rejected call leaves cardToggle/band unchanged --
+        // this contract fixes no distinct visible error surface beyond that
+        // no-op-on-failure guarantee, so a null (non-200) response here is
+        // silently ignored.
+        if (!gathering) {
+          return;
+        }
+        var updatedShopIds = {};
+        (gathering.shortlistedShops || []).forEach(function (shop) {
+          updatedShopIds[shop.shopId] = true;
+        });
+        currentGatheringContext = {
+          gatheringId: currentGatheringContext.gatheringId,
+          title: currentGatheringContext.title,
+          confirmedCandidateDate: currentGatheringContext.confirmedCandidateDate,
+          shortlistedShopCount: (gathering.shortlistedShops || []).length,
+          maxShortlistedShops: currentGatheringContext.maxShortlistedShops,
+        };
+        var band = root.querySelector('[data-testid="candidate-gathering-mode-band"]');
+        if (band) {
+          band.setAttribute(
+            "data-gathering-shortlisted-count",
+            String(currentGatheringContext.shortlistedShopCount)
+          );
+          band.setAttribute(
+            "data-gathering-max-shortlisted",
+            String(currentGatheringContext.maxShortlistedShops)
+          );
+          var countEl = band.querySelector(".candidate-gathering-mode-band-count");
+          if (countEl) {
+            countEl.textContent =
+              "入れた店 " +
+              String(currentGatheringContext.shortlistedShopCount) +
+              " / " +
+              String(currentGatheringContext.maxShortlistedShops);
+          }
+        }
+        orderedCardElements.forEach(function (cardEl) {
+          var toggleEl = cardEl.querySelector('[data-testid="candidate-card-gathering-toggle"]');
+          if (!toggleEl) {
+            return;
+          }
+          var ref = cardEl.getAttribute("data-candidate-ref");
+          var shopId = currentCandidatesByRef[ref] ? currentCandidatesByRef[ref].shopId : null;
+          var isOn = !!updatedShopIds[shopId];
+          toggleEl.setAttribute("data-gathering-shortlisted", isOn ? "true" : "false");
+          toggleEl.textContent = isOn ? "この会に入れました" : "この会に入れる";
+          toggleEl.classList.toggle("candidate-gathering-toggle--on", isOn);
+          toggleEl.disabled = gatheringCardToggleDisabled(isOn);
+        });
+      })
+      .catch(function () {});
   }
 
   function clearWalkingRadiusRingLayers() {
@@ -1018,17 +1148,16 @@
     layoutWalkingRadiusRings(leafletMap, walkingRadiusRingOrigin);
   }
 
-  // adr/0031 decisions 2-3 (deckNavigation, browserActions.pageDeckPrevious/
-  // pageDeckNext): a fixed-size sliding window over the same ordered card
-  // list the mobile list already renders (orderedCardElements) -- paging
-  // never reorders, adds, or removes a data-candidate-ref
+  // adr/0033 decisions 2-3 (deckNavigation, browserActions.
+  // pageDeckSwipeForward/Backward), narrowed to isMapPrimaryTouchLayout
+  // only by adr/0049 decision4 (twoColumnLayout has no deck to page -- see
+  // renderModes above): a sliding window, fixed at exactly one card wide
+  // (Mobile.dc.html "可視窓が常に1件"), over the same ordered card list the
+  // list column already renders (orderedCardElements) -- paging never
+  // reorders, adds, or removes a data-candidate-ref
   // (deckNavigation.orderingInvariant), it only moves which already-ordered
-  // cards sit inside the window (contract's own "windowing/paging"
-  // language). Window size adapts to the deck viewport's own measured
-  // width (recomputeDeckWindow), not a fixed card count, so it naturally
-  // shows fewer cards on a narrower desktop window and more on a wider one
-  // -- DECK_CARD_WIDTH_PX/DECK_CARD_GAP_PX above are the same fixed
-  // per-card footprint the CSS itself uses.
+  // card sits inside the window (contract's own "windowing/paging"
+  // language).
   function deckTotal() {
     return orderedCardElements.length;
   }
@@ -1038,13 +1167,11 @@
   }
 
   // contracts/candidate-search-browser-interface.yaml's deckNavigation.
-  // position.presenceRule/valueShape (common to both named renderModes,
-  // adr/0033 decision2) and disabledState (mapPrimaryLayout's buttons
-  // only): 1-based visibleStart/visibleEnd/total decimal-string
-  // attributes, and native `disabled` on candidate-deck-previous/-next
-  // exactly at the start/end boundary (mirrors filterPanel.
-  // matchCountObservation.zeroState's own disabled-not-absent convention,
-  // reused by reference in the contract).
+  // position.presenceRule/valueShape (mapPrimaryTouchLayout only as of
+  // adr/0049 decision4): 1-based visibleStart/visibleEnd/total decimal-
+  // string attributes. visibleStart always equals visibleEnd (adr/0049
+  // decision5's stopBehavior: the swipe surface always settles on exactly
+  // one full card, never a partial one at either edge).
   function updateDeckPositionDisplay() {
     if (!deckPositionEl) {
       return;
@@ -1061,45 +1188,12 @@
         : visibleStart === visibleEnd
           ? String(visibleStart) + " / " + String(total)
           : String(visibleStart) + "–" + String(visibleEnd) + " / " + String(total);
-    if (deckPreviousEl) {
-      deckPreviousEl.disabled = visibleStart <= 1;
-    }
-    if (deckNextEl) {
-      deckNextEl.disabled = visibleEnd >= total;
-    }
     if (cardsContainerEl) {
-      if (isMapPrimaryTouchLayout) {
-        // adr/0033: each card is exactly the swipe surface's own width
-        // (home.html: `flex: 0 0 100%`), so a percentage offset stays
-        // exact regardless of the surface's actual measured pixel width --
-        // unlike mapPrimaryLayout's fixed-260px cards below, there is no
-        // fixed per-card pixel footprint to multiply by here.
-        var offsetPercent = (deckWindowStart - 1) * 100;
-        cardsContainerEl.style.transform = "translateX(" + String(-offsetPercent) + "%)";
-      } else {
-        var offsetPx = (deckWindowStart - 1) * (DECK_CARD_WIDTH_PX + DECK_CARD_GAP_PX);
-        cardsContainerEl.style.transform = "translateX(" + String(-offsetPx) + "px)";
-      }
-    }
-    // deckViewportEl's own CSS (`flex: 1 1 auto`) lets it grow past
-    // deckWindowSize cards' combined width whenever the deck bar has more
-    // room than exactly deckWindowSize cards need (e.g. deckWindowSize=4
-    // leaves slack once 4 cards only need 1064px of a 1200px-wide
-    // viewport) -- real-device measurement found this let a 5th,
-    // uncounted card visibly peek in through that slack despite
-    // overflow: hidden, contradicting the "1–4 / 5" counter next to it
-    // (activeContext.md). Capping the viewport's own max-width to exactly
-    // deckWindowSize cards' width removes that slack, so overflow: hidden
-    // clips flush at the boundary the counter itself reports; any leftover
-    // deck-bar space instead stays empty next to candidate-deck-next
-    // rather than partially revealing an uncounted card. Only meaningful
-    // for mapPrimaryLayout's fixed-px cards -- mapPrimaryTouchLayout's
-    // single, always-100%-width card has no such slack to close, and
-    // capping it to a literal 260px there would be actively wrong (the
-    // touch surface is almost always wider than that).
-    if (deckViewportEl && isMapPrimaryLayout) {
-      var deckWidthPx = total === 0 ? 0 : deckWindowSize * DECK_CARD_WIDTH_PX + (deckWindowSize - 1) * DECK_CARD_GAP_PX;
-      deckViewportEl.style.maxWidth = deckWidthPx + "px";
+      // adr/0033: each card is exactly the swipe surface's own width
+      // (home.html: `flex: 0 0 100%`), so a percentage offset stays exact
+      // regardless of the surface's actual measured pixel width.
+      var offsetPercent = (deckWindowStart - 1) * 100;
+      cardsContainerEl.style.transform = "translateX(" + String(-offsetPercent) + "%)";
     }
     if (deckPeekEl) {
       // Orchestrator decision 2026-08-29 (Mobile.dc.html 論点1 案B): the
@@ -1111,47 +1205,28 @@
   }
 
   // Recomputes the deck's own visible window (called on initial render and
-  // on every later viewport resize via the ResizeObserver renderDeck
-  // attaches -- adr/0032 decision3 only exempts *render-mode* switching,
-  // mapPrimaryLayout<->mapPrimaryTouchLayout, from a live-resize
-  // requirement, not this in-mode window-size recalculation), clamping the
-  // current window and, when revealRef names a candidate currently outside
-  // it, moving the window to include that candidate without changing card
-  // order (browserActions.selectMarker's deckVisibility clause, adr/0031
-  // decision3, generalized to mapPrimaryTouchLayout by adr/0033 decision5).
+  // on every later selection), clamping the current window and, when
+  // revealRef names a candidate currently outside it, moving the window to
+  // include that candidate without changing card order
+  // (browserActions.selectMarker's deckVisibility clause, adr/0033
+  // decision5 -- a no-op while isTwoColumnLayout holds, since this
+  // function returns immediately below whenever deckViewportEl is null,
+  // which it always is under that mode: renderResult only calls renderDeck,
+  // below, while isMapPrimaryTouchLayout holds).
   function recomputeDeckWindow(revealRef) {
     if (!deckViewportEl) {
       return;
     }
+    // Mobile.dc.html: "可視窓が常に1件" -- the only render mode that still
+    // builds a deck shows exactly one full-width card at a time, so the
+    // window size is fixed at 1 rather than measured against the deck's
+    // own pixel width.
+    deckWindowSize = 1;
     var total = deckTotal();
     if (total === 0) {
-      deckWindowSize = 1;
       deckWindowStart = 1;
       updateDeckPositionDisplay();
       return;
-    }
-    if (isMapPrimaryTouchLayout) {
-      // Mobile.dc.html: "可視窓が常に1件" -- the deck's own fluid,
-      // full-width card (home.html's own `flex: 0 0 100%` rule) has no
-      // fixed per-card pixel footprint to divide the surface width by the
-      // way mapPrimaryLayout's fixed-260px cards do below, so the window
-      // size is simply fixed at 1 rather than measured.
-      deckWindowSize = 1;
-    } else {
-      // updateDeckPositionDisplay (called at the end of this function, and
-      // by every earlier call to it) caps deckViewportEl's own max-width
-      // to exactly deckWindowSize cards' width (see that function's own
-      // comment). Measuring clientWidth against that constrained box on a
-      // later call -- e.g. a real window resize firing the ResizeObserver
-      // renderDeck attaches -- would read back a stale, self-imposed limit
-      // instead of the deck bar's actual currently-available width,
-      // getting permanently stuck at whatever window size the previous
-      // measurement produced. Releasing the cap first restores the CSS
-      // `flex: 1 1 auto` sizing this measurement needs.
-      deckViewportEl.style.maxWidth = "none";
-      var viewportWidth = deckViewportEl.clientWidth;
-      var fit = Math.floor((viewportWidth + DECK_CARD_GAP_PX) / (DECK_CARD_WIDTH_PX + DECK_CARD_GAP_PX));
-      deckWindowSize = Math.max(1, Math.min(fit, total));
     }
 
     if (revealRef) {
@@ -1172,13 +1247,14 @@
     updateDeckPositionDisplay();
   }
 
-  // Shared by both named renderModes: mapPrimaryLayout's candidate-deck-
-  // next/candidate-deck-previous buttons and mapPrimaryTouchLayout's
-  // pageDeckSwipeForward/Backward gesture (attachSwipeGesture below) both
-  // call these two directly. The boundary check is on the window's own
-  // data, not a button's `disabled` attribute (which does not exist in
-  // mapPrimaryTouchLayout) -- calling either function already at the
-  // boundary is therefore a no-op, which is exactly
+  // pageDeckSwipeForward/Backward's own JS implementation
+  // (attachSwipeGesture below) calls these two directly -- there is no
+  // longer a button to call them (adr/0049 decision4 retired
+  // mapPrimaryLayout's candidate-deck-previous/-next along with the rest of
+  // the desktop deck; browserActions.pageDeckPrevious/Next, which those
+  // buttons used to drive, are retired with them). The boundary check is on
+  // the window's own data, so calling either function already at the
+  // boundary is a no-op, which is exactly
   // browserActions.pageDeckSwipeForward/Backward's own boundaryOvershoot
   // requirement (adr/0033 decision3): it must not error, must not start a
   // public operation, and must leave start/end/total unchanged.
@@ -1289,39 +1365,17 @@
     surfaceEl.addEventListener("pointercancel", endGesture);
   }
 
-  // Builds the map-primary card deck, common to both named renderModes
-  // (adr/0031's mapPrimaryLayout, adr/0033's mapPrimaryTouchLayout) --
-  // around the same candidate-proposal-cards element renderResult already
-  // built (never a second/cloned card set). The position counter
-  // (candidate-deck-position, adr/0031 decision2, moved out of either
-  // mode's own exclusivity by adr/0033 decision2) is common to both; only
-  // the paging affordance differs -- previous/next buttons (allowedPurposes
-  // candidate-deck-page-previous/-next, adr/0031 decision1) while
-  // isMapPrimaryLayout holds, or a swipe surface (candidate-deck-swipe-
-  // surface, adr/0033 decision2) plus a decorative peek sliver
-  // (orchestrator decision, Mobile.dc.html 論点1) while
-  // isMapPrimaryTouchLayout holds. Both are mutually exclusive render-time
-  // flags (renderResult sets exactly one before calling this), so this
-  // function never builds both affordances into the same render. The
-  // position counter is a plain, non-interactive <span> (not itself a
-  // control, so it needs no allowedPurposes entry -- adr/0031's own text:
-  // "件数カウンタ自体は操作ではないためこの規則には掛からない").
-  //
-  // Human real-device report (2026-09-01, D-fix 案A, deck見た目3件): on
-  // isMapPrimaryLayout, the counter used to float as an absolutely
-  // positioned badge over the map's own top-right corner ("地図右端の中央に
-  // 黒いピルが浮いている") -- unreadable out of context and far from the
-  // paging buttons it describes. It now sits inside a dedicated pager row
-  // (candidate-deck-pager, "‹ 1–5 / 5 ›") between deckPreviousEl and
-  // deckNextEl, below the card viewport -- DeckFix.dc.html's own
-  // "送りボタンの間に置く" decision. Only the DOM position/parentage
-  // changes here: candidate-deck-position's own testid and
-  // data-deck-visible-start/-end/-total attributes (updateDeckPositionDisplay)
-  // are unchanged, so the contract's own observation surface is unaffected
-  // (DeckFix.dc.html's own confirmation: "契約が求めているのは...機械観測面の
-  // 存在だけで、置き場所は何も定めていない"). isMapPrimaryTouchLayout has no
-  // paging buttons (adr/0033) and was not part of this human decision, so
-  // its own position/deckChildren stay exactly as they were.
+  // Builds the mobile map-primary-touch deck (adr/0033) -- around the same
+  // candidate-proposal-cards element renderResult already built (never a
+  // second/cloned card set). adr/0049 decision4 retired mapPrimaryLayout's
+  // own desktop deck (button-paged, sharing this same scaffold) outright in
+  // favor of isTwoColumnLayout's plain list column, so renderResult now
+  // calls this function only while isMapPrimaryTouchLayout holds -- this is
+  // no longer "common to both named renderModes", it is
+  // mapPrimaryTouchLayout's own. The position counter
+  // (candidate-deck-position) is a plain, non-interactive <span> (not
+  // itself a control, so it needs no allowedPurposes entry -- adr/0031's
+  // own text: "件数カウンタ自体は操作ではないためこの規則には掛からない").
   function renderDeck(cardsContainer) {
     deckPositionEl = el(
       "span",
@@ -1333,70 +1387,22 @@
       },
       [""]
     );
-    deckViewportEl = el("div", { "class": "candidate-deck-viewport" }, [cardsContainer]);
-
-    var deckChildren;
-    if (isMapPrimaryLayout) {
-      deckPreviousEl = el(
-        "button",
-        {
-          type: "button",
-          "class": "candidate-deck-nav candidate-deck-nav--previous",
-          "data-testid": "candidate-deck-previous",
-          "data-candidate-control-category": "button",
-          "data-candidate-control-purpose": "candidate-deck-page-previous",
-          "aria-label": "前の候補を表示",
-        },
-        ["‹"]
-      );
-      deckPreviousEl.addEventListener("click", function () {
-        pageDeckPrevious();
-      });
-      deckNextEl = el(
-        "button",
-        {
-          type: "button",
-          "class": "candidate-deck-nav candidate-deck-nav--next",
-          "data-testid": "candidate-deck-next",
-          "data-candidate-control-category": "button",
-          "data-candidate-control-purpose": "candidate-deck-page-next",
-          "aria-label": "次の候補を表示",
-        },
-        ["›"]
-      );
-      deckNextEl.addEventListener("click", function () {
-        pageDeckNext();
-      });
-      deckPeekEl = null;
-      var deckPager = el("div", { "class": "candidate-deck-pager" }, [
-        deckPreviousEl,
-        deckPositionEl,
-        deckNextEl,
-      ]);
-      deckChildren = [deckViewportEl, deckPager];
-    } else {
-      deckPreviousEl = null;
-      deckNextEl = null;
-      // deckViewportEl doubles as the swipe surface -- one element, not a
-      // redundant extra wrapper -- since both the contract's own
-      // presenceRule (present exactly once) and this file's existing
-      // overflow/gesture needs are satisfied by the same box either way.
-      deckViewportEl.setAttribute("data-testid", "candidate-deck-swipe-surface");
-      attachSwipeGesture(deckViewportEl);
-      deckPeekEl = el("div", { "class": "candidate-deck-peek", "aria-hidden": "true" }, []);
-      deckChildren = [deckViewportEl, deckPeekEl, deckPositionEl];
-    }
-    var deck = el("div", { "class": "candidate-deck" }, deckChildren);
-
-    if (window.ResizeObserver) {
-      if (deckResizeObserver) {
-        deckResizeObserver.disconnect();
-      }
-      deckResizeObserver = new window.ResizeObserver(function () {
-        recomputeDeckWindow();
-      });
-      deckResizeObserver.observe(deckViewportEl);
-    }
+    // deckViewportEl doubles as the swipe surface -- one element, not a
+    // redundant extra wrapper -- since both the contract's own presenceRule
+    // (present exactly once) and this file's existing overflow/gesture
+    // needs are satisfied by the same box either way.
+    deckViewportEl = el(
+      "div",
+      { "class": "candidate-deck-viewport", "data-testid": "candidate-deck-swipe-surface" },
+      [cardsContainer]
+    );
+    attachSwipeGesture(deckViewportEl);
+    deckPeekEl = el("div", { "class": "candidate-deck-peek", "aria-hidden": "true" }, []);
+    var deck = el("div", { "class": "candidate-deck" }, [
+      deckViewportEl,
+      deckPeekEl,
+      deckPositionEl,
+    ]);
     return deck;
   }
 
@@ -2208,28 +2214,87 @@
     root.appendChild(problem);
   }
 
+  // adr/0049 decision 1: the always-on, non-togglable "いまの条件" line
+  // (band). Present exactly when response.gatheringContext is non-null; no
+  // exception for the empty/no-results outcome (gatheringMode.band's own
+  // presenceRule names only response.gatheringContext, not any other
+  // render-state condition).
+  function renderGatheringModeBand(context) {
+    if (!context) {
+      return null;
+    }
+    return el(
+      "div",
+      {
+        "data-testid": "candidate-gathering-mode-band",
+        "data-gathering-shortlisted-count": String(context.shortlistedShopCount),
+        "data-gathering-max-shortlisted": String(context.maxShortlistedShops),
+        "class": "candidate-gathering-mode-band",
+      },
+      [
+        el("span", { "class": "candidate-gathering-mode-band-condition" }, [
+          formatGatheringConfirmedDate(context.confirmedCandidateDate) + "に開いている店",
+        ]),
+        el("span", { "class": "candidate-gathering-mode-band-count" }, [
+          "入れた店 " +
+            String(context.shortlistedShopCount) +
+            " / " +
+            String(context.maxShortlistedShops),
+        ]),
+      ]
+    );
+  }
+
+  // A human-readable rendering of gatheringContext.confirmedCandidateDate
+  // (an ISO-8601 date-time). This contract does not fix the exact wording/
+  // date format (mirrors walkingTimeEstimateWording's own content-only
+  // Musts) -- month/day + weekday is this implementation's choice.
+  // Reads UTC accessors only, matching the shared-date-formatting
+  // convention gathering.js/participant.js already establish for every
+  // startAt/confirmedCandidateDate value (gathering-scheduling-api.yaml
+  // tags every such instant as literal UTC on input --
+  // dateTimeLocalValueToIso -- so display must read the same UTC
+  // components back, not the viewing browser's own host timezone; see
+  // gathering.js's own shared-date-formatting comment for the full TDR-
+  // GTH-24-adjacent rationale this mirrors).
+  function formatGatheringConfirmedDate(isoDateTime) {
+    var date = new Date(isoDateTime);
+    if (isNaN(date.getTime())) {
+      return isoDateTime;
+    }
+    var weekday = ["日", "月", "火", "水", "木", "金", "土"][date.getUTCDay()];
+    return (date.getUTCMonth() + 1) + "/" + date.getUTCDate() + " (" + weekday + ")";
+  }
+
   function renderResult(body) {
     cardElementsByRef = {};
     orderedCardElements = [];
     selectedCandidateRef = null;
     cardsContainerEl = null;
     mapWrapperEl = null;
-    // adr/0031: reset every render, mirroring the resets above -- a fresh
-    // proposal (search-again/apply-filters) always starts the deck's own
-    // window back at its first card, not wherever a previous response's
-    // paging happened to leave it.
+    // adr/0049 decision 1: this response's own gatheringContext -- null
+    // outside gathering mode. renderCard reads this to decide whether to
+    // render gatheringMode.cardToggle at all. currentCandidatesByRef lets
+    // toggleCardGatheringShortlist below look up each currently-displayed
+    // card's own Candidate.shopId without inventing a new DOM attribute.
+    currentGatheringContext = body.gatheringContext || null;
+    currentCandidatesByRef = {};
+    (body.candidates || []).forEach(function (candidate) {
+      currentCandidatesByRef[candidate.candidateRef] = candidate;
+    });
+    // adr/0033: reset every render, mirroring the resets above -- a fresh
+    // proposal (search-again/apply-filters) always starts the mobile deck's
+    // own window back at its first card, not wherever a previous response's
+    // paging happened to leave it. These stay at their empty/null defaults
+    // for the rest of this function whenever isTwoColumnLayout ends up
+    // holding below, since renderDeck (the only place that populates them)
+    // is then never called.
     deckWindowStart = 1;
     deckWindowSize = 1;
     deckViewportEl = null;
-    deckPreviousEl = null;
-    deckNextEl = null;
     deckPositionEl = null;
     deckPeekEl = null;
     deckSwipeState = null;
-    if (deckResizeObserver) {
-      deckResizeObserver.disconnect();
-      deckResizeObserver = null;
-    }
     root.innerHTML = "";
 
     // The filter bar is not part of this element: it lives outside the
@@ -2237,6 +2302,11 @@
     // no-results, and problem outcomes alike (TDR-CS-05's "絞り込み条件を
     // 変更するよう案内される" needs the controls to survive an empty result).
     var content = el("section", { "data-testid": "candidate-proposal-content" }, []);
+
+    var gatheringModeBand = renderGatheringModeBand(currentGatheringContext);
+    if (gatheringModeBand) {
+      content.appendChild(gatheringModeBand);
+    }
 
     // adr/0023 decision 6: disclose both that the default izakaya/bar
     // exclusion was set aside for this response and that included shops'
@@ -2269,17 +2339,11 @@
       return;
     }
 
-    // Map-primary at every width now (adr/0031, extended below 64rem by
-    // adr/0033, human decision 2026-08-29): a real map (never a collapsed
-    // placeholder -- this is what keeps candidate-map/candidate-origin-
-    // marker genuinely present on initial render, satisfying
-    // authenticatedInitialOutcome.present without a contract change), with
-    // the card deck (renderDeck) floating over its own bottom inset. There
-    // is no more open/closed sheet state to model -- data-map-sheet-open
-    // stays "false" unconditionally purely so the >=64rem CSS block's own
-    // `:not([data-map-sheet-open="true"])`-scoped selectors (unedited by
-    // this revision) keep matching exactly as before -- see home.html's
-    // own comment on that block.
+    // data-map-sheet-open stays "false" unconditionally -- there is no
+    // open/closed sheet state to model (retired by adr/0033) -- purely so
+    // the >=64rem CSS block's own `:not([data-map-sheet-open="true"])`
+    // -scoped selectors (unedited by this revision) keep matching exactly
+    // as before -- see home.html's own comment on that block.
     var mainLayout = el(
       "div",
       { "class": "candidate-main-layout", "data-map-sheet-open": "false" },
@@ -2301,23 +2365,21 @@
       },
       ["© OpenStreetMap contributors"]
     );
-    // adr/0031 introduced isMapPrimaryLayout for >=64rem (Desktop.dc.html
-    // decision7=案A/decision8=案あ, human decision 2026-08-28); adr/0033
-    // extends map-primary below 64rem too (human decision 2026-08-29,
-    // Mobile.dc.html), so every width is now one of exactly two mutually
-    // exclusive, exhaustive named renderModes -- mapPrimaryLayout (button-
-    // paged deck) or mapPrimaryTouchLayout (swipe-paged deck) -- and the
-    // card deck (renderDeck) always floats over the map's own bottom inset
-    // rather than living beside it as a separate column or behind a
-    // tap-to-open sheet (both retired). Both flags are read once per render
-    // (matching this file's other one-shot, render-time-only viewport
-    // reads; adr/0032 decision3 explicitly does not require a live-resize
-    // mode switch) -- neither is re-evaluated on a later browser-window
-    // resize across the 64rem boundary without a fresh proposal response
-    // (search-again/filter apply both call renderResult again, which
-    // re-reads them).
-    isMapPrimaryLayout = window.matchMedia && window.matchMedia("(min-width: 64rem)").matches;
-    isMapPrimaryTouchLayout = !isMapPrimaryLayout;
+    // Every width is one of exactly two mutually exclusive, exhaustive
+    // named renderModes (contracts/candidate-search-browser-interface.yaml's
+    // renderModes) -- isTwoColumnLayout (adr/0049 decision4, 2026-09-08
+    // human decision: "微妙。右に地図で一覧左とかじゃなかったっけ", >=64rem, a
+    // plain side-by-side list-and-map layout with no deck) or
+    // isMapPrimaryTouchLayout (adr/0033, <64rem, a swipe-paged deck
+    // overlaid on the map, unchanged by this revision). Both flags are read
+    // once per render (matching this file's other one-shot,
+    // render-time-only viewport reads; adr/0032 decision3 explicitly does
+    // not require a live-resize mode switch) -- neither is re-evaluated on
+    // a later browser-window resize across the 64rem boundary without a
+    // fresh proposal response (search-again/filter apply both call
+    // renderResult again, which re-reads them).
+    isTwoColumnLayout = window.matchMedia && window.matchMedia("(min-width: 64rem)").matches;
+    isMapPrimaryTouchLayout = !isTwoColumnLayout;
 
     var cardsContainer = el("div", { "data-testid": "candidate-proposal-cards" }, []);
     body.candidates.forEach(function (candidate, index) {
@@ -2328,20 +2390,27 @@
     cardsContainerEl = cardsContainer;
     selectedCandidateRef = body.candidates.length > 0 ? body.candidates[0].candidateRef : null;
 
-    // adr/0031 decision3 (decision5: the map side carries pins/rings only,
-    // never a duplicate detail panel -- full detail stays in the deck's own
-    // cards): the deck is the sole place candidate detail renders, at every
-    // width now -- cardsContainer always moves inside the map wrapper's own
-    // deck overlay (renderDeck) instead of ever being appended as
-    // mainLayout's own second child.
-    var mapWrapper = el("div", { "class": "candidate-map-wrapper" }, [
-      mapContainer,
-      renderDeck(cardsContainer),
-      mapAttributionLink,
-    ]);
+    // adr/0049 decision4: isTwoColumnLayout places the card list in its own
+    // column beside the map (no deck overlay -- every card is visible at
+    // once, no paging needed); isMapPrimaryTouchLayout keeps decision5's
+    // map-side rule (pins/rings only, never a duplicate detail panel -- full
+    // detail stays in the deck's own cards) unchanged, with cardsContainer
+    // moved inside the map wrapper's own deck overlay (renderDeck).
+    var mapWrapper;
+    if (isTwoColumnLayout) {
+      mapWrapper = el("div", { "class": "candidate-map-wrapper" }, [mapContainer, mapAttributionLink]);
+      mainLayout.appendChild(el("div", { "class": "candidate-list-column" }, [cardsContainer]));
+      mainLayout.appendChild(mapWrapper);
+    } else {
+      mapWrapper = el("div", { "class": "candidate-map-wrapper" }, [
+        mapContainer,
+        renderDeck(cardsContainer),
+        mapAttributionLink,
+      ]);
+      mainLayout.appendChild(mapWrapper);
+    }
     mapWrapperEl = mapWrapper;
 
-    mainLayout.appendChild(mapWrapper);
     content.appendChild(mainLayout);
 
     content.appendChild(

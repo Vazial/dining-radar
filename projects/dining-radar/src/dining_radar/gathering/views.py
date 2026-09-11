@@ -7,7 +7,7 @@ check lives in ``dining_radar.gathering.services``.
 
 **Interpretation note (developer discretion, not a contract conflict):**
 several write operations in ``gathering-scheduling-api.yaml`` (e.g.
-``addCandidateDate``, ``issueParticipantLinks``, ``recopyParticipantLink``,
+``addCandidateDates``, ``issueParticipantLinks``, ``recopyParticipantLink``,
 ``revokeParticipantLink``, ``confirmCandidateDate``, ``setScheduleResponse``,
 ``setParticipantDisplayName``) document no ``400`` response for a malformed
 request body or a failed CSRF check, even though ``createGathering`` does
@@ -134,6 +134,11 @@ _DUPLICATE_CANDIDATE_DATE = (
     409,
     "DUPLICATE_CANDIDATE_DATE",
     "This candidate date has already been added.",
+)
+_CANDIDATE_DATE_NOT_IN_FUTURE = (
+    400,
+    "CANDIDATE_DATE_NOT_IN_FUTURE",
+    "Candidate dates must be tomorrow or later.",
 )
 _GATHERING_NOT_IN_SELECTING_SHOP_PHASE = (
     409,
@@ -345,6 +350,8 @@ def gatherings(request):
         gathering = services.create_gathering(request.user, title, candidate_date_start_ats)
     except services.DuplicateCandidateDateError:
         return _problem(*_DUPLICATE_CANDIDATE_DATE)
+    except services.CandidateDateNotInFutureError:
+        return _problem(*_CANDIDATE_DATE_NOT_IN_FUTURE)
     return JsonResponse(serialize_gathering(gathering), status=201)
 
 
@@ -357,11 +364,23 @@ def in_progress_count(request):
     return JsonResponse({"inProgressGatheringCount": count}, status=200)
 
 
-@require_GET
+@csrf_exempt
+@require_http_methods(["GET", "DELETE"])
 def gathering_detail(request, gathering_id):
-    """``GET /gatherings/{gatheringId}``: ``getGathering``."""
+    """``GET /gatherings/{gatheringId}``: ``getGathering``.
+    ``DELETE /gatherings/{gatheringId}``: ``deleteGathering`` (adr/0050 decision 4)."""
     if not request.user.is_authenticated:
         return _problem(*_AUTHENTICATION_REQUIRED)
+
+    if request.method == "DELETE":
+        if _csrf_failed(request):
+            return _problem(*_REQUEST_REJECTED)
+        try:
+            services.delete_gathering(request.user, gathering_id)
+        except services.GatheringNotFoundError as error:
+            return _organizer_error_response(error)
+        return HttpResponse(status=204)
+
     try:
         gathering = services.get_gathering(request.user, gathering_id)
     except services.GatheringNotFoundError as error:
@@ -372,27 +391,30 @@ def gathering_detail(request, gathering_id):
 @csrf_exempt
 @require_http_methods(["POST"])
 def candidate_dates(request, gathering_id):
-    """``POST /gatherings/{gatheringId}/candidate-dates``: ``addCandidateDate``."""
+    """``POST /gatherings/{gatheringId}/candidate-dates:batch``: ``addCandidateDates``
+    (adr/0049 decision 3, replacing the retired singular ``addCandidateDate``)."""
     if not request.user.is_authenticated:
         return _problem(*_AUTHENTICATION_REQUIRED)
     if _csrf_failed(request):
         return _problem(*_REQUEST_REJECTED)
     try:
         body = _read_body(request)
-        if set(body) != {"startAt"}:
+        if set(body) != {"candidateDates"}:
             raise MalformedRequestError
-        start_at = _parse_start_at(body["startAt"])
+        start_ats = _parse_candidate_dates(body["candidateDates"])
     except MalformedRequestError:
         return _problem(*_REQUEST_REJECTED)
 
     try:
-        gathering, _candidate_date = services.add_candidate_date(
-            request.user, gathering_id, start_at
+        gathering, _candidate_dates = services.add_candidate_dates(
+            request.user, gathering_id, start_ats
         )
     except (services.GatheringNotFoundError, services.GatheringNotInSchedulingPhaseError) as error:
         return _organizer_error_response(error)
     except services.DuplicateCandidateDateError:
         return _problem(*_DUPLICATE_CANDIDATE_DATE)
+    except services.CandidateDateNotInFutureError:
+        return _problem(*_CANDIDATE_DATE_NOT_IN_FUTURE)
     return JsonResponse(serialize_gathering(gathering), status=201)
 
 

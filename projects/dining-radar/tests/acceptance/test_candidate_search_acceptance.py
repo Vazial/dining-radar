@@ -7,7 +7,10 @@ import os
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
 from playwright.sync_api import sync_playwright
 
-from tests.acceptance.dsl.candidate_search_browser import CandidateSearchBrowserDsl
+from tests.acceptance.dsl.candidate_search_browser import (
+    CandidateSearchBrowserDsl,
+    next_weekday_iso,
+)
 from tests.acceptance.steps.candidate_search_steps import CandidateSearchSteps
 
 
@@ -85,32 +88,32 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.walking_route_and_current_location_are_not_shown()
         self.steps.search_range_value_is_not_shown()
 
-    def test_tdr_cs_02_desktop_deck_navigation_windows_candidates_without_changing_them(
+    def test_tdr_cs_02_desktop_two_column_layout_shows_every_candidate_without_paging(
         self,
     ) -> None:
-        """TDR-CS-02のUI実装詳細 (adr/0031): デスクトップの地図主役レイアウトでは、送りボタン・
-        件数カウンタがデッキの表示窓を動かすだけで、カード集合・選択・絞り込み条件のいずれも
-        変えない。地図上のピンを選ぶと対応するカードが表示窓の中に見えるようになる
-        (selectMarker.deckVisibility)。renderModes.verificationAllocation.L4 のとおり、この
-        テストは単一の固定ビューポート（DESKTOP_MAP_PRIMARY_VIEWPORT）でmapPrimaryLayoutが
-        成立する前提のもとで動く——幅ごとの正しさそのものはADR-0032/L5の管轄で、ここでは扱わない。
-        deckNavigation.disabledStateは両端を定めるため、先頭（candidate-deck-previousが
-        disabled）だけでなく末尾（candidate-deck-nextがdisabled、かつcandidate-deck-previousは
-        disabledでない）にも実際に到達して検査する。
+        """TDR-CS-02のUI実装詳細 (adr/0049 決定4、2026-09-08 人間裁定「微妙。右に地図で一覧左
+        とかじゃなかったっけ」): デスクトップ幅ではtwoColumnLayoutが成立し、最大5件のカードが
+        送りボタンなしで一覧として同時にすべて見える。renderModes.twoColumnLayoutは専有の
+        test idを持たない（空配列、adr/0049決定4）ため、mapPrimaryTouchLayout側の swipe-
+        surface/position が両方とも不在であることの消去法で成立を確認する
+        (renderModes.invariantのvacuous/non-vacuousな扱い、
+        assert_render_mode_test_ids_are_mutually_exclusiveの docstring 参照)。デッキの送り
+        ボタン（candidate-deck-previous/-next）とそのpurposeはcontractVersion 1.8.0
+        (adr/0049決定4) で退役しており、この画面には一切存在しない
+        (unavailableControls.allowedPurposesの1:1突き合わせが別途保証する)。地図上のピンを
+        選ぶとカードが選択状態になること (selectMarker.deckVisibility) はtwoColumnLayoutでは
+        「窓が無いので自明に満たされる」("trivially satisfied") と契約が明記しており、この
+        固定ビューポートでも成立することを確認する。renderModes.verificationAllocation.L4
+        のとおり、幅ごとの正しさそのものはADR-0032/L5の管轄で、ここでは扱わない。
         """
         self._sign_in()
         self.steps.lunch_candidates_can_be_proposed_at_a_known_search_origin()
-        self.steps.organizer_compares_candidates_at_map_primary_viewport()
-        self.steps.map_primary_layout_holds()
+        self.steps.organizer_compares_candidates_at_two_column_viewport()
+        self.steps.two_column_layout_holds()
         self.steps.render_mode_test_ids_are_mutually_exclusive()
-        self.steps.deck_position_counter_is_well_formed()
-        self.steps.deck_paging_controls_declare_correct_purposes()
-        self.steps.deck_paging_controls_disabled_state_matches_window()
-        self.steps.organizer_pages_the_deck_forward()
-        self.steps.organizer_pages_the_deck_backward()
-        self.steps.selecting_a_marker_outside_the_deck_window_brings_its_card_into_view()
-        self.steps.organizer_pages_the_deck_forward_until_it_reaches_the_end()
-        self.steps.deck_paging_controls_disabled_state_matches_window()
+        self.steps.all_cards_visible_without_paging()
+        self.steps.selecting_a_marker_highlights_its_card()
+        self.steps.no_location_range_or_manual_order_control_exists()
 
     def test_tdr_cs_02_mobile_deck_navigation_swipes_candidates_without_changing_them(
         self,
@@ -283,3 +286,122 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.organizer_attempts_to_apply_changed_filters()
         self.steps.prior_candidates_and_map_remain()
         self.steps.fetch_failure_is_announced()
+
+    # TDR-CS-17/18/19 (new, 2026-09-08, ADR-0049 decision 1. 店選びはランチ
+    # 候補画面に一本化する -- gathering-scheduling.featureのTDR-GTH-44/45と
+    # 対を成す、この画面から見た同じ業務規則) -----------------------------
+
+    def test_tdr_cs_17_organizer_toggles_a_shop_into_and_out_of_the_gathering(self) -> None:
+        """**Fixed**: toggling off the *only* shortlisted shop made the WHEN
+        step attempt to empty the shortlist entirely -- gathering-scheduling-
+        api.yaml's SetShortlistedShopsRequest.shopIds carries `minItems: 1`,
+        so the server correctly rejected it with 400 INVALID_SHOP_SELECTION,
+        leaving the toggle's own attribute and the band both unchanged
+        (reproduced empirically: the click fired but data-gathering-
+        shortlisted stayed "true" and the band count stayed 1 even after
+        waiting). This scenario's own assertions are about the one specific
+        shop's own toggle-in/toggle-out outcome, not about the shortlist
+        becoming empty overall, so selecting 2 before toggling one back off
+        (leaving 1, never 0) tests the identical business behavior without
+        colliding with this orthogonal Must -- mirrors gathering_scheduling_
+        browser.py's own identical fix for this same gatheringMode screen's
+        TDR-GTH-44.
+        """
+        self._sign_in()
+        self.steps.lunch_candidates_can_be_proposed()
+        gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会CS17")
+        self.steps.organizer_opens_this_screen_in_gathering_mode(gathering_id)
+        self.steps.gathering_mode_band_shows(shortlisted=0)
+        self.steps.organizer_adds_a_candidate_to_the_gathering()
+        self.steps.gathering_mode_band_shows(shortlisted=1)
+        self.steps.organizer_adds_a_candidate_to_the_gathering()
+        self.steps.gathering_mode_band_shows(shortlisted=2)
+        self.steps.organizer_removes_the_shop_from_the_gathering()
+        self.steps.gathering_mode_band_shows(shortlisted=1)
+        # **Fixed (reviewer audit Minor#1)**: gathering_mode_band_shows above
+        # reads only this screen's own client-rendered
+        # data-gathering-shortlisted-count attribute -- a client that
+        # optimistically re-rendered the band without the underlying
+        # setShortlistedShops write actually landing would still pass every
+        # check above. Cross-checking the same final count (1) against
+        # gathering-scheduling-api.yaml's own server-held shortlistedShops
+        # closes that gap.
+        self.steps.gathering_shortlisted_count_matches_server(gathering_id, 1)
+        # FR-030's repeated lesson: gatheringMode is a new screen state this
+        # cross-cutting check must be exercised against.
+        self.steps.no_location_range_or_manual_order_control_exists()
+
+    def test_tdr_cs_18_gathering_mode_narrows_candidates_to_the_confirmed_dates_open_shops(
+        self,
+    ) -> None:
+        """**Fixed (reviewer audit Major#1)**: the prior version's Given
+        (lunch_candidates_can_be_proposed, NORMAL_WITH_WEIGHTED_SAMPLING) has
+        no known population size, so the Then check it fed
+        (gathering_mode_candidates_are_within_the_open_shop_population) could
+        only confirm each candidate carried a non-null shopId/isShortlisted
+        -- true even with no narrowing at all. test-support-api.yaml's
+        GATHERING_OPEN_SHOP_WEEKDAY_MATCH mode (already TDR-CS-19's own
+        Given) fixes a 6-shop synthetic population with a known, per-weekday
+        open-shop count instead. Monday is chosen deliberately
+        (OPEN_SHOP_COUNT_BY_WEEKDAY[0] == 5, exactly the display cap) -- see
+        the Then step's own docstring for why that specific coincidence is
+        what makes this check meaningful rather than trivially true.
+        """
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        monday = next_weekday_iso(0)  # OPEN_SHOP_COUNT_BY_WEEKDAY[0] == 5 (1 closed: Monday)
+        gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会CS18", monday)
+        self.steps.organizer_opens_this_screen_in_gathering_mode(gathering_id)
+        self.steps.gathering_mode_candidates_are_within_the_open_shop_population(
+            gathering_id, expected_open_shop_count=5
+        )
+
+    def test_tdr_cs_19_at_most_five_shops_can_be_in_the_gathering(self) -> None:
+        """**Fixed**: this Given previously used lunch_candidates_can_be_
+        proposed (NORMAL_WITH_WEIGHTED_SAMPLING, >=40 synthetic candidates).
+        candidate-search-api.yaml's own 5-item display cap means any single
+        proposeCandidates response can render at most 5 cards; toggling all
+        5 of them in (the only ones ever shown) leaves no not-yet-
+        shortlisted card on screen at all to assert disabled, and reopening
+        this large a population never re-shows an already-shortlisted card
+        either (shownPoolPriority guarantees a fresh, wholly disjoint 5 while
+        the not-yet-shown remainder stays far above the cap) -- reproduced
+        empirically: "no [data-gathering-shortlisted=false] element found".
+        test-support-api.yaml's own 2026-09-09 header addendum names
+        GATHERING_OPEN_SHOP_WEEKDAY_MATCH as this scenario's intended Given
+        for exactly this reason -- its Thursday population is exactly 6 open
+        shops (OPEN_SHOP_COUNT_BY_WEEKDAY), so after 5 are shortlisted
+        through this screen's own cardToggle, a search-again replay's
+        shownPoolPriority is guaranteed to surface the 1 not-yet-shown spare
+        (disabled, count>=5) alongside 4 repeats of the already-shortlisted
+        ones (still enabled) -- mirroring gathering-scheduling.feature's own
+        TDR-GTH-45 technique for this identical requirement on this same
+        gatheringMode screen.
+
+        **Fixed (reviewer audit Major#2)**: this scenario's own "既に入れ
+        ている5件はそのまま変わらない" is an exact-identity claim, not
+        merely a count -- unselected_candidate_toggle_is_disabled and
+        selected_candidate_toggle_is_enabled below are both true even if
+        the 5 members had been silently swapped for a different 5.
+        gatheringMode's own cardToggle carries no shopId-to-card DOM
+        correlation this suite could otherwise read identity from (mirrors
+        gathering_scheduling_browser.py's own TDR-GTH-45 fix note), so this
+        reads gathering-scheduling-api.yaml's own getGathering directly
+        (gathering_shortlisted_shop_ids_via_api/_match_server below), both
+        before and after the search-again replay that surfaces the excluded
+        6th shop, and asserts the shopId set truly did not change.
+        """
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会CS19", thursday)
+        self.steps.organizer_opens_this_screen_in_gathering_mode(gathering_id)
+        for _ in range(5):
+            self.steps.organizer_adds_a_candidate_to_the_gathering()
+        self.steps.gathering_mode_band_shows(shortlisted=5)
+        selected = self.steps.gathering_shortlisted_shop_ids_via_api(gathering_id)
+        self.steps.organizer_searches_again_on_shop_selection_entry()
+        self.steps.unselected_candidate_toggle_is_disabled()
+        # adr/0049 決定8 後段: 既に選択済みのカードは5件到達後も外す操作として活性のまま
+        self.steps.selected_candidate_toggle_is_enabled()
+        self.steps.gathering_shortlisted_shop_ids_match_server(gathering_id, selected)

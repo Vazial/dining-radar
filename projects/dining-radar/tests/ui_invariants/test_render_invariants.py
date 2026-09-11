@@ -33,7 +33,7 @@ as baseline approval", which ADR-0032 decision 1 extends to (f)). Loosening
 any of them, or adding a sixth gate invariant, needs a new ADR; the
 allowlists/viewport sets themselves may be updated here, by developer, only
 to track a contract change their own comments cite (decision 4(d),
-decision 4(e), ADR-0032 decision 1/2 for (f)'s own MAP_PRIMARY_VIEWPORTS).
+decision 4(e), ADR-0032 decision 1/2 for (f)'s own TWO_COLUMN_VIEWPORTS).
 """
 
 from __future__ import annotations
@@ -85,41 +85,46 @@ CONTROL_SIZE_VIEWPORTS = [
 # ADR-0032 decision1 (f): the two width sets renderModes' mode-correctness
 # check runs against. adr/0033 decision6 (2026-08-29, human decision: mobile
 # widths become map-primary too, paged by a swipe gesture instead of
-# listPrimaryLayout's retired "地図で見る" ribbon/sheet) retires
-# listPrimaryLayout and reads the narrow-width member of this pair as
-# mapPrimaryTouchLayout instead -- adr/0032's own text is not edited (P-06),
-# but this file's own allowlist below is the "developer-maintained" half of
-# that decision (adr/0032 decision2), so it is what actually changes.
-# mapPrimaryTouchLayout's own set reuses NARROW_VIEWPORTS outright (same
-# reuse adr/0032 decision1 explicitly allowed for the narrow-width member
-# originally: "決定4(a)が既に定める狭幅ビューポート集合をそのまま流用して
-# よい" -- unaffected by adr/0033, since it only renamed which mode the
-# narrow-width member expects, not the widths themselves). mapPrimaryLayout's
-# own set is unchanged by adr/0033 -- 1024px is home.html's own 64rem
-# breakpoint's exact pixel boundary (the narrowest width mapPrimaryLayout
-# must already hold at, a stronger check than only testing a comfortably-wide
-# value like 1440px), plus 1440px (already CONTROL_SIZE_VIEWPORTS' own
-# desktop width above, so this reuses a width already exercised elsewhere in
-# this file rather than inventing a third).
-MAP_PRIMARY_VIEWPORTS = [
-    (1024, 768, "map-primary-boundary-1024x768"),
-    (1440, 900, "map-primary-1440x900"),
+# listPrimaryLayout's retired "地図で見る" ribbon/sheet) retired
+# listPrimaryLayout and read the narrow-width member of this pair as
+# mapPrimaryTouchLayout instead. adr/0049 decision4 (2026-09-08 human
+# decision: "微妙。右に地図で一覧左とかじゃなかったっけ") in turn retires
+# mapPrimaryLayout itself, replacing it with twoColumnLayout (a plain
+# side-by-side list-and-map layout, no deck) -- adr/0032's own text is not
+# edited by either revision (P-06), but this file's own allowlist below is
+# the "developer-maintained" half of that decision (adr/0032 decision2), so
+# it is what actually changes each time. mapPrimaryTouchLayout's own set
+# reuses NARROW_VIEWPORTS outright (same reuse adr/0032 decision1 explicitly
+# allowed for the narrow-width member originally: "決定4(a)が既に定める狭幅
+# ビューポート集合をそのまま流用してよい" -- unaffected by either later
+# revision, since neither changed the widths themselves, only which mode the
+# narrow-width member expects). twoColumnLayout's own set is unchanged from
+# mapPrimaryLayout's -- 1024px is home.html's own 64rem breakpoint's exact
+# pixel boundary (the narrowest width twoColumnLayout must already hold at, a
+# stronger check than only testing a comfortably-wide value like 1440px),
+# plus 1440px (already CONTROL_SIZE_VIEWPORTS' own desktop width above, so
+# this reuses a width already exercised elsewhere in this file rather than
+# inventing a third).
+TWO_COLUMN_VIEWPORTS = [
+    (1024, 768, "two-column-boundary-1024x768"),
+    (1440, 900, "two-column-1440x900"),
 ]
 
-# adr/0031 decision4's mapPrimaryLayout/adr/0033 decision1's
-# mapPrimaryTouchLayout -- each named mode's own exclusive testIds
+# mapPrimaryTouchLayout's (adr/0033 decision1) own exclusive testIds
 # (contracts/candidate-search-browser-interface.yaml's renderModes section),
 # duplicated here (not imported) since this file does not read the contract
 # YAML directly -- same style as the other developer-maintained allowlists in
 # this module (FORBIDDEN_INTERNAL_ENUM_TOKENS, CONTROL_SIZE_ALLOWLIST_TEST_IDS
-# above). candidate-deck-position is deliberately absent from both lists --
-# adr/0033 decision2 moved it out of either mode's own exclusivity array
-# (it is common to both currently-named modes, contract's own
-# deckNavigation.position.presenceRule) -- see
-# RENDER_MODE_COMMON_TEST_IDS below, checked separately.
-RENDER_MODE_TOUCH_TEST_IDS = ["candidate-deck-swipe-surface"]
-RENDER_MODE_MAP_PRIMARY_TEST_IDS = ["candidate-deck-previous", "candidate-deck-next"]
-RENDER_MODE_COMMON_TEST_IDS = ["candidate-deck-position"]
+# above). candidate-deck-position moved into this list by adr/0049 decision4
+# (contractVersion 1.8.0): twoColumnLayout shows every card in one unpaged
+# list, so it has no window for a position counter to describe any longer
+# (unlike under adr/0033, where the counter was common to both named modes).
+# twoColumnLayout's own testIds array is empty by contract design (it owns no
+# exclusive test id of its own), so there is no TWO_COLUMN_TEST_IDS constant
+# to check for presence -- only the absence of the touch-only ids below,
+# mirroring tests/acceptance/dsl/candidate_search_browser.py's own
+# assert_two_column_layout_holds (by-elimination reasoning).
+RENDER_MODE_TOUCH_TEST_IDS = ["candidate-deck-swipe-surface", "candidate-deck-position"]
 
 MINIMUM_TARGET_PX = 44
 
@@ -462,21 +467,23 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         the exact widths orchestrator measured by hand: 1253px (desktop)
         and 442px (mobile, map-above-cards).
 
-        adr/0031 (2026-08-28) changed what "its own column" means at
-        1253px: [data-testid="candidate-proposal-cards"] is no longer a
-        single, card-width column there -- it is the map-primary deck's own
-        sliding row, holding every currently-loaded card side by side at a
-        fixed 15rem width each (home.html). The property this test actually
-        guards -- a long name must not grow a card past its own allotted
-        box, hiding the walk-time chip -- still applies at this width, just
-        against the card's own fixed width rather than the row's total
-        width; the two widths below branch on that geometry difference
-        while keeping this test's job identical (card does not overflow
-        its own box; chip stays visible; name still ellipsizes). Also
-        re-navigates instead of resizing mid-test (isMapPrimaryLayout is
-        read once per render, not on a live resize -- adr/0032 decision3;
-        see test_e_activatable_controls_meet_44px_minimum_target's own
-        comment for the same fix and the failure it reproduces without it).
+        adr/0031 (2026-08-28) had changed what "its own column" meant at
+        1253px -- [data-testid="candidate-proposal-cards"] became the
+        map-primary deck's own sliding row, holding every currently-loaded
+        card side by side at a fixed width each, rather than a single,
+        card-width column. adr/0049 decision4 (2026-09-08 human decision)
+        retired that deck in favor of isTwoColumnLayout's plain
+        .candidate-list-column, so 1253px (>=64rem) is a single-column list
+        track again, the same shape 442px (<64rem, isMapPrimaryTouchLayout,
+        unaffected by this revision) already was -- both widths below now
+        share one assertion shape (card does not overflow its own track;
+        chip stays visible within it; name still ellipsizes), unlike the
+        deck-era version of this test, which branched on that geometry
+        difference. Also re-navigates instead of resizing mid-test
+        (isTwoColumnLayout is read once per render, not on a live resize --
+        adr/0032 decision3; see
+        test_e_activatable_controls_meet_44px_minimum_target's own comment
+        for the same fix and the failure it reproduces without it).
         """
         long_name = "ドラゴンレッドリバー DRAGON RED RIVER 総本店（回帰テスト用）"
 
@@ -528,52 +535,66 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
                     f"walk-time chip collapsed to zero width at {label}",
                 )
 
-                if label == "mobile-442x900":
-                    # listPrimaryLayout (unchanged by adr/0031): candidate-
-                    # proposal-cards is still the single-column list track
-                    # this assertion was originally written for.
-                    self.assertLessEqual(
-                        measurement["cardRight"],
-                        measurement["trackRight"] + 0.5,
-                        f"card overflows its own column at {label} -- the long name pushed "
-                        "the card past the track, the exact regression the human reported",
-                    )
-                    self.assertAlmostEqual(
-                        measurement["cardWidth"],
-                        measurement["trackWidth"],
-                        delta=0.5,
-                        msg=f"card width diverged from its column's own width at {label}",
-                    )
-                    self.assertLessEqual(
-                        measurement["chipRight"],
-                        measurement["trackRight"] + 0.5,
-                        f"walk-time chip is hidden under the map column at {label}",
-                    )
-                else:
-                    # mapPrimaryLayout (adr/0031): the row holds every card
-                    # side by side, so the regression to guard against is a
-                    # card growing past its own fixed 16.25rem/260px width
-                    # (home.html), not past the row's total width.
-                    self.assertAlmostEqual(
-                        measurement["cardWidth"],
-                        260,
-                        delta=1,
-                        msg=f"deck card width diverged from its own fixed 16.25rem at {label}",
-                    )
-                    self.assertLessEqual(
-                        measurement["chipRight"],
-                        measurement["cardRight"] + 0.5,
-                        f"walk-time chip pushed past its own card's right edge at {label}",
-                    )
+                # Both widths are single-column list tracks now (mobile-
+                # 442x900's mapPrimaryTouchLayout deck card fills its own
+                # swipe-surface track at 100% width; desktop-1253x900's
+                # isTwoColumnLayout card fills its own .candidate-list-column
+                # track) -- see this test's own docstring for why this no
+                # longer branches on width the way it did under the retired
+                # PC deck.
+                self.assertLessEqual(
+                    measurement["cardRight"],
+                    measurement["trackRight"] + 0.5,
+                    f"card overflows its own column at {label} -- the long name pushed "
+                    "the card past the track, the exact regression the human reported",
+                )
+                self.assertAlmostEqual(
+                    measurement["cardWidth"],
+                    measurement["trackWidth"],
+                    delta=0.5,
+                    msg=f"card width diverged from its column's own width at {label}",
+                )
+                self.assertLessEqual(
+                    measurement["chipRight"],
+                    measurement["trackRight"] + 0.5,
+                    f"walk-time chip is hidden under the map column at {label}",
+                )
 
     # (a) Narrow-width map reachability ------------------------------------
 
     def test_a_map_is_reachable_without_scrolling_at_narrow_widths(self) -> None:
+        """adr/0049 decision4 (2026-09-08 human decision) made isTwoColumnLayout
+        structurally different from isMapPrimaryTouchLayout at the outer
+        .candidate-main-layout level for the first time (a separate
+        .candidate-list-column sibling before the map, rather than a deck
+        overlaid on top of it) -- unlike every render-mode difference before
+        it, which only changed the deck's own paging affordance inside the
+        same map-primary skeleton at every width. This file's own default
+        page (opened once by _sign_in_with_candidates, at whatever viewport
+        the browser context started with -- 1280x720, i.e. isTwoColumnLayout)
+        used to remain a valid DOM shape for every subsequently *resized*
+        narrow width too, since resizing alone never changed which JS-built
+        structure was already on the page and CSS alone repositioned it
+        correctly either way. That is no longer true: resizing down from a
+        two-column render leaves .candidate-list-column's full card stack as
+        a sibling that renders *above* the map at these narrow widths (which
+        have no styling of their own for that class), pushing it far down
+        the page -- reproduced directly: candidate-map's top measured
+        1463.77px at 730x900 without this fix, failing this exact assertion.
+        Each width now gets its own fresh navigation instead (self.dsl.
+        open_candidate_screen, after setting the viewport, not before), the
+        same fresh-render discipline test_e/test_f already established for
+        the identical reason (isMapPrimaryLayout/isTwoColumnLayout read once
+        per render, never on a live resize -- adr/0032 decision3's own
+        explicit carve-out, which this test's original resize-only shape
+        predates and did not yet need to account for).
+        """
         self._sign_in_with_candidates()
         map_node = by_test_id(self.page, "candidate-map")
         for width, height, label in NARROW_VIEWPORTS:
             with self.subTest(viewport=label):
                 self.page.set_viewport_size({"width": width, "height": height})
+                self.dsl.open_candidate_screen()
                 expect(map_node).to_be_visible()
                 box = map_node.bounding_box()
                 self.assertIsNotNone(box, f"candidate-map has no bounding box at {label}")
@@ -898,11 +919,12 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         )
 
     def test_e_activatable_controls_meet_44px_minimum_target(self) -> None:
-        # adr/0031/0032: isMapPrimaryLayout (renderModes.mapPrimaryLayout)
-        # is read once per render, not on a live resize (adr/0032
-        # decision3) -- unlike this test's own pre-adr/0031 shape (a single
-        # sign-in/render, then set_viewport_size alone across all three
-        # widths), each width below now gets its own fresh navigation
+        # adr/0031/0032/0049: isTwoColumnLayout (renamed from
+        # isMapPrimaryLayout, renderModes.twoColumnLayout) is read once per
+        # render, not on a live resize (adr/0032 decision3) -- unlike this
+        # test's own pre-adr/0031 shape (a single sign-in/render, then
+        # set_viewport_size alone across all three widths), each width
+        # below now gets its own fresh navigation
         # (self.dsl.open_candidate_screen, after setting the viewport, not
         # before) so the DOM this test measures at each width actually
         # matches that width's own render mode -- the same fresh-render
@@ -964,8 +986,8 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         """ADR-0032 decision1's fifth gate invariant.
 
         contracts/candidate-search-browser-interface.yaml's renderModes
-        section (adr/0031 decision4, adr/0033 decision1) fixes only that
-        exactly one of mapPrimaryLayout/mapPrimaryTouchLayout holds at a
+        section (adr/0033 decision1, adr/0049 decision4) fixes only that
+        exactly one of twoColumnLayout/mapPrimaryTouchLayout holds at a
         time and which testIds belong to each -- not the width threshold,
         which renderModes.verificationAllocation.L5 explicitly assigns to
         this ADR-0020 decision4 gate set instead (adr/0032 decision2: the
@@ -978,13 +1000,20 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         gate actually guarantees.
 
         adr/0033 decision6 (human decision 2026-08-29): the narrow-width
-        member of this pair now expects mapPrimaryTouchLayout, not the
-        retired listPrimaryLayout -- adr/0032's own text is unedited (P-06);
-        only this test's own developer-maintained allowlists (module-level
-        RENDER_MODE_TOUCH_TEST_IDS etc.) changed to track that. The
-        candidate-deck-position counter is common to both currently-named
-        modes (adr/0033 decision2), so it is checked separately below rather
-        than folded into either mode's own exclusivity loop.
+        member of this pair expects mapPrimaryTouchLayout, not the retired
+        listPrimaryLayout. adr/0049 decision4 (2026-09-08 human decision:
+        "微妙。右に地図で一覧左とかじゃなかったっけ") in turn retires the
+        wide-width member's own mapPrimaryLayout (a button-paged deck) in
+        favor of twoColumnLayout (a plain side-by-side list-and-map layout
+        with no deck at all, and so no exclusive test id of its own --
+        renderModes.twoColumnLayout.testIds is empty by contract design).
+        Neither revision edits adr/0032's own text (P-06); only this test's
+        own developer-maintained allowlists (module-level
+        RENDER_MODE_TOUCH_TEST_IDS, TWO_COLUMN_VIEWPORTS) changed to track
+        them. candidate-deck-position moved into RENDER_MODE_TOUCH_TEST_IDS
+        by adr/0049 decision4 -- it is no longer common to both named modes
+        the way it was under adr/0033, since a plain, unpaged list has no
+        window for a position counter to describe.
         """
         self.dsl.reset_authentication_state()
         self.dsl.reset_candidate_state()
@@ -998,18 +1027,10 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
                 self.dsl.open_candidate_screen()
                 for test_id in RENDER_MODE_TOUCH_TEST_IDS:
                     expect(by_test_id(self.page, test_id)).to_have_count(1, timeout=10_000)
-                for test_id in RENDER_MODE_MAP_PRIMARY_TEST_IDS:
-                    expect(by_test_id(self.page, test_id)).to_have_count(0)
-                for test_id in RENDER_MODE_COMMON_TEST_IDS:
-                    expect(by_test_id(self.page, test_id)).to_have_count(1, timeout=10_000)
 
-        for width, height, label in MAP_PRIMARY_VIEWPORTS:
-            with self.subTest(mode="mapPrimaryLayout", viewport=label):
+        for width, height, label in TWO_COLUMN_VIEWPORTS:
+            with self.subTest(mode="twoColumnLayout", viewport=label):
                 self.page.set_viewport_size({"width": width, "height": height})
                 self.dsl.open_candidate_screen()
-                for test_id in RENDER_MODE_MAP_PRIMARY_TEST_IDS:
-                    expect(by_test_id(self.page, test_id)).to_have_count(1, timeout=10_000)
                 for test_id in RENDER_MODE_TOUCH_TEST_IDS:
                     expect(by_test_id(self.page, test_id)).to_have_count(0)
-                for test_id in RENDER_MODE_COMMON_TEST_IDS:
-                    expect(by_test_id(self.page, test_id)).to_have_count(1, timeout=10_000)

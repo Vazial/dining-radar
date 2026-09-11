@@ -40,8 +40,13 @@ class GatheringSchedulingSteps:
     def organizer_opens_the_add_candidate_date_form(self) -> None:
         self.dsl.open_add_candidate_date_form()
 
-    def organizer_submits_the_add_candidate_date_form(self, candidate_date_iso: str) -> object:
-        return self.dsl.submit_add_candidate_date_form(candidate_date_iso)
+    def organizer_submits_the_add_candidate_date_form(
+        self, candidate_date_isos: list[str]
+    ) -> object:
+        return self.dsl.submit_add_candidate_date_form(candidate_date_isos)
+
+    def organizer_fills_the_gathering_create_candidate_dates(self, isos: list[str]) -> None:
+        self.dsl.select_gathering_create_candidate_date_days(isos)
 
     def candidate_dates_snapshot(self) -> list[dict[str, object]]:
         return self.dsl.candidate_dates_snapshot()
@@ -165,29 +170,41 @@ class GatheringSchedulingSteps:
     def gathering_has_no_confirmed_date(self) -> None:
         self.dsl.assert_no_candidate_date_is_confirmed_on_gathering()
 
-    def new_candidate_date_is_added_via_inline_form(
+    def new_candidate_dates_are_added_via_inline_form(
         self,
         response: object,
         before_dates: list[dict[str, object]],
         expected_phase: str,
+        expected_new_count: int = 1,
     ) -> None:
-        self.dsl.assert_candidate_date_added_via_inline_form(
-            response,
+        self.dsl.assert_candidate_dates_added_via_inline_form(
+            response,  # type: ignore[arg-type]
             before_dates,
-            expected_phase,  # type: ignore[arg-type]
+            expected_phase,
+            expected_new_count,
         )
 
     def duplicate_candidate_date_is_rejected(
         self,
         response: object,
-        candidate_date_iso: str,
+        candidate_date_isos: list[str],
         before_dates: list[dict[str, object]],
     ) -> None:
         self.dsl.assert_duplicate_candidate_date_rejected_by_inline_form(
-            response,
-            candidate_date_iso,
-            before_dates,  # type: ignore[arg-type]
+            response,  # type: ignore[arg-type]
+            candidate_date_isos,
+            before_dates,
         )
+
+    def organizer_attempts_to_create_gathering_via_api_with_a_past_candidate_date(
+        self, title: str, past_or_today_iso: str
+    ) -> object:
+        return self.dsl.attempt_create_gathering_via_api_with_a_past_candidate_date(
+            title, past_or_today_iso
+        )
+
+    def create_is_rejected_because_date_not_in_future(self, response: object) -> None:
+        self.dsl.assert_create_rejected_because_date_not_in_future(response)  # type: ignore[arg-type]
 
     def gathering_list_matches(self, expected: list[dict[str, object]]) -> None:
         self.dsl.assert_gathering_list_matches(expected)
@@ -287,7 +304,10 @@ class GatheringSchedulingSteps:
         self.dsl.assert_unanswered_summary_reflects_one_revocation(before)
 
     def open_shop_preview_shows_count(self, count: int) -> None:
-        self.dsl.assert_open_shop_preview_shows_expected_count_and_order(count)
+        self.dsl.assert_open_shop_preview_shows_expected_count(count)
+
+    def open_shop_preview_shows_no_shop_details(self) -> None:
+        self.dsl.assert_open_shop_preview_shows_no_shop_details()
 
     def no_candidate_date_is_confirmed(self) -> None:
         self.dsl.assert_no_candidate_date_confirmed()
@@ -308,9 +328,6 @@ class GatheringSchedulingSteps:
             candidate_date_id, going=going, maybe=maybe, not_going=not_going
         )
 
-    def schedule_question_tally_is_absent(self, candidate_date_id: str) -> None:
-        self.dsl.assert_schedule_question_tally_absent(candidate_date_id)
-
     def schedule_question_tally_is(
         self, candidate_date_id: str, *, going: int, maybe: int, not_going: int
     ) -> None:
@@ -326,6 +343,26 @@ class GatheringSchedulingSteps:
 
     def participant_view_is_valid(self) -> None:
         self.dsl.assert_valid_participant_view_is_shown()
+
+    # answerLater / peekResults (adr/0050 decision 1) ------------------------
+
+    def answer_later_and_peek_results_are_present(self) -> None:
+        self.dsl.assert_answer_later_and_peek_results_present()
+
+    def answer_later_and_peek_results_are_absent(self) -> None:
+        self.dsl.assert_answer_later_and_peek_results_absent()
+
+    def participant_activates_answer_later_and_state_is_unchanged(
+        self, candidate_date_id: str, expected_response: str
+    ) -> None:
+        self.dsl.activate_answer_later_and_verify_it_changes_no_state(
+            candidate_date_id, expected_response
+        )
+
+    def participant_activates_peek_results_and_tallies_are_visible(
+        self, candidate_date_id: str
+    ) -> None:
+        self.dsl.activate_peek_results_and_verify_tallies_are_visible(candidate_date_id)
 
     def prior_responses_are_retained(self, before: dict[str, dict[str, object]]) -> None:
         self.dsl.assert_answer_state_unchanged(before)
@@ -379,24 +416,23 @@ class GatheringSchedulingSteps:
     def organizer_shortlists_shops_via_api(self, shop_ids: list[str]) -> dict:
         return self.dsl.set_shortlisted_shops_via_api(shop_ids)
 
-    def organizer_identifies_a_closed_shop(
-        self, all_open_candidate_date_id: str, confirmed_candidate_date_id: str
-    ) -> str:
-        return self.dsl.identify_a_shop_closed_on_the_confirmed_date(
-            all_open_candidate_date_id, confirmed_candidate_date_id
-        )
+    def shop_id_closed_only_on(self, closed_weekday: int, open_weekday: int) -> str:
+        return self.dsl.fetch_shop_id_closed_only_on(closed_weekday, open_weekday)
 
-    def organizer_selects_first_n_open_shops(self, n: int) -> list[str]:
-        return self.dsl.select_first_n_open_shops_for_shortlist(n)
+    def confirmed_date_open_shop_ids_with_a_spare(self) -> tuple[list[str], str]:
+        return self.dsl.fetch_confirmed_date_open_shop_ids_with_a_spare()
 
-    def organizer_submits_the_shortlist(self) -> None:
-        self.dsl.submit_shortlist()
+    def organizer_opens_shop_selection_entry(self) -> None:
+        self.dsl.open_shop_selection_entry()
+
+    def organizer_selects_first_n_candidates_into_gathering(self, n: int) -> list[str]:
+        return self.dsl.select_first_n_candidates_into_gathering(n)
 
     def organizer_attempts_to_shortlist_shops_via_api(self, shop_ids: list[str]) -> object:
         return self.dsl.attempt_set_shortlisted_shops_via_api(shop_ids)
 
-    def organizer_replaces_a_shortlisted_shop(self, old_shop_id: str, new_shop_id: str) -> None:
-        self.dsl.replace_shortlisted_shop(old_shop_id, new_shop_id)
+    def organizer_replaces_a_shortlisted_shop(self, old_shop_id: str, new_shop_id: str) -> dict:
+        return self.dsl.replace_shortlisted_shop(old_shop_id, new_shop_id)
 
     def organizer_selects_a_shop_for_finalize(self, shop_id: str) -> None:
         self.dsl.select_shop_for_finalize(shop_id)
@@ -429,11 +465,11 @@ class GatheringSchedulingSteps:
     def shortlisted_shop_list_is_ordered_by_combined_tier_descending(self) -> None:
         self.dsl.assert_shortlisted_shop_list_is_ordered_by_combined_tier_descending()
 
-    def open_shop_list_shows_map_and_shop_details(self) -> None:
-        self.dsl.assert_open_shop_list_shows_map_and_shop_details()
+    def shortlisted_shop_current_leader_is(self, shop_id: str) -> None:
+        self.dsl.assert_shortlisted_shop_current_leader(shop_id)
 
-    def shop_is_not_offered_in_the_shortlist(self, shop_id: str) -> None:
-        self.dsl.assert_shop_not_offered_in_open_shop_list(shop_id)
+    def gathering_mode_shows_map_and_shop_details(self) -> None:
+        self.dsl.assert_gathering_mode_shows_map_and_shop_details()
 
     def rejected_as_invalid_shop_selection(self, response: object) -> None:
         self.dsl.assert_rejected_as_invalid_shop_selection(response)  # type: ignore[arg-type]
@@ -443,9 +479,6 @@ class GatheringSchedulingSteps:
 
     def rejected_because_shop_voting_not_started(self, response: object) -> None:
         self.dsl.assert_rejected_because_shop_voting_not_started(response)  # type: ignore[arg-type]
-
-    def no_shortlist_is_recorded_yet(self) -> None:
-        self.dsl.assert_no_shortlist_recorded_yet()
 
     def finalized_controls_are_absent(self) -> None:
         self.dsl.assert_finalized_controls_are_absent()
@@ -465,9 +498,6 @@ class GatheringSchedulingSteps:
 
     def shop_vote_your_vote_is(self, shop_id: str, expected: str) -> None:
         self.dsl.assert_shop_vote_your_vote(shop_id, expected)
-
-    def shop_vote_tally_is_absent(self, shop_id: str) -> None:
-        self.dsl.assert_shop_vote_tally_absent(shop_id)
 
     def shop_vote_tally_is(
         self, shop_id: str, *, want_to_go: int, ok_to_go: int, not_going: int, responded: int
@@ -511,17 +541,43 @@ class GatheringSchedulingSteps:
         confirmed_candidate_date: str,
         shop_id: str,
         your_schedule_response: str,
-        shop_votes: dict[str, str],
     ) -> None:
         self.dsl.assert_participant_decision(
             confirmed_candidate_date=confirmed_candidate_date,
             shop_id=shop_id,
             your_schedule_response=your_schedule_response,
-            shop_votes=shop_votes,
         )
+
+    def participant_decision_has_no_shop_breakdown(self) -> None:
+        self.dsl.assert_participant_decision_has_no_shop_breakdown()
 
     def participant_question_surfaces_are_replaced(self) -> None:
         self.dsl.assert_participant_question_surfaces_are_replaced()
 
     def participant_name_controls_are_absent(self) -> None:
         self.dsl.assert_participant_name_controls_are_absent()
+
+    # Delete gathering (TDR-GTH-48, adr/0050 decision 4) --------------------
+
+    def organizer_deletes_the_gathering(self) -> None:
+        self.dsl.delete_gathering_via_dashboard()
+
+    def gathering_is_absent_from_the_list(self, gathering_id: str) -> None:
+        self.dsl.assert_gathering_absent_from_list(gathering_id)
+
+    # Toggle a shop into/out of a gathering from candidate-search's own
+    # gatheringMode (TDR-GTH-44/45, adr/0049 decision 1) --------------------
+
+    def gathering_mode_band_shows(self, *, shortlisted: int, max_shortlisted: int = 5) -> None:
+        self.dsl.assert_gathering_mode_band_shows(
+            shortlisted=shortlisted, max_shortlisted=max_shortlisted
+        )
+
+    def organizer_toggles_off_the_first_shortlisted_candidate(self) -> None:
+        self.dsl.toggle_off_the_first_shortlisted_candidate_card()
+
+    def organizer_searches_again_on_shop_selection_entry(self) -> None:
+        self.dsl.search_again_on_shop_selection_entry()
+
+    def unselected_candidate_toggle_is_disabled(self) -> None:
+        self.dsl.assert_unselected_candidate_card_toggle_is_disabled()

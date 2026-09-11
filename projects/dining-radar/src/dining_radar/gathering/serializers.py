@@ -179,10 +179,6 @@ def _live_projected_display_fields(
     }
 
 
-def serialize_open_shop_preview_item(candidate: NormalizedCandidate, origin: Origin) -> dict:
-    return _candidate_display_fields(candidate, origin)
-
-
 def serialize_live_projected_shop(shop_id: str, shop_lookup: dict, origin: Origin | None) -> dict:
     """``components.schemas.LiveProjectedShop`` (adr/0041, extended by adr/0044)."""
     return _live_projected_display_fields(shop_lookup.get(shop_id), shop_id, origin)
@@ -212,16 +208,16 @@ def serialize_participant_shop_vote_option(
         **_live_projected_display_fields(shop_lookup.get(shop.shop_id), shop.shop_id, origin),
         "yourVote": option.your_vote,
     }
-    entry["tally"] = (
-        None
-        if option.your_vote is None
-        else {
-            "wantToGoCount": option.want_to_go_count,
-            "okToGoCount": option.ok_to_go_count,
-            "notGoingCount": option.not_going_count,
-            "respondedParticipantCount": option.responded_participant_count,
-        }
-    )
+    # Always present (adr/0050 decision 2, 2026-09-08/09 human decision:
+    # reverses this schema's original "answer first, then see others" gating
+    # on ``option.your_vote`` -- other participants' tallies are visible
+    # whether or not this participant has voted on this shop yet).
+    entry["tally"] = {
+        "wantToGoCount": option.want_to_go_count,
+        "okToGoCount": option.ok_to_go_count,
+        "notGoingCount": option.not_going_count,
+        "respondedParticipantCount": option.responded_participant_count,
+    }
     return entry
 
 
@@ -240,17 +236,20 @@ def serialize_search_origin(origin: Origin) -> dict:
 def serialize_open_shop_preview(
     candidate_date: CandidateDate, population: Sequence[NormalizedCandidate], origin: Origin | None
 ) -> dict:
-    preview_shops = population[: services.OPEN_SHOP_PREVIEW_MAX_ITEMS]
+    """``CandidateDateOpenShopPreview`` (adr/0049 decision 2: count-only).
+
+    ``previewShops``/``OpenShopPreviewItem`` were both retired 2026-09-09 --
+    shop selection moved to ``candidate-search-api.yaml``'s gathering mode
+    (adr/0049 decision 1), so no screen browses a shop list from this
+    operation any longer. ``origin`` is accepted (unused) so this function's
+    signature stays stable against ``services.preview_open_shops_for_
+    candidate_date``'s own return shape, which callers still use for other
+    purposes.
+    """
+    del origin
     return {
         "candidateDateId": str(candidate_date.id),
         "openShopCount": len(population),
-        # ``origin`` is only ``None`` when ``population`` is already empty
-        # (services.open_shop_population_for_candidate_date returns `[]` on
-        # an unresolved source), so `preview_shops` is never non-empty here
-        # while `origin` is `None`.
-        "previewShops": [
-            serialize_open_shop_preview_item(candidate, origin) for candidate in preview_shops
-        ],
     }
 
 
@@ -262,56 +261,46 @@ def serialize_schedule_question(
     open_population = services.open_shop_population_for_candidate_date(
         candidate_date, population_source
     )
-    question = {
+    return {
         "candidateDateId": str(candidate_date.id),
         "startAt": candidate_date.start_at.isoformat(),
         "openShopCount": len(open_population),
         "yourResponse": your_response,
-    }
-    if your_response is not None:
-        question["tally"] = {
+        # Always present (adr/0050 decision 2, 2026-09-08/09 human decision:
+        # reverses this schema's original "answer first, then see others"
+        # gating on ``your_response`` -- other participants' counts are
+        # visible whether or not this participant has answered yet).
+        "tally": {
             "goingCount": tally.going_count,
             "maybeCount": tally.maybe_count,
             "notGoingCount": tally.not_going_count,
-        }
-    return question
+        },
+    }
 
 
 def serialize_decision(
     link: ParticipantLink, gathering: Gathering, shop_lookup: dict, origin: Origin | None
 ) -> dict:
-    """``ParticipantView.decision`` (adr/0040, extended by P5/adr/0041, three-tier adr/0044,
-    never-answered shops adr/0046).
+    """``ParticipantView.decision`` (adr/0040, extended by P5/adr/0041, simplified adr/0050).
 
-    Never another participant's answers or votes -- both new fields are
-    derived solely from this participant's own recorded data
-    (``scheduleQuestions``/``shopVoteQuestions``), never a tally or another
-    participant's identifier (adr/0041 decision 3). ``yourShopVotes`` now
-    carries one entry for *every* shop among ``Gathering.shortlistedShops``
-    at finalization, including one this participant never voted on
-    (``status: None``, "答えないまま締まりました") -- adr/0046 open item 3,
-    2026-09-05 human chat decision -- ordered nearest-first, the same basis
-    ``shopVoteQuestions`` used before finalization (adr/0044 decision 2).
+    Carries only this participant's own retrospective schedule answer
+    (``yourScheduleResponse``) -- never another participant's answers or
+    votes (adr/0041 decision 3). ``yourShopVotes`` (the per-shop
+    retrospective P5 added, generalized to the three-tier vote by adr/0044,
+    extended to never-answered shops by adr/0046) was retired 2026-09-09
+    (adr/0050 decision 3, human decision: "あなたの回答は見れても別に意味
+    ないかも") -- a participant can still see every shop's live tally via
+    ``shopVoteQuestions`` (unaffected by finalization, adr/0050 decision 2).
     """
     your_schedule_response = (
         services.participant_schedule_status(link, gathering.confirmed_candidate_date)
         if gathering.confirmed_candidate_date_id
         else None
     )
-    your_shop_votes = [
-        {
-            "shop": serialize_live_projected_shop(
-                vote.shortlisted_shop.shop_id, shop_lookup, origin
-            ),
-            "status": vote.status,
-        }
-        for vote in services.participant_decision_shop_votes(link, shop_lookup, origin)
-    ]
     return {
         "confirmedCandidateDate": gathering.confirmed_candidate_date.start_at.isoformat(),
         "shop": serialize_live_projected_shop(gathering.finalized_shop_id, shop_lookup, origin),
         "yourScheduleResponse": your_schedule_response,
-        "yourShopVotes": your_shop_votes,
     }
 
 

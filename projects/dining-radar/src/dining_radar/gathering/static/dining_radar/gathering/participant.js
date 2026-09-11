@@ -147,6 +147,20 @@
     // applies -- set only by loadView below, never by any other
     // participant-facing call (seedParticipantLinkServerError's own scope).
     loadFailure: false,
+    // adr/0050 decision 1 (2026-09-09): answerLater/peekResults, both made
+    // functional this round (previously "見た目だけの飾り", designer's own
+    // words). Neither calls a public operation -- both are purely
+    // client-side reveals.
+    answerLaterConfirmationOpen: false,
+    // Whether the currently-open (not-yet-answered) question's own tally
+    // has been explicitly revealed. Every *done* question's tally stays
+    // unconditionally visible regardless of this flag (adr/0050 decision 2
+    // already settled that "約束は覆してもよい" for answered questions);
+    // this flag only governs the one open question's tally/mask -- keeping
+    // it hidden until the participant actively chooses to "のぞく" (peek)
+    // is this developer's own reading of the verb, not fixed by the
+    // contract (which "does not fix the visible layout of this overview").
+    peekResultsActivated: false,
   };
 
   // request-sequencer:start -- Stale-response guard (this file's module
@@ -669,12 +683,17 @@
     );
   }
 
+  // adr/0050 decision 2 (2026-09-08/09 human decision: "約束は覆してもよい"):
+  // other participants' tallies are visible regardless of whether this
+  // participant has answered yet -- shared between the done and open
+  // question cards below, replacing the retired "answer first" wording.
+  var VISIBILITY_HINT = "ほかの人の回答も見えています";
+
   /**
    * A previously-answered candidate date: Answer.dc.html's .card.done
-   * (date + answer badge + tally + "答えたので、ほかの人の回答も見えています"),
-   * with the response options kept present (compact) so the answer stays
-   * changeable -- see this file's module docstring for why that departs
-   * from the mockup's own drawing.
+   * (date + answer badge + tally), with the response options kept present
+   * (compact) so the answer stays changeable -- see this file's module
+   * docstring for why that departs from the mockup's own drawing.
    */
   function renderDoneQuestionCard(question) {
     var yourResponse = question.yourResponse;
@@ -688,9 +707,7 @@
     if (tally) {
       children.push(tally);
     }
-    children.push(
-      el("div", { class: "gth-done-hint" }, ["答えたので、ほかの人の回答も見えています"])
-    );
+    children.push(el("div", { class: "gth-done-hint" }, [VISIBILITY_HINT]));
     children.push(
       el(
         "div",
@@ -719,6 +736,41 @@
    * three full-size response options).
    */
   function renderOpenQuestionCard(question) {
+    var children = [
+      el("div", { class: "gth-open-label" }, ["この日、行けそう？"]),
+      el("div", { class: "gth-open-date" }, [formatGatheringDateTime(question.startAt)]),
+      el("div", { class: "gth-open-shop-count" }, [
+        "この日に開いている店 ",
+        el("b", {}, [String(question.openShopCount)]),
+        "件",
+      ]),
+    ];
+    var tally = renderTally(question);
+    if (tally) {
+      // peekResults.requiredOutcome (adr/0050 decision 1): this one open
+      // question's own tally stays hidden until the participant explicitly
+      // activates gathering-participant-peek-results (renderFooter below) --
+      // see this file's own state.peekResultsActivated comment for why only
+      // the open question's tally is gated this way.
+      children.push(
+        el(
+          "div",
+          {
+            class:
+              "gth-open-tally-wrap" +
+              (state.peekResultsActivated ? " gth-open-tally-wrap--revealed" : ""),
+          },
+          [tally, el("div", { class: "gth-mask" }, [VISIBILITY_HINT])]
+        )
+      );
+    }
+    children.push(
+      el(
+        "div",
+        { class: "gth-open-options" },
+        responseOptionButtons(question, "UNANSWERED", false)
+      )
+    );
     return el(
       "div",
       {
@@ -728,21 +780,7 @@
         "data-your-response": "UNANSWERED",
         class: "gth-card gth-card--open",
       },
-      [
-        el("div", { class: "gth-open-label" }, ["この日、行けそう？"]),
-        el("div", { class: "gth-open-date" }, [formatGatheringDateTime(question.startAt)]),
-        el("div", { class: "gth-open-shop-count" }, [
-          "この日に開いている店 ",
-          el("b", {}, [String(question.openShopCount)]),
-          "件",
-        ]),
-        el("div", { class: "gth-mask" }, ["ほかの人の回答は、あなたが答えると見えます"]),
-        el(
-          "div",
-          { class: "gth-open-options" },
-          responseOptionButtons(question, "UNANSWERED", false)
-        ),
-      ]
+      children
     );
   }
 
@@ -810,10 +848,11 @@
   }
 
   function renderShopVoteTally(question) {
-    if (question.tally === null || question.tally === undefined) {
-      // product-brief.md §2's "answer first, then see others" rule, applied
-      // per shop (TDR-GTH-29) -- absent exactly when yourVote is
-      // "UNANSWERED".
+    // adr/0050 decision 2 (2026-09-08/09 human decision): tally is always
+    // present now, regardless of whether this participant has voted on this
+    // shop yet (reverses the original "answer first, then see others" rule,
+    // TDR-GTH-29).
+    if (!question.tally) {
       return null;
     }
     return el(
@@ -846,8 +885,6 @@
     var tally = renderShopVoteTally(question);
     if (tally) {
       children.push(tally);
-    } else {
-      children.push(el("span", { class: "gth-vote-mask" }, ["あなたが答えると票が見えます"]));
     }
 
     return el(
@@ -890,50 +927,19 @@
     };
   }
 
-  // finalizedView.decision.shopVote's statusValues (adr/0044/0046): the
-  // three real ShopVoteStatus values plus the null-to-sentinel "UNANSWERED"
-  // ("答えないまま締まりました", adr/0046 open item 3, 2026-09-05 human chat
-  // decision) -- the same null-to-sentinel convention
-  // scheduleQuestion.yourResponseValues/shopVoteQuestion.yourVoteValues
-  // already use.
-  var VOTE_STATUS_LABELS = {
-    WANT_TO_GO: "行きたい",
-    OK_TO_GO: "行ってもいい",
-    NOT_GOING: "むり",
-    UNANSWERED: "答えないまま締まりました",
-  };
-
   /**
-   * Final.dc.html B-3 -- the decision plus this participant's own
-   * retrospective record (P5, adr/0041/adr/0042; generalized to the
-   * three-tier vote 2026-09-05, adr/0044; extended the same day to include
-   * a never-answered shop, adr/0046). Never another participant's data
-   * (decision.yourShopVotes is this participant's own votes only,
-   * gathering-scheduling-api.yaml adr/0041/adr/0044).
+   * Final.dc.html B-3 -- the decision (adr/0040, extended by P5/adr/0041,
+   * simplified by adr/0050 decision 3, 2026-09-09 human decision: "あなたの
+   * 回答は見れても別に意味ないかも"). ``decision.yourShopVotes`` (the
+   * per-shop retrospective P5 added, generalized by adr/0044, extended by
+   * adr/0046) was retired -- this view now shows only this participant's own
+   * schedule response, plus the decided date/shop; it no longer reads or
+   * renders a per-shop breakdown.
    */
   function renderFinalizedView() {
     var decision = state.view.decision;
     var yourScheduleResponseValue =
       decision.yourScheduleResponse === null ? "UNANSWERED" : decision.yourScheduleResponse;
-
-    var shopVoteEls = decision.yourShopVotes.map(function (entry) {
-      var voteStatusValue = entry.status === null ? "UNANSWERED" : entry.status;
-      return el(
-        "div",
-        {
-          "data-testid": "gathering-participant-decision-shop-vote",
-          "data-shop-id": entry.shop.shopId,
-          "data-vote-status": voteStatusValue,
-          class: "gth-final-shop-vote",
-        },
-        [
-          el("span", { class: "gth-final-shop-vote-name" }, [entry.shop.name]),
-          el("span", { class: "gth-final-shop-vote-status" }, [
-            VOTE_STATUS_LABELS[voteStatusValue],
-          ]),
-        ]
-      );
-    });
 
     var decisionEl = el(
       "div",
@@ -952,6 +958,17 @@
         ]),
         el("div", { class: "gth-final-shop-lb" }, ["お店"]),
         el("div", { class: "gth-final-shop" }, [decision.shop.name]),
+        el(
+          "a",
+          {
+            "data-testid": "gathering-participant-decision-shop-page-link",
+            href: decision.shop.providerPageUrl,
+            target: "_blank",
+            rel: "noopener noreferrer",
+            class: "gth-shop-link",
+          },
+          ["店のページを見る"]
+        ),
         el("div", { class: "gth-final-yours-lb" }, ["あなたの記録"]),
         el("div", { class: "gth-final-yours-row" }, [
           "この日へのあなたの回答: ",
@@ -961,13 +978,6 @@
               : RESPONSE_LABELS[decision.yourScheduleResponse],
           ]),
         ]),
-        el(
-          "div",
-          { class: "gth-final-approved" },
-          [el("div", { class: "gth-final-approved-lb" }, ["店ごとのあなたの回答"])].concat(
-            shopVoteEls
-          )
-        ),
         el("p", { class: "gth-fine" }, [
           "締まっているので変えられません。ほかの人が何を選んだかは出していません。",
         ]),
@@ -979,17 +989,57 @@
 
   function renderFooter() {
     // Answer.dc.html shows these two entry points ("あとで答える" /
-    // "結果をのぞく") but defines no resulting operation for either in this
-    // contract -- no allowedPurposes value corresponds to them and no
-    // TDR-GTH scenario interacts with them. Rendered as plain, purposeless
-    // <div>s (not <button>s) so they read as inert placeholders rather than
-    // controls this contract does not actually wire up, mirroring this
-    // project's existing precedent for a display-only entry point
-    // (activeContext.md's candidate-map-open/-sheet-close judgment).
-    return el("div", { class: "gth-foot" }, [
-      el("div", { class: "gth-foot-btn" }, ["あとで答える"]),
-      el("div", { class: "gth-foot-btn" }, ["結果をのぞく"]),
-    ]);
+    // "結果をのぞく"). adr/0050 decision 1 (2026-09-09) assigns both a real
+    // requiredOutcome and a browserControlSurface purpose
+    // (gathering-participant-answer-later/-peek-results). **Wired up
+    // 2026-09-11**: the shared acceptance DSL's own allow-list of gathering
+    // purposes now recognizes both (tests/acceptance/dsl, confirmed present
+    // in GATHERING_ALLOWED_PURPOSES) -- the cross-role sequencing gap the
+    // previous developer round left behind is closed.
+    var answerLater = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "gathering-participant-answer-later",
+        "data-gathering-control-purpose": "gathering-participant-answer-later",
+        class: "gth-foot-btn",
+      },
+      ["あとで答える"]
+    );
+    answerLater.addEventListener("click", function () {
+      // answerLater.requiredOutcome: calls no public operation -- every
+      // answer already saved itself the moment it was submitted. This is a
+      // purely client-side acknowledgement.
+      state.answerLaterConfirmationOpen = true;
+      render();
+    });
+
+    var peekResults = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "gathering-participant-peek-results",
+        "data-gathering-control-purpose": "gathering-participant-peek-results",
+        class: "gth-foot-btn",
+      },
+      ["結果をのぞく"]
+    );
+    peekResults.addEventListener("click", function () {
+      state.peekResultsActivated = true;
+      render();
+    });
+
+    var children = [answerLater, peekResults];
+    if (state.answerLaterConfirmationOpen) {
+      children.push(
+        el(
+          "p",
+          { "data-testid": "gathering-participant-answer-later-confirmation", class: "gth-fine" },
+          ["ここまでの回答は保存されています。またあとで、続きから答えられます。"]
+        )
+      );
+    }
+    return el("div", { class: "gth-foot" }, children);
   }
 
   function renderFinePrint() {

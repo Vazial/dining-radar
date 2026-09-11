@@ -51,6 +51,7 @@ def propose_candidates(
     fetch_candidates: CandidateSource,
     random_source: random.Random | None = None,
     shown_provider_page_urls: Collection[str] = (),
+    gathering_weekday: int | None = None,
 ) -> ProposalResult:
     """Perform one fresh search and select the displayed proposal.
 
@@ -62,7 +63,10 @@ def propose_candidates(
     ``shown_provider_page_urls`` (adr/0024 decision 4) is the browser's
     current not-yet-shown/already-shown priority state for this request; it
     is forwarded to ``build_proposal`` and never persisted here or anywhere
-    downstream beyond this one call.
+    downstream beyond this one call. ``gathering_weekday`` (adr/0049 decision
+    1, gathering mode) is forwarded to ``build_proposal``'s
+    ``exclude_closed_on_weekday`` unchanged -- ``None`` for the ordinary
+    (non-gathering) screen.
     """
     candidates, origin = fetch_candidates()
     proposal = build_proposal(
@@ -71,6 +75,7 @@ def propose_candidates(
         filters,
         random_source=random_source or random.Random(),
         shown_provider_page_urls=shown_provider_page_urls,
+        exclude_closed_on_weekday=gathering_weekday,
     )
     return ProposalResult(
         candidates=proposal.candidates,

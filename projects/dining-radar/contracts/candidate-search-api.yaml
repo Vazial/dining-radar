@@ -2,6 +2,9 @@
 #   まま実装だけが本番に載っていた滞留を、実態の照合を経て解消したもの。同ADRの approved_by 参照）。
 #   **adr/0025 の改訂は 2026-08-24 に PR #156 のマージをもって承認済み**（ADR-0035 方式(i)）であり、
 #   契約・実装・テストが同一スライスで main に載っている。この行の形式はmeta/adr/0043の機械検証が要求する
+#   **adr/0049 の改訂（v1.3.0、会モード: gatheringId・Candidate.shopId/isShortlisted・gatheringContext）は
+#   2026-09-11 にチャットで承認された**——人間裁定（2026-09-11 チャット選択肢UI）: 会の画面群の仕様と実装を、
+#   この場の合意として承認する（meta/adr/0064 決定1）。未承認のまま残っている改訂は無い。
 #
 # 以下は2026-08-12に承認済み(PR #90、adr/0023)だったv1.0.2の内容である。この上に2026-08-14の
 # adr/0024ドラフト差分、続けて2026-08-20のadr/0025ドラフト差分（いずれも下記ブロック）が重なる。
@@ -128,10 +131,42 @@
 #   `SearchOriginLocation`/`searchOrigin` は別スキーマであり、`ShopLocation` の「検索基点を表さない」
 #   というMustは店舗座標について引き続き真である。
 # - route（徒歩経路）とcurrent location（現在地）はこのAPIに一切追加しない (adr/0025 決定6、無変更)。
+#
+# 2026-09-09 起草 (architect、adr/0049決定1。version 1.2.0 -> 1.3.0。前段のarchitectが
+#   adr/0049本体で確定させた仕様を、本段が本ファイルへ反映した。2026-09-08の人間裁定
+#   「1枚目の画面の存在価値がなくなってない？（重複しているように思える）」への対応):
+# - **会モードを新設する**: `CandidateProposalRequest`へ任意の`gatheringId`（新規、文字列）を
+#   追加した。有効なgatheringId（呼び出し元organizerが持つ会で、局面が`SELECTING_SHOP`）を指す
+#   とき会モードが成立する。局面が`SCHEDULING`を指す場合は`GATHERING_NOT_IN_SELECTING_SHOP_PHASE`
+#   （409）、`FINALIZED`を指す場合は`GATHERING_FINALIZED`（409）で拒否する（いずれも
+#   `gathering-scheduling-api.yaml`の同名コードをそのまま再利用し、本ファイルに新しいコードは
+#   増やさない）。存在しない、または呼び出し元が持たないgatheringIdは`GATHERING_NOT_FOUND`
+#   （404）で拒否する。
+# - **母集団の絞り込み**: 会モードが成立するとき、候補の母集団は既存の絞り込みに加えて「その会の
+#   確定済み開催日に開いている店」だけへ絞られる。判定は`gathering-scheduling-api.yaml`が確立した
+#   曜日ベースの`regularHoliday`緩い照合（adr/0035決定6）をサーバー内部で再利用する——同一プロセス
+#   内の関数呼び出しであり、ネットワーク越しの契約結合ではないため、本ファイルのスキーマに新しい
+#   フィールドは増えない。
+# - `Candidate`へ`shopId`（新規、文字列、会モード時のみ非null）・`isShortlisted`（新規、真偽値、
+#   会モード時のみ非null）を追加した。`shopId`は`gathering-scheduling-api.yaml`の
+#   `OpenShopPreviewItem.shopId`・`ShortlistedShop.shopId`と同じopaqueな店舗識別子であり、この値を
+#   そのまま`setShortlistedShops`（`gathering-scheduling-api.yaml`、変更なし）へ渡す。
+#   `isShortlisted`は、この店が会の現在の`shortlistedShops`に含まれているかどうかを示す。
+# - `CandidateProposalResponse`へ`gatheringContext`（新規、会モード時のみ非null、新設
+#   `GatheringContext`スキーマ）を追加した——`{gatheringId, title, confirmedCandidateDate,
+#   shortlistedShopCount, maxShortlistedShops}`。`maxShortlistedShops`は常に5固定値だが、契約として
+#   明示することで「入れた店 3 / 5」という帯の右辺の出どころを機械的に定義する。
+# - **書き込みは増やさない**: 「この会に入れる」トグルは新しいエンドポイントを作らない。
+#   `gathering-scheduling-api.yaml`の`setShortlistedShops`（PUT、完全置換）をそのまま呼ぶ——
+#   書き込みは会の持ち物を変える操作なので会の契約が持つという原則を守り、2つの契約に同じ書き込み
+#   ロジックを重複させない。
+# - `ProblemResponse.code`へ`GATHERING_NOT_FOUND`・`GATHERING_NOT_IN_SELECTING_SHOP_PHASE`・
+#   `GATHERING_FINALIZED`を追加した（`gathering-scheduling-api.yaml`と同名のコードを再利用し、
+#   意味を割らない）。
 openapi: 3.0.3
 info:
   title: Dining Radar Candidate Proposal API
-  version: 1.2.0
+  version: 1.3.0
   description: >-
     Produces up to 5 lunch candidates around one private runtime-configured
     location, after filtering, distance-weighted random selection that
@@ -144,7 +179,24 @@ info:
     `walkingTimeMinutes` computed from `searchOrigin` and the candidate's own
     `location`; it is an estimate, not a measured route, and this API never
     accepts or returns a walking route or the browser's current location
-    (adr/0025 decisions 2 and 6). A response is
+    (adr/0025 decisions 2 and 6). A request may optionally carry a
+    `gatheringId` (adr/0049 decision 1, 2026-09-08 human decision) naming a
+    gathering the caller organizes whose phase is SELECTING_SHOP; when
+    present and valid, this puts the response in "gathering mode" -- the
+    eligible population is additionally restricted to shops open on that
+    gathering's confirmed candidate date (reusing gathering-scheduling-api.
+    yaml's weekday-based regularHoliday matching as an internal, same-process
+    function call, not a network contract coupling), each `Candidate` carries
+    its `shopId` and whether it is currently on that gathering's shortlist
+    (`isShortlisted`), and the response carries a non-null `gatheringContext`
+    summarizing the gathering. Toggling a shop onto or off the shortlist from
+    this screen calls gathering-scheduling-api.yaml's existing
+    `setShortlistedShops` directly; this API introduces no new write
+    operation for it, since writing to a gathering's own data remains that
+    contract's responsibility. This consolidates shop selection into this
+    screen, retiring a separate organizer-dashboard shop-selection screen
+    (adr/0049 decision 1, resolving a 2026-09-08 human observation that the
+    two screens had become a duplicate, degraded pair). A response is
     held in current browser memory only; it is not a provider-response cache
     or a durable search session. This API carries no random seed. It carries
     browser-supplied, browser-held shown-candidate state
@@ -162,9 +214,11 @@ info:
     adr/0022-expose-identity-free-population-filter-attributes.md,
     adr/0024-refine-candidate-diversity-and-filter-discoverability-from-live-feedback.md
     (draft, 2026-08-14, including its 2026-08-14 addendum on retention limits),
-    and
     adr/0025-disclose-search-origin-and-walking-time-to-the-authenticated-screen.md
-    (draft, 2026-08-20).
+    (draft, 2026-08-20),
+    and
+    adr/0049-consolidate-shop-selection-into-the-candidate-screen-and-add-a-calendar-and-two-column-desktop.md
+    (decision 1, this revision).
 servers:
   - url: https://app.example.invalid
     description: >-
@@ -210,7 +264,23 @@ paths:
         operation carries no random seed on the public API; production
         responses are non-deterministic between requests by design (adr/0023
         decision 4, adr/0024 decision 3). Acceptance testing pins determinism
-        through contracts/test-support-api.yaml only.
+        through contracts/test-support-api.yaml only. When the request
+        carries a valid `gatheringId` for a gathering this organizer
+        organizes whose phase is SELECTING_SHOP, "gathering mode" applies
+        (adr/0049 decision 1): the eligible population is additionally
+        restricted to shops open on that gathering's confirmed candidate
+        date (an organizer-facing, always-on condition -- not a togglable
+        filter panel entry), each returned `Candidate` carries `shopId` and
+        `isShortlisted`, and the response carries a non-null
+        `gatheringContext`. An invalid `gatheringId` is rejected
+        (GATHERING_NOT_FOUND if it does not exist or does not belong to this
+        organizer; GATHERING_NOT_IN_SELECTING_SHOP_PHASE if the gathering's
+        phase is still SCHEDULING; GATHERING_FINALIZED if it is FINALIZED --
+        all three codes reused from gathering-scheduling-api.yaml unchanged).
+        Toggling a candidate onto or off a gathering's shortlist calls
+        gathering-scheduling-api.yaml's `setShortlistedShops` directly with
+        the toggled `Candidate.shopId` values; this operation itself performs
+        no write against a gathering's data.
       security:
         - organizerSession: []
       parameters:
@@ -235,6 +305,29 @@ paths:
           $ref: '#/components/responses/AuthenticationRequired'
         '403':
           $ref: '#/components/responses/RequestRejected'
+        '404':
+          $ref: '#/components/responses/GatheringNotFound'
+        '409':
+          description: >-
+            The request named a `gatheringId` whose phase does not permit
+            gathering-mode shop selection (adr/0049 decision 1): still
+            SCHEDULING (GatheringNotInSelectingShopPhase, no candidate date
+            confirmed yet) or already FINALIZED (GatheringFinalized); the
+            `code` field distinguishes the two. Only returned when the
+            request carries a `gatheringId`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemResponse'
+              examples:
+                notSelectingShop:
+                  value:
+                    code: GATHERING_NOT_IN_SELECTING_SHOP_PHASE
+                    message: Confirm a candidate date before selecting shops to vote on.
+                finalized:
+                  value:
+                    code: GATHERING_FINALIZED
+                    message: This gathering is already finalized.
         '429':
           $ref: '#/components/responses/ProposalRateLimited'
         '503':
@@ -279,6 +372,20 @@ components:
           example:
             code: REQUEST_REJECTED
             message: The request could not be accepted. Refresh the page and try again.
+    GatheringNotFound:
+      description: >-
+        The request named a `gatheringId` (adr/0049 decision 1) that does not
+        exist, or that does not belong to this organizer. Only returned when
+        the request carries a `gatheringId`; reuses the identically-named
+        code gathering-scheduling-api.yaml already defines, without splitting
+        its meaning.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemResponse'
+          example:
+            code: GATHERING_NOT_FOUND
+            message: This gathering could not be found.
     ProposalRateLimited:
       description: The organizer exceeded the allowed proposal request frequency.
       headers:
@@ -344,6 +451,22 @@ components:
             server. `maxItems: 200` is a defensive schema bound far above
             this product's measured real population size, not an expected
             operating size.
+        gatheringId:
+          type: string
+          nullable: true
+          description: >-
+            Added 2026-09-08 (adr/0049 decision 1, human decision on a full
+            production walkthrough: consolidate shop selection into this
+            screen). When present and naming a gathering this organizer
+            organizes whose phase is SELECTING_SHOP, this request runs in
+            "gathering mode" -- the same opaque identifier
+            gathering-scheduling-api.yaml's path parameter of the same name
+            uses (not a new identifier concept). Omit, or send null, for the
+            ordinary (non-gathering) lunch-candidate screen; this is the
+            default and unaffected by this field's addition. An invalid value
+            is rejected (see this operation's 404/409 responses) rather than
+            silently ignored, so a stale or mistyped `gatheringId` never
+            silently falls back to the ordinary population.
       description: >-
         Omit `filters`, or send it as `{}`, when opening the screen for the
         first time. Before filtering, the server normalizes an omitted
@@ -357,7 +480,10 @@ components:
         equivalence rule: it always reflects the browser's current
         `sessionStorage` snapshot at request time and does not affect
         whether two `filters` values are considered the same request for
-        "try again" purposes (adr/0024 decision 4).
+        "try again" purposes (adr/0024 decision 4). `gatheringId` is also
+        independent of this normalization/equivalence rule -- it names which
+        gathering (if any) is being narrowed for, not a filter value (adr/0049
+        decision 1).
       x-default-normalization:
         normalizedFilters:
           genres: []
@@ -474,7 +600,7 @@ components:
       required:
         [candidates, izakayaBarFallbackApplied, availableGenres,
          populationAttributes, providerCredit, shownPoolExhausted,
-         searchOrigin]
+         searchOrigin, gatheringContext]
       additionalProperties: false
       properties:
         candidates:
@@ -491,7 +617,11 @@ components:
             `cardPaymentOnly`, `budgetTiers`) is active; `walkingTimeMaxMinutes`
             is never part of this nullable-filter grouping, because it is a
             hard filter applied earlier (adr/0025 decision 3; see
-            `CandidateFilters.walkingTimeMaxMinutes`). An empty array is a
+            `CandidateFilters.walkingTimeMaxMinutes`). In gathering mode
+            (adr/0049 decision 1), the eligible population feeding this
+            selection is additionally restricted to shops open on the named
+            gathering's confirmed candidate date, applied alongside the
+            other filters, before selection. An empty array is a
             successful no-match result for the applied filters, distinct
             from a fetch failure (503) or rate limiting (429). Filtering and
             selection are always performed over the full retrieved,
@@ -593,6 +723,72 @@ components:
             still have more not-yet-shown members than the five-candidate
             display cap can show). This field carries no location, distance,
             or identity information beyond the boolean itself.
+        gatheringContext:
+          $ref: '#/components/schemas/GatheringContext'
+          nullable: true
+          description: >-
+            Added 2026-09-08 (adr/0049 decision 1). Non-null exactly when the
+            request carried a valid `gatheringId` (gathering mode); null for
+            the ordinary lunch-candidate screen. Present as a required key on
+            every response either way, so a client can distinguish "no
+            gathering context" from a missing field.
+    GatheringContext:
+      type: object
+      required:
+        [gatheringId, title, confirmedCandidateDate, shortlistedShopCount,
+         maxShortlistedShops]
+      additionalProperties: false
+      description: >-
+        Added 2026-09-08 (adr/0049 decision 1, human decision: consolidate
+        shop selection into this screen). Summarizes the gathering named by
+        the request's `gatheringId`, present only in gathering mode
+        (`CandidateProposalResponse.gatheringContext` is null otherwise).
+        Carries only what this screen needs to render the always-on "open on
+        this date" condition and the "入れた店 3 / 5" shortlist-count band;
+        it is not a general-purpose gathering summary and does not replace
+        gathering-scheduling-api.yaml's own `Gathering` schema.
+      properties:
+        gatheringId:
+          type: string
+          description: >-
+            The same opaque identifier the request's `gatheringId` named,
+            echoed back for convenience.
+        title:
+          type: string
+          description: >-
+            The gathering's organizer-chosen name (same field
+            gathering-scheduling-api.yaml's `Gathering.title` carries), for
+            this screen's header.
+        confirmedCandidateDate:
+          type: string
+          format: date-time
+          description: >-
+            The gathering's confirmed candidate date -- always non-null in
+            gathering mode, since gathering mode requires the gathering's
+            phase to be SELECTING_SHOP or later, which
+            gathering-scheduling-api.yaml's `Gathering.confirmedCandidateDateId`
+            is non-null exactly under. Displayed as the always-on "8/27 (水)
+            に開いている店" condition (adr/0049 decision 1) that the organizer
+            cannot toggle off from this screen's filter panel, unlike the
+            other filters.
+        shortlistedShopCount:
+          type: integer
+          minimum: 0
+          maximum: 5
+          description: >-
+            The count of shops currently on this gathering's shortlist (the
+            same count as gathering-scheduling-api.yaml's
+            `Gathering.shortlistedShops.length` at read time) -- the left
+            side of "入れた店 3 / 5".
+        maxShortlistedShops:
+          type: integer
+          enum: [5]
+          description: >-
+            Always 5, the same fixed upper bound
+            gathering-scheduling-api.yaml's `SetShortlistedShopsRequest.
+            shopIds` enforces (`maxItems: 5`) -- expressed here explicitly so
+            the right side of "入れた店 3 / 5" has a machine-defined source
+            rather than being a client-side hardcoded constant.
     PopulationAttribute:
       type: object
       required:
@@ -685,7 +881,8 @@ components:
       required:
         [candidateRef, name, genre, description, regularHoliday,
          totalSeats, capacityTier, nonSmokingStatus, cardPaymentAvailable,
-         dinnerBudgetTier, location, providerPageUrl, walkingTimeMinutes]
+         dinnerBudgetTier, location, providerPageUrl, walkingTimeMinutes,
+         shopId, isShortlisted]
       additionalProperties: false
       properties:
         candidateRef:
@@ -816,6 +1013,31 @@ components:
             申告" context section). See `CandidateFilters.walkingTimeMaxMinutes`
             for how this drives filtering; this value and that filter are
             never sent to or received from the provider.
+        shopId:
+          type: string
+          nullable: true
+          description: >-
+            Added 2026-09-08 (adr/0049 decision 1). Non-null exactly in
+            gathering mode (the request carried a valid `gatheringId`); null
+            for the ordinary lunch-candidate screen. The same opaque provider
+            shop identifier gathering-scheduling-api.yaml's
+            `OpenShopPreviewItem.shopId`/`ShortlistedShop.shopId` carry --
+            not a new identifier concept. Pass this value, unchanged, as one
+            entry of `setShortlistedShops`' `shopIds` array
+            (gathering-scheduling-api.yaml) to toggle this shop onto or off
+            the named gathering's shortlist; this API itself performs no
+            such write.
+        isShortlisted:
+          type: boolean
+          nullable: true
+          description: >-
+            Added 2026-09-08 (adr/0049 decision 1). Non-null exactly in
+            gathering mode; null for the ordinary lunch-candidate screen.
+            True exactly when this candidate's `shopId` is currently present
+            in the named gathering's `shortlistedShops`
+            (gathering-scheduling-api.yaml's `Gathering.shortlistedShops`) at
+            the moment of this response -- drives the "この会に入れました" /
+            "この会に入れる" toggle state on this card.
     ShopLocation:
       type: object
       required: [latitude, longitude]
@@ -886,7 +1108,9 @@ components:
           type: string
           enum:
             [AUTHENTICATION_REQUIRED, REQUEST_REJECTED,
-             PROPOSAL_RATE_LIMITED, PROVIDER_UNAVAILABLE]
+             PROPOSAL_RATE_LIMITED, PROVIDER_UNAVAILABLE,
+             GATHERING_NOT_FOUND, GATHERING_NOT_IN_SELECTING_SHOP_PHASE,
+             GATHERING_FINALIZED]
         message:
           type: string
           description: Safe user-facing text without a private location, credentials, or provider internals.
