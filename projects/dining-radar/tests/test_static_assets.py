@@ -213,13 +213,22 @@ class CandidateSurfaceSourceTests(SimpleTestCase):
         self.assertNotIn("var mapSheetOpen", script)
         self.assertNotIn('"data-map-sheet-open", "true"', script)
 
-        # The deck (adr/0031, extended below 64rem by adr/0033) is now
-        # unconditional: both named renderModes' own testIds must be
-        # buildable from this one script, and the position counter
-        # (common to both, adr/0033 decision2) must be present.
-        self.assertIn('"data-testid": "candidate-deck-previous"', script)
-        self.assertIn('"data-testid": "candidate-deck-next"', script)
-        self.assertIn('setAttribute("data-testid", "candidate-deck-swipe-surface")', script)
+        # adr/0049 decision 4 (2026-09-08 human decision: "微妙。右に地図で
+        # 一覧左とかじゃなかったっけ") retires mapPrimaryLayout's own
+        # button-paged deck outright, the same way task 2/3's ribbon/sheet
+        # was retired above: >=64rem no longer builds candidate-deck-previous/
+        # -next or their pager -- isTwoColumnLayout (renamed from
+        # isMapPrimaryLayout) replaces the deck with a plain two-column
+        # list-and-map layout instead. isMapPrimaryTouchLayout's own
+        # swipe-paged deck (adr/0033) is unchanged by this revision.
+        self.assertNotIn('"data-testid": "candidate-deck-previous"', script)
+        self.assertNotIn('"data-testid": "candidate-deck-next"', script)
+        self.assertNotIn(".candidate-deck-pager {", template)
+        self.assertNotIn(".candidate-deck-nav {", template)
+        self.assertNotIn("var isMapPrimaryLayout", script)
+        self.assertIn("var isTwoColumnLayout", script)
+        self.assertIn('"class": "candidate-list-column"', script)
+        self.assertIn('"data-testid": "candidate-deck-swipe-surface"', script)
         self.assertIn('"data-testid": "candidate-deck-position"', script)
         self.assertIn("function attachSwipeGesture(", script)
         self.assertIn("function pageDeckNext()", script)
