@@ -610,8 +610,20 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         # attribute namespace and would be a false check here (module-
         # boundary note, top of file).
         selected = self.steps.organizer_selects_first_n_candidates_into_gathering(5)
-        self.steps.shortlisted_shops_match(selected)
+        # **Fixed**: gathering-shortlisted-shop-item is organizerDashboard's
+        # own exclusive test id (gathering-scheduling-browser-interface.yaml's
+        # shortlistedShopVotes section, the same asymmetry the section's own
+        # note names as deliberate, not an oversight) -- it does not exist on
+        # candidate-search-browser-interface.yaml's gatheringMode screen this
+        # scenario is still standing on immediately after the toggles above.
+        # Calling shortlisted_shops_match here (before navigating away) was
+        # asserting against a screen state that cannot be present yet. This
+        # scenario already visits the dashboard next, so the fix is to check
+        # identity there -- the only screen this contract lets read shopId
+        # back (gatheringMode's own cardToggle carries no shopId-to-card DOM
+        # correlation, so it cannot make this exact-set assertion at all).
         self.steps.organizer_opens_the_dashboard()
+        self.steps.shortlisted_shops_match(selected)
         # Reviewer audit Major#1 precedent: shortlistedShopVotes (now reached
         # exclusively via gatheringMode) is a screen state this cross-cutting
         # check must still exercise on the *organizer dashboard* side.
@@ -727,25 +739,36 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.rejected_as_invalid_shop_selection(foreign_vote)
 
     def test_tdr_gth_31_kept_shops_retain_votes_after_a_replace(self) -> None:
-        """**Rewired 2026-09-09 (adr/0049 decision 1)**: the "1 spare, not-yet-
-        shortlisted" shop this D7 replace needs is beyond candidate-search-
-        api.yaml's own 5-item display cap for a 6-open-shop Thursday --
-        identified deterministically through two probe gatherings confirmed
-        on days whose own openShopCount is at or under that cap (see
-        fetch_a_shop_id_not_open_on's own docstring). The replace itself is
-        driven at the setShortlistedShops API boundary rather than through
-        candidate-search-browser-interface.yaml's own per-card toggle (same
+        """**Fixed** (found via ADR-0052, tester report): the "1 spare, not-
+        yet-shortlisted" shop this D7 replace needs was previously found by
+        probing which shop is "not open on Monday" and assuming it would
+        therefore also be absent from this confirmed Thursday's own 5-shop
+        display-cap sample -- true of the population (every shop is open on
+        Thursday) but false of the *sample*, since which 5 of Thursday's 6
+        shops the unseeded display-cap draw shows is a second, independent
+        draw. Reproduced empirically failing (the probed shop appeared in
+        the confirmed date's own sample, breaking the prior assertNotIn) --
+        this is the same class of Given-state fragility as TDR-GTH-45's own
+        fix, not a real "which day is it" dependency, though both surface
+        identically as "fails depending on which random draw the run
+        happens to get." adr/0052 decision 3's shown-pool-priority technique
+        (fetch_confirmed_date_open_shop_ids_with_a_spare) fixes this
+        deterministically instead: it performs both draws itself, from the
+        same confirmed gathering, and *replays* the first draw's own shown
+        set into the second -- guaranteeing (not merely likely) that the
+        second draw's one new member is the true complement of the first.
+        The replace itself is still driven at the setShortlistedShops API
+        boundary rather than through candidate-search-browser-interface.
+        yaml's own per-card toggle (see replace_shortlisted_shop's own
         docstring) -- the operation itself is unchanged by adr/0049.
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
         thursday = next_weekday_iso(3)
-        shop_5 = self.steps.a_shop_id_not_open_on(0, 1)  # not open Monday, open Tuesday & Thursday
         self.steps.organizer_has_a_selecting_shop_gathering("会31", [thursday])
-        shops = self.steps.open_shop_ids_for_the_confirmed_date()
-        self.assertNotIn(shop_5, shops)
-        shop_0, shop_1, shop_2, _shop_3, shop_4 = shops[:5]
-        self.steps.organizer_shortlists_shops_via_api(shops[:5])
+        shops, shop_5 = self.steps.confirmed_date_open_shop_ids_with_a_spare()
+        shop_0, shop_1, shop_2, _shop_3, shop_4 = shops
+        self.steps.organizer_shortlists_shops_via_api(shops)
         link = self.steps.a_participant_link_is_issued()
         self.steps.participant_opens_the_link(link)
         self.steps.participant_answers_shop_votes(
@@ -775,7 +798,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
     def test_tdr_gth_32_a_newly_replaced_shop_stays_unanswered_for_participants_who_already_voted(
         self,
     ) -> None:
-        """Rewired the same way TDR-GTH-31 is (see its own docstring). Also
+        """**Fixed the same way TDR-GTH-31 is (see its own docstring)**. Also
         checks the tally is *present* (not absent) for the newly replaced
         shop before anyone has voted on it -- adr/0050 decision 2's
         visibility reversal makes tally unconditionally present, replacing
@@ -784,12 +807,10 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
         thursday = next_weekday_iso(3)
-        shop_5 = self.steps.a_shop_id_not_open_on(0, 1)  # not open Monday, open Tuesday & Thursday
         self.steps.organizer_has_a_selecting_shop_gathering("会32", [thursday])
-        shops = self.steps.open_shop_ids_for_the_confirmed_date()
-        self.assertNotIn(shop_5, shops)
-        shop_0, _shop_1, _shop_2, _shop_3, shop_4 = shops[:5]
-        self.steps.organizer_shortlists_shops_via_api(shops[:5])
+        shops, shop_5 = self.steps.confirmed_date_open_shop_ids_with_a_spare()
+        shop_0, _shop_1, _shop_2, _shop_3, shop_4 = shops
+        self.steps.organizer_shortlists_shops_via_api(shops)
         link = self.steps.a_participant_link_is_issued()
         self.steps.participant_opens_the_link(link)
         self.steps.participant_answers_shop_vote(shop_0, "WANT_TO_GO")
@@ -1152,6 +1173,36 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
     # 中」の会を持っている") is this file's own gathering-scheduling Given.
 
     def test_tdr_gth_44_organizer_toggles_a_shop_into_and_out_of_the_gathering(self) -> None:
+        """**Fixed (1)**: this scenario never leaves candidate-search-browser-
+        interface.yaml's gatheringMode screen, but its two shortlisted_shops_
+        match calls were asserting against gathering-shortlisted-shop-item --
+        organizerDashboard's own exclusive test id (see gathering-scheduling-
+        browser-interface.yaml's shortlistedShopVotes section), never present
+        on this screen. Removed rather than reached via a dashboard round
+        trip: gatheringMode's own cardToggle carries no shopId-to-card DOM
+        correlation (its own contract note), so an exact-id-set assertion
+        cannot be made here at all -- the "その店は会の候補として記録される"/
+        "外れる" outcomes this scenario checks are already fully observed
+        in-place, per-shop, by organizer_selects_first_n_candidates_into_
+        gathering's and organizer_toggles_off_the_first_shortlisted_
+        candidate's own inline data-gathering-shortlisted assertions on the
+        one card each clicks, combined with the shortlisted-count band below
+        ruling out any other card having silently changed too.
+
+        **Fixed (2, found while fixing (1))**: selecting only 1 shop before
+        toggling it back off made the WHEN step attempt to empty the
+        shortlist entirely -- gathering-scheduling-api.yaml's
+        SetShortlistedShopsRequest.shopIds carries `minItems: 1` (confirmed
+        empirically: the client's own naive "current list minus this one"
+        computation sent `shopIds: []` and the server correctly rejected it
+        with 400 INVALID_SHOP_SELECTION, leaving the toggle's own attribute
+        unchanged -- reproduced before this fix). This scenario's own
+        assertions are about the one specific shop being toggled ("その店は
+        …記録される"/"外れる"), not about the shortlist becoming empty
+        overall, so selecting 2 before toggling one back off (leaving 1,
+        never 0) tests the identical business behavior without colliding
+        with this orthogonal Must.
+        """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
         thursday = next_weekday_iso(3)
@@ -1159,25 +1210,55 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.organizer_opens_the_dashboard()
         self.steps.organizer_opens_shop_selection_entry()
         self.steps.gathering_mode_band_shows(shortlisted=0)
-        selected = self.steps.organizer_selects_first_n_candidates_into_gathering(1)
-        self.steps.gathering_mode_band_shows(shortlisted=1)
-        self.steps.shortlisted_shops_match(selected)
+        self.steps.organizer_selects_first_n_candidates_into_gathering(2)
+        self.steps.gathering_mode_band_shows(shortlisted=2)
         self.steps.organizer_toggles_off_the_first_shortlisted_candidate()
-        self.steps.gathering_mode_band_shows(shortlisted=0)
-        self.steps.shortlisted_shops_match([])
+        self.steps.gathering_mode_band_shows(shortlisted=1)
 
     def test_tdr_gth_45_at_most_five_shops_can_be_in_the_gathering(self) -> None:
+        """**Fixed (1)**: this scenario's own "既に入れている5件はそのまま
+        変わらない" (the already-in 5 remain unchanged, an exact-identity
+        claim) was checked via shortlisted_shops_match while still on
+        candidate-search-browser-interface.yaml's gatheringMode screen --
+        gathering-shortlisted-shop-item is organizerDashboard's own
+        exclusive test id (gathering-scheduling-browser-interface.yaml's
+        shortlistedShopVotes section), never present there. Unlike
+        TDR-GTH-44, this scenario's Then genuinely needs identity (not just
+        the count gathering_mode_band_shows and unselected_candidate_toggle_
+        is_disabled already give below) -- gatheringMode's own cardToggle
+        carries no shopId-to-card DOM correlation, so identity can only be
+        read back from the dashboard, the one screen this contract exposes
+        it on.
+
+        **Fixed (2, found while fixing (1))**: the Given used to shortlist 5
+        shops through a *separate* setShortlistedShops-via-API call, built
+        from open_shop_ids_for_the_confirmed_date's own independent
+        proposeCandidates draw, then separately opened shopSelectionEntry --
+        a *second*, unrelated proposeCandidates draw from the same 6-shop
+        population. Whether that second draw happened to render a
+        not-yet-shortlisted (data-gathering-shortlisted="false") card at all
+        was therefore incidental, not guaranteed -- reproduced empirically
+        failing roughly 2 of 3 runs with no such element found. Shortlisting
+        the 5 through this same screen's own cardToggle instead (matching
+        TDR-GTH-26/44's technique) removes the second independent draw
+        entirely; search_again_on_shop_selection_entry's own shown-pool-
+        priority technique (adr/0052 decision 3) then deterministically
+        surfaces the confirmed date's one not-yet-shortlisted 6th shop for
+        unselected_candidate_toggle_is_disabled to check.
+        """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
         thursday = next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会45", [thursday])
-        open_shop_ids = self.steps.open_shop_ids_for_the_confirmed_date()
-        self.steps.organizer_shortlists_shops_via_api(open_shop_ids[:5])
         self.steps.organizer_opens_the_dashboard()
         self.steps.organizer_opens_shop_selection_entry()
+        self.steps.gathering_mode_band_shows(shortlisted=0)
+        selected = self.steps.organizer_selects_first_n_candidates_into_gathering(5)
         self.steps.gathering_mode_band_shows(shortlisted=5)
+        self.steps.organizer_searches_again_on_shop_selection_entry()
         self.steps.unselected_candidate_toggle_is_disabled()
-        self.steps.shortlisted_shops_match(open_shop_ids[:5])
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.shortlisted_shops_match(selected)
 
     # TDR-GTH-48 (new, adr/0050 decision 4, 2026-09-08〜09 human decision:
     # 会を削除できるようにする) -------------------------------------------

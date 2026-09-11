@@ -46,6 +46,7 @@ from tests.acceptance.dsl.js_browser_mechanics import (
     assert_present,
     build_captured_response,
     by_test_id,
+    capture_candidate_proposal_response,
     csrf_token,
     require,
     wait_for_at_least_one,
@@ -132,6 +133,10 @@ GATHERING_MODE_MAX_SHORTLISTED_ATTR = "data-gathering-max-shortlisted"
 CANDIDATE_CARD = "candidate-card"
 CANDIDATE_CARD_GATHERING_TOGGLE = "candidate-card-gathering-toggle"
 CANDIDATE_GATHERING_SHORTLISTED_ATTR = "data-gathering-shortlisted"
+# candidate-search-again (adr/0024 decision 4's shownCandidateMemory replay,
+# reused unchanged in gathering mode -- this file's own module-boundary
+# note) -- used by TDR-GTH-45's shown-pool-priority technique below.
+CANDIDATE_SEARCH_AGAIN = "candidate-search-again"
 # The subset of candidate-search-browser-interface.yaml's own, pre-existing
 # card/map detail fields TDR-GTH-38 requires be visible from gatheringMode
 # (adr/0044's map/detail requirement, now satisfied entirely by this other
@@ -1083,7 +1088,13 @@ class GatheringSchedulingBrowserDsl:
     def assert_create_rejected_because_date_not_in_future(
         self, response: CapturedApiResponse
     ) -> None:
-        self.assertions.assertEqual(response.status, 409)
+        """gathering-scheduling-api.yaml's createGathering documents
+        CANDIDATE_DATE_NOT_IN_FUTURE under its '400' response (shared with
+        REQUEST_REJECTED, distinguished by `code`) -- 409 there is reserved
+        for DuplicateCandidateDate only. **Fixed**: this assertion previously
+        expected 409, which this same rejection can never carry.
+        """
+        self.assertions.assertEqual(response.status, 400)
         self.assertions.assertEqual(response.payload["code"], "CANDIDATE_DATE_NOT_IN_FUTURE")
 
     # deleteGathering (TDR-GTH-48, adr/0050 decision 4) ----------------------
@@ -1356,10 +1367,13 @@ class GatheringSchedulingBrowserDsl:
         api.yaml's own `candidates` maxItems: 5) -- for a confirmed date whose
         openShopCount exceeds 5 (Thursday/Friday/Saturday, 6 open), this
         returns only 5 of them; callers needing a shop from beyond that cap
-        use fetch_shop_id_closed_only_on/fetch_a_shop_id_not_open_on
-        below, which sidestep the cap via a second, temporary probe gathering
-        confirmed on a day whose openShopCount is at or under 5 (complete,
-        no sampling loss).
+        use fetch_shop_id_closed_only_on (a second, temporary probe
+        gathering confirmed on a day whose openShopCount is at or under 5,
+        complete, no sampling loss) or, for a shop that is open on *this*
+        confirmed date but merely excluded by the display cap,
+        fetch_confirmed_date_open_shop_ids_with_a_spare below (adr/0052
+        decision 3's shown-pool-priority technique, no probe gathering
+        needed).
         """
         gathering = require(self.gathering, "no gathering exists")
         require(gathering["confirmedCandidateDateId"], "no candidate date is confirmed")  # type: ignore[index]
@@ -1369,15 +1383,73 @@ class GatheringSchedulingBrowserDsl:
         self._assert_api_ok(response, 200, "proposeCandidates (gathering mode, given-state)")
         return [candidate["shopId"] for candidate in response.payload["candidates"]]
 
+    def fetch_confirmed_date_open_shop_ids_with_a_spare(self) -> tuple[list[str], str]:
+        """Given-state technique for TDR-GTH-31/32 (D7 replace's "1 spare,
+        not-yet-shortlisted" shop). **Replaces a retired weekday-probe
+        technique** (a since-removed fetch_a_shop_id_not_open_on, built on
+        fetch_shop_id_closed_only_on's two-probe-gathering diff) that
+        identified a shop merely "not open on Monday" and assumed it would
+        therefore also be absent from *this* confirmed Thursday's own
+        display-cap sample -- true of the population (Thursday's own 6 shops
+        are all open, so that assumption never held for population
+        membership) but false of the *sample*: whether that probed shop
+        actually survived Thursday's own unseeded 6-into-5 display-cap draw
+        was incidental, not guaranteed, and reproduced empirically failing
+        (the probed shop appeared in the confirmed date's own 5-shop sample,
+        breaking the caller's assertNotIn).
+
+        adr/0052 decision 3's shown-pool-priority technique fixes this
+        deterministically instead: round 1 is fetch_confirmed_date_open_shop
+        _ids' own single proposeCandidates call (this confirmed date's
+        population, capped at 5 of 6 open shops); round 2 replays round 1's
+        own providerPageUrl values as shownProviderPageUrls, which
+        candidate-search-api.yaml's own shownPoolPriority invariant
+        guarantees draws every not-yet-shown candidate first regardless of
+        randomSeed -- since the confirmed date's population has exactly 1
+        not-yet-shown shop after round 1 (6 total minus the 5 shown), round
+        2 is guaranteed (not merely likely) to include it. No probe
+        gathering, no weekday assumption -- both rounds run against this
+        same, already-confirmed gathering. Returns (round 1's 5 shopIds, the
+        guaranteed-spare 6th shopId).
+        """
+        gathering = require(self.gathering, "no gathering exists")
+        require(gathering["confirmedCandidateDateId"], "no candidate date is confirmed")  # type: ignore[index]
+        round1 = self._api(
+            "POST", "/candidate-proposals", {"gatheringId": self.gathering_id}, csrf=True
+        )
+        self._assert_api_ok(round1, 200, "proposeCandidates (gathering mode, round 1)")
+        round1_candidates = round1.payload["candidates"]
+        round1_shop_ids = [candidate["shopId"] for candidate in round1_candidates]
+        shown_provider_urls = [candidate["providerPageUrl"] for candidate in round1_candidates]
+        round2 = self._api(
+            "POST",
+            "/candidate-proposals",
+            {"gatheringId": self.gathering_id, "shownProviderPageUrls": shown_provider_urls},
+            csrf=True,
+        )
+        self._assert_api_ok(round2, 200, "proposeCandidates (gathering mode, round 2)")
+        spare_ids = [
+            candidate["shopId"]
+            for candidate in round2.payload["candidates"]
+            if candidate["shopId"] not in round1_shop_ids
+        ]
+        self.assertions.assertEqual(
+            len(spare_ids),
+            1,
+            f"expected exactly one shop beyond the display cap, got {spare_ids} "
+            f"(round1={round1_shop_ids})",
+        )
+        return round1_shop_ids, spare_ids[0]
+
     def set_shortlisted_shops_via_api(self, shop_ids: list[str]) -> dict:
         """Given-state builder for scenarios where setShortlistedShops itself is
         not the action under test (adr/0037 decision 1's public-API path).
         Also used as the WHEN step for D7 replace (TDR-GTH-31/32, adr/0049
         decision 1): the operation itself is unchanged by that decision (only
         the screen calling it moved to candidate-search-browser-interface.
-        yaml's gatheringMode) -- see fetch_a_shop_id_not_open_on's own
-        docstring for why this file drives that swap at the API boundary
-        rather than through gatheringMode's own cardToggle.
+        yaml's gatheringMode) -- see replace_shortlisted_shop's own docstring
+        for why this file drives that swap at the API boundary rather than
+        through gatheringMode's own cardToggle.
         """
         response = self._api(
             "PUT",
@@ -1402,8 +1474,8 @@ class GatheringSchedulingBrowserDsl:
         leaving _created_candidate_date_isos/_candidate_date_id_by_start_at
         permanently shifted by this probe's own throwaway date. A caller that
         runs this probe *before* building its own gathering -- e.g. TDR-GTH-
-        31/32's `a_shop_id_not_open_on` before `organizer_has_a_selecting_
-        shop_gathering` -- would then have candidate_date_id_at(0) resolve to
+        27's `shop_id_closed_only_on` before `organizer_has_a_scheduling_
+        gathering` -- would then have candidate_date_id_at(0) resolve to
         this probe's own candidate date instead of its own gathering's first
         one, confirming the wrong gathering's date and getting back
         CANDIDATE_DATE_NOT_FOUND; reproduced empirically before this fix),
@@ -1455,24 +1527,6 @@ class GatheringSchedulingBrowserDsl:
             f"(open={open_ids}, closed={closed_ids})",
         )
         return sorted(candidates)[0]
-
-    def fetch_a_shop_id_not_open_on(self, excluded_weekday: int, included_weekday: int) -> str:
-        """Test-arrangement technique for TDR-GTH-31/32 (D7 replace): identical
-        diffing technique to fetch_shop_id_closed_only_on above, naming a real
-        shopId that is open on ``included_weekday`` (where the scenario's own
-        gathering is confirmed) but excluded from ``excluded_weekday``'s probe
-        -- i.e. a shop guaranteed *not* to be one the scenario shortlists from
-        an ``excluded_weekday`` probe's complete set, so it is safe to use as
-        the "newly added, previously unselected" shop in a replace. This file
-        drives the replace itself via set_shortlisted_shops_via_api (the API
-        boundary), not gatheringMode's own per-card toggle: unlike TDR-GTH-26
-        (which only ever needs <=5 known shops, safely within candidate-
-        search-api.yaml's own 5-item display cap), D7 replace needs a 6th,
-        currently-unlisted shop on a day with 6 open shops -- a quantity
-        candidate-search-api.yaml's cap makes undiscoverable through the
-        gatheringMode screen's own rendered cards in one deterministic call.
-        """
-        return self.fetch_shop_id_closed_only_on(excluded_weekday, included_weekday)
 
     def _read_shortlisted_shop_items(self) -> list[dict[str, object]]:
         nodes = wait_for_at_least_one(self.page, SHORTLISTED_SHOP_ITEM)
@@ -1619,15 +1673,66 @@ class GatheringSchedulingBrowserDsl:
         """gatheringMode.cardToggle's own "press again to remove" behavior
         (TDR-GTH-44, adr/0049 decision 8): toggling a currently-"true" card
         removes it from the gathering's shortlist.
+
+        **Fixed**: the prior version located its target with an attribute
+        filter (`[data-gathering-shortlisted="true"]`) and re-asserted on
+        that *same, still-attribute-filtered* Locator after clicking --
+        since a Playwright Locator re-resolves its selector on every
+        interaction rather than pinning the element it first found, once
+        the click flips the clicked card's own attribute to "false" that
+        locator no longer matches the clicked card at all; with more than
+        one card shortlisted, it silently starts matching a *different*
+        still-"true" card instead, so the following assertion polled a
+        moving target and never observed the clicked card's own change
+        (reproduced empirically: the request/response showed the click
+        correctly removed the intended shop, but the reused locator kept
+        reporting "true" from the other, untouched shortlisted card).
+        Locating by position (`nth`) instead pins a stable target: this
+        screen's own card order does not depend on shortlist membership
+        (candidate-search-browser-interface.yaml's own confirmed/nearest-
+        first ordering, unaffected by adr/0049's card-toggle addition), so
+        the same index continues to identify the same card across the
+        click's own re-render.
         """
-        toggle = self.page.locator(
-            f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]'
-            f'[{CANDIDATE_GATHERING_SHORTLISTED_ATTR}="true"]'
-        ).first
+        all_toggles = self.page.locator(f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]')
+        target_index = next(
+            index
+            for index in range(all_toggles.count())
+            if all_toggles.nth(index).get_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR) == "true"
+        )
+        target = all_toggles.nth(target_index)
         before = self._read_gathering_mode_band()["shortlisted"]
-        toggle.click()
-        expect(toggle).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "false")
+        target.click()
+        expect(target).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "false")
         self.assertions.assertEqual(self._read_gathering_mode_band()["shortlisted"], before - 1)
+
+    def search_again_on_shop_selection_entry(self) -> None:
+        """ADR-0052 decision 3's shown-pool-priority technique, driven
+        through the browser (TDR-GTH-45's own "6th, not-yet-selected shop"
+        need, the same one adr/0052 names). **Fixed**: this scenario's
+        confirmed Thursday population has 6 open shops against the 5-item
+        display cap, so opening shopSelectionEntry draws its own independent
+        random 5-of-6 sample -- generally *not* the same 5 a separate, prior
+        setShortlistedShops call already shortlisted (two unrelated draws
+        from the same population), so whether a not-yet-shortlisted 6th shop
+        is even rendered to test disabledState against was previously
+        incidental, not guaranteed (reproduced empirically: failed roughly
+        2 of 3 runs with "no [data-gathering-shortlisted=false] element
+        found" when the two independent draws happened to coincide).
+        Clicking candidate-search-again replays this screen's own already-
+        accumulated shownCandidateMemory (candidate-search-browser-
+        interface.yaml's adr/0024 decision 4 mechanism, reused unchanged in
+        gathering mode) -- since the up-to-5 shops this test's own prior
+        organizer_selects_first_n_candidates_into_gathering call rendered
+        (and therefore already recorded as "shown") are exactly the ones it
+        also shortlisted, candidate-search-api.yaml's shownPoolPriority
+        invariant guarantees this replay surfaces the confirmed date's one
+        not-yet-shown (and therefore not-yet-shortlisted) 6th shop
+        deterministically, not merely probably.
+        """
+        capture_candidate_proposal_response(
+            self.page, lambda: by_test_id(self.page, CANDIDATE_SEARCH_AGAIN).click()
+        )
 
     def assert_unselected_candidate_card_toggle_is_disabled(self) -> None:
         """TDR-GTH-45 / TDR-CS-19 (adr/0049 decision 8): once
@@ -1702,9 +1807,10 @@ class GatheringSchedulingBrowserDsl:
         public operation gatheringMode's own cardToggle calls per-card,
         adr/0049 decision 1's cross-file requestBody note: "the complete
         replacement shopIds array") rather than through that screen's own
-        per-card toggles -- see fetch_a_shop_id_not_open_on's own docstring
-        for why (the 6th, currently-unlisted shop a replace needs is beyond
-        candidate-search-api.yaml's 5-item display cap for a 6-open-shop day).
+        per-card toggles -- see fetch_confirmed_date_open_shop_ids_with_a_
+        spare's own docstring for why (the 6th, currently-unlisted shop a
+        replace needs is beyond candidate-search-api.yaml's 5-item display
+        cap for a 6-open-shop day).
         """
         current = require(self.gathering, "no gathering exists")["shortlistedShops"]  # type: ignore[index]
         current_ids = [shop["shopId"] for shop in current]

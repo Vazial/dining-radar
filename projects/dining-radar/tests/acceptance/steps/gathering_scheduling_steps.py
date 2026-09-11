@@ -419,8 +419,8 @@ class GatheringSchedulingSteps:
     def shop_id_closed_only_on(self, closed_weekday: int, open_weekday: int) -> str:
         return self.dsl.fetch_shop_id_closed_only_on(closed_weekday, open_weekday)
 
-    def a_shop_id_not_open_on(self, excluded_weekday: int, included_weekday: int) -> str:
-        return self.dsl.fetch_a_shop_id_not_open_on(excluded_weekday, included_weekday)
+    def confirmed_date_open_shop_ids_with_a_spare(self) -> tuple[list[str], str]:
+        return self.dsl.fetch_confirmed_date_open_shop_ids_with_a_spare()
 
     def organizer_opens_shop_selection_entry(self) -> None:
         self.dsl.open_shop_selection_entry()
@@ -575,6 +575,9 @@ class GatheringSchedulingSteps:
 
     def organizer_toggles_off_the_first_shortlisted_candidate(self) -> None:
         self.dsl.toggle_off_the_first_shortlisted_candidate_card()
+
+    def organizer_searches_again_on_shop_selection_entry(self) -> None:
+        self.dsl.search_again_on_shop_selection_entry()
 
     def unselected_candidate_toggle_is_disabled(self) -> None:
         self.dsl.assert_unselected_candidate_card_toggle_is_disabled()
