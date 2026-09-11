@@ -61,11 +61,28 @@ ADR が要る。
   L4 受け入れ 76件 OK（916s）／L5 `tests/ui_invariants` 14件＋10 subtests 緑／`ruff check .` 緑／
   `govlint` エラーなし。
 - reviewer の独立監査は `reviews/audit-gathering-field-feedback-steps.md`。**Blocker 0**（検査内容に
-  対して）・Major 2・Minor 3。Major 1（TDR-CS-18 の絞り込みが実質非検証）・Major 2（TDR-CS-19 の
-  同一性保存が候補検索側で未検証）・Minor 1（会モードの帯をサーバー実値と突き合わせていない）・
-  Minor 3（answerLater/peekResults の機能化テストに FR-030 横断検査が無い）は **tester へ差し戻し中**。
-  Minor 2（構造的に同一の画面のデータ違いバリエーションで FR-030 を再実行していない）は監査自身が
-  「実害リスクは低い」と判定しており、**次にこの画面群を触るラウンドへ送る**。
+  対して）・Major 2・Minor 3。**Major 1・2 と Minor 1・3 は是正済み**（`569a231`）:
+  - **Major 1**（TDR-CS-18 の絞り込みが実質非検証）: Given を件数の分からない汎用母集団から
+    `GATHERING_OPEN_SHOP_WEEKDAY_MATCH` へ差し替え、**月曜**（既知の開店数5件）に固定して、
+    `search_again` を収束するまで回し、出現した distinct shopId がちょうど5件であることを数え上げる。
+    **月曜を選んだのが要点**——開店数5件が表示上限5件とちょうど一致するので、1回の応答だけでは
+    「絞り込み無し（実際は6件）」と「正しい絞り込み（5件）」を区別できない。だから収束まで回す。
+  - **Major 2・Minor 1**: `GET /gatherings/{id}` を直接叩き `shortlistedShops[].shopId` を読んで、
+    検索し直しの前後で5件の**集合が完全一致**すること（同一性の保存）と、帯の件数がサーバー実値と
+    一致することを検査する。
+  - **Minor 3**: answerLater/peekResults の機能化テストの末尾で FR-030 横断検査を1回呼ぶ。
+  - 4件とも**欠陥注入で赤くなることを実証済み**（ADR-0065 に従いコミットには残していない）。
+  - Minor 2（構造的に同一の画面のデータ違いバリエーションで FR-030 を再実行していない）は監査自身が
+    「実害リスクは低い」と判定しており、**次にこの画面群を触るラウンドへ送る**。
+- **TDR-GTH-48 の間欠失敗（`net::ERR_ABORTED`）の真因を特定して直した**（`b8a70db`）。削除が 204 を
+  返すと画面自身が `window.location.href` で遷移するのに、テスト側がその進行中の遷移に重ねて自分でも
+  `page.goto` を出していた。**契約は削除直後の遷移先を固定していない**（`deleteGathering.confirm.
+  requiredOutcome` は「その後この会が一覧に出ないこと」だけを要求する）ので、遷移先を要求せず
+  `expect_navigation()` をクリック**前**に登録して「何であれ起きた遷移が終わるまで」待つ形にした。
+  試して駄目だった案が2つあり、docstring に理由まで残してある（DELETE 応答の body を読む案は、
+  画面側の遷移がリソースを回収してしまうため**毎回確実に**失敗する。応答イベントだけ待って
+  `wait_for_load_state` を呼ぶ案は、まだ遷移が始まっていない時点では即座に返るため空振りする）。
+  **修正前に20回回して 2/20 の失敗を再現し、修正後は10/10 緑**。
 
 契約は `gathering-scheduling.feature`（TDR-GTH-01〜48）・`candidate-search.feature`
 （TDR-CS-00〜19、07 は廃止）・両 `-api.yaml`・両 `-browser-interface.yaml`。いずれも
@@ -251,7 +268,7 @@ python manage.py runserver 127.0.0.1:8741 --settings=dining_radar.settings_local
 ## Next work
 
 1. **実機フィードバック大改訂を着地させる**（進行中。上記「いま進行中のスライス」）。
-   監査 Major 1・2／Minor 1・3 の是正を tester が対応中。緑になったら PR を出す。
+   監査の是正と TDR-GTH-48 の競合修正は取り込み済み。orchestrator による全層の再検証と PR が残り。
 2. **Hot Pepper の生 JSON のフィールド名**を、現行の公式ドキュメントに対して再確認する
    （provider 表記・無料プラン・health check の規約は 2026-08-12 に再確認済みで上記に記録済み）。
 3. **`project/toyama-dining-radar` ブランチの処遇を決める。**ブランチ名と ruleset は旧名のまま
