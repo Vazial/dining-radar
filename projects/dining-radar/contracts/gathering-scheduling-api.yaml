@@ -433,10 +433,27 @@
 #   変更を加えない。地図・徒歩・店のページへの観測面（testId）を新設する作業は
 #   `gathering-scheduling-browser-interface.yaml`側（ADR-0056決定5）の対象であり、この
 #   APIファイルの対象ではない。この食い違いは人間への報告に含める。
+#
+# 2026-09-13 追補9 (architect、ADR-0056決定6の残り半分。前回の追補8はこの決定の幹事側
+#   （`ShortlistedShop.addedAt`と`Gathering.votingStartedAt`から導出可能）だけを満たし、
+#   参加者側にはこの属性を作る値そのものが`ParticipantShopVoteOption`に一切無いことを人間への
+#   報告として持ち越していた（`gathering-scheduling-browser-interface.yaml`側の対応する未解決の
+#   記述も参照）——本追補でこれを埋める。version 0.11.0 -> 0.12.0):
+# - **`ParticipantShopVoteOption`へ`addedAfterVotingStarted`（真偽値、必須）を新設する**:
+#   `ShortlistedShop.addedAt`が`Gathering.votingStartedAt`より厳密に後であるとき`true`——幹事側の
+#   `data-added-after-voting-started`とまったく同じ判定をサーバが行い、結果の真偽値だけを返す
+#   （architectの設計判断）。`addedAt`・`votingStartedAt`という会の内部の時刻そのものは参加者へ
+#   一切露出しない——この製品は署名付きリンクの参加者（認証を経ない利用者）へ渡す情報を最小に保つ
+#   方針であり（product-brief.md §5）、本スキーマは`yourVote`（`addedAt`から判定するが`addedAt`
+#   自体は見せない）で既に同じ流儀を採用している。時刻2つを露出して参加者側で導出させる代替案
+#   （幹事側と同じ導出をさせる）は、この最小化方針に反するため採らなかった。
+# - **破壊的変更ではないためminor bump**（0.11.0 -> 0.12.0）: 新規フィールドはレスポンス側に
+#   足す必須プロパティであり、既存クライアントの送信データ・既存の解釈のいずれにも影響しない
+#   ——リクエスト側の必須化ではないためmajorへは上げない。
 openapi: 3.0.3
 info:
   title: Dining Radar Gathering Scheduling API
-  version: 0.11.0
+  version: 0.12.0
   description: >-
     Lets an authenticated organizer list their gatherings, create a gathering
     with candidate dates, add further candidate dates in a batch while
@@ -546,7 +563,15 @@ info:
     decision 1); and a participant's own view carries the gathering's total
     active participant count so a vote tally's bar can be sized against the
     whole group rather than only the respondents seen so far
-    (ParticipantView.totalActiveParticipantCount, ADR-0056 decision 9). The
+    (ParticipantView.totalActiveParticipantCount, ADR-0056 decision 9). As
+    of a 2026-09-13 revision closing a gap the 2026-09-12 revision reported
+    rather than resolved, a participant's own shop-vote options each also
+    carry addedAfterVotingStarted, a plain boolean mirroring the same
+    "あとから入りました" signal the organizer-facing shortlist already
+    shows, computed the same way but never exposing addedAt/votingStartedAt
+    themselves to this unauthenticated, signed-link participant
+    (ParticipantShopVoteOption.addedAfterVotingStarted, ADR-0056 decision
+    6). The
     gathering never persists provider-derived shop attributes (name, genre,
     location, walking time, seating/smoking/budget tier, provider page,
     hours, images); "open shop" counts and shortlisted-shop displays are all
@@ -2777,7 +2802,7 @@ components:
       required:
         [shopId, name, genre, capacityTier, nonSmokingStatus,
          dinnerBudgetTier, location, walkingTimeMinutes, providerPageUrl,
-         yourVote, tally]
+         yourVote, tally, addedAfterVotingStarted]
       additionalProperties: false
       description: >-
         One currently shortlisted shop, from this participant's point of
@@ -2794,6 +2819,9 @@ components:
         the origin-adjacent reasoning ADR-0025 applied to the organizer is
         deliberately extended here (adr/0045), and this same file adds
         `ParticipantView.searchOrigin` alongside this field.
+        `addedAfterVotingStarted` was added 2026-09-13 (ADR-0056 decision 6)
+        -- see that property's own description below for why this schema
+        previously had no value this attribute could be built from.
       properties:
         shopId:
           type: string
@@ -2837,6 +2865,37 @@ components:
             submitted ShopVoteStatus value and stays non-null unless this
             shop is later removed and re-added by the organizer (which
             resets addedAt and therefore can make this null again).
+        addedAfterVotingStarted:
+          type: boolean
+          description: >-
+            Added 2026-09-13 (ADR-0056 decision 6), closing a gap this
+            file's 2026-09-12 addendum 8 reported to the human rather than
+            worked around: that revision gave the organizer-facing
+            gathering-shortlisted-shop-item a data-added-after-voting-started
+            signal (ShortlistedShop.addedAt compared against
+            Gathering.votingStartedAt, both already present on the
+            organizer-facing schema), but this participant-facing schema
+            exposed neither an addedAt-equivalent value nor
+            Gathering.votingStartedAt, so no participant-side counterpart
+            could be projected without an API addition. True exactly when
+            this shop's ShortlistedShop.addedAt (never itself exposed here)
+            is strictly later than Gathering.votingStartedAt for this same
+            gathering -- the identical computation the organizer-facing
+            attribute performs, so both surfaces say "あとから入りました"
+            for the same shop at the same time (ADR-0056 decision 6: 幹事・
+            参加者に同じ言葉で出す). Server-computed and returned as a
+            plain boolean rather than exposing `addedAt`/`votingStartedAt`
+            themselves to this participant (architect design judgment,
+            choosing between the two shapes ADR-0056 decision 6 left open):
+            this product keeps a signed-link participant's -- an
+            unauthenticated recipient of a shared URL -- disclosure to the
+            minimum a screen needs (product-brief.md §5), and this same
+            schema already follows this shape for `yourVote`, which is
+            likewise computed from `addedAt` without exposing `addedAt`
+            itself. Never null -- every shop this schema describes already
+            exists only once ParticipantView.shopVoteQuestions is non-null
+            (Gathering.votingStartedAt non-null, see that field's own
+            presenceRule), so this value is always computable.
         tally:
           type: object
           required: [wantToGoCount, okToGoCount, notGoingCount, respondedParticipantCount]
