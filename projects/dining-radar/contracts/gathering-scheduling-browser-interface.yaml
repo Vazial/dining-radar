@@ -493,16 +493,44 @@
 # - **「あとから入りました」の印**（ADR-0056決定6）: `gathering-shortlisted-shop-item`へ
 #   `data-added-after-voting-started`を追加した——幹事側のみ。参加者側
 #   （`shopVoteQuestion`の選択肢）は`ParticipantShopVoteOption`に対応する値が無く、本ラウンドの
-#   範囲では追加できないことを人間へ報告する（未解決のまま持ち越す）。
+#   範囲では追加できないことを人間へ報告していた（未解決のまま持ち越していた）。**2026-09-13
+#   追補11でこの残り半分を閉じた**——詳細は下記追補11を参照。
 # - `allowedPurposes`・`formControlExemptTestIds`・securityObservationsの
 #   `stateChangingOperations`を上記の新設要素に合わせて更新した。`candidate-gathering-entry`の
 #   会画面群での常設化（ADR-0054決定1）はcandidate-search-browser-interface.yaml側の変更であり、
 #   このファイル自体への変更は無い。
+#
+# 2026-09-13 追補11 (architect、ADR-0056決定6の残り半分。gathering-scheduling-api.yamlが
+#   v0.12.0で`ParticipantShopVoteOption.addedAfterVotingStarted`（真偽値、必須）を新設し、
+#   追補10が申し送っていた「参加者側は追加できない」という穴を埋めたことを受けて、この契約
+#   本文の側を閉じる。contractVersion 0.13.0 -> 0.14.0):
+# - **`participantAnswer.shopVoteQuestion`へ`data-added-after-voting-started`を新設した**
+#   （`shopVoteQuestion.attributes`、`ParticipantShopVoteOption.addedAfterVotingStarted`を
+#   そのまま写す）。上記追補10が「参加者側は追加できない」と記録した未解決事項はこれで閉じる
+#   ——古い注記（本行より上の2026-09-12追補10の当該箇所）は削除せず、いつ・何によって閉じたかを
+#   併記する形で残した（このファイルの既存の流儀、例: shopVoteQuestion.requirementの
+#   「Fixed」注記群）。
+# - **`organizerDashboard.shortlistedShopVotes.list.item.requirement`の対応する記述も更新した**
+#   ——「本ラウンドでは幹事側限定」という未解決の申し送りを、参加者側が閉じたことの記録へ
+#   差し替えた。
+# - **分母（`respondedParticipantCount`）とこの印は別々の観測面のままである**ことを明記した
+#   （人間裁定「印は2つに分ける。札は『あとから入ったか』だけ、カードの縁は『自分が答えたか』
+#   だけ。1つの印に2つの意味を持たせない」）: `data-added-after-voting-started`はこの店自身の
+#   追加時点だけを表す真偽値であり、`gathering-shop-vote-tally`の`data-responded-count`
+#   （D7の店ごと分母、この店に追加後回答した人数）や`data-your-vote`（この参加者自身が
+#   答えたかどうか）のいずれの代わりにもならない——3つは独立した観測面であり、どの1つも他の
+#   2つの意味を兼ねない。
+# - `data-added-after-voting-started`は表示専用の属性であり、`allowedPurposes`・
+#   `formControlExemptTestIds`のいずれにも登録を要しない——幹事側の同名属性
+#   （`gathering-shortlisted-shop-item`）が前回追加された際も同様に無登録だったのと同じ理由
+#   （新設testIdを持つ独立要素ではなく、既存要素の属性の追加であり、
+#   forbiddenFormControlCategoriesのスキャン対象にも`allowedPurposes`の宣言対象にも
+#   そもそも該当しない）。
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.13.0'
+contractVersion: '0.14.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -1803,15 +1831,21 @@ browserControlSurface:
             dashboard already reads -- no API change needed for this,
             organizer-facing half of the attribute); "false" otherwise,
             including for every shop present since voting first started
-            (D7). **This round defines this attribute for the organizer
-            side only** -- ADR-0056 decision 6 also names a participant-
-            facing counterpart on shopVoteQuestion's voteOptions, but
-            ParticipantShopVoteOption (gathering-scheduling-api.yaml)
-            exposes neither an addedAt-equivalent value nor
-            Gathering.votingStartedAt to the participant, so no value
-            exists for a participant-facing attribute to project without
-            an API addition this round's scope does not include; this gap
-            is reported to the human rather than worked around here. See
+            (D7). **Mirrored to the participant side 2026-09-13** (ADR-0056
+            decision 6, gathering-scheduling-api.yaml v0.12.0): this
+            section's 2026-09-12 text reported to the human that no
+            participant-facing counterpart could be projected, because
+            ParticipantShopVoteOption then exposed neither an
+            addedAt-equivalent value nor Gathering.votingStartedAt to the
+            participant; gathering-scheduling-api.yaml now adds
+            `ParticipantShopVoteOption.addedAfterVotingStarted` (a plain
+            boolean, computed the same way, never exposing
+            addedAt/votingStartedAt themselves to the participant), and
+            participantAnswer.shopVoteQuestion below now carries the
+            matching `data-added-after-voting-started` attribute (in
+            shopVoteQuestion.attributes, alongside data-shop-id/
+            data-your-vote) -- see that attribute's own requirement text
+            for the participant-facing projection of this same value. See
             detailFields below for the map/provider-page-link surfaces
             this section's own description above introduces.
           detailFields:
@@ -2642,6 +2676,7 @@ browserControlSurface:
       attributes:
         shopId: data-shop-id
         yourVote: data-your-vote
+        addedAfterVotingStarted: data-added-after-voting-started
       yourVoteValues: ['WANT_TO_GO', 'OK_TO_GO', 'NOT_GOING', 'UNANSWERED']
       requirement: >-
         **Fixed 2026-09-05 (adr/0044)**: this contract previously exposed a
@@ -2660,7 +2695,35 @@ browserControlSurface:
         ParticipantShopVoteOption's schema but this contract does not fix
         their DOM representation here, same convention as
         organizerDashboard's preview) -- see detailFields below for the
-        fields TDR-GTH-39 does assert.
+        fields TDR-GTH-39 does assert. **data-added-after-voting-started
+        added 2026-09-13** (ADR-0056 decision 6, gathering-scheduling-
+        api.yaml v0.12.0, closing the gap this contract's 2026-09-12
+        addendum 10 reported to the human rather than worked around):
+        mirrors ParticipantShopVoteOption.addedAfterVotingStarted exactly
+        -- "true" for a shop added after voting started, "false"
+        otherwise, the same "あとから入りました" signal
+        organizerDashboard.shortlistedShopVotes.list.item's own
+        data-added-after-voting-started already shows the organizer,
+        computed identically but never exposing this participant's own
+        addedAt/votingStartedAt values (ADR-0056 decision 6: 幹事・参加者に
+        同じ言葉で出す). This attribute is independent of both
+        data-your-vote above (whether *this participant* has answered this
+        shop) and gathering-shop-vote-tally's data-responded-count below
+        (D7's per-shop denominator -- how many participants' answers this
+        shop's tally currently counts, scoped by the same addedAt this
+        attribute reads but never itself exposed) -- a shop can be
+        data-added-after-voting-started="true" while already having a
+        non-"UNANSWERED" data-your-vote and a non-zero data-responded-count
+        (this participant answered promptly after the shop was added), so
+        no one of these three marks may be derived from, or substituted
+        for, either of the other two (human ruling: 「印は2つに分ける。
+        札は『あとから入ったか』だけ、カードの縁は『自分が答えたか』だけ。
+        1つの印に2つの意味を持たせない」). No allowedPurposes/
+        formControlExemptTestIds entry is needed for this attribute -- it
+        is a display-only attribute on an already-declared element
+        (gathering-shop-vote-question), not a new testId of its own, the
+        same reason the organizer-facing data-added-after-voting-started
+        needed neither when it was added.
       detailFields:
         description: >-
           Added 2026-09-05 (adr/0044, TDR-GTH-39: "位置を示す地図と、徒歩の
