@@ -312,8 +312,34 @@
 #   `data-deck-visible-start`/`-end`が、`mapPrimaryTouchLayout`が保持する限り常に等しい
 #   （`visibleStart == visibleEnd`）という新しい制約をこの属性の記述へ加える——「1枚だけが見えて
 #   いる」ことを間接的に示す既存の仕組みを維持する。
+#
+# 2026-09-12 追補 (architect、adr/0054・0055・0056。会の画面群の構成・導線と、この製品にまだ
+# 存在しない値・観測面の追加のうち、この画面(candidate-search)に集まる決定への対応。
+# contractVersionを1.8.0から1.9.0へ上げる):
+# - **candidate-gathering-entryを会の画面群でも常設にする**（ADR-0054決定1）: gatheringEntry.
+#   entry.requirementへ、gathering-scheduling-browser-interface.yamlの
+#   organizerGatheringList・organizerGatheringCreate・organizerDashboard各画面でも同じ要素が
+#   常設されることを明記し、狭幅でもラベル文字を消してはならないというMustを追加した
+#   （participantAnswerはADR-0054決定7の例外のまま対象外）。
+# - **candidate-gathering-entryへ会モード時のdata-active-gathering-idを追加する**（ADR-0056
+#   決定8）。
+# - **candidate-map-markerへdata-gathering-shortlistedを追加する**（ADR-0056決定4）:
+#   markerDataAttributesとgatheringMode.mapMarkerを新設し、cardToggleと同じ値をピン側にも
+#   持たせた。
+# - **帯（candidate-gathering-mode-band）へdata-shortlist-limit-reachedを追加し、帯自体を会へ
+#   戻るナビゲーションと定める**（ADR-0056決定7・ADR-0054決定4）: 新規browserAction
+#   returnToGatheringFromBandを追加した。独立した「確定して戻る」操作は置かない——店は押した瞬間に
+#   保存されるため。
+# - **会モードのカードへの「あとから入りました」印（data-added-after-voting-started）は本改訂に
+#   含めない**——REVISION-PLAN.md第3節項目6はこれをcandidate-cardへ追加すると計画したが、
+#   candidate-search-api.yamlのCandidateスキーマにこの値の裏付け（いつ・どのタイミングで追加
+#   されたかを示すフィールド）が無く、同計画第4節が「API層の変更は不要」と結論した前提と矛盾する。
+#   この一件は実行せず、人間へ申し送る。
+# - 帯の日付表示の書式（曜日を含めるか）・帯のスマホでの貼り付け表示は、いずれもREVISION-PLAN.md
+#   第3節の6項目にもADR-0054/0056の決定本文にも見当たらない——rendered-geometry/文言の実装選択
+#   として既存のwalkingTimeEstimateWording等と同じ扱いのまま、本改訂でも固定しない。
 
-contractVersion: '1.8.0'
+contractVersion: '1.9.0'
 kind: acceptance-browser-interface
 scope: candidate-search
 profiles:
@@ -609,6 +635,7 @@ browserControlSurface:
     markerDataAttributes:
       candidateRef: data-candidate-ref
       selectionState: data-selection-state
+      gatheringShortlisted: data-gathering-shortlisted
     selectionStates: [selected, unselected]
     displayOrdering:
       invariant: >-
@@ -1150,6 +1177,7 @@ browserControlSurface:
       attributes:
         shortlistedCount: data-gathering-shortlisted-count
         maxShortlisted: data-gathering-max-shortlisted
+        limitReached: data-shortlist-limit-reached
       presenceRule: >-
         Present exactly once when response.gatheringContext is non-null;
         absent when it is null (the ordinary, non-gathering screen -- see
@@ -1164,12 +1192,42 @@ browserControlSurface:
         human-readable form; the exact wording/date format is an
         implementation choice this contract does not fix, mirroring
         walkingTimeEstimateWording and budgetTierNoteObservation's existing
-        content-only Musts. Its two attributes are decimal integer strings
-        equal to response.gatheringContext.shortlistedShopCount and
-        .maxShortlistedShops respectively (the "入れた店 3 / 5" band); both
-        update after every successful toggleCardGatheringShortlist call
-        (below), since that call's response carries a fresh
-        gatheringContext.
+        content-only Musts. Its shortlistedCount/maxShortlisted attributes
+        are decimal integer strings equal to
+        response.gatheringContext.shortlistedShopCount and
+        .maxShortlistedShops respectively (the "入れた店 3 / 5" band); all
+        three attributes update after every successful
+        toggleCardGatheringShortlist call (below), since that call's
+        response carries a fresh gatheringContext. limitReached is the
+        string "true" exactly when shortlistedShopCount is greater than or
+        equal to maxShortlistedShops, and "false" otherwise (ADR-0056
+        decision 7) -- the same boundary cardToggle.disabledState already
+        computes per card, exposed here once at the band level so an
+        organizer (or acceptance) can tell why the remaining cards' toggles
+        are disabled without inspecting every card individually.
+      navigation: >-
+        candidate-gathering-mode-band is also this screen's sole return
+        path back to the gathering while in gathering mode (ADR-0054
+        decision 4, 2026-09-12 human ruling: no separate "戻る" button is
+        added, because a shop already saves the instant its toggle is
+        activated -- a later, separate "confirm and return" action would
+        falsely imply an unsaved state that does not exist). Activating the
+        band (by any input) is a pure navigation to
+        gathering-scheduling-browser-interface.yaml's
+        browserEntry.organizerDashboard for
+        response.gatheringContext.gatheringId; see
+        browserActions.returnToGatheringFromBand below for its
+        requiredOutcome. Like candidate-gathering-entry, it is implemented
+        as a plain link/navigation element rather than a `<button>` or an
+        interactive-ARIA-role element, keeping it outside
+        unavailableControls.allCandidateScreenFormControlsMustDeclarePurpose's
+        scan and requiring no new allowedPurposes entry (the same
+        precedent gatheringEntry.entry.requirement already documents).
+        This navigability does not change the "no control to turn it off"
+        property the presenceRule above states -- that property scopes
+        only the open-on-the-confirmed-date filter condition the band
+        displays, not whether the band itself can be activated to
+        navigate.
     cardToggle:
       testId: candidate-card-gathering-toggle
       purpose: candidate-card-gathering-toggle
@@ -1195,6 +1253,24 @@ browserControlSurface:
         history and gathering-scheduling-browser-interface.yaml's own
         gathering-schedule-response-select precedent: boundary conditions
         disable, they do not remove the element.
+    mapMarker:
+      testId: candidate-map-marker
+      attribute: data-gathering-shortlisted
+      values: [true, false]
+      presenceRule: >-
+        Present on every candidate-map-marker exactly when response.
+        gatheringContext is non-null; absent on every marker when it is
+        null (ADR-0056 decision 4, mirroring cardToggle immediately above).
+        Its attribute value equals that marker's Candidate.isShortlisted
+        exactly ("true" or "false" as a string), the same value cardToggle's
+        own data-gathering-shortlisted carries for the same
+        data-candidate-ref -- a card and its marker always agree. This
+        gives the existing card/marker mutual-highlight convention
+        (markerDataAttributes, selectionState above) a gathering-membership
+        counterpart, so an organizer can tell which pins are already in the
+        gathering without opening each card. Updates in lockstep with
+        cardToggle's own attribute after every successful
+        toggleCardGatheringShortlist call.
     toggleRequiredOutcome: >-
       See browserActions.toggleCardGatheringShortlist below for what
       activating cardToggle does.
@@ -1721,6 +1797,27 @@ browserActions:
       from their pre-activation values; this contract does not fix a
       distinct visible error surface for this action beyond that
       no-op-on-failure guarantee.
+  returnToGatheringFromBand:
+    input: candidate-gathering-mode-band
+    precondition: response.gatheringContext-is-non-null
+    requiredOutcome:
+      navigation: >-
+        navigates-to-gathering-scheduling-browser-interface.yaml's
+        browserEntry.organizerDashboard-for-response.gatheringContext.gatheringId
+      unaffected: [cardsAndMarkersSet, dataCandidateRefValues,
+                   dataSelectionStateValues, appliedFilters, pendingFilters,
+                   conditionSummary, mapViewport]
+      publicOperation: none
+    note: >-
+      This is gatheringMode's sole return path (ADR-0054 decision 4) --
+      there is no separate "戻る"/confirm control, because
+      toggleCardGatheringShortlist above already persists shortlist
+      membership on activation, one card at a time; the band merely
+      surfaces the count that makes clear the organizer's choices already
+      count as "done" (gatheringMode.band.limitReached, ADR-0056 decision
+      7, is the machine-observable half of this same "the number itself is
+      the signal" design). This action never calls /candidate-proposals or
+      any of its request fields, mirroring openGatheringEntry above.
 
 disclosureObservations:
   responseSurfaces:
@@ -1762,8 +1859,22 @@ gatheringEntry:
     formControl: false
     requirement: >-
       Present unconditionally on the authenticated candidate-search screen
-      (see browserEntry.authenticatedInitialOutcome.present above).
-      Implemented as a plain link/navigation element (an `<a href>`, or a
+      (see browserEntry.authenticatedInitialOutcome.present above), and
+      also unconditionally present on every one of gathering-scheduling-
+      browser-interface.yaml's organizer-facing screens
+      (organizerGatheringList, organizerGatheringCreate, organizerDashboard)
+      -- ADR-0054 decision 1 (2026-09-12 human ruling: "会に入ると出られない"
+      -- this common navigation element must not disappear once inside the
+      gathering feature). gathering-scheduling-browser-interface.yaml
+      itself declares no test id of its own for this cross-screen presence
+      (see that file's own header note on this point); this paragraph is
+      the sole normative source for it. The participant screen
+      (participantAnswer, reached only through a signed link) is exempt
+      from this presence requirement (ADR-0054 decision 7: that screen is a
+      standalone, non-navigating one-page experience by design, not a
+      member of the "screen with a parent to go back to" set this element
+      otherwise serves). Implemented as a plain link/navigation element (an
+      `<a href>`, or a
       tabindex-carrying `<div>` mirroring candidate-map-open's existing
       style) rather than a `<button>` or an element with an interactive ARIA
       role -- this keeps it outside
@@ -1776,7 +1887,17 @@ gatheringEntry:
       "display/navigation-only, no purpose declared" precedent). Activating
       it changes no proposal request, no displayed candidate/marker/filter
       state, and no configured origin/range or map viewport -- see
-      browserActions.openGatheringEntry.
+      browserActions.openGatheringEntry. Its visible label text (the
+      "ランチ会" wording, not the badge count alone) must remain non-empty
+      at every viewport width this contract's acceptance drives, including
+      the narrowest -- production had removed this text at narrow widths
+      (a CSS rule leaving only an icon), which a first-time user could not
+      read as navigation (ADR-0054 decision 1, designer's report on this
+      screen). The exact width thresholds, font size, and icon remain
+      rendered-geometry/visual choices this contract does not fix (mirrors
+      how viewport breakpoints are left unfixed elsewhere, e.g. renderModes
+      above) -- only that some non-empty label text is present at every
+      width is a Must.
     badge:
       testId: candidate-gathering-entry-badge
       attribute: data-in-progress-gathering-count
@@ -1785,6 +1906,21 @@ gatheringEntry:
         is zero (designer's judgment, Handoff.dc.html: "0のときはバッジを
         出さない"). When present, the attribute is a decimal integer string
         equal to the count.
+    activeGathering:
+      testId: candidate-gathering-entry
+      attribute: data-active-gathering-id
+      presenceRule: >-
+        Present, with the current gathering's opaque id as its exact
+        string value, exactly when this screen was reached in gathering
+        mode (response.gatheringContext is non-null, see gatheringMode
+        above); absent (the attribute itself is missing, not merely empty)
+        on the ordinary, non-gathering screen this same entry element also
+        serves (ADR-0056 decision 8) -- mirroring gatheringMode.cardToggle's
+        own non-null-only-in-gathering-mode convention elsewhere in this
+        contract. This attribute lives on the same candidate-gathering-entry
+        element entry.badge above describes; badge's own presenceRule
+        (in-progress count) is unaffected and independent of this
+        attribute.
   crossContractReference:
     file: contracts/gathering-scheduling-api.yaml
     operationId: getInProgressGatheringCount
