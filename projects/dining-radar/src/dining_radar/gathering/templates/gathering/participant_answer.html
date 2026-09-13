@@ -197,6 +197,25 @@
       .gth-peek-btn { color: #14614a; }
       .gth-answer-later-btn { color: #77827a; }
 
+      /* 2026-09-13 integration fix: 結果をのぞく (peekResults) is a
+         read-only "view" toggle -- it saves nothing and never changes any
+         other participant-facing state (peekResults.requiredOutcome,
+         gathering-scheduling-browser-interface.yaml). The b2-schedule/
+         States.dc.html board draws it as a persistent, always-reachable
+         mode indicator (its "①結果をのぞくを押した面" keeps the same
+         control, now highlighted, in the header row of the *next* screen
+         too) -- unlike every other control on this screen (schedule
+         response options, shop-vote options, the name control), which the
+         answerLater confirmation's own scrim is meant to block while open.
+         Giving it a stacking order above .gth-overlay (z-index 40) is this
+         file's own way of keeping that one safe, non-destructive control
+         reachable regardless of whichever overlay happens to be open --
+         real production bug (this round's integration pass): the
+         answerLater confirmation's full-viewport scrim silently blocked
+         even this read-only control, with no way to reach it again short
+         of dismissing the scrim first. */
+      .gth-peek-btn { position: relative; z-index: 41; }
+
       /* gathering-participant-answer-later-confirmation (ADR-0055 decision
          3, 第2束裁定 "確認は重なる別の面"): a fixed-position scrim+panel
          overlapping the rest of the screen, not a row inserted into the

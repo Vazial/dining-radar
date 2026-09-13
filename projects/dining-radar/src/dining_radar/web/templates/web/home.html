@@ -60,18 +60,43 @@
     }
     .candidate-account-note:focus-visible { outline: 2px solid #155c42; outline-offset: 2px; }
 
-    /* candidate-gathering-entry (Handoff.dc.html 案B): a bordered button-
-       styled link (not a <button>, see the HTML comment above it) plus an
-       in-progress-count badge. min-height 2.75rem keeps the same 44px tap
-       target this screen's other controls already use. */
+    /* --- persistent primary nav (ADR-0054 decision 1, 2026-09-13
+       integration fix) -----------------------------------------------------
+       Two locations that stay reachable from every organizer-facing
+       gathering screen -- "ランチ候補をさがす" (this screen itself) and
+       "ランチ会" (candidate-gathering-entry). Duplicated, byte-for-byte in
+       spirit, from gathering/templates/gathering/organizer_primary_nav.html
+       and organizer.css's own ".gathering-primary-nav"/"-link" rules (this
+       codebase's existing no-shared-module-system convention) -- kept in
+       sync by hand across the two Django apps' own static assets. Visible
+       label text is never hidden at any width (the production defect this
+       decision names). candidate-gathering-entry (Handoff.dc.html 案B) is a
+       bordered button-styled link (not a <button>, see the HTML comment
+       above it) plus an in-progress-count badge. min-height 2.75rem keeps
+       the same 44px tap target this screen's other controls already use. */
+    .gathering-primary-nav {
+      display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem;
+    }
+    .gathering-primary-nav-link,
     .candidate-gathering-entry {
       display: inline-flex; align-items: center; gap: 0.35rem;
       min-height: 2.75rem; padding: 0 0.8rem; border: 1px solid #c6cfc6;
       border-radius: 0.6rem; background: #fff; color: #17201b;
       font-weight: 650; font-size: 0.875rem; text-decoration: none; white-space: nowrap;
     }
+    .gathering-primary-nav-link:hover,
     .candidate-gathering-entry:hover { background: #f4f6f2; }
+    .gathering-primary-nav-link:focus-visible,
     .candidate-gathering-entry:focus-visible { outline: 2px solid #14684a; outline-offset: 2px; }
+    /* aria-current="page" (a machine-readable "you are here" signal, not
+       persuasive prose -- FR-034 concerns explanatory sentences, not a
+       standard current-page nav indicator): filled instead of outlined,
+       mirroring this file's own selected/active-state convention
+       elsewhere (e.g. .gth-opt--on in participant screens). */
+    .gathering-primary-nav-link--current {
+      background: #14614a; border-color: #14614a; color: #fff; font-weight: 700;
+    }
+    .gathering-primary-nav-link--current:hover { background: #0e4736; }
     .candidate-gathering-entry-badge {
       display: inline-flex; align-items: center; justify-content: center;
       min-width: 1.125rem; height: 1.125rem; border-radius: 999px;
@@ -823,6 +848,7 @@
          surrounding padding/border shrink, mirroring
          .candidate-account-menu summary's own compact-but-labelled style
          at this same width (which never hid its own label). */
+      .gathering-primary-nav-link,
       .candidate-gathering-entry {
         box-sizing: border-box; min-height: 2.75rem; padding: 0 0.5rem;
         gap: 0.25rem; font-size: 0.8125rem;
@@ -1201,6 +1227,46 @@
 {% endblock %}
 
 {% block content %}
+    {% comment %}
+      2026-09-13 integration fix (第1束裁定「上部に『ランチ候補をさがす』
+      『ランチ会』の2つの居場所を常設。スマホ幅でも文字を消さず短くする」,
+      ADR-0054 decision 1): this screen previously carried only
+      candidate-gathering-entry (labelled "会", not "ランチ会") and had no
+      persistent link of its own back to this same screen -- the human's
+      two-location requirement was only ever implemented on the gathering
+      app's own organizer-facing screens
+      (gathering/templates/gathering/organizer_primary_nav.html), whose own
+      comment already named this gap ("Coordination note for the
+      candidate-search/web developer"). This nav mirrors that partial's
+      markup/wording exactly (this codebase's existing convention: no
+      shared module system, every small building block is a duplicated
+      copy kept in sync by hand, e.g. this file's own candidate.js
+      utilities) -- candidate-gathering-entry itself keeps its existing
+      test id/attributes/badge unchanged, only its label text and DOM
+      position move (out of the header's own flex row below, which the
+      narrow-width media query forces to a single non-wrapping line --
+      adding a second nav there would have squeezed that row rather than
+      wrapping to its own line). Deliberately placed as its own block
+      *outside* <header>, not as a third flex child inside it, so it never
+      interacts with header[data-testid="authenticated-application-shell"]'s
+      own flex-wrap:nowrap narrow-width rule. "ランチ候補をさがす" links to
+      this same screen and carries aria-current="page" (a machine-readable,
+      non-prose "you are here" signal -- FR-034 forbids persuasive/
+      explanatory sentences in production screens, not a standard
+      current-page nav indicator).
+    {% endcomment %}
+    <nav class="gathering-primary-nav" aria-label="ランチ機能">
+      <a
+        href="{% url 'web:home' %}"
+        class="gathering-primary-nav-link gathering-primary-nav-link--current"
+        aria-current="page"
+      ><span aria-hidden="true">🔍</span><span class="gathering-primary-nav-label">ランチ候補をさがす</span></a>
+      <a
+        href="{% url 'gathering:organizer-gathering-list' %}"
+        data-testid="candidate-gathering-entry"
+        class="candidate-gathering-entry"
+      ><span aria-hidden="true">🍽</span><span class="candidate-gathering-entry-label">ランチ会</span></a>
+    </nav>
     <header data-testid="authenticated-application-shell">
       <div class="app-header">
         <h1>ランチ候補</h1>
@@ -1256,10 +1322,11 @@
         {% endcomment %}
         {% comment %}
           candidate-gathering-entry (Handoff.dc.html 案B, human decision
-          2026-09-01, adr/0038): the candidate-search screen's own entry
-          point into the gathering feature. A plain <a href> -- neither a
-          <button> nor an element carrying an interactive ARIA role -- so
-          it never falls inside unavailableControls.
+          2026-09-01, adr/0038; moved into .gathering-primary-nav above
+          2026-09-13, ADR-0054 decision 1): the candidate-search screen's
+          own entry point into the gathering feature. A plain <a href> --
+          neither a <button> nor an element carrying an interactive ARIA
+          role -- so it never falls inside unavailableControls.
           allCandidateScreenFormControlsMustDeclarePurpose's scan (mirrors
           candidate-origin-marker/candidate-map-open's existing
           "display/navigation-only" style; contracts/candidate-search-
@@ -1272,11 +1339,6 @@
           the in-progress count is fetched (gatheringEntry.crossContract
           Reference) -- absent until then and whenever the count is 0.
         {% endcomment %}
-        <a
-          href="{% url 'gathering:organizer-gathering-list' %}"
-          data-testid="candidate-gathering-entry"
-          class="candidate-gathering-entry"
-        ><span aria-hidden="true">🍽</span><span class="candidate-gathering-entry-label">会</span></a>
         <details class="candidate-account-menu">
           <summary
             data-testid="auth-account-menu-toggle"

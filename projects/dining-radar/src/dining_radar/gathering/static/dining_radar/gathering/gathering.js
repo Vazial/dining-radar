@@ -183,7 +183,28 @@
     var minutes = pad2(date.getUTCMinutes());
     return month + "/" + day + " (" + weekday + ") " + hours + ":" + minutes;
   }
+  // --- shared-date-formatting END ---
 
+  // 2026-09-13 fix (integration round, GatheringDateTimeFormattingSourceTests.
+  // test_gathering_js_and_participant_js_carry_the_identical_code): this
+  // date-only ("M/D（曜）", no time) formatter is organizer-only -- every
+  // organizer-facing date rendered as a single point in time
+  // (gathering-candidate-date/gathering-decision-banner/the shortlisted-shop
+  // map's date labels) already shows its own time via
+  // gathering-schedule-question's own tally or an adjacent time chip
+  // elsewhere on the same screen, so this file grew a second, date-only
+  // formatter participant.js has no use for. It used to live *inside* the
+  // shared-date-formatting BEGIN/END block that
+  // GatheringDateTimeFormattingSourceTests requires be byte-identical
+  // between this file and participant.js -- a previous round added it here
+  // without adding a matching copy to participant.js, which broke that
+  // test. Moving it below the shared block's own END marker (rather than
+  // duplicating it, unused, into participant.js) keeps the guarded region
+  // limited to code both files actually need, per this contract's own
+  // "either move it out, or place it in both" allowance. Still reads
+  // WEEKDAY_LABELS_JA from the shared block above (same IIFE scope) --
+  // moving it below the block does not require moving that shared constant
+  // too.
   function formatGatheringDate(isoString) {
     var date = new Date(isoString);
     var month = date.getUTCMonth() + 1;
@@ -191,7 +212,6 @@
     var weekday = WEEKDAY_LABELS_JA[date.getUTCDay()];
     return month + "/" + day + "（" + weekday + "）";
   }
-  // --- shared-date-formatting END ---
 
   function el(tag, attrs, children) {
     var node = document.createElement(tag);
@@ -1458,12 +1478,22 @@
       " ・ " +
       (selectedShop ? selectedShop.name : state.finalizeSelectedShopId);
 
-    function changeRow(label, before, after) {
-      return el("div", { class: "gth-changes-row" }, [
+    // 2026-09-13 integration fix (contract 0.17.0 -> 0.18.0 addendum 15,
+    // ADR-0055 decision 3's factual table narrowed 2026-09-13): a tester
+    // found this table could only be checked as "some non-empty text exists
+    // somewhere" -- never "there are three rows" or "each row is the row it
+    // claims to be". Each row now carries
+    // gathering-finalize-confirm-changes-row with a data-change-subject
+    // (one of the contract's fixed subjectValues) plus exactly one
+    // gathering-finalize-confirm-changes-row-before/-after cell -- label
+    // text itself remains an implementation choice, only the row's own
+    // identity and cell shape are now machine-observable.
+    function changeRow(subject, label, before, after) {
+      return el("div", { "data-testid": "gathering-finalize-confirm-changes-row", "data-change-subject": subject, class: "gth-changes-row" }, [
         el("span", { class: "gth-changes-label" }, [label]),
-        el("span", { class: "gth-changes-before" }, [before]),
+        el("span", { "data-testid": "gathering-finalize-confirm-changes-row-before", class: "gth-changes-before" }, [before]),
         el("span", { class: "gth-changes-arrow", "aria-hidden": "true" }, ["→"]),
-        el("span", { class: "gth-changes-after" }, [after]),
+        el("span", { "data-testid": "gathering-finalize-confirm-changes-row-after", class: "gth-changes-after" }, [after]),
       ]);
     }
 
@@ -1471,9 +1501,9 @@
       "div",
       { "data-testid": "gathering-finalize-confirm-changes", class: "gth-changes-table" },
       [
-        changeRow("回答リンク", "発行・取り消しができる", "どちらもできなくなる"),
-        changeRow("参加者の画面", "日程・投票に答えられる", "決定だけを見る"),
-        changeRow("日と店", "未確定", dateAndShopAfter),
+        changeRow("participant-link-issuance", "回答リンク", "発行・取り消しができる", "どちらもできなくなる"),
+        changeRow("participant-screen", "参加者の画面", "日程・投票に答えられる", "決定と、店ごとの票だけを見る"),
+        changeRow("date-and-shop", "日と店", "未確定", dateAndShopAfter),
       ]
     );
 
