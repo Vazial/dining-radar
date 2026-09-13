@@ -463,10 +463,26 @@
 #   レスポンス定義・対応するexample・`CandidateDate.isConfirmed`の説明文・エラーコード列挙・
 #   このヘッダのプロダクト概要から、いずれも削除した——到達不能なコードを契約に残さない
 #   （このコードをすでに実装しているバックエンドがあれば、実装側でも削除が要る）。
+#
+# 2026-09-13 追補11 (architect、ParticipantView.decisionの説明文に残っていた古い記述を是正。
+#   人間のチャット裁定を経ない、architectの技術判断による改訂である（meta/adr/0064の作法、
+#   adr/0037・adr/0039・本ファイル自身の追補10の先例に倣う）。version 0.13.0 -> 0.14.0):
+# - **`ParticipantView.decision`の説明文を是正した**: 「finalizedView（adr/0042）が
+#   scheduleQuestions／shopVoteQuestionsの双方を`decision`へ完全に置き換える」という記述は、
+#   第5束の人間裁定（2026-09-12「確定後も参加者は店ごとの票を見られるままにする」）、および
+#   それを反映した`gathering-scheduling-browser-interface.yaml`のcontractVersion 0.18.0
+#   （ADR-0055決定8の`shopVoteQuestion.presenceRule`／`finalizedView.
+#   replacesQuestionSurfaces`）と食い違っていた。このAPIファイル自身の
+#   `ParticipantView.shopVoteQuestions`（フィールド仕様そのもの）は既に「確定後も
+#   non-nullのまま残る」と正しく定義しており、間違っていたのはそれを説明する`decision`側の
+#   コメントだけだった。置き換わるのは`scheduleQuestions`側の表示（候補日ごとの内訳と
+#   回答進捗）だけであり、`shopVoteQuestions`の集計は確定後も`decision`と共存し、参加者
+#   から失われるのは票を入れる操作だけであるという趣旨へ書き換えた（フィールドの型・
+#   required・値の意味はいずれも変更していない）。
 openapi: 3.0.3
 info:
   title: Dining Radar Gathering Scheduling API
-  version: 0.13.0
+  version: 0.14.0
   description: >-
     Lets an authenticated organizer list their gatherings, create a gathering
     with candidate dates, add further candidate dates in a batch while
@@ -3094,11 +3110,27 @@ components:
             original per-candidate-date/per-shop shape, and, since adr/0050
             decision 2, every other participant's tally too, visible at any
             time including post-finalization), but gathering-scheduling-
-            browser-interface.yaml's finalizedView (adr/0042) fully replaces
-            both surfaces with the flat `decision` summary rather than
-            rendering them alongside it -- resolving this schema's own
-            previously-open note ("left to that later contract, ADR-0013
-            order") in favor of replacement, not coexistence. No further
+            browser-interface.yaml's finalizedView (adr/0042) does not
+            replace both surfaces equally. **Corrected 2026-09-13
+            (architect self-audit, ADR-0055 decision 8, matching this very
+            field's own `shopVoteQuestions` description above and
+            gathering-scheduling-browser-interface.yaml's contractVersion
+            0.18.0 -- `shopVoteQuestion.presenceRule` and
+            `finalizedView.replacesQuestionSurfaces`)**: only the
+            `scheduleQuestions` surface (the per-candidate-date schedule
+            breakdown and the answered/total progress counter) is replaced
+            by the flat `decision` summary once finalized.
+            `shopVoteQuestions` is deliberately **not** replaced -- the
+            human explicitly chose 「確定後も参加者は店ごとの票を
+            見られるままにする」(2026-09-12) over designer's own "見せない"
+            alternative, so a participant can still see every shop's live
+            tally alongside `decision` after finalization; only the
+            operation of casting a vote becomes unavailable (setShopVotes
+            rejects with GATHERING_FINALIZED), the aggregation itself does
+            not disappear. This resolves this schema's own previously-open
+            note ("left to that later contract, ADR-0013 order") in favor
+            of coexistence for `shopVoteQuestions` and replacement for
+            `scheduleQuestions`, not a single uniform answer for both. No further
             mutation is accepted regardless (setScheduleResponse/
             setShopVotes both reject with GATHERING_FINALIZED once phase is
             FINALIZED).
