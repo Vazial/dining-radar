@@ -289,6 +289,19 @@
     .candidate-gathering-toggle--on:hover:not(:disabled) { background: #0d4b35; }
     .candidate-gathering-toggle:disabled { opacity: 0.5; cursor: default; }
 
+    /* ADR-0057 decision 3 (2026-09-13 human ruling "押せない見た目にして
+       理由を出す"): gatheringMode.cardToggle.lastShopNotice, present only
+       on the card whose sole shortlisted-shop toggle is disabled by the
+       "last-shop" reason. Sits beside (below) the toggle it explains, as
+       plain static text -- not a control, so it carries no min-height/tap-
+       target sizing of its own and does not add one to the toggle above it
+       (candidate-gathering-toggle keeps its own 2.75rem/44px regardless of
+       whether this note is present or absent). margin-top only, so it never
+       pushes the card's other content or changes the card's own layout. */
+    .candidate-gathering-toggle-last-shop-notice {
+      margin: 0.35rem 0 0; font-size: 0.75rem; line-height: 1.4; color: #4a5a4c;
+    }
+
     /* TDR-CS-16 (human decision 2026-08-23): rendered in addition to, not
        instead of, a retained proposal (candidate.js's renderProblem
        `additive` path), so this must read as an interruption banner above
@@ -1394,5 +1407,5 @@
       code (184px facts grid, no name-in-id-row) even though the server's
       own file already had this round's fixes.
     {% endcomment %}
-    <script src="{% static 'dining_radar/web/candidate.js' %}?v=20260910-gathering-mode-band-and-toggle"></script>
+    <script src="{% static 'dining_radar/web/candidate.js' %}?v=20260913-last-shortlisted-shop-toggle"></script>
 {% endblock %}
