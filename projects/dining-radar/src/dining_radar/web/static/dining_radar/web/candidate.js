@@ -759,10 +759,15 @@
       card.appendChild(toggle);
       // ADR-0057 decision 3: cardToggle.lastShopNotice -- present on this
       // same card exactly when its own cardToggle carries
-      // data-gathering-toggle-disabled-reason="last-shop".
-      if (toggle.getAttribute("data-gathering-toggle-disabled-reason") === "last-shop") {
-        card.appendChild(renderGatheringCardLastShopNotice());
-      }
+      // data-gathering-toggle-disabled-reason="last-shop". Shares
+      // syncGatheringCardLastShopNotice with the post-toggle update below
+      // so the initial render and every later update place this element
+      // identically (immediately after cardToggle).
+      syncGatheringCardLastShopNotice(
+        card,
+        toggle,
+        toggle.getAttribute("data-gathering-toggle-disabled-reason")
+      );
     }
 
     cardElementsByRef[candidate.candidateRef] = card;
@@ -851,6 +856,29 @@
       },
       ["最低1件は残します"]
     );
+  }
+
+  // ADR-0057 decision 3 (2026-09-13 human ruling): the notice sits "そばに"
+  // (beside) the toggle it explains -- shared by both the initial render
+  // (renderCard, immediately after this same card's own cardToggle is first
+  // appended) and every later toggleCardGatheringShortlist update, so a
+  // card that loads with exactly 1 shortlisted shop and a card that drops
+  // to 1 after a later toggle always end up with identical DOM order
+  // (cardToggle immediately followed by its own lastShopNotice, if any),
+  // rather than each path picking its own placement mechanism that could
+  // silently drift apart. `toggleEl` must already be attached to `cardEl`
+  // before this is called.
+  function syncGatheringCardLastShopNotice(cardEl, toggleEl, disabledReason) {
+    var existingNotice = cardEl.querySelector(
+      '[data-testid="candidate-card-gathering-last-shop-notice"]'
+    );
+    if (disabledReason === "last-shop") {
+      if (!existingNotice) {
+        toggleEl.insertAdjacentElement("afterend", renderGatheringCardLastShopNotice());
+      }
+    } else if (existingNotice) {
+      existingNotice.remove();
+    }
   }
 
   // adr/0049 decision 1 (toggleCardGatheringShortlist): the complete
@@ -989,17 +1017,11 @@
             toggleEl.removeAttribute("data-gathering-toggle-disabled-reason");
           }
           // ADR-0057 decision 3: keep this card's lastShopNotice in
-          // lockstep with its own toggle's disabledReason.
-          var existingNotice = cardEl.querySelector(
-            '[data-testid="candidate-card-gathering-last-shop-notice"]'
-          );
-          if (disabledReason === "last-shop") {
-            if (!existingNotice) {
-              toggleEl.insertAdjacentElement("afterend", renderGatheringCardLastShopNotice());
-            }
-          } else if (existingNotice) {
-            existingNotice.remove();
-          }
+          // lockstep with its own toggle's disabledReason -- shares
+          // syncGatheringCardLastShopNotice with renderCard's initial
+          // render (see that call site's own comment) so both paths always
+          // place this element identically.
+          syncGatheringCardLastShopNotice(cardEl, toggleEl, disabledReason);
           // ADR-0056 decision 4: keep this candidateRef's marker in
           // lockstep with its card -- a card and its marker always agree.
           var markerEl = markerElementsByRef[ref];
