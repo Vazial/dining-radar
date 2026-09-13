@@ -592,11 +592,36 @@
 #   閉じたときと同じ書き方。古い注記は削除せず、閉じた経緯を併記して残した）。
 # - 契約本文・シナリオへの新規要求は無い——本追補はヘッダーの記述と契約の現状の整合を
 #   取るのみである。
+#
+# 2026-09-13 追補15 (architect、tester差し戻し4件。第2段追補5。contractVersion 0.17.0 ->
+#   0.18.0):
+# - **参加者の日程の設問から`data-open-shop-count`を削除した**（ADR-0055決定1）:
+#   `gathering-scheduling-api.yaml`がv0.11.0で`ParticipantScheduleQuestion.openShopCount`を
+#   削除済みであるのに、この契約はその値と等しいことを求める属性を要求したまま残っていた
+#   （矛盾）。幹事側の`gathering-open-shop-preview`（TDR-GTH-08）は無変更。
+# - **`participantAnswer.shopVoteQuestion.presenceRule`を是正した**（ADR-0055決定8）:
+#   同じファイルが一方で「decisionが非nullになると不在」、他方
+#   （`finalizedView.replacesQuestionSurfaces`）で「この要素は置き換えの対象から除外する」
+#   と、共存できない2つの主張を抱えていた。確定後も店ごとの票（tally）を見られたままにし、
+#   投票の操作（`gathering-shop-vote-option`）だけを`noOperations`が不在にする——という、
+#   既に是正済みだった側に合わせた。presenceRuleを丸写ししていた`shopVoteMap`も同じ形へ
+#   揃えた。
+# - **確定の確認の「変わることの表」に行ごとの観測面を足した**（`gathering-finalize-
+#   confirm-changes-row`、`data-change-subject`）: 「要素が存在しテキストが空でない」
+#   としか検査できず、3行であることも各行が何の変化かも検査できていなかった。前後の
+#   値そのものは実装裁量のまま残し、行の数・対応・各行が前後2つの値を持つことだけを
+#   固定した。参加者画面の「after」の記述もshopVoteQuestionの是正に合わせて書き換えた。
+# - **「あとで答える」の確認に、再掲する日程・店それぞれの観測面を足した**
+#   （`gathering-participant-answer-later-confirmation-schedule-item`/`-shop-item`）:
+#   既存の設問要素を再利用するか別要素を描くかを契約が固定していなかったため、別要素で
+#   描かれると強い検査が一度も走らなかった。実装（developer報告）が採っていた「別要素と
+#   して重ねて描く」形を、契約として妥当と判断し採用した。
+#
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.17.0'
+contractVersion: '0.18.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -2020,24 +2045,55 @@ browserControlSurface:
             contradicting it, since this is a factual table, not a
             sentence arguing for the action).
           rows: [participant-link-issuance, participant-screen, date-and-shop]
+          row:
+            testId: gathering-finalize-confirm-changes-row
+            cardinality: exactly-three-per-gathering-finalize-confirm-changes
+            attributes:
+              subject: data-change-subject
+            subjectValues: [participant-link-issuance, participant-screen, date-and-shop]
+            before:
+              testId: gathering-finalize-confirm-changes-row-before
+              formControl: false
+            after:
+              testId: gathering-finalize-confirm-changes-row-after
+              formControl: false
           requirement: >-
-            Exactly three rows, each showing a "before" value and an
-            "after" value: participant-link-issuance (before: new links
-            can still be issued via gathering-participant-link-copy, and
-            unanswered links can still be revoked via
-            gathering-participant-link-revoke; after: neither is possible,
-            per this contract's own existing presenceRule for each of those
-            two controls), participant-screen (before: the participant sees
-            gathering-schedule-question/gathering-shop-vote-question and
-            may still answer; after: the participant sees only
-            gathering-participant-decision, per finalizedView above), and
-            date-and-shop (before: no candidate date/shop is confirmed as
-            final; after: the specific confirmed candidate date and
-            finalized shop this confirmation dialog was opened with). This
-            contract does not fix the visible wording or layout of these
-            three rows, only that a before/after pair for each of these
-            three subjects is present somewhere within
-            gathering-finalize-confirm-changes.
+            **Narrowed 2026-09-13 (a tester found this table could only be
+            checked as "some non-empty text exists somewhere", never "there
+            are three rows" or "each row is the row it claims to be")**:
+            exactly three gathering-finalize-confirm-changes-row elements
+            are present, one per subjectValues entry above, each carrying a
+            data-change-subject attribute equal to that subject exactly (no
+            two rows share the same value, so the observed set of values
+            equals the full subjectValues set). Each row contains exactly
+            one gathering-finalize-confirm-changes-row-before and exactly
+            one gathering-finalize-confirm-changes-row-after, each with
+            non-empty visible text -- this contract fixes the existence and
+            non-emptiness of the two cells, not their wording or layout.
+            The three subjects' own meaning is unchanged: participant-link-
+            issuance (before: new links can still be issued via gathering-
+            participant-link-copy, and unanswered links can still be
+            revoked via gathering-participant-link-revoke; after: neither
+            is possible, per this contract's own existing presenceRule for
+            each of those two controls), participant-screen (before: the
+            participant sees gathering-schedule-question/gathering-shop-
+            vote-question and may still answer schedule questions and cast
+            shop votes; after: gathering-schedule-question and gathering-
+            participant-progress are gone and answering/voting controls are
+            gone, but gathering-shop-vote-question's own vote tally remains
+            visible per shopVoteQuestion.presenceRule's 2026-09-13 fix
+            above, ADR-0055 decision 8 -- this row's "after" no longer
+            claims the participant sees "only" gathering-participant-
+            decision, which contradicted that fix), and date-and-shop
+            (before: no candidate date/shop is confirmed as final; after:
+            the specific confirmed candidate date and finalized shop this
+            confirmation dialog was opened with). No allowedPurposes/
+            formControlExemptTestIds entry is needed for row/before/after --
+            all three are display-only elements outside
+            forbiddenFormControlCategories' scan, the same reasoning this
+            file already applies to its other display-only additions (e.g.
+            shopVoteQuestion.tally's data-total-active-participant-count
+            above).
       finalizeConfirm:
         testId: gathering-finalize-confirm
         purpose: gathering-finalize-confirm
@@ -2520,19 +2576,28 @@ browserControlSurface:
         the true total regardless of how many are currently rendered.
       attributes:
         candidateDateId: data-candidate-date-id
-        openShopCount: data-open-shop-count
         yourResponse: data-your-response
       yourResponseValues: [GOING, MAYBE, NOT_GOING, UNANSWERED]
       requirement: >-
-        data-open-shop-count equals ParticipantScheduleQuestion.openShopCount
-        exactly and is present regardless of data-your-response's value (D6,
-        2026-08-30: unconditional, unlike tally below). data-your-response is
-        "UNANSWERED" exactly when
-        ParticipantScheduleQuestion.yourResponse is null; otherwise it is the
-        exact ScheduleResponseStatus string. No shop name or other shop
-        attribute is present anywhere inside gathering-schedule-question (D6:
-        count only, no shop names) -- this is a stronger prohibition than
-        organizerDashboard's preview, which does show names.
+        **Narrowed 2026-09-13 (ADR-0055 decision 1, closing a contradiction
+        this file carried since gathering-scheduling-api.yaml removed
+        ParticipantScheduleQuestion.openShopCount at v0.11.0: this
+        requirement kept demanding an attribute equal a value that no
+        longer exists)**: this element carries no data-open-shop-count
+        attribute at all (see the corrected attributes list above). The
+        observation for TDR-GTH-09 (gathering-scheduling.feature: 「その
+        候補日に開いている店の件数は示されない」「店名やその他の店舗情報も
+        示されない」) is a negative one -- for every gathering-schedule-
+        question currently reachable, no data-open-shop-count attribute and
+        no shop name or other shop attribute is present anywhere inside it,
+        regardless of data-your-response's value. data-your-response is
+        "UNANSWERED" exactly when ParticipantScheduleQuestion.yourResponse
+        is null; otherwise it is the exact ScheduleResponseStatus string.
+        This asymmetry with organizerDashboard's gathering-open-shop-preview
+        (TDR-GTH-08, unchanged, still carries data-open-shop-count for
+        whichever candidate date the organizer has tentatively selected) is
+        intentional, not an oversight -- ADR-0055 decision 1 removed the
+        count from the participant's screen only.
       responseOptions:
         testId: gathering-schedule-response-option
         purpose: gathering-schedule-response-select
@@ -2603,19 +2668,64 @@ browserControlSurface:
           and return later (Answer.dc.html②'s original「またあとで、
           続きから答えられます」wording is retired). It instead reproduces,
           for every candidate date this participant has answered
-          (ParticipantScheduleQuestion.yourResponse non-null), that same
-          candidate date's data-candidate-date-id/data-your-response
-          values already defined by scheduleQuestion.attributes above, and
-          for every shop this participant has voted on
-          (ParticipantShopVoteOption.yourVote non-null, only reachable
-          once voting has started), that same shop's
-          data-shop-id/data-your-vote values already defined by
-          shopVoteQuestion.attributes above -- the real answers themselves,
-          not a sentence asserting they are saved. This contract does not
-          fix the markup used to reproduce these values (e.g. whether this
-          surface reuses the same gathering-schedule-question/
-          gathering-shop-vote-question elements or renders separate ones),
-          only that the values are present somewhere within this surface.
+          (ParticipantScheduleQuestion.yourResponse non-null) and for every
+          shop this participant has voted on
+          (ParticipantShopVoteOption.yourVote non-null, only reachable once
+          voting has started), that answer's own values -- the real
+          answers themselves, not a sentence asserting they are saved.
+          **Narrowed 2026-09-13 (a tester found this surface could only be
+          checked when the implementation happened to reuse the live
+          question elements -- if a different element was drawn instead, no
+          strong assertion ever ran)**: this surface renders its own,
+          separate elements (scheduleItem/shopItem below) -- it does not
+          reuse gathering-schedule-question or gathering-shop-vote-question.
+          This is an architect decision, not a transcription of one
+          implementation's shape: a snapshot that shared elements with the
+          live, still-answerable questions could not be told apart from
+          them by a tester (same testId, appearing/disappearing together),
+          even though this surface exists only while
+          gathering-participant-answer-later-confirmation is open (its own
+          presenceRule above), and mixing a read-only echo with controls
+          that still call setScheduleResponse/setShopVotes would leave the
+          echo's freshness under a live edit unspecified.
+        scheduleItem:
+          testId: gathering-participant-answer-later-confirmation-schedule-item
+          formControl: false
+          cardinality: >-
+            One element per ParticipantScheduleQuestion whose yourResponse
+            is non-null.
+          attributes:
+            candidateDateId: data-candidate-date-id
+            yourResponse: data-your-response
+          requirement: >-
+            data-candidate-date-id/data-your-response mirror
+            ParticipantScheduleQuestion.candidateDateId/yourResponse
+            exactly, for the same candidate date scheduleQuestion.attributes
+            above projects. No candidate date whose yourResponse is null
+            appears here -- this surface echoes answers given, not every
+            candidate date (「今までの答えを再掲する」).
+        shopItem:
+          testId: gathering-participant-answer-later-confirmation-shop-item
+          formControl: false
+          cardinality: >-
+            One element per ParticipantShopVoteOption whose yourVote is
+            non-null, only reachable once Gathering.votingStartedAt is
+            non-null.
+          attributes:
+            shopId: data-shop-id
+            yourVote: data-your-vote
+          requirement: >-
+            data-shop-id/data-your-vote mirror
+            ParticipantShopVoteOption.shopId/yourVote exactly, for the same
+            shop shopVoteQuestion.attributes above projects. No shop whose
+            yourVote is null appears here, same reasoning as scheduleItem
+            above.
+        confirmationEchoNote: >-
+          No allowedPurposes/formControlExemptTestIds entry is needed for
+          scheduleItem or shopItem above -- both are display-only elements
+          outside forbiddenFormControlCategories' scan, the same reasoning
+          this file already applies to its other display-only echoes (e.g.
+          decision.map.marker above).
     peekResults:
       testId: gathering-participant-peek-results
       purpose: gathering-participant-peek-results
@@ -2655,9 +2765,14 @@ browserControlSurface:
         search's own map/origin test ids.
       testId: gathering-shop-vote-map
       presenceRule: >-
-        Same presenceRule as shopVoteQuestion below (present exactly when
-        ParticipantView.shopVoteQuestions is non-null and
-        ParticipantView.decision is still null).
+        **Fixed 2026-09-13 (ADR-0055 decision 8, same fix as
+        shopVoteQuestion.presenceRule below, which this element's
+        presenceRule quoted verbatim and so inherited the same
+        contradiction)**: present exactly when
+        ParticipantView.shopVoteQuestions is non-null (i.e. once
+        Gathering.votingStartedAt is non-null) -- absent while phase is
+        SCHEDULING, and, like shopVoteQuestion itself, does **not** become
+        absent once ParticipantView.decision is non-null.
       scope: >-
         Unlike organizerDashboard.shopSelectionEntry (which owns no map of
         its own -- that surface now lives entirely in candidate-search-
@@ -2701,12 +2816,27 @@ browserControlSurface:
         above; map/detail fields added the same round (TDR-GTH-38/39).
       testId: gathering-shop-vote-question
       presenceRule: >-
-        Present exactly when ParticipantView.shopVoteQuestions is non-null
-        (i.e. once Gathering.votingStartedAt is non-null) and
-        ParticipantView.decision is still null -- absent while phase is
-        SCHEDULING, and absent again once decision is non-null (see
-        finalizedView below, which replaces this entirely rather than
-        coexisting with it).
+        **Fixed 2026-09-13 (ADR-0055 decision 8, resolving a
+        self-contradiction this file carried since 2026-09-12: this
+        presenceRule had not been updated to match
+        finalizedView.replacesQuestionSurfaces below, which already
+        excludes this element from the surfaces finalization removes)**:
+        present exactly when ParticipantView.shopVoteQuestions is non-null
+        (i.e. once Gathering.votingStartedAt is non-null) -- absent while
+        phase is SCHEDULING. Unlike scheduleQuestion above, this element
+        does **not** become absent once ParticipantView.decision is
+        non-null: the human explicitly chose 「確定後も参加者は店ごとの票を
+        見られるままにする」(2026-09-12) over designer's own "見せない"
+        alternative, matching gathering-scheduling-api.yaml's own
+        ParticipantView.shopVoteQuestions (v0.13.0), which stays non-null
+        and unchanged post-finalization "for historical reference ...
+        including every other participant's tally". What finalization
+        changes is which controls this element may contain, not whether
+        the element itself is present -- see noOperations below
+        (gathering-shop-vote-option becomes absent, voting is over) and
+        tally's own presenceRule (tally remains, unaffected). finalizedView's
+        decision element below coexists with this element; it does not
+        replace it.
       orderingInvariant: >-
         Added 2026-09-04 (adr/0044, fixing a production defect where this
         list re-sorted itself after every vote -- the human's report:
