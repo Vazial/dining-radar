@@ -39,16 +39,6 @@ _VENDORED_LEAFLET_ASSETS = (
     "dining_radar/web/vendor/leaflet/images/layers-2x.png",
 )
 
-# adr/0049 decision 3 (2026-09-11): flatpickr (MIT license) is vendored the
-# same way, under the gathering app's own static namespace -- it backs
-# addCandidateDateForm.calendar (gathering.js) and
-# organizerGatheringCreate.calendar (gathering_create.js). "Selecting a UI
-# library, small and clearly licensed" is the human's explicit instruction
-# this round (same vendoring discipline as Leaflet, ADR-0010): flatpickr is
-# a single self-contained JS+CSS pair (no runtime dependency, ~50KB/~16KB
-# minified) with `mode`/`onDayCreate` hooks precise enough to attach this
-# contract's own day-cell attributes directly to its rendered day elements
-# (see gathering.js's own buildCandidateDateCalendar for the full account).
 DASHBOARD_TEMPLATE = (
     PROJECT_ROOT
     / "src"
@@ -67,17 +57,25 @@ GATHERING_CREATE_TEMPLATE = (
     / "gathering"
     / "organizer_gathering_create.html"
 )
-_VENDORED_FLATPICKR_ASSETS = (
-    "dining_radar/gathering/vendor/flatpickr/flatpickr.min.js",
-    "dining_radar/gathering/vendor/flatpickr/flatpickr.min.css",
-    "dining_radar/gathering/vendor/flatpickr/LICENSE",
-)
 
 
-class FlatpickrVendoringSourceTests(SimpleTestCase):
-    """Static checks against the two gathering-screen templates that load
-    flatpickr (no request cycle needed) -- mirrors
-    ``LeafletVendoringSourceTests`` above for the calendar library."""
+class GatheringCalendarNoLongerVendorsFlatpickrTests(SimpleTestCase):
+    """**2026-09-13 (ADR-0054 decision 3 / ADR-0056 decision 3, human
+    decision)**: flatpickr (previously vendored under
+    ``dining_radar/gathering/vendor/flatpickr/`` -- see the removed
+    ``FlatpickrVendoringSourceTests`` this class replaces, and
+    ``git log`` for its own prior content) is retired outright, not merely
+    hidden -- the human picked a hand-built "案B｜表" calendar after seeing
+    it actually run (``scratchpad/cal/looks.html``/``script.js``), which
+    also removes two defects the vendored library itself caused: the input
+    element it always built internally (worked around to satisfy
+    ``unavailableControls.allGatheringScreenFormControlsMustDeclarePurpose``)
+    and, as a side effect of that same workaround, a static year label that
+    never updated on month navigation (friction-log.md FR-033). Both
+    gathering screens now build their own calendar entirely in JS
+    (``gathering.js``/``gathering_create.js``'s own
+    ``buildCandidateDateCalendar``) with no vendored script or stylesheet of
+    its own."""
 
     def test_gathering_templates_do_not_reference_a_third_party_cdn(self):
         for template in (DASHBOARD_TEMPLATE, GATHERING_CREATE_TEMPLATE):
@@ -87,43 +85,35 @@ class FlatpickrVendoringSourceTests(SimpleTestCase):
                 self.assertNotIn("cdn.jsdelivr.net", source)
                 self.assertNotIn("cdnjs.cloudflare.com", source)
 
-    def test_gathering_templates_load_flatpickr_through_the_static_tag(self):
+    def test_gathering_templates_no_longer_reference_flatpickr(self):
         for template in (DASHBOARD_TEMPLATE, GATHERING_CREATE_TEMPLATE):
             with self.subTest(template=template.name):
                 source = template.read_text(encoding="utf-8")
-                self.assertIn(
-                    "{% static 'dining_radar/gathering/vendor/flatpickr/flatpickr.min.css' %}",
-                    source,
-                )
-                self.assertIn(
-                    "{% static 'dining_radar/gathering/vendor/flatpickr/flatpickr.min.js' %}",
-                    source,
-                )
+                self.assertNotIn("flatpickr", source.lower())
 
-    def test_vendored_flatpickr_assets_are_discoverable_by_the_staticfiles_finders(self):
-        for asset in _VENDORED_FLATPICKR_ASSETS:
-            with self.subTest(asset=asset):
-                self.assertIsNotNone(
-                    finders.find(asset), f"{asset} is not reachable by Django's staticfiles finders"
-                )
-
-    def test_vendored_flatpickr_license_identifies_the_mit_terms(self):
-        license_path = finders.find("dining_radar/gathering/vendor/flatpickr/LICENSE")
-        self.assertIsNotNone(license_path)
-
-        license_text = Path(license_path).read_text(encoding="utf-8")
-        self.assertIn("The MIT License (MIT)", license_text)
-
-    def test_vendored_flatpickr_does_not_reference_an_unvendored_source_map(self):
+    def test_flatpickr_assets_are_no_longer_vendored_or_discoverable(self):
         for asset in (
             "dining_radar/gathering/vendor/flatpickr/flatpickr.min.js",
             "dining_radar/gathering/vendor/flatpickr/flatpickr.min.css",
+            "dining_radar/gathering/vendor/flatpickr/LICENSE",
         ):
             with self.subTest(asset=asset):
-                asset_path = finders.find(asset)
-                self.assertIsNotNone(asset_path)
-                text = Path(asset_path).read_text(encoding="utf-8")
-                self.assertNotIn("sourceMappingURL=", text)
+                self.assertIsNone(
+                    finders.find(asset),
+                    f"{asset} is still discoverable -- flatpickr should be fully removed",
+                )
+        vendor_dir = (
+            PROJECT_ROOT
+            / "src"
+            / "dining_radar"
+            / "gathering"
+            / "static"
+            / "dining_radar"
+            / "gathering"
+            / "vendor"
+            / "flatpickr"
+        )
+        self.assertFalse(vendor_dir.exists(), f"{vendor_dir} should have been removed")
 
 
 class LeafletVendoringSourceTests(SimpleTestCase):

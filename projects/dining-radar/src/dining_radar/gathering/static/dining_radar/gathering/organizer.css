@@ -391,12 +391,17 @@
 .gth-btn-danger:hover {
   background: #fbf1ea;
 }
-.gth-delete-dialog {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 0.5rem);
-  z-index: 5;
-  width: max(16rem, 100%);
+/* --- confirmation dialogs (ADR-0054 decision 5): delete and finalize share
+   this same open-then-confirm shape and this same visual container -- only
+   the color and the inner content differ (delete = #8A3B2C, "失うものの
+   一覧"; finalize = green, "変わることの表", ADR-0056 decision 11). Renamed
+   2026-09-13 from this file's own delete-only .gth-delete-dialog* (the
+   finalize flow adopts it unchanged) -- no test id or data attribute is
+   read from these class names, only gathering.js's own rendering. */
+.gth-confirm-dialog {
+  position: relative;
+  width: 100%;
+  max-width: 26rem;
   background: #fff;
   border: 1px solid #dfe4de;
   border-radius: 0.625rem;
@@ -406,10 +411,61 @@
   flex-direction: column;
   gap: 0.75rem;
 }
-.gth-delete-dialog-text {
+.gth-delete .gth-confirm-dialog {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.5rem);
+  z-index: 5;
+  width: max(16rem, 100%);
+}
+.gth-confirm-dialog--danger {
+  border-top: 3px solid #8a3b2c;
+}
+.gth-confirm-dialog--finalize {
+  border-top: 3px solid #14614a;
+}
+.gth-confirm-dialog-text {
   margin: 0;
   font-size: 0.8125rem;
   color: #4b564e;
+}
+
+/* --- gathering-finalize-confirm-changes (ADR-0056 decision 11): a factual
+   3-row before/after table, not persuasive prose (ADR-0055 decision 3's
+   "no persuasive prose in production screens" principle). */
+.gth-changes-table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #dfe4de;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+.gth-changes-row {
+  display: grid;
+  grid-template-columns: minmax(0, 5.5rem) minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.625rem;
+  border-top: 1px solid #edf0eb;
+  font-size: 0.75rem;
+}
+.gth-changes-row:first-child {
+  border-top: 0;
+}
+.gth-changes-label {
+  font-weight: 700;
+  color: #17201b;
+}
+.gth-changes-before {
+  color: #77827a;
+}
+.gth-changes-arrow {
+  color: #a7b0a8;
+}
+.gth-changes-after {
+  font-weight: 600;
+  color: #14614a;
+  overflow-wrap: anywhere;
 }
 
 .gth-phase {
@@ -587,76 +643,230 @@
   flex: 1 1 12rem;
 }
 
-/* --- candidate-date calendars (adr/0049 decision 3 / adr/0051) ---------
-   Shared by addCandidateDateForm.calendar (gathering.js, .gth-calendar) and
-   organizerGatheringCreate.calendar (gathering_create.js,
-   .gathering-calendar) -- one ruleset, two container classes, since both
-   wrap the same vendored flatpickr markup the same way. flatpickr's own
-   required `<input>` is never attached to the document at all (see
-   gathering.js's own buildCandidateDateCalendar) -- `.flatpickr-calendar.
-   inline` is appended directly into this container instead, so there is no
-   separate anchor element to hide here. Day-cell sizing is bumped past
-   flatpickr's own ~39px default toward this file's own 44px tap-target
-   quality bar (see this file's header comment). Originally commented here
-   as "not gate-enforced for these screens (ADR-0020 decision 4(e) scopes
-   that gate to candidate-search only)" -- no longer true
-   (ui_invariants/test_render_invariants.py's GatheringScreenInvariantTests
-   extends that gate to these screens too, friction-log.md FR-035) -- the
-   `.dayContainer` override below closes the real, ~0.03px-under-44
-   shortfall that gate then caught: flatpickr's own vendored default fixes
-   `.dayContainer` at a hard-coded 307.875px regardless of this file's own
-   `.flatpickr-day` override below, and each day cell's flex-basis is a
-   percentage of *that* width (14.2857% = 1/7, flatpickr's own default,
-   unedited here) -- 307.875 / 7 is a hair under 44px. 308px (19.25rem)
-   divides evenly to exactly 44px per day and is otherwise indistinguishable
-   from flatpickr's own default width. */
-.gth-calendar,
-.gathering-calendar {
-  display: block;
-  /* showMonths: 3 (gathering.js/gathering_create.js's own
-     buildCandidateDateCalendar) renders wider than this screen's own
-     min(100% - 2rem, 60rem) column on narrow viewports -- horizontal
-     scroll (a common, well-understood pattern for wide multi-month
-     calendars) keeps every day cell simultaneously reachable rather than
-     clipping or attempting a wrap flatpickr's own flex layout does not
-     natively support gracefully. */
+/* --- candidate-date calendar (adr/0054 decision 3 / adr/0056 decision 3) -
+   Self-made "案B｜表" calendar (2026-09-13, replacing the vendored
+   flatpickr library this file used to style via `.flatpickr-*` selectors --
+   see git history for that prior ruleset). Shared by both
+   addCandidateDateForm.calendar (gathering.js) and
+   organizerGatheringCreate.calendar (gathering_create.js) -- both scripts
+   build the identical `.gth-cal*` markup shape (a verbatim-shape duplicate
+   of the same buildCandidateDateCalendar function, no shared module system
+   exists in this codebase), so one ruleset serves both screens' calendars.
+
+   Grid lines are drawn with `gap: 1px` + a background color showing
+   through, not a per-cell `border` -- this is the specific technique that
+   keeps a day cell's own clickable/measured box exactly 44px, per the
+   designer's own warning (案Bのマスは高さ46pxで、下限44pxまで2pxしかない。
+   枠線1pxを当たり判定の外に数える作りにすると割る): a per-cell border would
+   either shrink the cell's own content box (if counted inside a fixed
+   overall width) or need to be excluded from the 44px floor entirely
+   (violating the same floor this file states in its own header comment).
+   `.gth-cal-grid`'s own width (19.75rem = 316px) is chosen so 7 columns of
+   exactly 44px, 6 internal 1px gaps, and the container's own 1px border on
+   each side divide evenly: 7*44 + 6*1 + 2*1 = 316. `.gth-cal-scroll` (not
+   the grid itself) carries `overflow-x: auto` as a safety valve on
+   viewports narrower than that -- day cells never shrink below 44px, a
+   horizontal scrollbar appears instead (the same fallback this file's
+   former flatpickr ruleset already used for its own, wider 3-month grid).
+*/
+.gth-cal {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.gth-cal-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.gth-cal-month {
+  flex: 1 1 auto;
+  text-align: center;
+  font-weight: 700;
+  font-size: 0.9375rem;
+  color: #17201b;
+}
+.gth-cal-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 2.75rem;
+  height: 2.75rem;
+  min-width: 2.75rem;
+  flex-shrink: 0;
+  border: 1px solid #dfe4de;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #4b564e;
+  font-size: 1.125rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.gth-cal-nav:hover {
+  background: #f4f6f2;
+}
+.gth-cal-nav:focus-visible {
+  outline: 2px solid #14614a;
+  outline-offset: 2px;
+}
+.gth-cal-outside-badge {
+  flex-basis: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.375rem;
+  padding: 0 0.5rem;
+  border-radius: 0.25rem;
+  background: #e3efe9;
+  color: #14614a;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.gth-cal-scroll {
   overflow-x: auto;
 }
-.gth-calendar .flatpickr-calendar.inline,
-.gathering-calendar .flatpickr-calendar.inline {
-  width: auto;
-  max-width: none;
+.gth-cal-grid {
+  box-sizing: border-box;
+  width: 19.75rem;
+  min-width: 19.75rem;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  background: #dfe4de;
   border: 1px solid #dfe4de;
-  border-radius: 0.625rem;
-  box-shadow: none;
-  font-family: inherit;
-}
-.gth-calendar .dayContainer,
-.gathering-calendar .dayContainer {
-  width: 19.25rem;
-  min-width: 19.25rem;
-  max-width: 19.25rem;
-}
-.gth-calendar .flatpickr-day,
-.gathering-calendar .flatpickr-day {
-  height: 2.75rem;
-  line-height: 2.75rem;
-  max-width: 2.75rem;
   border-radius: 0.5rem;
+  overflow: hidden;
+  /* Keeps a touch-drag from also scrolling the page while the grid is
+     tracking a range selection (rangeSelection's own press-and-drag input
+     method). */
+  touch-action: none;
 }
-.gth-calendar .flatpickr-day.today,
-.gathering-calendar .flatpickr-day.today {
-  border-color: #14614a;
+.gth-cal-weekday {
+  height: 1.5rem;
+  background: #eaf0ea;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65625rem;
+  font-weight: 700;
+  color: #17201b;
 }
-.gth-calendar .flatpickr-day[data-selected="true"],
-.gathering-calendar .flatpickr-day[data-selected="true"] {
+.gth-cal-weekday--sun {
+  color: #8a3b2c;
+}
+.gth-cal-weekday--sat {
+  color: #4b6e86;
+}
+.gth-cal-day {
+  box-sizing: border-box;
+  height: 2.875rem;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: #17201b;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.gth-cal-day--weekend {
+  background: #f4f6f3;
+}
+.gth-cal-day--disabled {
+  background: #f7f9f6;
+  color: #cbd2c9;
+  cursor: not-allowed;
+}
+.gth-cal-day--disabled.gth-cal-day--weekend {
+  background: #f4f6f3;
+  color: #cbd2c9;
+}
+.gth-cal-day--today {
+  color: #a7b0a8;
+  box-shadow: inset 0 0 0 2px #c6cfc6;
+}
+.gth-cal-day--selected {
   background: #14614a;
-  border-color: #14614a;
   color: #fff;
+  font-weight: 700;
 }
-.gth-calendar .flatpickr-day.flatpickr-disabled,
-.gathering-calendar .flatpickr-day.flatpickr-disabled {
-  color: #c6cfc6;
+.gth-cal-day--off {
+  background: #fbfcfa;
+}
+.gth-cal-day:focus-visible {
+  outline: 2px solid #14614a;
+  outline-offset: -2px;
+}
+.gth-cal-picked {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #dfe4de;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+.gth-cal-picked-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 1.875rem;
+  padding: 0.3rem 0.625rem;
+  background: #eaf0ea;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #17201b;
+}
+.gth-cal-picked-note {
+  font-weight: 500;
+  color: #4b564e;
+}
+.gth-cal-picked-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.375rem;
+  min-height: 2.875rem;
+  padding: 0 0.375rem 0 0.625rem;
+  border-top: 1px solid #edf0eb;
+  background: #fff;
+}
+.gth-cal-picked-date {
+  font-size: 0.84375rem;
+  font-weight: 700;
+  color: #17201b;
+}
+.gth-cal-picked-time {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: #77827a;
+  margin-left: 0.2rem;
+}
+.gth-cal-picked-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 2.75rem;
+  height: 2.75rem;
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  color: #77827a;
+  font-size: 1rem;
+  cursor: pointer;
+}
+.gth-cal-picked-remove:hover {
+  color: #17201b;
+}
+.gth-cal-picked-remove:focus-visible {
+  outline: 2px solid #14614a;
+  outline-offset: 2px;
 }
 
 .gth-preview {
@@ -918,4 +1128,202 @@
 .gth-link-actions {
   display: flex;
   gap: 0.4rem;
+}
+
+/* --- gathering-participant-link-issuance-closed (ADR-0056 decision 11) --- */
+.gth-badge-muted {
+  display: inline-flex;
+  align-items: center;
+  height: 1.5rem;
+  padding: 0 0.625rem;
+  border-radius: 999px;
+  background: #f2f4f0;
+  border: 1px solid #dfe4de;
+  color: #77827a;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* --- removeCandidateDate (ADR-0056 decision 2) --------------------------- */
+.gth-date-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-height: 2.75rem;
+  padding: 0 0.75rem;
+  margin-left: auto;
+  border: 1px solid #e0c4bc;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #8a3b2c;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.gth-date-remove:hover {
+  background: #fbf1ea;
+}
+.gth-date-remove:focus-visible {
+  outline: 2px solid #8a3b2c;
+  outline-offset: 2px;
+}
+
+/* --- shortlistedShopVotes leader highlight (ADR-0055 decision 6) --------
+   Two distinct emphases on the same list (human decision, 2026-09-12):
+   the top-voted shop(s) get a soft green interior tint with a left-edge bar
+   (this ruleset); the shop the organizer is currently choosing to finalize
+   gets a dark outline instead (gathering-finalize-shop-select's own radio,
+   unaffected by this rule) -- the two never share one visual language so
+   a reader never has to guess which one a given highlight means. */
+.gth-shop-row--leader {
+  background: #f7fbf8;
+  box-shadow: inset 3px 0 0 #14614a;
+}
+.gth-shop-added-after-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 1.25rem;
+  padding: 0 0.5rem;
+  border-radius: 999px;
+  background: #eaf0ea;
+  color: #14614a;
+  font-size: 0.625rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* --- shortlistedShopVotes map markers (ADR-0055 decision 5 / ADR-0056
+   decision 5) -- same visual language as .gathering-shop-vote-map-marker-*
+   above, this list's own distinct test id/class per
+   unavailableControls.forbiddenTestIds (no shared test id across
+   contracts). */
+.gathering-shortlisted-shop-map-marker-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.gathering-shortlisted-shop-map-marker-visual {
+  display: block;
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 50%;
+  background: #14614a;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #14614a;
+}
+
+/* --- organizerDashboard.responseTable (ADR-0056 decision 1) -------------
+   One row per participant link, one chip per candidate date that link
+   answered -- this file does not fix the visual layout (contract's own
+   note: "whether an absent cell renders as an empty grid cell or is simply
+   not laid out"); chips wrap freely rather than aligning to a fixed
+   per-date column. */
+.gth-response-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.gth-response-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid #e7ebe6;
+  border-radius: 0.5rem;
+}
+.gth-response-row-name {
+  flex: 0 0 auto;
+  min-width: 5.5rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #17201b;
+}
+.gth-response-row-cells {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+.gth-response-cell {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: #f2f4f0;
+  border: 1px solid #dfe4de;
+  color: #4b564e;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.gth-response-cell--going {
+  background: #e3efe9;
+  border-color: #14614a;
+  color: #14614a;
+}
+.gth-response-cell--not_going {
+  color: #8a3b2c;
+}
+.gth-response-row-empty {
+  font-size: 0.75rem;
+  color: #a7b0a8;
+}
+
+/* --- persistent primary nav (ADR-0054 decision 1) ------------------------
+   Two locations that stay reachable from every organizer-facing gathering
+   screen -- "ランチ候補をさがす" (this app's own link into candidate-search)
+   and "ランチ会" (candidate-gathering-entry, normatively defined by
+   contracts/candidate-search-browser-interface.yaml -- see
+   organizer_primary_nav.html's own comment). Visible label text is never
+   hidden at any width (the production defect this decision names) --
+   unlike this file's own controls elsewhere, no narrow-viewport override
+   removes `.gathering-primary-nav-label`/`.candidate-gathering-entry-label`. */
+.gathering-primary-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.gathering-primary-nav-link,
+.candidate-gathering-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  box-sizing: border-box;
+  min-height: 2.75rem;
+  padding: 0 0.8rem;
+  border: 1px solid #c6cfc6;
+  border-radius: 0.6rem;
+  background: #fff;
+  color: #17201b;
+  font-weight: 650;
+  font-size: 0.8125rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.gathering-primary-nav-link:hover,
+.candidate-gathering-entry:hover {
+  background: #f4f6f2;
+}
+.gathering-primary-nav-link:focus-visible,
+.candidate-gathering-entry:focus-visible {
+  outline: 2px solid #14614a;
+  outline-offset: 2px;
+}
+.candidate-gathering-entry-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.125rem;
+  height: 1.125rem;
+  border-radius: 999px;
+  background: #14614a;
+  color: #fff;
+  font-size: 0.625rem;
+  font-weight: 700;
+  padding: 0 0.3rem;
 }
