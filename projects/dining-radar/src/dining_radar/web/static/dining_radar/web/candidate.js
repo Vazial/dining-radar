@@ -757,36 +757,74 @@
     if (currentGatheringContext) {
       var toggle = renderGatheringCardToggle(candidate);
       card.appendChild(toggle);
+      // ADR-0057 decision 3: cardToggle.lastShopNotice -- present on this
+      // same card exactly when its own cardToggle carries
+      // data-gathering-toggle-disabled-reason="last-shop". Shares
+      // syncGatheringCardLastShopNotice with the post-toggle update below
+      // so the initial render and every later update place this element
+      // identically (immediately after cardToggle).
+      syncGatheringCardLastShopNotice(
+        card,
+        toggle,
+        toggle.getAttribute("data-gathering-toggle-disabled-reason")
+      );
     }
 
     cardElementsByRef[candidate.candidateRef] = card;
     return card;
   }
 
-  // adr/0049 decision 8: disabled exactly when this card is not currently
-  // shortlisted and the gathering has already reached its 5-shop cap.
-  function gatheringCardToggleDisabled(isShortlisted) {
-    return (
+  // adr/0049 decision 8 (case 1, "limit-reached"): this card is not
+  // currently shortlisted and the gathering has already reached its 5-shop
+  // cap. ADR-0057 decision 1 (case 2, "last-shop", 2026-09-13 human ruling
+  // "押せない見た目にして理由を出す"): this card *is* currently shortlisted
+  // and is the gathering's last remaining shortlisted shop --
+  // setShortlistedShops' minItems: 1 (P2, adr/0041) would reject the empty
+  // list an activation would otherwise submit. The two cases are mutually
+  // exclusive (they require opposite isShortlisted values), so at most one
+  // ever applies to a given card. Returns null when the toggle is enabled.
+  //
+  // tests/js_unit/gathering_card_toggle_disabled_reason.test.js loads this
+  // exact block verbatim (delimited by the start/end markers below, mirrors
+  // participant.js's own request-sequencer extraction precedent, ADR-0014)
+  // to pin this boundary logic without a full jsdom layer.
+  // gathering-card-toggle-disabled-reason:start
+  function gatheringCardToggleDisabledReason(isShortlisted) {
+    if (
       !isShortlisted &&
       currentGatheringContext.shortlistedShopCount >= currentGatheringContext.maxShortlistedShops
-    );
+    ) {
+      return "limit-reached";
+    }
+    if (isShortlisted && currentGatheringContext.shortlistedShopCount <= 1) {
+      return "last-shop";
+    }
+    return null;
   }
+  // gathering-card-toggle-disabled-reason:end
 
   function renderGatheringCardToggle(candidate) {
     var isShortlisted = candidate.isShortlisted === true;
+    var disabledReason = gatheringCardToggleDisabledReason(isShortlisted);
+    var attrs = {
+      type: "button",
+      "data-testid": "candidate-card-gathering-toggle",
+      "data-candidate-control-category": "button",
+      "data-candidate-control-purpose": "candidate-card-gathering-toggle",
+      "data-gathering-shortlisted": isShortlisted ? "true" : "false",
+      "class": "candidate-gathering-toggle" + (isShortlisted ? " candidate-gathering-toggle--on" : ""),
+    };
+    // ADR-0057 decision 2: data-gathering-toggle-disabled-reason is present
+    // (with exactly one of "limit-reached"/"last-shop") only while the
+    // toggle is disabled -- absent (not merely empty) otherwise, since `el`
+    // skips any attribute whose value is null/undefined/false.
+    attrs["data-gathering-toggle-disabled-reason"] = disabledReason || false;
     var button = el(
       "button",
-      {
-        type: "button",
-        "data-testid": "candidate-card-gathering-toggle",
-        "data-candidate-control-category": "button",
-        "data-candidate-control-purpose": "candidate-card-gathering-toggle",
-        "data-gathering-shortlisted": isShortlisted ? "true" : "false",
-        "class": "candidate-gathering-toggle" + (isShortlisted ? " candidate-gathering-toggle--on" : ""),
-      },
+      attrs,
       [isShortlisted ? "この会に入れました" : "この会に入れる"]
     );
-    if (gatheringCardToggleDisabled(isShortlisted)) {
+    if (disabledReason) {
       button.disabled = true;
     }
     button.addEventListener("click", function (event) {
@@ -794,6 +832,53 @@
       toggleCardGatheringShortlist(candidate.candidateRef);
     });
     return button;
+  }
+
+  // ADR-0057 decision 3: gatheringMode.cardToggle.lastShopNotice
+  // (testId candidate-card-gathering-last-shop-notice, formControl: false).
+  // A non-interactive, non-`<button>` element -- were it somehow made
+  // interactive, activating it is not a recognized input and produces no
+  // public operation or state change, so it stays outside
+  // unavailableControls.allCandidateScreenFormControlsMustDeclarePurpose's
+  // scan (no data-candidate-control-purpose/category here), the same
+  // precedent gatheringEntry.entry.requirement and
+  // candidate-gathering-mode-band's navigation paragraph already document.
+  // The visible text is for the organizer alone (this contract's own
+  // content-only-Must, reviewer-prose-forbidden pattern) -- it conveys that
+  // at least one shop always stays in the gathering; the exact wording is
+  // an implementation choice the contract does not fix.
+  function renderGatheringCardLastShopNotice() {
+    return el(
+      "p",
+      {
+        "data-testid": "candidate-card-gathering-last-shop-notice",
+        "class": "candidate-gathering-toggle-last-shop-notice",
+      },
+      ["最低1件は残します"]
+    );
+  }
+
+  // ADR-0057 decision 3 (2026-09-13 human ruling): the notice sits "そばに"
+  // (beside) the toggle it explains -- shared by both the initial render
+  // (renderCard, immediately after this same card's own cardToggle is first
+  // appended) and every later toggleCardGatheringShortlist update, so a
+  // card that loads with exactly 1 shortlisted shop and a card that drops
+  // to 1 after a later toggle always end up with identical DOM order
+  // (cardToggle immediately followed by its own lastShopNotice, if any),
+  // rather than each path picking its own placement mechanism that could
+  // silently drift apart. `toggleEl` must already be attached to `cardEl`
+  // before this is called.
+  function syncGatheringCardLastShopNotice(cardEl, toggleEl, disabledReason) {
+    var existingNotice = cardEl.querySelector(
+      '[data-testid="candidate-card-gathering-last-shop-notice"]'
+    );
+    if (disabledReason === "last-shop") {
+      if (!existingNotice) {
+        toggleEl.insertAdjacentElement("afterend", renderGatheringCardLastShopNotice());
+      }
+    } else if (existingNotice) {
+      existingNotice.remove();
+    }
   }
 
   // adr/0049 decision 1 (toggleCardGatheringShortlist): the complete
@@ -863,8 +948,8 @@
         };
         // ADR-0056 decision 7: data-shortlist-limit-reached is "true"
         // exactly when shortlistedShopCount >= maxShortlistedShops, the
-        // same boundary gatheringCardToggleDisabled already computes per
-        // card, exposed once at the band level.
+        // same boundary gatheringCardToggleDisabledReason already computes
+        // per card, exposed once at the band level.
         var limitReached =
           currentGatheringContext.shortlistedShopCount >= currentGatheringContext.maxShortlistedShops;
         var band = root.querySelector('[data-testid="candidate-gathering-mode-band"]');
@@ -906,6 +991,13 @@
             }
           }
         }
+        // This response's fresh gatheringContext (reassigned above) is what
+        // gatheringCardToggleDisabledReason reads, so every currently-
+        // displayed card's disabled state/reason/notice is recomputed here
+        // -- not just the card whose toggle was activated -- since a single
+        // shortlistedShopCount change (e.g. crossing 5, or dropping to 1)
+        // can flip every other card's own boundary at once (ADR-0057,
+        // adr/0049 decision 8).
         orderedCardElements.forEach(function (cardEl) {
           var toggleEl = cardEl.querySelector('[data-testid="candidate-card-gathering-toggle"]');
           if (!toggleEl) {
@@ -917,7 +1009,19 @@
           toggleEl.setAttribute("data-gathering-shortlisted", isOn ? "true" : "false");
           toggleEl.textContent = isOn ? "この会に入れました" : "この会に入れる";
           toggleEl.classList.toggle("candidate-gathering-toggle--on", isOn);
-          toggleEl.disabled = gatheringCardToggleDisabled(isOn);
+          var disabledReason = gatheringCardToggleDisabledReason(isOn);
+          toggleEl.disabled = disabledReason !== null;
+          if (disabledReason) {
+            toggleEl.setAttribute("data-gathering-toggle-disabled-reason", disabledReason);
+          } else {
+            toggleEl.removeAttribute("data-gathering-toggle-disabled-reason");
+          }
+          // ADR-0057 decision 3: keep this card's lastShopNotice in
+          // lockstep with its own toggle's disabledReason -- shares
+          // syncGatheringCardLastShopNotice with renderCard's initial
+          // render (see that call site's own comment) so both paths always
+          // place this element identically.
+          syncGatheringCardLastShopNotice(cardEl, toggleEl, disabledReason);
           // ADR-0056 decision 4: keep this candidateRef's marker in
           // lockstep with its card -- a card and its marker always agree.
           var markerEl = markerElementsByRef[ref];

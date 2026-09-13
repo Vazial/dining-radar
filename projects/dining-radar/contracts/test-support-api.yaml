@@ -364,13 +364,26 @@
 #   `setCandidateProposalAcceptanceState`/`resetCandidateProposalAcceptanceState`
 #   の一覧には追加しない。
 #
+# 2026-09-13 追補10 (architect、ADR-0057。TDR-CS-22の一覧登録のみ——新しいseamは要さない):
+# - TDR-CS-22（会に入れた店が残り1件のときトグルは押せず理由が添えられる）は、TDR-CS-17/18/19/
+#   20/21と同じ理由で`GATHERING_OPEN_SHOP_WEEKDAY_MATCH`を選び、公開境界
+#   （createGathering・addCandidateDates・confirmCandidateDate）で組み立てた会のIDを
+#   `proposeCandidates`へ渡し、公開の`setShortlistedShops`を1件のshopIdで呼ぶだけで「会に入れた
+#   店がちょうど1件」の状態を作れる。新しいseamは要らない。
+# - `setCandidateProposalAcceptanceState`/`resetCandidateProposalAcceptanceState`の
+#   `x-acceptance-scenarios`へTDR-CS-22を追加した。`resetGatheringSchedulingAcceptanceState`の
+#   `x-acceptance-scenarios`へもTDR-CS-22を追加した（会の作成・確定を伴うため、他のTDR-CS-17〜21
+#   と同じくこのリセットの対象に含める）。
+# - `version`を1.5.9→1.5.10へ、`info.description`のシナリオ範囲表記を
+#   「TDR-CS-00 through TDR-CS-22」へ揃えた。
+#
 openapi: 3.0.3
 info:
   title: Dining Radar acceptance test-support API
-  version: 1.5.9
+  version: 1.5.10
   description: >-
     Acceptance-only setup and reset seams for TDR-AUTH-01 through TDR-AUTH-07,
-    TDR-CS-00 through TDR-CS-21, and TDR-GTH-01 through TDR-GTH-56.
+    TDR-CS-00 through TDR-CS-22, and TDR-GTH-01 through TDR-GTH-56.
     Browser actions and outcomes under test must use the public same-origin
     authentication, candidate-search, and gathering-scheduling boundaries;
     these operations are only for deterministic Given state and scenario
@@ -439,7 +452,7 @@ paths:
         [TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05, TDR-CS-06,
          TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12, TDR-CS-13,
          TDR-CS-14, TDR-CS-15, TDR-CS-16, TDR-CS-17, TDR-CS-18, TDR-CS-19,
-         TDR-CS-20, TDR-CS-21, TDR-GTH-08, TDR-GTH-09, TDR-GTH-26,
+         TDR-CS-20, TDR-CS-21, TDR-CS-22, TDR-GTH-08, TDR-GTH-09, TDR-GTH-26,
          TDR-GTH-27, TDR-GTH-38, TDR-GTH-39, TDR-GTH-44, TDR-GTH-45,
          TDR-GTH-52]
       requestBody:
@@ -466,7 +479,7 @@ paths:
         [TDR-CS-00, TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05,
          TDR-CS-06, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12,
          TDR-CS-13, TDR-CS-14, TDR-CS-15, TDR-CS-16, TDR-CS-17, TDR-CS-18,
-         TDR-CS-19, TDR-CS-20, TDR-CS-21, TDR-GTH-08, TDR-GTH-09,
+         TDR-CS-19, TDR-CS-20, TDR-CS-21, TDR-CS-22, TDR-GTH-08, TDR-GTH-09,
          TDR-GTH-26, TDR-GTH-27, TDR-GTH-38, TDR-GTH-39, TDR-GTH-44,
          TDR-GTH-45, TDR-GTH-52]
       responses:
@@ -615,7 +628,7 @@ paths:
          TDR-GTH-41, TDR-GTH-42, TDR-GTH-44, TDR-GTH-45, TDR-GTH-46,
          TDR-GTH-47, TDR-GTH-48, TDR-GTH-49, TDR-GTH-50, TDR-GTH-51,
          TDR-GTH-52, TDR-GTH-53, TDR-GTH-54, TDR-GTH-55, TDR-GTH-56,
-         TDR-CS-17, TDR-CS-18, TDR-CS-19, TDR-CS-20, TDR-CS-21]
+         TDR-CS-17, TDR-CS-18, TDR-CS-19, TDR-CS-20, TDR-CS-21, TDR-CS-22]
       responses:
         '204':
           description: Gathering-scheduling acceptance state is reset. No response body is returned.
