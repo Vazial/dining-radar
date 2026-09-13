@@ -555,36 +555,70 @@
     map.fitBounds(window.L.latLngBounds(boundsLatLngs), { padding: [24, 24] });
 
     // browserControlSurface.participantAnswer.finalizedView.decision.map's
-    // data-overlay-marker-count/-line-count/-ring-count (added 2026-09-13,
-    // spec .spec/11-a, closing 独立監査 audit-gathering-redesign-steps.md's
-    // Major 1): these three counters are this function's own running tally
-    // of overlay objects it actually adds to `map` below via the
-    // addOverlay*/helpers immediately below, incremented at the moment of
-    // each addition -- not a fixed string. A future line or ring drawn on
-    // this map without going through addOverlayLine/addOverlayRing would
-    // still add an untagged overlay Leaflet renders, but it would also
-    // leave the corresponding count unincremented, which is exactly the
-    // gap the audit flagged (scope's "描かない" claim had no DOM
-    // observation to fail against).
-    var overlayCounts = { marker: 0, line: 0, ring: 0 };
-    function addOverlayMarker(latlng, options) {
-      var marker = window.L.marker(latlng, options);
-      marker.addTo(map);
-      overlayCounts.marker += 1;
-      return marker;
+    // data-overlay-marker-count/-line-count/-ring-count (spec .spec/11-a,
+    // closing 独立監査 audit-gathering-redesign-steps.md's Major 1). A
+    // 2026-09-13 defect injection found that a running tally kept by this
+    // module's own add-helpers (incremented only when *this* code called
+    // them) can be bypassed by any code path that instead calls
+    // `L.polyline(...).addTo(map)` / `L.circle(...).addTo(map)` /
+    // `L.marker(...).addTo(map)` directly: the injected line/ring/marker
+    // rendered on the map but the counter stayed at 0, so the check
+    // stopped observing anything it claimed to observe. Reading counts
+    // off `map.eachLayer` instead -- Leaflet's own public API for listing
+    // every layer actually registered on the map -- counts whatever is
+    // really drawn, independent of how it got there, and does not touch
+    // the map library's internal DOM (this contract's scope forbids
+    // coupling to that; `eachLayer` is API, not DOM).
+    //
+    // Classification below is `instanceof` against Leaflet's own exported
+    // constructors, checked against this vendored leaflet.js's actual
+    // extend() chain before writing this code (do not assume Leaflet's
+    // class hierarchy):
+    //   L.Layer
+    //     L.Marker                      -- counted as "marker"
+    //     L.Path
+    //       L.CircleMarker              -- counted as "ring"
+    //         L.Circle                  -- counted as "ring" (is-a
+    //                                      CircleMarker)
+    //       L.Polyline                  -- counted as "line"
+    //         L.Polygon                 -- counted as "line" (is-a
+    //                                      Polyline; still path segments
+    //                                      drawn on the map, and this map
+    //                                      must draw none, so a polygon
+    //                                      must not slip through
+    //                                      uncounted either)
+    //     L.GridLayer
+    //       L.TileLayer                 -- neither Marker nor Path;
+    //                                      never counted (the base map
+    //                                      tile layer added above is
+    //                                      correctly excluded)
+    // (L.Circle is a L.CircleMarker but never a L.Polyline -- the two
+    // branches under L.Path are disjoint -- so "line" and "ring" never
+    // double-count the same layer.)
+    function countOverlaysByType() {
+      var counts = { marker: 0, line: 0, ring: 0 };
+      map.eachLayer(function (layer) {
+        if (layer instanceof window.L.Marker) {
+          counts.marker += 1;
+        } else if (layer instanceof window.L.CircleMarker) {
+          counts.ring += 1;
+        } else if (layer instanceof window.L.Polyline) {
+          counts.line += 1;
+        }
+      });
+      return counts;
     }
-    function addOverlayLine(latlngs, options) {
-      var line = window.L.polyline(latlngs, options);
-      line.addTo(map);
-      overlayCounts.line += 1;
-      return line;
+    function refreshOverlayCountAttributes() {
+      var counts = countOverlaysByType();
+      container.setAttribute("data-overlay-marker-count", String(counts.marker));
+      container.setAttribute("data-overlay-line-count", String(counts.line));
+      container.setAttribute("data-overlay-ring-count", String(counts.ring));
     }
-    function addOverlayRing(latlng, options) {
-      var ring = window.L.circle(latlng, options);
-      ring.addTo(map);
-      overlayCounts.ring += 1;
-      return ring;
-    }
+    // Recount on every future add/remove, not just once below -- if this
+    // map ever becomes mutable after first render, the attributes must
+    // not go stale. Leaflet fires both events on `map` for any
+    // addTo()/removeLayer() call, regardless of which code performs it.
+    map.on("layeradd layerremove", refreshOverlayCountAttributes);
 
     var shopIcon = window.L.divIcon({
       className: "gathering-shop-vote-map-marker-icon",
@@ -592,7 +626,8 @@
       iconSize: [22, 22],
       iconAnchor: [11, 11],
     });
-    var shopMarker = addOverlayMarker(shopLatLng, { icon: shopIcon, keyboard: false });
+    var shopMarker = window.L.marker(shopLatLng, { icon: shopIcon, keyboard: false });
+    shopMarker.addTo(map);
     var shopMarkerEl = shopMarker.getElement();
     if (shopMarkerEl) {
       shopMarkerEl.setAttribute("data-testid", "gathering-participant-decision-map-marker");
@@ -605,11 +640,12 @@
         iconSize: [20, 20],
         iconAnchor: [10, 10],
       });
-      var originMarker = addOverlayMarker([searchOrigin.latitude, searchOrigin.longitude], {
+      var originMarker = window.L.marker([searchOrigin.latitude, searchOrigin.longitude], {
         icon: originIcon,
         keyboard: false,
         alt: "検索基点",
       });
+      originMarker.addTo(map);
       var originEl = originMarker.getElement();
       if (originEl) {
         originEl.setAttribute("data-testid", "gathering-participant-decision-origin-marker");
@@ -618,13 +654,9 @@
     }
     // No line between the two markers and no walking-radius ring
     // (ADR-0056 decision 10): this product does not query a routing
-    // service and does not assert a walking path it cannot back with real
-    // routing data. addOverlayLine/addOverlayRing above exist purely so a
-    // future violation of that boundary would be counted -- neither is
-    // called on this path, so overlayCounts.line/ring both stay 0.
-    container.setAttribute("data-overlay-marker-count", String(overlayCounts.marker));
-    container.setAttribute("data-overlay-line-count", String(overlayCounts.line));
-    container.setAttribute("data-overlay-ring-count", String(overlayCounts.ring));
+    // service and does not assert a walking path it cannot back with
+    // real routing data.
+    refreshOverlayCountAttributes();
     decisionMapInstance = map;
   }
 
