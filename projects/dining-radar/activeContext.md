@@ -324,6 +324,21 @@ TDR-GTH-09 が削除済みの店の件数を参加者に示すと書いたまま
 - `totalActiveParticipantCount` を日程回答の画面でも見せるか（ADR-0056 未決4。契約は暫定で常に返す）。
 - 幹事の個人回答表に店の投票も含めるか（ADR-0056 未決1。契約は日程のみ）。
 
+### 独立監査（audit-gathering-redesign-steps.md）の Major 1・Minor 1件（契約 0.19.0）の実装
+
+`impl/gathering-redesign-overlay-and-date` ブランチで実装済み（L1〜L3 緑、L4/L5・
+`tests.acceptance` は未実行——orchestrator が統合後に回す）:
+
+- **Major 1**（`participantAnswer.finalizedView.decision.map` の重ね描き総数）:
+  `data-overlay-marker-count`/`-line-count`/`-ring-count` を追加した。固定文字列ではなく、
+  `participant.js` の `initializeDecisionMap` が地図へ実際にマーカー・線・輪を追加する
+  その場（`addOverlayMarker`/`addOverlayLine`/`addOverlayRing`）で数を数え、その場でしか
+  増えない値を属性に書き出す。線・輪を追加する経路は今回も無いので両方 0 のまま。
+- **Minor**（候補日カレンダーの「選んだ日の一覧」に `data-date`）:
+  `organizerGatheringCreate.calendar.removeSelected`・`addCandidateDateForm.calendar.
+  removeSelected` の両方（`gathering_create.js`・`gathering.js`、実装が重複している同名の
+  `buildCandidateDateCalendar`）に、日マス（dayCell）と同じ ISO 文字列の `data-date` を足した。
+
 ### 待っている間にやること
 
 - **`tests/ui_invariants` を会の画面群へ広げる**（FR-035）。9番の潰れたボタンは、幅と高さを

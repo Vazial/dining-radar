@@ -478,6 +478,7 @@
             type: "button",
             "data-testid": options.removeSelectedTestId,
             "data-gathering-control-purpose": options.removeSelectedPurpose,
+            "data-date": iso,
             "aria-label": formatDayLabel(iso) + " を外す",
             class: "gth-cal-picked-remove",
           },

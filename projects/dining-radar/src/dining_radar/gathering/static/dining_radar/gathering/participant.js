@@ -553,14 +553,46 @@
       boundsLatLngs.push([searchOrigin.latitude, searchOrigin.longitude]);
     }
     map.fitBounds(window.L.latLngBounds(boundsLatLngs), { padding: [24, 24] });
+
+    // browserControlSurface.participantAnswer.finalizedView.decision.map's
+    // data-overlay-marker-count/-line-count/-ring-count (added 2026-09-13,
+    // spec .spec/11-a, closing 独立監査 audit-gathering-redesign-steps.md's
+    // Major 1): these three counters are this function's own running tally
+    // of overlay objects it actually adds to `map` below via the
+    // addOverlay*/helpers immediately below, incremented at the moment of
+    // each addition -- not a fixed string. A future line or ring drawn on
+    // this map without going through addOverlayLine/addOverlayRing would
+    // still add an untagged overlay Leaflet renders, but it would also
+    // leave the corresponding count unincremented, which is exactly the
+    // gap the audit flagged (scope's "描かない" claim had no DOM
+    // observation to fail against).
+    var overlayCounts = { marker: 0, line: 0, ring: 0 };
+    function addOverlayMarker(latlng, options) {
+      var marker = window.L.marker(latlng, options);
+      marker.addTo(map);
+      overlayCounts.marker += 1;
+      return marker;
+    }
+    function addOverlayLine(latlngs, options) {
+      var line = window.L.polyline(latlngs, options);
+      line.addTo(map);
+      overlayCounts.line += 1;
+      return line;
+    }
+    function addOverlayRing(latlng, options) {
+      var ring = window.L.circle(latlng, options);
+      ring.addTo(map);
+      overlayCounts.ring += 1;
+      return ring;
+    }
+
     var shopIcon = window.L.divIcon({
       className: "gathering-shop-vote-map-marker-icon",
       html: '<span class="gathering-shop-vote-map-marker-visual"></span>',
       iconSize: [22, 22],
       iconAnchor: [11, 11],
     });
-    var shopMarker = window.L.marker(shopLatLng, { icon: shopIcon, keyboard: false });
-    shopMarker.addTo(map);
+    var shopMarker = addOverlayMarker(shopLatLng, { icon: shopIcon, keyboard: false });
     var shopMarkerEl = shopMarker.getElement();
     if (shopMarkerEl) {
       shopMarkerEl.setAttribute("data-testid", "gathering-participant-decision-map-marker");
@@ -573,12 +605,11 @@
         iconSize: [20, 20],
         iconAnchor: [10, 10],
       });
-      var originMarker = window.L.marker([searchOrigin.latitude, searchOrigin.longitude], {
+      var originMarker = addOverlayMarker([searchOrigin.latitude, searchOrigin.longitude], {
         icon: originIcon,
         keyboard: false,
         alt: "検索基点",
       });
-      originMarker.addTo(map);
       var originEl = originMarker.getElement();
       if (originEl) {
         originEl.setAttribute("data-testid", "gathering-participant-decision-origin-marker");
@@ -588,7 +619,12 @@
     // No line between the two markers and no walking-radius ring
     // (ADR-0056 decision 10): this product does not query a routing
     // service and does not assert a walking path it cannot back with real
-    // routing data.
+    // routing data. addOverlayLine/addOverlayRing above exist purely so a
+    // future violation of that boundary would be counted -- neither is
+    // called on this path, so overlayCounts.line/ring both stay 0.
+    container.setAttribute("data-overlay-marker-count", String(overlayCounts.marker));
+    container.setAttribute("data-overlay-line-count", String(overlayCounts.line));
+    container.setAttribute("data-overlay-ring-count", String(overlayCounts.ring));
     decisionMapInstance = map;
   }
 
