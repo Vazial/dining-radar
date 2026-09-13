@@ -284,17 +284,6 @@ _CALENDAR_MONTH_NEXT_BY_DAY_TEST_ID.update(
     }
 )
 _CALENDAR_MAX_MONTH_ADVANCES = 13
-# Which screen's own month-previous control to activate when rewinding the
-# calendar to its earliest reachable month (see
-# _rewind_calendar_to_earliest_month below) -- needed because a batch of
-# selected days spanning more than one month can leave the calendar showing
-# whichever month was last paged *forward* to (_advance_calendar_to_month_
-# containing is forward-only), so re-checking an earlier month's day cell
-# requires paging back first.
-_CALENDAR_MONTH_PREVIOUS_BY_DAY_TEST_ID: dict[str, str] = {
-    GATHERING_CREATE_CANDIDATE_DATE_DAY: GATHERING_CREATE_MONTH_PREVIOUS,
-    GATHERING_ADD_CANDIDATE_DATE_DAY: GATHERING_ADD_MONTH_PREVIOUS,
-}
 # Which screen's own removeSelected control observes that screen's day-cell
 # selection state across every month at once (removeSelected.requirement,
 # ADR-0056 decision 3: "regardless of which month is currently displayed") --
@@ -302,6 +291,12 @@ _CALENDAR_MONTH_PREVIOUS_BY_DAY_TEST_ID: dict[str, str] = {
 # reflects whichever one month the calendar last paged to (TDR-GTH-46
 # integration finding, orchestrator L4 run: a two-month-spanning batch's
 # earlier-month selection silently dropped out of a same-month-only read).
+# Each removeSelected instance also now carries its own data-date (contract
+# 0.19.0, closing 独立監査 audit-gathering-redesign-steps.md's Minor finding:
+# the prior month-rewind-and-revisit read this file used to correlate each
+# instance to a date rested on an assumption -- a 13-navigation round trip
+# always suffices -- this contract's monthNavigation does not guarantee a
+# floor for; see _selected_calendar_days below, which replaces that routine).
 _CALENDAR_REMOVE_SELECTED_BY_DAY_TEST_ID: dict[str, str] = {
     GATHERING_CREATE_CANDIDATE_DATE_DAY: GATHERING_CREATE_REMOVE_SELECTED,
     GATHERING_ADD_CANDIDATE_DATE_DAY: GATHERING_ADD_REMOVE_SELECTED,
@@ -1027,93 +1022,77 @@ class GatheringSchedulingBrowserDsl:
             f"{_CALENDAR_MAX_MONTH_ADVANCES} month-next activations"
         )
 
-    def _rewind_calendar_to_earliest_month(self, calendar_day_test_id: str) -> None:
-        """monthNavigation.previous (ADR-0054 decision 3 / ADR-0056 decision
-        3): pages the calendar backward as far as it will go, so a
-        subsequent ascending-order sweep with _advance_calendar_to_month_
-        containing (forward-only) can reach every month from a known
-        starting point -- needed because this contract does not expose the
-        currently-displayed month anywhere, so this suite cannot otherwise
-        tell whether a given date lies before or after the month currently
-        shown. Stops early if the previous control becomes disabled (this
-        contract does not fix whether the calendar has a lower bound); if it
-        does not, this simply pages back _CALENDAR_MAX_MONTH_ADVANCES times,
-        which _advance_calendar_to_month_containing's own identical bound
-        guarantees is enough to return to any date this suite selects
-        (itself never more than a couple of months out).
-        """
-        previous_month_test_id = require(
-            _CALENDAR_MONTH_PREVIOUS_BY_DAY_TEST_ID.get(calendar_day_test_id),
-            f"no month-previous control registered for {calendar_day_test_id}",
-        )
-        previous_button = by_test_id(self.page, previous_month_test_id)
-        for _ in range(_CALENDAR_MAX_MONTH_ADVANCES):
-            if not previous_button.is_enabled():
-                return
-            previous_button.click()
-
     def _select_calendar_days(self, calendar_day_test_id: str, isos: list[str]) -> None:
-        for iso in isos:
+        """Sorts ``isos`` ascending before paging (independent audit
+        audit-gathering-redesign-steps.md Minor 1): _advance_calendar_to_
+        month_containing only pages forward, so an unsorted or descending
+        ``isos`` would make an earlier date unreachable after a later one
+        already paged past it. Every current caller already passes isos in
+        ascending order, so this sort is defensive only -- it changes no
+        caller's observed behavior today, but removes the silent dependency
+        on callers maintaining that order themselves.
+        """
+        for iso in sorted(isos, key=lambda value: datetime.fromisoformat(value)):
             self._advance_calendar_to_month_containing(calendar_day_test_id, iso)
             cell = self._calendar_day_locator(calendar_day_test_id, iso)
             expect(cell).to_be_enabled()
             cell.click()
             expect(cell).to_have_attribute(CALENDAR_DAY_SELECTED_ATTR, "true")
 
-    def _selected_calendar_day_count(self, calendar_day_test_id: str) -> int:
-        """removeSelected.requirement (ADR-0056 decision 3): exactly one
-        instance exists per day currently carrying data-selected="true",
-        "regardless of which month is currently displayed" -- counting this
-        control (rather than day cells matching data-selected="true" in
-        whichever single month the calendar happens to be showing) reflects
-        the selection state across every month at once. See
-        _CALENDAR_REMOVE_SELECTED_BY_DAY_TEST_ID's own comment for why this
-        matters (TDR-GTH-46).
+    def _selected_calendar_days(self, calendar_day_test_id: str) -> set[str]:
+        """removeSelected.attributes.date (contract 0.19.0, closing 独立監査
+        audit-gathering-redesign-steps.md's Minor finding on TDR-GTH-46's
+        fragility): each removeSelected instance now carries its own
+        data-date, same value/format as dayCell.attributes.date, so the
+        full cross-month selected-day set can be read directly from this
+        list-like control -- no month navigation needed to verify. Replaces
+        this file's previous _selected_calendar_day_count (cardinality
+        only) + _rewind_calendar_to_earliest_month/per-date revisit combo
+        (both removed): that combination was logically sound (count
+        equality plus every expected date individually confirmed selected
+        rules out both a missing and an extra selection) but its revisit
+        half depended on a 13-navigation round trip always being enough to
+        reach every month, an assumption this contract's monthNavigation
+        does not guarantee a floor for (independent audit's own reading of
+        the risk: not a false-pass risk, but a real implementation could be
+        wrongly failed by it). Reading from removeSelected.attributes.date
+        directly is immune to that risk and unaffected by the calendar's
+        displayed month.
         """
         remove_selected_test_id = require(
             _CALENDAR_REMOVE_SELECTED_BY_DAY_TEST_ID.get(calendar_day_test_id),
             f"no remove-selected control registered for {calendar_day_test_id}",
         )
-        return self.page.locator(f'[data-testid="{remove_selected_test_id}"]').count()
+        items = self.page.locator(f'[data-testid="{remove_selected_test_id}"]')
+        return {
+            require(
+                items.nth(index).get_attribute(CALENDAR_DAY_DATE_ATTR),
+                f"{remove_selected_test_id} instance {index} has no {CALENDAR_DAY_DATE_ATTR}",
+            )
+            for index in range(items.count())
+        }
 
     def _assert_selected_calendar_days_equal(
         self, calendar_day_test_id: str, isos: list[str]
     ) -> None:
         """Confirms the calendar's currently-selected-day set equals exactly
-        ``isos`` (by date), reading it in a way that survives the calendar
-        having paged away from some of those dates' months
-        (_selected_calendar_day_count above). Cardinality equality plus
-        every expected date individually confirmed selected (paging to each
-        date's own month in turn) rules out both a missing selection and an
-        extra, unexpected one -- the same exact-set guarantee a same-month
-        DOM snapshot could give only when every date shared one month.
-        Rewinds to the earliest reachable month first, then visits each
-        date in ascending order, because _advance_calendar_to_month_
-        containing only pages forward -- without the rewind, a date whose
-        month is earlier than wherever the calendar was last left (e.g. by
-        an earlier, later-month selection in this same batch) would never
-        be reached.
+        ``isos`` (by date), read via _selected_calendar_days above -- a
+        direct set-equality comparison against removeSelected's own
+        data-date attributes, with no dependency on which month the
+        calendar currently displays.
         """
         expected_dates = {datetime.fromisoformat(iso).strftime("%Y-%m-%d") for iso in isos}
         self.assertions.assertEqual(
-            self._selected_calendar_day_count(calendar_day_test_id),
-            len(expected_dates),
-            f"{calendar_day_test_id}: cross-month selected-day count did not "
-            f"match expected {expected_dates}",
+            self._selected_calendar_days(calendar_day_test_id), expected_dates
         )
-        self._rewind_calendar_to_earliest_month(calendar_day_test_id)
-        for iso in sorted(isos, key=lambda value: datetime.fromisoformat(value)):
-            self._advance_calendar_to_month_containing(calendar_day_test_id, iso)
-            cell = self._calendar_day_locator(calendar_day_test_id, iso)
-            expect(cell).to_have_attribute(CALENDAR_DAY_SELECTED_ATTR, "true")
 
     def _assert_no_calendar_days_selected(self, calendar_day_test_id: str) -> None:
         """Cross-month equivalent of asserting every day cell reset to
-        data-selected="false" -- see _selected_calendar_day_count above for
-        why this reads the removeSelected control's count instead of a
+        data-selected="false" -- see _selected_calendar_days above for why
+        this reads removeSelected's own data-date attributes instead of a
         single month's day-cell snapshot.
         """
-        self.assertions.assertEqual(self._selected_calendar_day_count(calendar_day_test_id), 0)
+        self.assertions.assertEqual(self._selected_calendar_days(calendar_day_test_id), set())
 
     def open_add_candidate_date_form(self) -> None:
         """addCandidateDateOpen.requiredOutcome: reveals
@@ -2265,10 +2244,23 @@ class GatheringSchedulingBrowserDsl:
         retired single-activation finalizeSubmit, TDR-GTH-53): reveals
         gathering-finalize-confirm-dialog without itself calling
         finalizeGathering.
+
+        Calls the cross-cutting check while the confirm dialog is open --
+        the same FR-030 lesson delete_gathering_via_dashboard already
+        applies to gathering-delete-confirm-dialog (this file's own
+        precedent). Independent audit (audit-gathering-redesign-steps.md
+        Major 2) found gathering-finalize-confirm-dialog -- a new DOM
+        shape this round introduced (gathering-finalize-confirm-changes-
+        row/-row-before/-row-after) -- had never once been scanned while
+        open, including by TDR-GTH-53 itself, the one scenario that opens
+        it directly. Placed here rather than only in TDR-GTH-53 so every
+        caller of finalize_via_dashboard (TDR-GTH-33/34/35/36) gains the
+        same coverage without duplicating the call at each call site.
         """
         before_phase = self._read_gathering_phase_from_dom()
         by_test_id(self.page, FINALIZE_OPEN).click()
         wait_for_at_least_one(self.page, FINALIZE_CONFIRM_DIALOG)
+        self.assert_gathering_screen_has_no_forbidden_surfaces()
         self.assertions.assertEqual(self._read_gathering_phase_from_dom(), before_phase)
 
     def assert_finalize_confirm_dialog_shows_changes_summary(self) -> None:
@@ -3059,18 +3051,32 @@ class GatheringSchedulingBrowserDsl:
         """gathering-participant-decision-map's own scope (ADR-0056 decision
         10, TDR-GTH-52): exactly the decided shop's own pin and this
         participant's search origin -- **no route line or walking-radius
-        ring**. This contract defines no test id for a route line anywhere
-        in this file, and defines no ring surface of its own for this
-        screen either, so the only machine-checkable form of "no ring" this
-        suite can assert without inventing an attribute the contract does
-        not define is that candidate-walking-radius-ring (the one ring
-        concept this codebase defines anywhere, candidate-search-browser-
-        interface.yaml's own) does not leak into this map.
+        ring**.
+
+        **Strengthened (independent audit audit-gathering-redesign-steps.md
+        Major 1, contract 0.19.0 追補16)**: the candidate-walking-radius-ring
+        absence check below only ever proved this map does not leak *that*
+        one, unrelated contract's ring test id -- it could not detect an
+        implementation drawing its own untagged route line/ring (e.g. a raw
+        Leaflet Polyline/Circle carrying no test id at all). 0.19.0 closed
+        this by adding data-overlay-marker-count/-line-count/-ring-count to
+        gathering-participant-decision-map itself: the product's own running
+        count of overlays it drew, independent of whether a given overlay
+        kind additionally carries a test id. overlayMarkerCount MUST equal
+        "2" (marker + originMarker, forbidding a third untagged marker);
+        overlayLineCount/overlayRingCount MUST both equal "0" -- this is the
+        DOM-observable form of "描かない" that the walking-radius-ring check
+        alone could not provide. The walking-radius-ring check is kept
+        alongside, not replaced by, this strengthened check (never weaken an
+        existing assertion).
         """
         map_node = assert_present(self.assertions, self.page, PARTICIPANT_DECISION_MAP)
         self.assertions.assertEqual(
             map_node.locator('[data-testid="candidate-walking-radius-ring"]').count(), 0
         )
+        self.assertions.assertEqual(map_node.get_attribute("data-overlay-marker-count"), "2")
+        self.assertions.assertEqual(map_node.get_attribute("data-overlay-line-count"), "0")
+        self.assertions.assertEqual(map_node.get_attribute("data-overlay-ring-count"), "0")
         assert_present(self.assertions, self.page, PARTICIPANT_DECISION_MAP_MARKER)
         assert_present(self.assertions, self.page, PARTICIPANT_DECISION_ORIGIN_MARKER)
 

@@ -1,4 +1,12 @@
-"""Thin Gherkin-to-DSL mappings for TDR-GTH-01 through TDR-GTH-55."""
+"""Thin Gherkin-to-DSL mappings for TDR-GTH-01 through TDR-GTH-56.
+
+Updated 2026-09-13 (独立監査 audit-gathering-redesign-steps.md Minor 2,
+FR update pattern this codebase already applies to
+test_gathering_scheduling_acceptance.py's own module docstring): this
+file's docstring had not been updated to cover
+shop_vote_tally_total_active_participant_count_is (TDR-GTH-56), even
+though that mapping was already present.
+"""
 
 from __future__ import annotations
 
