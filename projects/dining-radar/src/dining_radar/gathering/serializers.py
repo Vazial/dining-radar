@@ -92,13 +92,29 @@ def serialize_issued_participant_link(request: HttpRequest, link: ParticipantLin
     return {"token": link.token, "url": participant_link_url(request, link)}
 
 
-def serialize_participant_link_summary(link: ParticipantLink) -> dict:
+def serialize_participant_link_summary(
+    link: ParticipantLink, schedule_responses: Sequence[tuple[object, str]] = ()
+) -> dict:
+    """``ParticipantLinkSummary`` (ADR-0036 decision 7, ``scheduleResponses`` added
+    ADR-0056 decision 1, 2026-09-12 human decision).
+
+    ``schedule_responses`` is a sequence of ``(candidate_date_id, status)``
+    pairs -- callers pass the entry for this specific link out of
+    ``services.participant_link_schedule_responses``'s whole-gathering
+    mapping (one query for every link, not one per link). Organizer-only:
+    this function's output is never reused for ``ParticipantView`` (the
+    participant-facing schema), which has no field this value could occupy.
+    """
     return {
         "id": str(link.id),
         "issuedAt": link.issued_at.isoformat(),
         "hasResponded": link.has_responded,
         "revoked": link.revoked,
         "displayName": link.display_name,
+        "scheduleResponses": [
+            {"candidateDateId": str(candidate_date_id), "status": status}
+            for candidate_date_id, status in schedule_responses
+        ],
     }
 
 
@@ -207,6 +223,13 @@ def serialize_participant_shop_vote_option(
     entry = {
         **_live_projected_display_fields(shop_lookup.get(shop.shop_id), shop.shop_id, origin),
         "yourVote": option.your_vote,
+        # Added 2026-09-13 (ADR-0056 decision 6, addendum 9): server-computed
+        # boolean mirroring the organizer-facing
+        # data-added-after-voting-started signal -- addedAt/votingStartedAt
+        # themselves are never exposed to this unauthenticated, signed-link
+        # participant (see services.ParticipantShopVoteOption's own
+        # docstring).
+        "addedAfterVotingStarted": option.added_after_voting_started,
     }
     # Always present (adr/0050 decision 2, 2026-09-08/09 human decision:
     # reverses this schema's original "answer first, then see others" gating
@@ -253,18 +276,21 @@ def serialize_open_shop_preview(
     }
 
 
-def serialize_schedule_question(
-    link: ParticipantLink, tally: services.CandidateDateTally, population_source: object
-) -> dict:
+def serialize_schedule_question(link: ParticipantLink, tally: services.CandidateDateTally) -> dict:
+    """``ParticipantScheduleQuestion``.
+
+    No longer carries ``openShopCount`` -- removed 2026-09-12 (ADR-0055
+    decision 1, human decision: a shop count did not help a participant
+    decide on a candidate date and only added to the screen's information
+    volume). The organizer-facing equivalent,
+    ``CandidateDateOpenShopPreview.openShopCount``
+    (``serialize_open_shop_preview`` above), is unchanged by this removal.
+    """
     candidate_date = tally.candidate_date
     your_response = services.participant_schedule_status(link, candidate_date)
-    open_population = services.open_shop_population_for_candidate_date(
-        candidate_date, population_source
-    )
     return {
         "candidateDateId": str(candidate_date.id),
         "startAt": candidate_date.start_at.isoformat(),
-        "openShopCount": len(open_population),
         "yourResponse": your_response,
         # Always present (adr/0050 decision 2, 2026-09-08/09 human decision:
         # reverses this schema's original "answer first, then see others"
@@ -343,9 +369,13 @@ def serialize_participant_view(link: ParticipantLink) -> dict:
         "gatheringTitle": gathering.title,
         "phase": gathering.phase,
         "displayName": link.display_name,
-        "scheduleQuestions": [
-            serialize_schedule_question(link, tally, population_source) for tally in tallies
-        ],
+        # Added 2026-09-12 (ADR-0056 decision 9, human decision): sizes a
+        # participant's own vote-tally bar against the whole invited group,
+        # not the count of respondents seen so far. Present unconditionally,
+        # in every phase (ADR-0056 未決事項4 -- whether to gate this by phase
+        # is left open, so this contract does not gate it).
+        "totalActiveParticipantCount": gathering.active_participant_link_count,
+        "scheduleQuestions": [serialize_schedule_question(link, tally) for tally in tallies],
         "confirmedCandidateDate": (
             gathering.confirmed_candidate_date.start_at.isoformat()
             if gathering.confirmed_candidate_date_id
