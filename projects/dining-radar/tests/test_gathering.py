@@ -421,18 +421,6 @@ class RemoveCandidateDateServiceTests(TestCase):
         with self.assertRaises(services.GatheringNotInSchedulingPhaseError):
             services.remove_candidate_date(self.user, self.gathering.id, other.id)
 
-    def test_rejected_for_the_already_confirmed_candidate_date_itself(self):
-        """ADR-0056 decision 2's CANDIDATE_DATE_CONFIRMED check, exercised directly at the
-        model layer -- unreachable through the public API today, since confirming a date
-        always moves ``phase`` away from SCHEDULING in the same call (see the service
-        function's own docstring)."""
-        target = self.candidate_dates[0]
-        self.gathering.confirmed_candidate_date = target
-        self.gathering.save(update_fields=["confirmed_candidate_date"])
-
-        with self.assertRaises(services.CandidateDateConfirmedError):
-            services.remove_candidate_date(self.user, self.gathering.id, target.id)
-
     def test_unknown_gathering_id_is_not_found(self):
         with self.assertRaises(services.GatheringNotFoundError):
             services.remove_candidate_date(self.user, uuid.uuid4(), self.candidate_dates[0].id)
@@ -2706,21 +2694,27 @@ class RemoveCandidateDateApiTests(GatheringOrganizerTestCase):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()["code"], "GATHERING_NOT_IN_SCHEDULING_PHASE")
 
-    def test_rejected_for_the_confirmed_candidate_date_itself(self):
-        """The CANDIDATE_DATE_CONFIRMED branch, exercised via direct model state (see
-        RemoveCandidateDateServiceTests.test_rejected_for_the_already_confirmed_candidate_date_itself
-        for why this state cannot arise through the public API)."""
+    def test_rejected_when_removing_the_already_confirmed_candidate_date_itself(self):
+        """Contract v0.13.0 correction: removing the very candidate date
+        ``confirmCandidateDate`` just confirmed is rejected with the same
+        ``GATHERING_NOT_IN_SCHEDULING_PHASE`` code as any other removal
+        attempted once the gathering has moved past SCHEDULING -- there is no
+        dedicated code for this case, since ``confirmCandidateDate`` always
+        advances `phase` away from SCHEDULING in the same call that confirms
+        the date, so this branch is reached through the public API alone,
+        with no direct model manipulation."""
         payload = self.create_gathering_via_api()
         gathering_id = payload["id"]
         target_id = payload["candidateDates"][0]["id"]
-        gathering = Gathering.objects.get(id=gathering_id)
-        gathering.confirmed_candidate_date_id = target_id
-        gathering.save(update_fields=["confirmed_candidate_date"])
+        self.post_json(
+            reverse("gathering:confirm-date", kwargs={"gathering_id": gathering_id}),
+            {"candidateDateId": target_id},
+        )
 
         response = self.delete_candidate_date(gathering_id, target_id)
 
         self.assertEqual(response.status_code, 409)
-        self.assertEqual(response.json()["code"], "CANDIDATE_DATE_CONFIRMED")
+        self.assertEqual(response.json()["code"], "GATHERING_NOT_IN_SCHEDULING_PHASE")
 
     def test_removing_down_to_zero_candidate_dates_is_accepted(self):
         payload = self.create_gathering_via_api(

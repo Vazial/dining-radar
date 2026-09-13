@@ -88,13 +88,6 @@ class DuplicateCandidateDateError(Exception):
     """
 
 
-class CandidateDateConfirmedError(Exception):
-    """``CANDIDATE_DATE_CONFIRMED`` (ADR-0056 decision 2, 2026-09-12 human decision):
-    ``removeCandidateDate`` was asked to remove the one candidate date
-    ``confirm_candidate_date`` has already confirmed for this gathering.
-    """
-
-
 class CandidateDateNotInFutureError(Exception):
     """``CANDIDATE_DATE_NOT_IN_FUTURE`` (adr/0049 decision 3): a candidate date's own
     calendar day is today or earlier by the server's clock.
@@ -306,26 +299,26 @@ def remove_candidate_date(
     before the candidate-date lookup, mirroring ``confirm_candidate_date``'s
     own check order above, so a caller sees ``GatheringNotInSchedulingPhaseError``
     rather than ``CandidateDateNotFoundError`` when both conditions hold at
-    once. Raises ``CandidateDateConfirmedError`` if ``candidate_date_id``
-    names the one candidate date already confirmed for this gathering --
-    unreachable through the public API today, since
-    ``confirm_candidate_date`` always advances ``phase`` away from
-    SCHEDULING in the same call that sets ``confirmed_candidate_date``, so
-    the phase check above already rejects every real caller first. This
-    check is kept anyway (the contract mandates the distinct
-    ``CANDIDATE_DATE_CONFIRMED`` code) as a defensive invariant rather than
-    a check this module assumes can never matter. Removing the last
-    remaining candidate date, leaving zero, is accepted -- the "at least one
-    candidate date" rule (``create_gathering``, adr/0035 decision 1) applies
-    only at creation time, the same asymmetry ``revoke_participant_link``
-    already has between issuance and revocation.
+    once. This is also, and always, the rejection an already-confirmed
+    candidate date receives: ``confirm_candidate_date`` sets
+    ``CandidateDate.isConfirmed`` true and advances ``phase`` away from
+    SCHEDULING in the same call, and no operation ever moves ``phase`` back
+    to SCHEDULING, so a candidate date can never have ``isConfirmed`` true
+    while ``phase`` is still SCHEDULING (contract v0.13.0 correction: an
+    earlier draft additionally defined a dedicated error/code for this exact
+    case, but that check's own precondition could never co-occur with the
+    phase check passing, so it was unreachable dead code and has been
+    removed rather than kept undocumented and unreachable). Removing the
+    last remaining candidate date, leaving zero, is accepted -- the "at
+    least one candidate date" rule
+    (``create_gathering``, adr/0035 decision 1) applies only at creation
+    time, the same asymmetry ``revoke_participant_link`` already has between
+    issuance and revocation.
     """
     gathering = _get_owned_gathering(organizer, gathering_id)
     if gathering.phase != GatheringPhase.SCHEDULING:
         raise GatheringNotInSchedulingPhaseError
     candidate_date = _get_candidate_date(gathering, candidate_date_id)
-    if candidate_date.id == gathering.confirmed_candidate_date_id:
-        raise CandidateDateConfirmedError
     candidate_date.delete()
     return gathering
 

@@ -98,11 +98,6 @@ _GATHERING_NOT_IN_SCHEDULING_PHASE = (
     "GATHERING_NOT_IN_SCHEDULING_PHASE",
     "This gathering has already moved past scheduling.",
 )
-_CANDIDATE_DATE_CONFIRMED = (
-    409,
-    "CANDIDATE_DATE_CONFIRMED",
-    "This candidate date is already confirmed and cannot be removed.",
-)
 _PARTICIPANT_LINK_NOT_FOUND = (
     404,
     "PARTICIPANT_LINK_NOT_FOUND",
@@ -169,8 +164,6 @@ def _organizer_error_response(error: Exception) -> JsonResponse:
         return _problem(*_CANDIDATE_DATE_NOT_FOUND)
     if isinstance(error, services.GatheringNotInSchedulingPhaseError):
         return _problem(*_GATHERING_NOT_IN_SCHEDULING_PHASE)
-    if isinstance(error, services.CandidateDateConfirmedError):
-        return _problem(*_CANDIDATE_DATE_CONFIRMED)
     if isinstance(error, services.ParticipantLinkNotFoundError):
         return _problem(*_PARTICIPANT_LINK_NOT_FOUND)
     if isinstance(error, services.ParticipantLinkAlreadyAnsweredError):
@@ -440,7 +433,6 @@ def candidate_date_detail(request, gathering_id, candidate_date_id):
         services.GatheringNotFoundError,
         services.GatheringNotInSchedulingPhaseError,
         services.CandidateDateNotFoundError,
-        services.CandidateDateConfirmedError,
     ) as error:
         return _organizer_error_response(error)
     return JsonResponse(serialize_gathering(gathering), status=200)
