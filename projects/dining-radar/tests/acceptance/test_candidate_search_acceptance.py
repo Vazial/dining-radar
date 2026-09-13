@@ -412,11 +412,21 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         """新規（2026-09-13、ADR-0056決定4、人間裁定「地図とカードの相互強調に、
         会に入れた状態の対応も揃える」）。同じdata-candidate-refで相関する
         カードのトグルと地図のピンが、常に同じ値を持つことを確かめる。
+
+        **修正（統合ラウンドで判明した不具合）**: 会に1件だけ入れてからその
+        1件を外そうとしていた。gathering-scheduling-api.yaml's
+        SetShortlistedShopsRequest.shopIds は minItems: 1 を定めており
+        （2026-09-03 の人間裁定 P2）、最後の1件を外す要求はサーバが400で
+        拒否し、画面は契約どおり状態を変えない（developer実測確認済み、
+        実装は正しい）。会に先に1件入れて土台を作ってから、2件目を
+        `data-candidate-ref` で追跡してトグルON/OFFすることで、外す時点で
+        常に1件が残っている状態にする。
         """
         self._sign_in()
         self.steps.lunch_candidates_can_be_proposed()
         gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会CS20")
         self.steps.organizer_opens_this_screen_in_gathering_mode(gathering_id)
+        self.steps.organizer_adds_a_candidate_to_the_gathering()
         candidate_ref = self.steps.organizer_toggles_a_shop_into_the_gathering_and_returns_its_ref()
         self.steps.map_marker_gathering_shortlisted_is(candidate_ref, True)
         self.steps.organizer_toggles_off_the_shop_by_ref(candidate_ref)
