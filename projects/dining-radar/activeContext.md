@@ -282,12 +282,21 @@ orchestrator が `scratchpad/apply_spec.py` で当てる（各アンカーがち
 
 | 契約 | 版 | 状態 |
 |---|---|---|
-| `gathering-scheduling-api.yaml` | v0.10.0 → **v0.12.0** | 完了（`c480593`・`78c8f53`） |
-| `gathering-scheduling-browser-interface.yaml` | 0.11.0 → **0.14.0** | 完了（`807f03d`・`d357252`） |
-| `candidate-search-browser-interface.yaml` | 1.8.0 → **1.9.0** | 完了（`65ab294`） |
-| `gathering-scheduling.feature`・`candidate-search.feature` | — | **進行中**（新規は TDR-GTH-49〜・TDR-CS-20〜） |
-| `test-support-api.yaml` | v1.5.7 | 未着手（シナリオの Given 次第） |
-| `candidate-search-api.yaml` | v1.3.0 | 変更不要（計画4節） |
+| `gathering-scheduling-api.yaml` | v0.10.0 → **v0.13.0** | 完了 |
+| `gathering-scheduling-browser-interface.yaml` | 0.11.0 → **0.17.0** | 完了 |
+| `candidate-search-browser-interface.yaml` | 1.8.0 → **1.10.0** | 完了 |
+| `gathering-scheduling.feature` | TDR-GTH 48 → **56** | 完了 |
+| `candidate-search.feature` | TDR-CS 19 → **21** | 完了 |
+| `test-support-api.yaml` | v1.5.7 → **v1.5.8** | 完了（新しい seam は不要だった。一覧の記録のみ） |
+| `candidate-search-api.yaml` | v1.3.0 | 変更不要 |
+
+**第2段は完了（2026-09-13）。**差分の指定を当てた回数は計14回、すべてアンカーが一意に一致し、
+意図しないキー・シナリオIDの消失はゼロ。途中で見つけて直した契約内の食い違い:
+TDR-GTH-09 が削除済みの店の件数を参加者に示すと書いたままだった／参加者に会の総人数を運ぶ
+観測面が無かった（→ TDR-GTH-56 と `data-total-active-participant-count`）／
+`CANDIDATE_DATE_CONFIRMED` が公開 API から到達不能だった（→ 削除し、実装からも除去）／
+検証対象シナリオの一覧が TDR-GTH-48 で止まっていた／それらを「今回は修正しない」と書いた
+注記が是正後も残っていた。
 
 **architect が計画・既存契約の誤りを実行前に見つけて止めた件（5件）**:
 `ShortlistedShop` への4フィールド追加は `adr/0044` で済んでいた／`GATHERING_NOT_IN_SCHEDULING_PHASE`
