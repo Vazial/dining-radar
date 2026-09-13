@@ -537,11 +537,50 @@
 #   （scheduleQuestion）でも見せるかどうかはADR-0056未決事項4のまま残る——本追補は店の投票の
 #   タリーにだけこの属性を要求し、日程回答の画面の扱いを縛らない。
 # - 新規シナリオTDR-GTH-56を`profiles.localAcceptance.verifiesScenarios`へ追加した。
+#
+# 2026-09-13 追補13 (architect、ADR-0056決定1・2・10・11、ADR-0055決定6。前回の報告が
+#   申し送った穴——`profiles.localAcceptance.verifiesScenarios`がTDR-GTH-49〜55を
+#   一覧にもnotVerifiedHereにも欠いていた——を、シナリオ1本ごとに観測面の実在を確かめた上で
+#   閉じる。contractVersion 0.15.0 -> 0.16.0):
+# - **TDR-GTH-49**（幹事は参加者ごとにどの候補日へ何と答えたかを見られる）:
+#   `organizerDashboard.responseTable`（行=gathering-response-table-row、
+#   セル=gathering-response-table-cell、data-candidate-date-id/data-response-status）
+#   で検証できる——本追補10で新設済みだった観測面が一覧に載っていなかっただけと確認した。
+# - **TDR-GTH-50/51**（候補日を削除できる／確定済みの候補日は削除できない）:
+#   `organizerDashboard.candidateDateList.removeCandidateDate`のpresenceRuleで
+#   検証できる——SCHEDULING局面の未確定候補日にだけ存在し、SELECTING_SHOP/FINALIZED
+#   局面では存在しない。境界条件を要素の不在で表す様式は、この契約がTDR-GTH-20の
+#   revoke観測（ADR-0055決定2）で既に確立している先例と同じである。
+# - **TDR-GTH-52**（確定後、参加者は決まった店の場所を地図で見られる）:
+#   `participantAnswer.finalizedView.decision`の`map`（marker+originMarker、
+#   経路の線・徒歩の範囲の輪を描かないというscope明記）・`data-walking-time-minutes`・
+#   `providerPageLink`で検証できる。
+# - **TDR-GTH-53**（確定前に確認の一段を見る）:
+#   `organizerDashboard.shortlistedShopVotes.finalizeOpen`→`finalizeConfirmDialog`
+#   （`changesTable`が参加者リンクの発行・参加者の画面・日と店の3行を要求する）→
+#   `finalizeConfirm`（成功でphaseがFINALIZEDへ進む）で検証できる。
+# - **TDR-GTH-54/55**（最有力の印）: `shortlistedShopVotes.list.item`の
+#   `data-current-leader`（0票の店は常にfalse、同票の店は同票全店true、それ以外false）
+#   で検証できる。
+# - 上記5シナリオ7件（TDR-GTH-49〜55）はいずれも実在する観測面で検証できると確認し、
+#   `profiles.localAcceptance.verifiesScenarios`へ追加した——`notVerifiedHere`へ回した
+#   項目は無い。
+# - **見つけた不整合（今回は修正しない、報告のみ）**: `candidateDateList.
+#   removeCandidateDate.presenceRule`は「確定済みの候補日は`CANDIDATE_DATE_CONFIRMED`で
+#   拒否される」という記述をSCHEDULING局面の場合分けとして残しているが、
+#   `gathering-scheduling-api.yaml`の2026-09-13追補10（本追補と同日、architect技術判断）は
+#   このコードが到達不能（`isConfirmed`が真になるのは常にphaseがSCHEDULINGを離れた後）と
+#   結論し、エラーコード自体をAPI契約から削除した。TDR-GTH-51自体は本追補が検証根拠とした
+#   「SELECTING_SHOP/FINALIZED局面では存在しない」という別の場合分け（`GATHERING_NOT_IN_
+#   SCHEDULING_PHASE`、実在するコード）で成立するため、この不整合はTDR-GTH-51の検証を
+#   妨げない。ただし`removeCandidateDate.presenceRule`本文の当該箇所は、この契約の記述が
+#   到達不能な場合分けを実在する場合分けであるかのように書いたままである——是正するか
+#   どうかは人間の判断を要する。
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.15.0'
+contractVersion: '0.16.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -585,7 +624,8 @@ profiles:
        TDR-GTH-33, TDR-GTH-34, TDR-GTH-35, TDR-GTH-36, TDR-GTH-37,
        TDR-GTH-38, TDR-GTH-39, TDR-GTH-40, TDR-GTH-41, TDR-GTH-42,
        TDR-GTH-43, TDR-GTH-44, TDR-GTH-45, TDR-GTH-46, TDR-GTH-47,
-       TDR-GTH-48, TDR-GTH-56]
+       TDR-GTH-48, TDR-GTH-49, TDR-GTH-50, TDR-GTH-51, TDR-GTH-52,
+       TDR-GTH-53, TDR-GTH-54, TDR-GTH-55, TDR-GTH-56]
     notVerifiedHere:
       - scenario: TDR-GTH-13
         reason: >-

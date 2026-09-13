@@ -338,8 +338,23 @@
 # - 帯の日付表示の書式（曜日を含めるか）・帯のスマホでの貼り付け表示は、いずれもREVISION-PLAN.md
 #   第3節の6項目にもADR-0054/0056の決定本文にも見当たらない——rendered-geometry/文言の実装選択
 #   として既存のwalkingTimeEstimateWording等と同じ扱いのまま、本改訂でも固定しない。
+#
+# 2026-09-13 追補 (architect、ADR-0056決定4・決定7。gathering-scheduling-browser-
+# interface.yaml側の同種の穴を報告した際、この契約の`profiles.localAcceptance.
+# verifiesScenarios`もTDR-CS-20・21を欠いたままだったことに気づき、同じ手順で閉じる。
+# contractVersionを1.9.0から1.10.0へ上げる):
+# - **TDR-CS-20**（会モードで店を会に入れると、対応する地図のピンにもその状態が示される）:
+#   `gatheringMode.mapMarker`の`data-gathering-shortlisted`（cardToggleと同じ値を
+#   同じdata-candidate-refで共有し、toggleCardGatheringShortlist成功のたびに追随して
+#   更新する）で検証できる。
+# - **TDR-CS-21**（会モードで5件に達すると、帯からその理由が分かる）:
+#   `gatheringMode.band`の`data-shortlist-limit-reached`
+#   （shortlistedShopCountがmaxShortlistedShops以上のとき"true"）で検証できる。
+# - いずれも実在する観測面で検証できると確認し、`profiles.localAcceptance.
+#   verifiesScenarios`へ追加した——`notVerifiedHere`へ回した項目は無い（このファイルは
+#   これまで`notVerifiedHere`節自体を持っていない）。
 
-contractVersion: '1.9.0'
+contractVersion: '1.10.0'
 kind: acceptance-browser-interface
 scope: candidate-search
 profiles:
@@ -350,7 +365,7 @@ profiles:
       [TDR-CS-00, TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05,
        TDR-CS-06, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12,
        TDR-CS-13, TDR-CS-14, TDR-CS-15, TDR-CS-16, TDR-CS-17, TDR-CS-18,
-       TDR-CS-19]
+       TDR-CS-19, TDR-CS-20, TDR-CS-21]
     invariant:
       - The profile is isolated and must never be selected by a public deployment.
       - Candidate state is supplied only through contracts/test-support-api.yaml.
