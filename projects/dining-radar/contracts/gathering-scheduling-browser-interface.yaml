@@ -565,22 +565,38 @@
 # - 上記5シナリオ7件（TDR-GTH-49〜55）はいずれも実在する観測面で検証できると確認し、
 #   `profiles.localAcceptance.verifiesScenarios`へ追加した——`notVerifiedHere`へ回した
 #   項目は無い。
-# - **見つけた不整合（今回は修正しない、報告のみ）**: `candidateDateList.
+# - **見つけた不整合（2026-09-13追補14で是正済み）**: `candidateDateList.
 #   removeCandidateDate.presenceRule`は「確定済みの候補日は`CANDIDATE_DATE_CONFIRMED`で
-#   拒否される」という記述をSCHEDULING局面の場合分けとして残しているが、
+#   拒否される」という記述をSCHEDULING局面の場合分けとして残していたが、
 #   `gathering-scheduling-api.yaml`の2026-09-13追補10（本追補と同日、architect技術判断）は
 #   このコードが到達不能（`isConfirmed`が真になるのは常にphaseがSCHEDULINGを離れた後）と
-#   結論し、エラーコード自体をAPI契約から削除した。TDR-GTH-51自体は本追補が検証根拠とした
+#   結論し、エラーコード自体をAPI契約から削除していたのに、この契約本文の場合分けは
+#   削除されないまま残っていた。TDR-GTH-51自体は本追補が検証根拠とした
 #   「SELECTING_SHOP/FINALIZED局面では存在しない」という別の場合分け（`GATHERING_NOT_IN_
-#   SCHEDULING_PHASE`、実在するコード）で成立するため、この不整合はTDR-GTH-51の検証を
-#   妨げない。ただし`removeCandidateDate.presenceRule`本文の当該箇所は、この契約の記述が
-#   到達不能な場合分けを実在する場合分けであるかのように書いたままである——是正するか
-#   どうかは人間の判断を要する。
+#   SCHEDULING_PHASE`、実在するコード）で成立していたため、この不整合はTDR-GTH-51の検証を
+#   妨げてはいなかったが、`removeCandidateDate.presenceRule`本文が到達不能な場合分けを
+#   実在する場合分けであるかのように書いたままなのは契約自身との矛盾だった。**2026-09-13
+#   追補14（commit 4c99644）で`CANDIDATE_DATE_CONFIRMED`の場合分けを`GATHERING_NOT_IN_
+#   SCHEDULING_PHASE`の場合分けへ合流させ、是正した**——詳細は下記追補14を参照。
+#
+# 2026-09-13 追補14 (architect、直前コミット4c99644が`removeCandidateDate.presenceRule`の
+#   到達不能だった`CANDIDATE_DATE_CONFIRMED`場合分けを`GATHERING_NOT_IN_SCHEDULING_PHASE`
+#   場合分けへ合流させたことを受けて、上記追補13が「今回は修正しない、報告のみ」と記録して
+#   いた不整合の注記を「是正済み」の形へ書き換える。contractVersion 0.16.0 -> 0.17.0):
+# - **`removeCandidateDate.presenceRule`の場合分けを是正した**（4c99644）:
+#   到達不能な`CANDIDATE_DATE_CONFIRMED`の場合分けを、実在する`GATHERING_NOT_IN_
+#   SCHEDULING_PHASE`の場合分けへ合流させた。TDR-GTH-51の検証根拠は変わらない。
+# - **上記追補13の「見つけた不整合」注記を書き換えた**——「是正するかどうかは人間の判断を
+#   要する」という結びはこの是正でもはや事実ではなくなったため、いつ・何によって閉じたかを
+#   明記する形に改めた（このファイルの既存の流儀、追補11が「参加者側は追加できない」を
+#   閉じたときと同じ書き方。古い注記は削除せず、閉じた経緯を併記して残した）。
+# - 契約本文・シナリオへの新規要求は無い——本追補はヘッダーの記述と契約の現状の整合を
+#   取るのみである。
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.16.0'
+contractVersion: '0.17.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
