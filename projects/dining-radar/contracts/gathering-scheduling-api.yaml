@@ -450,10 +450,23 @@
 # - **破壊的変更ではないためminor bump**（0.11.0 -> 0.12.0）: 新規フィールドはレスポンス側に
 #   足す必須プロパティであり、既存クライアントの送信データ・既存の解釈のいずれにも影響しない
 #   ——リクエスト側の必須化ではないためmajorへは上げない。
+#
+# 2026-09-13 追補10 (architect、CANDIDATE_DATE_CONFIRMEDの到達不能を是正。人間のチャット裁定を
+#   経ない、architectの技術判断による改訂である（meta/adr/0064の作法、adr/0037・adr/0039の
+#   先例に倣う）。version 0.12.0 -> 0.13.0):
+# - **removeCandidateDateのCANDIDATE_DATE_CONFIRMEDコードを廃止した**: confirmCandidateDateは
+#   `CandidateDate.isConfirmed`をtrueにするのと同じ呼び出しで`phase`を`SELECTING_SHOP`へ進め、
+#   `phase`を`SCHEDULING`へ戻す操作はどこにも無い。したがって`isConfirmed`がtrueである候補日は
+#   `phase`が`SCHEDULING`のままであることが決してなく、`removeCandidateDate`が確定済みの候補日を
+#   狙われたときは常に先に`GATHERING_NOT_IN_SCHEDULING_PHASE`が成立し、
+#   `CANDIDATE_DATE_CONFIRMED`は一度も投げられない到達不能コードだった。`CandidateDateConfirmed`
+#   レスポンス定義・対応するexample・`CandidateDate.isConfirmed`の説明文・エラーコード列挙・
+#   このヘッダのプロダクト概要から、いずれも削除した——到達不能なコードを契約に残さない
+#   （このコードをすでに実装しているバックエンドがあれば、実装側でも削除が要る）。
 openapi: 3.0.3
 info:
   title: Dining Radar Gathering Scheduling API
-  version: 0.12.0
+  version: 0.13.0
   description: >-
     Lets an authenticated organizer list their gatherings, create a gathering
     with candidate dates, add further candidate dates in a batch while
@@ -462,9 +475,11 @@ info:
     a candidate date that is today or in the past), remove a previously added
     candidate date while still scheduling, deleting its schedule responses
     along with it (removeCandidateDate, ADR-0056 decision 2, 2026-09-12 human
-    decision -- rejected once the named date has already been confirmed,
-    CANDIDATE_DATE_CONFIRMED, or once the gathering has moved past scheduling,
-    reusing GATHERING_NOT_IN_SCHEDULING_PHASE), issue signed participant
+    decision -- rejected if the gathering has moved past scheduling or if the
+    named date is already confirmed, since confirming a date always moves the
+    gathering past scheduling in the same call (2026-09-13 correction,
+    architect technical judgment); both cases reuse
+    GATHERING_NOT_IN_SCHEDULING_PHASE), issue signed participant
     links, list/recopy/revoke previously issued links (recopy and revoke
     remain available even after finalization, P4, adr/0041 -- only new
     issuance is blocked), permanently delete a gathering regardless of its
@@ -890,15 +905,22 @@ paths:
         accepted while the gathering's phase is SCHEDULING -- rejected with
         GATHERING_NOT_IN_SCHEDULING_PHASE (reusing the existing code
         addCandidateDates already uses, rather than introducing a new one)
-        once the gathering has moved to SELECTING_SHOP or FINALIZED, since
-        the set of candidate dates has stopped mattering once a date is
-        confirmed. Rejected with CANDIDATE_DATE_CONFIRMED if `candidateDateId`
-        names the one candidate date confirmCandidateDate has already
-        confirmed for this gathering (CandidateDate.isConfirmed true) --
-        removing it would leave Gathering.confirmedCandidateDateId pointing
-        at a candidate date that no longer exists. Removing a candidate date
-        down to zero remaining candidate dates is accepted -- the "at least
-        one candidate date" rule (createGathering, adr/0035 decision 1)
+        once the gathering has moved to SELECTING_SHOP or FINALIZED. **This
+        is also, and always, the rejection an already-confirmed candidate
+        date receives**: confirmCandidateDate sets CandidateDate.isConfirmed
+        true and advances `phase` to SELECTING_SHOP in the same call (see
+        confirmCandidateDate), and no operation ever moves `phase` back to
+        SCHEDULING, so a candidate date can never have isConfirmed true while
+        `phase` is still SCHEDULING. Corrected 2026-09-13 (architect
+        technical judgment, no human chat decision, adr/0037/adr/0039
+        precedent for this kind of self-audited fix): this operation
+        originally also defined a dedicated CANDIDATE_DATE_CONFIRMED code for
+        this case (2026-09-12 draft, ADR-0056 decision 2), but on review that
+        code's own precondition (isConfirmed true) can never co-occur with
+        the phase check passing, making it unreachable dead code -- removed
+        rather than left undocumented and unreachable. Removing a candidate
+        date down to zero remaining candidate dates is accepted -- the "at
+        least one candidate date" rule (createGathering, adr/0035 decision 1)
         applies only at creation time, not to a later removal, the same
         asymmetry revokeParticipantLink already has between issuance and
         revocation.
@@ -920,24 +942,7 @@ paths:
         '404':
           $ref: '#/components/responses/CandidateDateNotFound'
         '409':
-          description: >-
-            Either the gathering is not in the SCHEDULING phase
-            (GatheringNotInSchedulingPhase) or `candidateDateId` names the
-            already-confirmed candidate date (CandidateDateConfirmed); the
-            `code` field distinguishes the two.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProblemResponse'
-              examples:
-                notScheduling:
-                  value:
-                    code: GATHERING_NOT_IN_SCHEDULING_PHASE
-                    message: This gathering has already moved past scheduling.
-                confirmed:
-                  value:
-                    code: CANDIDATE_DATE_CONFIRMED
-                    message: This candidate date is already confirmed and cannot be removed.
+          $ref: '#/components/responses/GatheringNotInSchedulingPhase'
   /gatherings/{gatheringId}/candidate-dates/{candidateDateId}/open-shop-preview:
     get:
       operationId: previewOpenShopsForCandidateDate
@@ -1683,24 +1688,26 @@ components:
           example:
             code: CANDIDATE_DATE_NOT_FOUND
             message: This candidate date could not be found.
-    CandidateDateConfirmed:
-      description: >-
-        Added 2026-09-12 (ADR-0056 decision 2). The candidate date named by
-        removeCandidateDate is the one candidate date confirmCandidateDate
-        has already confirmed for this gathering (CandidateDate.isConfirmed
-        true), and therefore cannot be removed.
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ProblemResponse'
-          example:
-            code: CANDIDATE_DATE_CONFIRMED
-            message: This candidate date is already confirmed and cannot be removed.
     GatheringNotInSchedulingPhase:
       description: >-
         The requested operation is only accepted while the gathering's phase
         is SCHEDULING. Used by addCandidateDates and, since 2026-09-12,
-        removeCandidateDate (ADR-0056 decision 2).
+        removeCandidateDate (ADR-0056 decision 2) -- for removeCandidateDate
+        this single code also covers naming the already-confirmed candidate
+        date, since confirmCandidateDate always advances `phase` to
+        SELECTING_SHOP in the same call that sets CandidateDate.isConfirmed
+        true, so an already-confirmed candidate date is never reachable while
+        `phase` is still SCHEDULING. A dedicated CandidateDateConfirmed
+        response/code existed from 2026-09-12 (ADR-0056 decision 2) until
+        2026-09-13, when architect review found its own precondition
+        (isConfirmed true) could never co-occur with this code's own
+        precondition (phase SCHEDULING) failing to hold, making it
+        unreachable dead code -- removed rather than left as an
+        undocumented, never-thrown branch (architect technical judgment, no
+        human chat decision, adr/0037/adr/0039 precedent). **A backend
+        already implementing this contract's 2026-09-12 draft may define a
+        CANDIDATE_DATE_CONFIRMED code/branch that this correction retires --
+        that branch should be removed, not merely left unreachable.**
       content:
         application/json:
           schema:
@@ -2030,8 +2037,13 @@ components:
             chosen, if any. At most one candidate date in a given gathering
             may be true. A candidate date with isConfirmed true cannot be
             removed by removeCandidateDate -- it is rejected with
-            CANDIDATE_DATE_CONFIRMED instead (added 2026-09-12, ADR-0056
-            decision 2).
+            GATHERING_NOT_IN_SCHEDULING_PHASE instead (added 2026-09-12,
+            ADR-0056 decision 2; corrected 2026-09-13 to reuse this existing
+            code rather than the unreachable CANDIDATE_DATE_CONFIRMED this
+            field originally named -- isConfirmed can only be true once
+            `phase` has already left SCHEDULING, the same call that set it
+            having also advanced `phase`, so the SCHEDULING-only check
+            always rejects first).
     ShopLocation:
       type: object
       required: [latitude, longitude]
@@ -3099,7 +3111,7 @@ components:
           type: string
           enum:
             [AUTHENTICATION_REQUIRED, REQUEST_REJECTED, GATHERING_NOT_FOUND,
-             CANDIDATE_DATE_NOT_FOUND, CANDIDATE_DATE_CONFIRMED,
+             CANDIDATE_DATE_NOT_FOUND,
              GATHERING_NOT_IN_SCHEDULING_PHASE,
              GATHERING_NOT_IN_SELECTING_SHOP_PHASE, SHOP_VOTING_NOT_STARTED,
              INVALID_SHOP_SELECTION, DUPLICATE_CANDIDATE_DATE,
