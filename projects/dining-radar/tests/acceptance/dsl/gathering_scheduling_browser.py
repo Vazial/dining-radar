@@ -2079,41 +2079,66 @@ class GatheringSchedulingBrowserDsl:
         self.assertions.assertEqual(len(selected), n)
         return selected
 
-    def toggle_off_the_first_shortlisted_candidate_card(self) -> None:
-        """gatheringMode.cardToggle's own "press again to remove" behavior
-        (TDR-GTH-44, adr/0049 decision 8): toggling a currently-"true" card
-        removes it from the gathering's shortlist.
+    def toggle_one_not_yet_shortlisted_candidate_card_and_return_ref(self) -> str:
+        """gatheringMode.cardToggle's requiredOutcome (TDR-GTH-44, ADR-0057's
+        2026-09-13 Given rewrite: "すでに別の1件を会に入れている" -- this
+        screen may already show one shortlisted card when this is called,
+        so the target must be found by its own data-gathering-shortlisted
+        attribute rather than assumed to be at a fixed index (unlike
+        select_first_n_candidates_into_gathering above, whose n<=5 callers
+        all start from an empty shortlist).
 
-        **Fixed**: the prior version located its target with an attribute
-        filter (`[data-gathering-shortlisted="true"]`) and re-asserted on
-        that *same, still-attribute-filtered* Locator after clicking --
-        since a Playwright Locator re-resolves its selector on every
-        interaction rather than pinning the element it first found, once
-        the click flips the clicked card's own attribute to "false" that
-        locator no longer matches the clicked card at all; with more than
-        one card shortlisted, it silently starts matching a *different*
-        still-"true" card instead, so the following assertion polled a
-        moving target and never observed the clicked card's own change
-        (reproduced empirically: the request/response showed the click
-        correctly removed the intended shop, but the reused locator kept
-        reporting "true" from the other, untouched shortlisted card).
-        Locating by position (`nth`) instead pins a stable target: this
-        screen's own card order does not depend on shortlist membership
-        (candidate-search-browser-interface.yaml's own confirmed/nearest-
-        first ordering, unaffected by adr/0049's card-toggle addition), so
-        the same index continues to identify the same card across the
-        click's own re-render.
+        Scoped *within* the target card (mirrors candidate_search_browser.
+        py's identical toggle_a_not_yet_shortlisted_card_and_return_ref,
+        this pair of DSL files' established precedent for reading a card's
+        own data-candidate-ref rather than assuming index stability) so the
+        caller can later toggle the *same* card back off by ref even once a
+        second card is also shortlisted (see
+        toggle_off_candidate_card_by_ref below) -- an index- or
+        attribute-filtered locator would retarget once this click flips
+        this card's own attribute, matching a different still-"true" card
+        instead (the exact bug select_first_n_candidates_into_gathering's
+        sibling toggle_off_the_first_shortlisted_candidate_card, which this
+        replaces, was written to avoid for a single-shortlisted-card case
+        that no longer applies here now that the Given itself always
+        shortlists one first).
         """
-        all_toggles = self.page.locator(f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]')
+        cards = wait_for_at_least_one(self.page, CANDIDATE_CARD)
         target_index = next(
             index
-            for index in range(all_toggles.count())
-            if all_toggles.nth(index).get_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR) == "true"
+            for index in range(cards.count())
+            if cards.nth(index)
+            .locator(f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]')
+            .get_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR)
+            == "false"
         )
-        target = all_toggles.nth(target_index)
+        card = cards.nth(target_index)
+        candidate_ref = card.get_attribute("data-candidate-ref")
         before = self._read_gathering_mode_band()["shortlisted"]
-        target.click()
-        expect(target).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "false")
+        toggle = card.locator(f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]')
+        toggle.click()
+        expect(toggle).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "true")
+        self.assertions.assertEqual(self._read_gathering_mode_band()["shortlisted"], before + 1)
+        return candidate_ref
+
+    def toggle_off_candidate_card_by_ref(self, candidate_ref: str) -> None:
+        """Removes the specific card identified by ``candidate_ref`` (returned
+        by toggle_one_not_yet_shortlisted_candidate_card_and_return_ref
+        above) from the gathering's shortlist -- targeting by
+        data-candidate-ref rather than "the first shortlisted card" so this
+        removes the shop TDR-GTH-44's own When just added, not the Given's
+        pre-existing shortlisted shop (mirrors candidate_search_browser.py's
+        identical toggle_off_card_by_candidate_ref for the sibling TDR-CS-20
+        scenario on this same screen).
+        """
+        card = self.page.locator(
+            f'[data-testid="{CANDIDATE_CARD}"][data-candidate-ref="{candidate_ref}"]'
+        )
+        toggle = card.locator(f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]')
+        expect(toggle).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "true")
+        before = self._read_gathering_mode_band()["shortlisted"]
+        toggle.click()
+        expect(toggle).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "false")
         self.assertions.assertEqual(self._read_gathering_mode_band()["shortlisted"], before - 1)
 
     def search_again_on_shop_selection_entry(self) -> None:
