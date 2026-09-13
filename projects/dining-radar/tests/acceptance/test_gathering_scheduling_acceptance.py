@@ -363,10 +363,25 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         ran the FR-030 cross-cutting purpose-declaration scan with both
         buttons rendered and peek-results' tallies actually visible --
         added at the end, after every other action on this screen state.
+
+        **是正済み（2026-09-13、欠陥注入で判明: 「あとで答える」の確認の
+        再掲に未回答の候補日の項目まで描く欠陥が緑のまま通った）**: 元の
+        Given は候補日が1つだけで、しかもその1つに答え済みだったため、
+        未回答の候補日がそもそも存在せず、answerLater.confirmation.
+        scheduleItem の要件「No candidate date whose yourResponse is null
+        appears here」（0.19.0）を検査しようがなかった（既存の
+        answer_later_confirmation_reproduces_schedule_answer は答えた候補
+        日の項目が1件あり値が合うことしか見ていない）。候補日を2つにし、
+        1つだけ答えて、もう1つは未回答のまま「あとで答える」を開くことで、
+        未回答の候補日の項目が0件であること・再掲の日程項目の総数が答えた
+        数（1）と一致することを新たに検査する。
         """
         self._sign_in()
-        self.steps.organizer_has_a_scheduling_gathering("会later", [days_from_now_iso(3)])
+        self.steps.organizer_has_a_scheduling_gathering(
+            "会later", [days_from_now_iso(3), days_from_now_iso(10)]
+        )
         candidate_date_id = self.dsl.candidate_date_id_at(0)
+        unanswered_candidate_date_id = self.dsl.candidate_date_id_at(1)
         link = self.steps.a_participant_link_is_issued()
         self.steps.participant_opens_the_link(link)
         self.steps.participant_answers_the_candidate_date(candidate_date_id, "GOING")
@@ -378,6 +393,8 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         # decision 3, FR-034): reproduces the recorded answer instead of
         # asserting in prose that it is saved.
         self.steps.answer_later_confirmation_reproduces_schedule_answer(candidate_date_id, "GOING")
+        self.steps.answer_later_confirmation_has_no_schedule_item_for(unanswered_candidate_date_id)
+        self.steps.answer_later_confirmation_schedule_item_count_is(1)
         self.steps.participant_activates_peek_results_and_tallies_are_visible(candidate_date_id)
         self.steps.screen_has_no_forbidden_controls_or_disclosures()
 
@@ -1364,11 +1381,20 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         candidateDateList's own per-date aggregate for the first time (this
         contract's own header-comment note on the gap this closes) --
         constructs two participant links through the public boundary
-        (adr/0037 decision 1) and has each answer a *different* candidate
-        date, so the table's own per-cell correlation (not merely
-        per-row/per-column totals, both already covered elsewhere by
-        participant_link_list_matches/candidate_date_tally_is) is what this
-        test actually exercises.
+        (adr/0037 decision 1).
+
+        **是正済み（2026-09-13、欠陥注入で判明: ある参加者の行の中で候補日
+        セルどうしの答えを入れ替える欠陥が緑のまま通った）**: 元の Given は
+        リンク2本がそれぞれ別の候補日に1つずつ答えるだけだったため、どの行
+        にもセルが1つしかなく、行内のセル入れ替えで何も変わらなかった
+        （assert_response_table_matches 自体は link-id -> {date-id: status}
+        の完全一致比較で正しい。薄かったのは Given のほう）。link_one を
+        candidate_date_a・candidate_date_b の両方に別々の答えで応じさせ、
+        1つの行に2セルを持たせることで、行内のセル入れ替えが完全一致比較で
+        必ず落ちるようにする。link_two は candidate_date_b だけに答え、
+        candidate_date_a は未回答のまま残すことで、per-cell correlation
+        （本来の主眼）に加えて「未回答の候補日はセルごと不在」という契約の
+        形も引き続き検査する。
         """
         self._sign_in()
         self.steps.organizer_has_a_scheduling_gathering(
@@ -1379,6 +1405,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         link_one = self.steps.a_participant_link_is_issued()
         self.steps.participant_opens_the_link(link_one)
         self.steps.participant_answers_the_candidate_date(candidate_date_a, "GOING")
+        self.steps.participant_answers_the_candidate_date(candidate_date_b, "NOT_GOING")
         link_two = self.steps.a_participant_link_is_issued()
         self.steps.participant_opens_the_link(link_two)
         self.steps.participant_answers_the_candidate_date(candidate_date_b, "MAYBE")
@@ -1386,7 +1413,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         link_ids = self.steps.participant_link_ids_in_order()
         self.steps.response_table_matches(
             {
-                link_ids[0]: {candidate_date_a: "GOING"},
+                link_ids[0]: {candidate_date_a: "GOING", candidate_date_b: "NOT_GOING"},
                 link_ids[1]: {candidate_date_b: "MAYBE"},
             }
         )
