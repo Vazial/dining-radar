@@ -2655,6 +2655,43 @@ class GatheringSchedulingBrowserDsl:
         expect(item).to_have_count(1)
         expect(item).to_have_attribute(YOUR_RESPONSE_ATTR, expected_response)
 
+    def assert_answer_later_confirmation_has_no_schedule_item_for(
+        self, candidate_date_id: str
+    ) -> None:
+        """answerLater.confirmation.scheduleItem's own requirement (0.19.0):
+        "No candidate date whose yourResponse is null appears here -- this
+        surface echoes answers given, not every candidate date". **Added
+        (2026-09-13, 欠陥注入で判明: 未回答の候補日の項目まで描く欠陥が緑の
+        まま通った)**: the prior Given had only one, already-answered
+        candidate date, so an unanswered one never existed for this
+        requirement to be checked against. Same direct-locator convention
+        as assert_answer_later_confirmation_reproduces_schedule_answer
+        above, filtered to the candidate date this participant left
+        unanswered.
+        """
+        confirmation = assert_present(self.assertions, self.page, ANSWER_LATER_CONFIRMATION)
+        item = confirmation.locator(
+            f'[data-testid="{ANSWER_LATER_CONFIRMATION_SCHEDULE_ITEM}"]'
+            f'[{CANDIDATE_DATE_ID_ATTR}="{candidate_date_id}"]'
+        )
+        expect(item).to_have_count(0)
+
+    def assert_answer_later_confirmation_schedule_item_count(self, expected_count: int) -> None:
+        """answerLater.confirmation.scheduleItem's own cardinality (0.19.0):
+        "One element per ParticipantScheduleQuestion whose yourResponse is
+        non-null". Checks the *total* count of schedule items reproduced,
+        so an item rendered for an unanswered candidate date cannot hide
+        behind an otherwise-correct answered-date item -- neither the
+        per-date reproduction check nor the per-date absence check above
+        looks at the total, so this is what actually closes the gap the
+        same tester finding above (a defect that draws every candidate
+        date's item, not only the answered ones) would otherwise slip
+        through.
+        """
+        confirmation = assert_present(self.assertions, self.page, ANSWER_LATER_CONFIRMATION)
+        items = confirmation.locator(f'[data-testid="{ANSWER_LATER_CONFIRMATION_SCHEDULE_ITEM}"]')
+        expect(items).to_have_count(expected_count)
+
     def activate_peek_results_and_verify_tallies_are_visible(self, candidate_date_id: str) -> None:
         """peekResults.requiredOutcome: makes every currently reachable
         gathering-schedule-tally/gathering-shop-vote-tally simultaneously

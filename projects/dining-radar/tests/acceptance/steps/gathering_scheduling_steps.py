@@ -379,6 +379,12 @@ class GatheringSchedulingSteps:
             candidate_date_id, expected_response
         )
 
+    def answer_later_confirmation_has_no_schedule_item_for(self, candidate_date_id: str) -> None:
+        self.dsl.assert_answer_later_confirmation_has_no_schedule_item_for(candidate_date_id)
+
+    def answer_later_confirmation_schedule_item_count_is(self, expected_count: int) -> None:
+        self.dsl.assert_answer_later_confirmation_schedule_item_count(expected_count)
+
     def prior_responses_are_retained(self, before: dict[str, dict[str, object]]) -> None:
         self.dsl.assert_answer_state_unchanged(before)
 
