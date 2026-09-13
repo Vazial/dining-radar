@@ -1459,12 +1459,16 @@ browserControlSurface:
           take one away until now.
         presenceRule: >-
           Present once per gathering-candidate-date whose data-confirmed is
-          "false", and only while phase is SCHEDULING; absent for the
-          confirmed candidate date (gathering-scheduling-api.yaml rejects
-          removing it with CANDIDATE_DATE_CONFIRMED) and absent entirely
-          once phase is SELECTING_SHOP or FINALIZED (rejected with
-          GATHERING_NOT_IN_SCHEDULING_PHASE) -- expressed here as presence
-          rather than disabledState, the same shift this file's own
+          "false", and only while phase is SCHEDULING; absent entirely once
+          phase is SELECTING_SHOP or FINALIZED (rejected with
+          GATHERING_NOT_IN_SCHEDULING_PHASE) -- a request to remove an
+          already-confirmed candidate date is rejected the same way,
+          because confirming a candidate date moves phase off SCHEDULING in
+          the same operation and there is no operation that moves it back
+          (gathering-scheduling-api.yaml v0.13.0 追補10 removed the
+          unreachable CANDIDATE_DATE_CONFIRMED code that previously named
+          this case separately) -- expressed here as presence rather than
+          disabledState, the same shift this file's own
           participantLinkList.item.revoke makes 2026-09-12 (ADR-0055
           decision 2), not the disable-at-the-boundary convention
           addCandidateDateOpen above still uses for its own,
