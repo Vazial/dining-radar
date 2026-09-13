@@ -282,6 +282,47 @@ def add_candidate_dates(
     return gathering, candidate_dates
 
 
+def remove_candidate_date(
+    organizer: AbstractBaseUser, gathering_id: object, candidate_date_id: object
+) -> Gathering:
+    """``removeCandidateDate`` (ADR-0056 decision 2, 2026-09-12 human decision).
+
+    Removes ``candidate_date_id`` from this gathering. ``CandidateDate``'s
+    own ``on_delete=CASCADE`` relation to ``ScheduleResponse`` deletes every
+    schedule response recorded against the removed candidate date along
+    with it -- a removed candidate date's responses are never transferred to
+    any other candidate date (this settles product-brief.md §8's open
+    question; the contract's own operation description states this
+    explicitly, REVISION-PLAN.md 8節).
+
+    Only accepted while ``phase`` is SCHEDULING -- the phase check runs
+    before the candidate-date lookup, mirroring ``confirm_candidate_date``'s
+    own check order above, so a caller sees ``GatheringNotInSchedulingPhaseError``
+    rather than ``CandidateDateNotFoundError`` when both conditions hold at
+    once. This is also, and always, the rejection an already-confirmed
+    candidate date receives: ``confirm_candidate_date`` sets
+    ``CandidateDate.isConfirmed`` true and advances ``phase`` away from
+    SCHEDULING in the same call, and no operation ever moves ``phase`` back
+    to SCHEDULING, so a candidate date can never have ``isConfirmed`` true
+    while ``phase`` is still SCHEDULING (contract v0.13.0 correction: an
+    earlier draft additionally defined a dedicated error/code for this exact
+    case, but that check's own precondition could never co-occur with the
+    phase check passing, so it was unreachable dead code and has been
+    removed rather than kept undocumented and unreachable). Removing the
+    last remaining candidate date, leaving zero, is accepted -- the "at
+    least one candidate date" rule
+    (``create_gathering``, adr/0035 decision 1) applies only at creation
+    time, the same asymmetry ``revoke_participant_link`` already has between
+    issuance and revocation.
+    """
+    gathering = _get_owned_gathering(organizer, gathering_id)
+    if gathering.phase != GatheringPhase.SCHEDULING:
+        raise GatheringNotInSchedulingPhaseError
+    candidate_date = _get_candidate_date(gathering, candidate_date_id)
+    candidate_date.delete()
+    return gathering
+
+
 def delete_gathering(organizer: AbstractBaseUser, gathering_id: object) -> None:
     """``deleteGathering`` (adr/0050 decision 4): permanent, irreversible, any phase.
 
@@ -423,6 +464,36 @@ def candidate_dates_with_tallies(gathering: Gathering) -> list[CandidateDateTall
     ]
     tallies.sort(key=lambda tally: (-tally.going_count, tally.candidate_date.start_at))
     return tallies
+
+
+def participant_link_schedule_responses(
+    gathering: Gathering,
+) -> dict[uuid.UUID, list[tuple[uuid.UUID, str]]]:
+    """``ParticipantLinkSummary.scheduleResponses`` for every link on this gathering at once
+    (ADR-0056 decision 1, 2026-09-12 human decision).
+
+    Maps each ``ParticipantLink.id`` to the list of ``(candidate_date_id,
+    status)`` pairs it has answered -- a candidate date this link has not
+    answered is simply absent from its list (the same "absence means
+    unanswered" convention ``ParticipantShopVoteOption.yourVote`` already
+    uses for a single shop, generalized here to an array). One query for the
+    whole gathering, not one per link, so ``listParticipantLinks`` can build
+    its whole per-person/per-date table without a round trip per participant
+    (architect design judgment, ADR-0056 decision 1). Each link's own list is
+    ordered by its candidate date's ``start_at`` ascending, ties broken by
+    ``candidate_date_id`` ascending -- the contract does not mandate an
+    order for this array, but an explicit, deterministic one avoids the
+    query-order nondeterminism adr/0048 closes elsewhere in this module.
+    """
+    responses = ScheduleResponse.objects.filter(candidate_date__gathering=gathering).order_by(
+        "candidate_date__start_at", "candidate_date_id"
+    )
+    mapping: dict[uuid.UUID, list[tuple[uuid.UUID, str]]] = defaultdict(list)
+    for participant_link_id, candidate_date_id, status in responses.values_list(
+        "participant_link_id", "candidate_date_id", "status"
+    ):
+        mapping[participant_link_id].append((candidate_date_id, status))
+    return mapping
 
 
 def response_summary(gathering: Gathering) -> tuple[int, int]:
@@ -809,6 +880,16 @@ class ParticipantShopVoteOption:
     not_going_count: int
     responded_participant_count: int
     your_vote: str | None
+    # ``ParticipantShopVoteOption.addedAfterVotingStarted`` (ADR-0056 decision
+    # 6, 2026-09-13 addendum 9): true exactly when this shop's own `added_at`
+    # is strictly later than `Gathering.votingStartedAt` -- the identical
+    # computation the organizer-facing `data-added-after-voting-started`
+    # attribute performs, so both surfaces say "あとから入りました" for the
+    # same shop at the same time. Computed once here (never null -- this
+    # dataclass is only ever built once voting has started, so
+    # `votingStartedAt` is always non-null) rather than exposing `added_at`/
+    # `voting_started_at` themselves to the participant-facing schema.
+    added_after_voting_started: bool
 
 
 def participant_shop_vote_options(
@@ -828,6 +909,7 @@ def participant_shop_vote_options(
         for tally in shortlisted_shops_with_tallies(link.gathering, shop_lookup, origin)
     }
     submission = ShopVoteSubmission.objects.filter(participant_link=link).first()
+    voting_started_at = link.gathering.voting_started_at
     options = []
     for shop in shortlisted_shops_nearest_first(link.gathering, shop_lookup, origin):
         tally = tallies_by_shop_id[shop.shop_id]
@@ -843,6 +925,7 @@ def participant_shop_vote_options(
                 not_going_count=tally.not_going_count,
                 responded_participant_count=tally.responded_participant_count,
                 your_vote=your_vote,
+                added_after_voting_started=shop.added_at > voting_started_at,
             )
         )
     return options
