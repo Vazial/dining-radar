@@ -353,8 +353,31 @@
 # - いずれも実在する観測面で検証できると確認し、`profiles.localAcceptance.
 #   verifiesScenarios`へ追加した——`notVerifiedHere`へ回した項目は無い（このファイルは
 #   これまで`notVerifiedHere`節自体を持っていない）。
+#
+# 2026-09-13 追補 (architect、ADR-0057。会モードで会に入れた店が残り1件になったとき、その店の
+# トグルは押しても何も起きない見た目のまま残っていた（setShortlistedShopsがminItems: 1を要求する
+# ため、adr/0041 P2）。人間裁定（2026-09-13チャット選択肢UI「押せない見た目にして理由を出す」）を
+# 反映する。contractVersionを1.10.0から1.11.0へ上げる):
+# - **cardToggle.disabledStateを拡張する**（ADR-0057決定1）: data-gathering-shortlisted="true"
+#   のカードは、shortlistedShopCountが1以下（＝この店が最後の1件）のとき非活性にする——adr/0049
+#   決定8の「data-gathering-shortlisted="true"のカードは件数によらず常に活性のまま」という文を、
+#   最後の1件のときに限って反転する（それ以外は adr/0049 決定8のとおり活性のまま）。
+# - **cardToggle.disabledReasonを新設する**（ADR-0057決定2）: 属性
+#   `data-gathering-toggle-disabled-reason`（非活性のときだけ存在、値は"limit-reached"または
+#   "last-shop"）で、5件到達による非活性（既存）と残り1件による非活性（本改訂）を機械的に区別
+#   する。
+# - **cardToggle.lastShopNoticeを新設する**（ADR-0057決定3、testId
+#   `candidate-card-gathering-last-shop-notice`、`formControl: false`）: disabledReasonが
+#   "last-shop"のカードにだけ存在し、「最低1件は残します」の意を示す文言要素（文言自体は実装
+#   選択）。band.limitReachedが5件到達の理由を帯側から機械観測可能にしたのと対になる、残り1件の
+#   理由をカード側から機械観測可能にする面である。TDR-CS-22（candidate-search.feature）がこれを
+#   検証する。`profiles.localAcceptance.verifiesScenarios`へTDR-CS-22を追加した。
+# - `gatheringMode.requiredTestIds`へ`cardToggleLastShopNotice`を追加する。
+# - `setShortlistedShops`のminItems: 1（P2、adr/0041）自体は変更しない——gathering-scheduling-
+#   api.yamlの公開スキーマ・制約は無変更（説明文のみの是正はADR-0057決定5、同ファイル側の
+#   .spec参照）。
 
-contractVersion: '1.10.0'
+contractVersion: '1.11.0'
 kind: acceptance-browser-interface
 scope: candidate-search
 profiles:
@@ -365,7 +388,7 @@ profiles:
       [TDR-CS-00, TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05,
        TDR-CS-06, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12,
        TDR-CS-13, TDR-CS-14, TDR-CS-15, TDR-CS-16, TDR-CS-17, TDR-CS-18,
-       TDR-CS-19, TDR-CS-20, TDR-CS-21]
+       TDR-CS-19, TDR-CS-20, TDR-CS-21, TDR-CS-22]
     invariant:
       - The profile is isolated and must never be selected by a public deployment.
       - Candidate state is supplied only through contracts/test-support-api.yaml.
@@ -1187,6 +1210,7 @@ browserControlSurface:
     requiredTestIds:
       band: candidate-gathering-mode-band
       cardToggle: candidate-card-gathering-toggle
+      cardToggleLastShopNotice: candidate-card-gathering-last-shop-notice
     band:
       testId: candidate-gathering-mode-band
       attributes:
@@ -1257,17 +1281,71 @@ browserControlSurface:
         に入れる" toggle-label distinction; the exact visible label wording
         is an implementation choice this contract does not fix.
       disabledState: >-
-        Disabled exactly when data-gathering-shortlisted="false" and
-        response.gatheringContext.shortlistedShopCount is greater than or
-        equal to .maxShortlistedShops (adr/0049 decision 8: the organizer
-        has already reached the 5-shop cap, and this card is not one of the
-        5). A card whose data-gathering-shortlisted="true" remains enabled
-        regardless of the count, so removing a shortlisted shop to choose a
-        different one is never blocked. This mirrors deckNavigation.
-        disabledState's established convention elsewhere in this contract's
-        history and gathering-scheduling-browser-interface.yaml's own
+        Disabled in either of two mutually exclusive cases (never both for
+        the same card, since they require opposite attribute values). (1)
+        data-gathering-shortlisted="false" and response.gatheringContext.
+        shortlistedShopCount is greater than or equal to .
+        maxShortlistedShops (adr/0049 decision 8: the organizer has already
+        reached the 5-shop cap, and this card is not one of the 5). (2)
+        data-gathering-shortlisted="true" and response.gatheringContext.
+        shortlistedShopCount is less than or equal to 1 (ADR-0057, 2026-09-13
+        human ruling "押せない見た目にして理由を出す": this card is the
+        gathering's last remaining shortlisted shop, and
+        setShortlistedShops' minItems: 1 (P2, adr/0041) would reject the
+        empty list an activation would otherwise submit -- **this reverses
+        part of adr/0049 decision 8's sentence that a
+        data-gathering-shortlisted="true" card "remains enabled regardless
+        of the count"**; that sentence now holds only down to a
+        shortlistedShopCount of 2). In every other case
+        (data-gathering-shortlisted="true" with shortlistedShopCount
+        greater than 1, or data-gathering-shortlisted="false" with
+        shortlistedShopCount below maxShortlistedShops) the toggle is
+        enabled. This mirrors deckNavigation.disabledState's established
+        convention elsewhere in this contract's history and
+        gathering-scheduling-browser-interface.yaml's own
         gathering-schedule-response-select precedent: boundary conditions
         disable, they do not remove the element.
+      disabledReason:
+        attribute: data-gathering-toggle-disabled-reason
+        values: [limit-reached, last-shop]
+        presenceRule: >-
+          Present with exactly one of these two string values when
+          cardToggle is disabled by disabledState's case (1) or (2)
+          respectively; absent (the attribute itself, not merely present
+          and empty) when the toggle is enabled (ADR-0057 decision 2). This
+          lets acceptance distinguish the two disabled reasons without
+          re-deriving them from shortlistedShopCount and this card's own
+          data-gathering-shortlisted value.
+      lastShopNotice:
+        testId: candidate-card-gathering-last-shop-notice
+        formControl: false
+        presenceRule: >-
+          Present on a candidate-card exactly when that same card's
+          cardToggle carries data-gathering-toggle-disabled-reason=
+          "last-shop" (ADR-0057 decision 3); absent otherwise, including
+          when disabledReason is "limit-reached" -- that case already has
+          its own explanation at the band level (gatheringMode.band.
+          limitReached above); this element is the last-shop case's
+          card-level counterpart, placed on the card itself because the
+          reason is specific to that one card, not to the gathering as a
+          whole. Its visible text must convey that at least one shop always
+          stays in the gathering (2026-09-13 human ruling: "残り1件の店の
+          トグルは押せない見た目になり、そばに『最低1件は残します』と出ま
+          す"); the exact wording is an implementation choice this contract
+          does not fix, mirroring band's own visible-text Musts elsewhere
+          in this section. It is not a pressable/activatable element
+          (formControl: false) -- were it somehow made interactive,
+          activating it is not a recognized input and produces no public
+          operation or state change; it therefore stays outside
+          unavailableControls.allCandidateScreenFormControlsMustDeclarePurpose's
+          scan, the same precedent gatheringEntry.entry.requirement and
+          candidate-gathering-mode-band's navigation paragraph already
+          document for non-interactive/navigation-only elements. This text
+          is for the organizer alone -- it is not approval/explanatory
+          prose addressed to a reviewer (standing product rule; see this
+          contract's own budgetTierNoteObservation and
+          walkingTimeEstimateWording for the same content-only-Must,
+          reviewer-prose-forbidden pattern).
     mapMarker:
       testId: candidate-map-marker
       attribute: data-gathering-shortlisted

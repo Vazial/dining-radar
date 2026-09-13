@@ -479,10 +479,23 @@
 #   回答進捗）だけであり、`shopVoteQuestions`の集計は確定後も`decision`と共存し、参加者
 #   から失われるのは票を入れる操作だけであるという趣旨へ書き換えた（フィールドの型・
 #   required・値の意味はいずれも変更していない）。
+#
+# 2026-09-13 追補12 (architect、ADR-0057決定5。`Gathering.votingStartedAt`の説明文に残っていた
+#   古い記述の是正。ADR-0057自体の主題（候補検索ブラウザ契約のトグル非活性化）を点検する過程で
+#   見つけた、この裁定と直接矛盾する記述であり、追補10・11と同じく人間のチャット裁定を経ない
+#   architectの技術判断による改訂である（meta/adr/0064の作法）。version 0.14.0 -> 0.15.0):
+# - **`Gathering.votingStartedAt`の説明文を是正した**: 「店を外すだけで再び追加しなければ
+#   shortlistedShopsが再び空になりうるが、この契約はそれを特に妨げない」という趣旨の一文は、
+#   同じ`Gathering`スキーマの数行下にある`shortlistedShops`自身の説明文が既に訂正済みの誤り
+#   （実際には`SetShortlistedShopsRequest.shopIds`の`minItems: 1`、P2、2026-09-03、adr/0041に
+#   より、この配列が一度非空になった後は再び空になることは無い）を、`votingStartedAt`側にだけ
+#   訂正せず残していたものだった。ADR-0057が「会から店が0件になることはありません」という
+#   不変条件を明示的に再確認したのを機に、この一文を是正する——`SetShortlistedShopsRequest`・
+#   `shortlistedShops`自体のスキーマ・制約はいずれも変更しない（説明文のみの是正）。
 openapi: 3.0.3
 info:
   title: Dining Radar Gathering Scheduling API
-  version: 0.14.0
+  version: 0.15.0
   description: >-
     Lets an authenticated organizer list their gatherings, create a gathering
     with candidate dates, add further candidate dates in a batch while
@@ -2425,12 +2438,17 @@ components:
           description: >-
             Null until the organizer's first successful setShortlistedShops
             call (adr/0040); non-null and unchanged thereafter (replacing
-            the shortlist does not reset this timestamp -- only removing and
-            never re-adding any shops would make shortlistedShops empty
-            again, which this contract does not otherwise prevent, but
-            votingStartedAt itself is never cleared once set). Distinct from
-            `phase`, which does not change when voting starts (see
-            GatheringPhase's description).
+            the shortlist does not reset this timestamp). shortlistedShops
+            itself can never become empty once non-empty --
+            SetShortlistedShopsRequest's `minItems: 1` (P2, 2026-09-03,
+            adr/0041) forbids submitting an empty list, and ADR-0057
+            (2026-09-13) reaffirms this as a standing invariant ("会から店が
+            0件になることはありません") rather than an incidental gap this
+            contract merely happens not to close -- corrected here, this
+            sentence previously and incorrectly claimed the opposite. So
+            votingStartedAt, once set, has no "shortlist emptied" state to
+            be cleared for. Distinct from `phase`, which does not change
+            when voting starts (see GatheringPhase's description).
         shortlistedShops:
           type: array
           maxItems: 5
