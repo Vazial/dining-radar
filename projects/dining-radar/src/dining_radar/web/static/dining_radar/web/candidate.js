@@ -861,6 +861,12 @@
           shortlistedShopCount: (gathering.shortlistedShops || []).length,
           maxShortlistedShops: currentGatheringContext.maxShortlistedShops,
         };
+        // ADR-0056 decision 7: data-shortlist-limit-reached is "true"
+        // exactly when shortlistedShopCount >= maxShortlistedShops, the
+        // same boundary gatheringCardToggleDisabled already computes per
+        // card, exposed once at the band level.
+        var limitReached =
+          currentGatheringContext.shortlistedShopCount >= currentGatheringContext.maxShortlistedShops;
         var band = root.querySelector('[data-testid="candidate-gathering-mode-band"]');
         if (band) {
           band.setAttribute(
@@ -871,13 +877,33 @@
             "data-gathering-max-shortlisted",
             String(currentGatheringContext.maxShortlistedShops)
           );
+          band.setAttribute("data-shortlist-limit-reached", limitReached ? "true" : "false");
+          // Keep the band's own visible face (ADR-0054 decision 4's "数が
+          // 読めること自体が合図" design) and its returnToGatheringFromBand
+          // href in lockstep with renderGatheringModeBand's own state
+          // computation above -- band.href does not change (this is still
+          // the same gathering), only the modifier class and count text.
+          band.classList.remove(
+            "candidate-gathering-mode-band--empty",
+            "candidate-gathering-mode-band--filled",
+            "candidate-gathering-mode-band--full"
+          );
           var countEl = band.querySelector(".candidate-gathering-mode-band-count");
-          if (countEl) {
-            countEl.textContent =
-              "入れた店 " +
-              String(currentGatheringContext.shortlistedShopCount) +
-              " / " +
-              String(currentGatheringContext.maxShortlistedShops);
+          if (currentGatheringContext.shortlistedShopCount === 0) {
+            band.classList.add("candidate-gathering-mode-band--empty");
+            if (countEl) {
+              countEl.textContent = "会にもどる";
+            }
+          } else {
+            band.classList.add(
+              limitReached
+                ? "candidate-gathering-mode-band--full"
+                : "candidate-gathering-mode-band--filled"
+            );
+            if (countEl) {
+              countEl.textContent =
+                String(currentGatheringContext.shortlistedShopCount) + "件を入れて会にもどる";
+            }
           }
         }
         orderedCardElements.forEach(function (cardEl) {
@@ -892,6 +918,12 @@
           toggleEl.textContent = isOn ? "この会に入れました" : "この会に入れる";
           toggleEl.classList.toggle("candidate-gathering-toggle--on", isOn);
           toggleEl.disabled = gatheringCardToggleDisabled(isOn);
+          // ADR-0056 decision 4: keep this candidateRef's marker in
+          // lockstep with its card -- a card and its marker always agree.
+          var markerEl = markerElementsByRef[ref];
+          if (markerEl) {
+            markerEl.setAttribute("data-gathering-shortlisted", isOn ? "true" : "false");
+          }
         });
       })
       .catch(function () {});
@@ -1471,6 +1503,18 @@
       markerEl.setAttribute("data-testid", "candidate-map-marker");
       markerEl.setAttribute("data-candidate-ref", candidate.candidateRef);
       markerEl.setAttribute("data-selection-state", index === 0 ? "selected" : "unselected");
+      // ADR-0056 decision 4: mirrors cardToggle's own data-gathering-
+      // shortlisted for this same candidateRef -- present on every marker
+      // exactly when response.gatheringContext is non-null (gatheringMode),
+      // absent on every marker otherwise. A card and its marker always
+      // agree (renderGatheringCardToggle above computes the same value from
+      // the same candidate.isShortlisted field).
+      if (currentGatheringContext) {
+        markerEl.setAttribute(
+          "data-gathering-shortlisted",
+          candidate.isShortlisted === true ? "true" : "false"
+        );
+      }
       markerEl.setAttribute("role", "button");
       markerEl.setAttribute("tabindex", "0");
       markerEl.setAttribute("data-candidate-control-category", "button");
@@ -2219,28 +2263,54 @@
   // exception for the empty/no-results outcome (gatheringMode.band's own
   // presenceRule names only response.gatheringContext, not any other
   // render-state condition).
+  //
+  // ADR-0054 decision 4 / ADR-0056 decision 7 (2026-09-12 human ruling): the
+  // band is also gatheringMode's *sole* return path back to the gathering --
+  // no separate "戻る"/confirm control exists, because a shop already saves
+  // the instant its toggle is activated (a later "confirm and return" would
+  // falsely imply an unsaved state). Implemented as a plain `<a href>`
+  // (browserActions.returnToGatheringFromBand's own "navigates to
+  // gathering-scheduling-browser-interface.yaml's browserEntry.
+  // organizerDashboard" requirement), not a `<button>` -- this keeps it
+  // outside unavailableControls.allCandidateScreenFormControlsMustDeclare
+  // Purpose's scan, mirroring candidate-gathering-entry's own precedent.
+  // The band's own visible face changes with the count itself, so the
+  // number reaching (or not reaching) the cap is the return signal: 0件=
+  // white outline "会にもどる"; 1〜4件=filled "N件を入れて会にもどる";
+  // 5件=a further, distinct fill color (ADR-0056 decision 7's own
+  // data-shortlist-limit-reached mirrors this same boundary).
   function renderGatheringModeBand(context) {
     if (!context) {
       return null;
     }
+    var limitReached = context.shortlistedShopCount >= context.maxShortlistedShops;
+    var stateClass;
+    var countText;
+    if (context.shortlistedShopCount === 0) {
+      stateClass = "candidate-gathering-mode-band--empty";
+      countText = "会にもどる";
+    } else if (limitReached) {
+      stateClass = "candidate-gathering-mode-band--full";
+      countText = String(context.shortlistedShopCount) + "件を入れて会にもどる";
+    } else {
+      stateClass = "candidate-gathering-mode-band--filled";
+      countText = String(context.shortlistedShopCount) + "件を入れて会にもどる";
+    }
     return el(
-      "div",
+      "a",
       {
+        href: "/gatherings/" + encodeURIComponent(context.gatheringId) + "/",
         "data-testid": "candidate-gathering-mode-band",
         "data-gathering-shortlisted-count": String(context.shortlistedShopCount),
         "data-gathering-max-shortlisted": String(context.maxShortlistedShops),
-        "class": "candidate-gathering-mode-band",
+        "data-shortlist-limit-reached": limitReached ? "true" : "false",
+        "class": "candidate-gathering-mode-band " + stateClass,
       },
       [
         el("span", { "class": "candidate-gathering-mode-band-condition" }, [
           formatGatheringConfirmedDate(context.confirmedCandidateDate) + "に開いている店",
         ]),
-        el("span", { "class": "candidate-gathering-mode-band-count" }, [
-          "入れた店 " +
-            String(context.shortlistedShopCount) +
-            " / " +
-            String(context.maxShortlistedShops),
-        ]),
+        el("span", { "class": "candidate-gathering-mode-band-count" }, [countText]),
       ]
     );
   }
@@ -2278,6 +2348,7 @@
     // toggleCardGatheringShortlist below look up each currently-displayed
     // card's own Candidate.shopId without inventing a new DOM attribute.
     currentGatheringContext = body.gatheringContext || null;
+    updateGatheringEntryActiveState();
     currentCandidatesByRef = {};
     (body.candidates || []).forEach(function (candidate) {
       currentCandidatesByRef[candidate.candidateRef] = candidate;
@@ -2446,6 +2517,28 @@
     // condition summary) whenever a proposal was already shown -- see
     // renderProblem's `additive` parameter.
     renderProblem(body.code, body.message, hasDisplayedProposal);
+  }
+
+  // ADR-0056 decision 8: candidate-gathering-entry.activeGathering --
+  // data-active-gathering-id is present, with the current gathering's
+  // opaque id as its exact string value, exactly when this screen was
+  // reached in gathering mode (response.gatheringContext non-null);
+  // absent -- the attribute itself missing, not merely empty -- on the
+  // ordinary, non-gathering screen this same entry element also serves.
+  // Independent of badge.presenceRule below (both live on the same
+  // element but govern different things). Called synchronously from
+  // renderResult (no network round trip of its own needed -- the value
+  // already lives on currentGatheringContext).
+  function updateGatheringEntryActiveState() {
+    var entry = document.querySelector('[data-testid="candidate-gathering-entry"]');
+    if (!entry) {
+      return;
+    }
+    if (currentGatheringContext) {
+      entry.setAttribute("data-active-gathering-id", currentGatheringContext.gatheringId);
+    } else {
+      entry.removeAttribute("data-active-gathering-id");
+    }
   }
 
   // contracts/candidate-search-browser-interface.yaml's gatheringEntry

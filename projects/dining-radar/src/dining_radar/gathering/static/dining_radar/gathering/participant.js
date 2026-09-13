@@ -128,6 +128,70 @@
  * (gathering.js's tentativelySelectCandidateDate already used this same
  * shape of guard, ad hoc, for one single call; this generalizes it to
  * every participant-facing write plus the initial load).
+ *
+ * 2026-09-13 revision (ADR-0054/0055/0056, human ruling 2026-09-12 chat,
+ * 5-bucket redesign of the gathering screen group, buckets 2/4/5):
+ * - **All three approval-seeking prose strings FR-034 named are deleted
+ *   outright, with no replacement sentence** -- "ほかの人の回答も見えています"
+ *   (both the done-card hint and the open-card mask, ADR-0055 decision 1
+ *   context), "ここまでの回答は保存されています。またあとで、続きから答え
+ *   られます。" (answerLater's old confirmation prose), and "幹事から届いた
+ *   リンクで開いています。ログインも名前も要りません。名前はあとからでも
+ *   付けられます。答えは何度でも変えられます。" (the screen's old fine
+ *   print, renderFinePrint, removed along with the function itself).
+ * - **openShopCount is gone**: gathering-scheduling-api.yaml v0.12.0 no
+ *   longer sends it on ParticipantScheduleQuestion (ADR-0055 decision 1) --
+ *   this file no longer reads question.openShopCount or renders
+ *   data-open-shop-count/"この日に開いている店 N件" anywhere.
+ * - **答え結果をのぞく／あとで答える no longer share a row** (FR-034's own
+ *   repro: a `<p>` confirmation sibling squeezed both flex:1 buttons under
+ *   44px wide). peekResults now renders at the very top of the scrollable
+ *   body (renderPeekResultsButton); answerLater renders as the very last
+ *   element (renderAnswerLaterButton) -- the two are never DOM siblings in
+ *   the same flex row again.
+ * - **answerLater's confirmation is an overlapping surface, not an inline
+ *   sentence** (renderAnswerLaterOverlay): a fixed-position scrim+panel
+ *   listing this participant's own already-recorded answers (schedule
+ *   responses and shop votes), reproducing scheduleQuestion.attributes'/
+ *   shopVoteQuestion.attributes' own data-candidate-date-id/data-your-
+ *   response and data-shop-id/data-your-vote values verbatim (this
+ *   contract's own "does not fix the markup used to reproduce these
+ *   values" allowance) -- never a sentence asserting the answers are
+ *   saved. Dismissed by activating the scrim (a plain, purposeless `<div>`
+ *   click target, outside forbiddenFormControlCategories' scan).
+ * - **The shop-vote tally now also renders a fixed-length bar**
+ *   (renderShopVoteBar) sized against ParticipantView.
+ *   totalActiveParticipantCount (ADR-0056 decision 9) rather than however
+ *   many participants have voted on that shop so far, so a thinly-
+ *   supported shop shows as a short bar even while voting is still in
+ *   progress. Omitted entirely if the API has not yet started returning
+ *   this field (this round's API work ships from a different developer in
+ *   parallel).
+ * - **"あとから入りました" (ADR-0056 decision 6) is a separate mark from
+ *   "did I answer this shop"**: data-added-after-voting-started (mirrored
+ *   verbatim from ParticipantShopVoteOption.addedAfterVotingStarted) drives
+ *   only a small badge next to the shop name; a card's own border
+ *   highlight (gth-vote-row--answered) is driven only by data-your-vote
+ *   being non-"UNANSWERED" -- human ruling: "印は2つに分ける。札は『あとから
+ *   入ったか』だけ、カードの縁は『自分が答えたか』だけ。1つの印に2つの意味を
+ *   持たせない。"
+ * - **finalizedView shows exactly 5 things, in this order** (いつ／どの店／
+ *   どこにあるか／徒歩の目安／店のページへの線, ADR-0056 decision 10):
+ *   data-your-schedule-response and its "あなたの日程への回答" row are
+ *   deleted entirely (ADR-0055 decision 7, one step past adr/0050 decision
+ *   3's earlier simplification), replaced by a map (gathering-participant-
+ *   decision-map, showing only the decided shop's own pin and this
+ *   participant's search origin -- **no line connecting them, no walking-
+ *   radius ring**: this product never queries a routing service and does
+ *   not assert path information it does not have) plus data-walking-time-
+ *   minutes and a provider-page link.
+ * - **The live shop-vote tally remains visible after finalization**
+ *   (ADR-0055 decision 8: replacesQuestionSurfaces no longer names
+ *   gathering-shop-vote-question) -- renderShopVoteSection/
+ *   renderShopVoteQuestion take a showVoteOptions flag so the finalized
+ *   branch can reuse the exact same map/tally/bar rendering with only the
+ *   three vote buttons themselves suppressed (noOperations: no
+ *   gathering-shop-vote-option once decision is non-null).
  */
 (function () {
   "use strict";
@@ -427,6 +491,76 @@
     shopVoteMapInstance = map;
   }
 
+  // 2026-09-13 addition (ADR-0056 decision 10): finalizedView's own map,
+  // showing exactly two points -- the decided shop's own pin and this
+  // participant's search origin -- and nothing else. Deliberately does not
+  // draw a line between them or a walking-radius ring (this file's own
+  // module-docstring entry for this date explains why); reuses the same
+  // marker visuals as initializeShopVoteMap above (a plain CSS choice, not
+  // a shared test id -- gathering-participant-decision-map-marker/
+  // -origin-marker are set as separate data-testid attributes below,
+  // distinct from gathering-shop-vote-map-marker/gathering-search-origin-
+  // marker per this contract's own forbiddenTestIds/distinct-element
+  // notes).
+  var decisionMapInstance = null;
+
+  function initializeDecisionMap(container, shop, searchOrigin) {
+    if (decisionMapInstance) {
+      decisionMapInstance.remove();
+      decisionMapInstance = null;
+    }
+    if (!window.L || !container) {
+      return;
+    }
+    var map = window.L.map(container, { attributionControl: false });
+    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+    }).addTo(map);
+    var shopLatLng = [shop.location.latitude, shop.location.longitude];
+    var boundsLatLngs = [shopLatLng];
+    if (searchOrigin) {
+      boundsLatLngs.push([searchOrigin.latitude, searchOrigin.longitude]);
+    }
+    map.fitBounds(window.L.latLngBounds(boundsLatLngs), { padding: [24, 24] });
+    var shopIcon = window.L.divIcon({
+      className: "gathering-shop-vote-map-marker-icon",
+      html: '<span class="gathering-shop-vote-map-marker-visual"></span>',
+      iconSize: [22, 22],
+      iconAnchor: [11, 11],
+    });
+    var shopMarker = window.L.marker(shopLatLng, { icon: shopIcon, keyboard: false });
+    shopMarker.addTo(map);
+    var shopMarkerEl = shopMarker.getElement();
+    if (shopMarkerEl) {
+      shopMarkerEl.setAttribute("data-testid", "gathering-participant-decision-map-marker");
+      shopMarkerEl.setAttribute("data-shop-id", shop.shopId);
+    }
+    if (searchOrigin) {
+      var originIcon = window.L.divIcon({
+        className: "gathering-search-origin-marker-icon",
+        html: '<span class="gathering-search-origin-marker-visual"></span>',
+        iconSize: [20, 20],
+        iconAnchor: [10, 10],
+      });
+      var originMarker = window.L.marker([searchOrigin.latitude, searchOrigin.longitude], {
+        icon: originIcon,
+        keyboard: false,
+        alt: "検索基点",
+      });
+      originMarker.addTo(map);
+      var originEl = originMarker.getElement();
+      if (originEl) {
+        originEl.setAttribute("data-testid", "gathering-participant-decision-origin-marker");
+        originEl.setAttribute("aria-label", "検索基点");
+      }
+    }
+    // No line between the two markers and no walking-radius ring
+    // (ADR-0056 decision 10): this product does not query a routing
+    // service and does not assert a walking path it cannot back with real
+    // routing data.
+    decisionMapInstance = map;
+  }
+
   function applyResult(sequence, result, onSuccess) {
     if (isStaleResponse(sequence)) {
       return;
@@ -683,12 +817,6 @@
     );
   }
 
-  // adr/0050 decision 2 (2026-09-08/09 human decision: "約束は覆してもよい"):
-  // other participants' tallies are visible regardless of whether this
-  // participant has answered yet -- shared between the done and open
-  // question cards below, replacing the retired "answer first" wording.
-  var VISIBILITY_HINT = "ほかの人の回答も見えています";
-
   /**
    * A previously-answered candidate date: Answer.dc.html's .card.done
    * (date + answer badge + tally), with the response options kept present
@@ -707,7 +835,6 @@
     if (tally) {
       children.push(tally);
     }
-    children.push(el("div", { class: "gth-done-hint" }, [VISIBILITY_HINT]));
     children.push(
       el(
         "div",
@@ -721,7 +848,6 @@
       {
         "data-testid": "gathering-schedule-question",
         "data-candidate-date-id": question.candidateDateId,
-        "data-open-shop-count": question.openShopCount,
         "data-your-response": yourResponse,
         class: "gth-card gth-card--done",
       },
@@ -731,27 +857,27 @@
 
   /**
    * The one currently-open question: Answer.dc.html's dashed-border .card
-   * (question label, date, "この日に開いている店 N件" -- D6 -- the
-   * "answer to see others" mask hint -- product-brief.md §2 -- and the
-   * three full-size response options).
+   * (question label, date, and the three full-size response options).
+   * **The "この日に開いている店 N件" count is gone** (ADR-0055 decision 1,
+   * 2026-09-12 human decision -- a shop count did not help a participant
+   * decide on a candidate date; gathering-scheduling-api.yaml v0.12.0 no
+   * longer sends ParticipantScheduleQuestion.openShopCount at all).
    */
   function renderOpenQuestionCard(question) {
     var children = [
       el("div", { class: "gth-open-label" }, ["この日、行けそう？"]),
       el("div", { class: "gth-open-date" }, [formatGatheringDateTime(question.startAt)]),
-      el("div", { class: "gth-open-shop-count" }, [
-        "この日に開いている店 ",
-        el("b", {}, [String(question.openShopCount)]),
-        "件",
-      ]),
     ];
     var tally = renderTally(question);
     if (tally) {
       // peekResults.requiredOutcome (adr/0050 decision 1): this one open
       // question's own tally stays hidden until the participant explicitly
-      // activates gathering-participant-peek-results (renderFooter below) --
-      // see this file's own state.peekResultsActivated comment for why only
-      // the open question's tally is gated this way.
+      // activates gathering-participant-peek-results (renderPeekResultsButton
+      // below) -- see this file's own state.peekResultsActivated comment for
+      // why only the open question's tally is gated this way. **No
+      // explanatory mask text here** (FR-034, ADR-0055: the retired
+      // "ほかの人の回答も見えています" prose is deleted, not replaced --
+      // the tally simply appears once revealed).
       children.push(
         el(
           "div",
@@ -760,7 +886,7 @@
               "gth-open-tally-wrap" +
               (state.peekResultsActivated ? " gth-open-tally-wrap--revealed" : ""),
           },
-          [tally, el("div", { class: "gth-mask" }, [VISIBILITY_HINT])]
+          [tally]
         )
       );
     }
@@ -776,7 +902,6 @@
       {
         "data-testid": "gathering-schedule-question",
         "data-candidate-date-id": question.candidateDateId,
-        "data-open-shop-count": question.openShopCount,
         "data-your-response": "UNANSWERED",
         class: "gth-card gth-card--open",
       },
@@ -873,18 +998,76 @@
     );
   }
 
-  function renderShopVoteQuestion(question) {
+  // 2026-09-13 addition (ADR-0056 decision 9, 第4束裁定): the vote bar's own
+  // total length is fixed to the gathering's total active participant
+  // count, not however many participants have voted on this particular
+  // shop so far -- a thinly-supported shop is visible as a short filled
+  // bar rather than a bar scaled to a shrinking, per-shop denominator.
+  // Rendered-geometry only, no new required test id (this contract does
+  // not fix this bar's markup any more than it fixes scheduleQuestion's
+  // own progress-bar rendering elsewhere on this screen). Omitted entirely
+  // when totalActiveParticipantCount is not yet present on the response
+  // (this round's API work ships from a different developer in parallel).
+  function renderShopVoteBar(question, totalActiveParticipantCount) {
+    if (!question.tally || !totalActiveParticipantCount) {
+      return null;
+    }
+    function segment(count, modifierClass) {
+      var width = Math.max(0, Math.min(100, (count / totalActiveParticipantCount) * 100));
+      return el(
+        "span",
+        { class: "gth-vote-bar-seg " + modifierClass, style: "width:" + width + "%" },
+        []
+      );
+    }
+    return el("div", { class: "gth-vote-bar" }, [
+      segment(question.tally.wantToGoCount, "gth-vote-bar-seg--want"),
+      segment(question.tally.okToGoCount, "gth-vote-bar-seg--ok"),
+      segment(question.tally.notGoingCount, "gth-vote-bar-seg--not"),
+    ]);
+  }
+
+  /**
+   * @param showVoteOptions false once ParticipantView.decision is non-null
+   *   (noOperations: no gathering-shop-vote-option once finalized) -- the
+   *   map/detail fields/tally/bar are otherwise identical and remain
+   *   present (ADR-0055 decision 8: this element is not one
+   *   replacesQuestionSurfaces names).
+   * @param totalActiveParticipantCount ParticipantView.
+   *   totalActiveParticipantCount, threaded through for renderShopVoteBar.
+   */
+  function renderShopVoteQuestion(question, showVoteOptions, totalActiveParticipantCount) {
     var yourVoteValue = question.yourVote === null ? "UNANSWERED" : question.yourVote;
+    var addedAfterVotingStarted = !!question.addedAfterVotingStarted;
     var detailRow = el(
       "div",
       { class: "gth-shop-detail-row" },
       renderShopVoteDetailFields(question)
     );
-    var children = [el("span", { class: "gth-vote-name" }, [question.name]), detailRow];
-    children.push(el("div", { class: "gth-vote-options" }, voteOptionButtons(question)));
+    // ADR-0056 decision 6, human ruling: "印は2つに分ける。札は『あとから
+    // 入ったか』だけ、カードの縁は『自分が答えたか』だけ。1つの印に2つの
+    // 意味を持たせない。" The badge below reads only
+    // addedAfterVotingStarted; the card's own border highlight
+    // (gth-vote-row--answered below) reads only whether this participant
+    // has answered (data-your-vote !== "UNANSWERED") -- neither derives
+    // from, or substitutes for, the other.
+    var nameRow = el("div", { class: "gth-vote-name-row" }, [
+      el("span", { class: "gth-vote-name" }, [question.name]),
+      addedAfterVotingStarted
+        ? el("span", { class: "gth-vote-added-badge" }, ["あとから入りました"])
+        : null,
+    ]);
+    var children = [nameRow, detailRow];
+    if (showVoteOptions) {
+      children.push(el("div", { class: "gth-vote-options" }, voteOptionButtons(question)));
+    }
     var tally = renderShopVoteTally(question);
     if (tally) {
       children.push(tally);
+    }
+    var bar = renderShopVoteBar(question, totalActiveParticipantCount);
+    if (bar) {
+      children.push(bar);
     }
 
     return el(
@@ -893,13 +1076,20 @@
         "data-testid": "gathering-shop-vote-question",
         "data-shop-id": question.shopId,
         "data-your-vote": yourVoteValue,
-        class: "gth-vote-row",
+        "data-added-after-voting-started": addedAfterVotingStarted ? "true" : "false",
+        class: "gth-vote-row" + (yourVoteValue !== "UNANSWERED" ? " gth-vote-row--answered" : ""),
       },
       children
     );
   }
 
-  function renderShopVoteSection() {
+  /**
+   * @param showVoteOptions see renderShopVoteQuestion above; threaded
+   *   through unchanged. The heading text itself also varies -- "お店に
+   *   投票してください" implies an action this finalized reuse (render()'s
+   *   decision branch) must not suggest is still available.
+   */
+  function renderShopVoteSection(showVoteOptions) {
     if (!state.view.shopVoteQuestions) {
       return null;
     }
@@ -912,11 +1102,15 @@
       { "data-testid": "gathering-shop-vote-map", class: "gth-shop-map" },
       []
     );
+    var totalActiveParticipantCount = state.view.totalActiveParticipantCount;
+    var heading = showVoteOptions ? "お店に投票してください" : "お店ごとの票";
     var node = el(
       "div",
       { class: "gth-vote-section" },
-      [el("div", { class: "gth-vote-heading" }, ["お店に投票してください"]), mapContainer].concat(
-        state.view.shopVoteQuestions.map(renderShopVoteQuestion)
+      [el("div", { class: "gth-vote-heading" }, [heading]), mapContainer].concat(
+        state.view.shopVoteQuestions.map(function (question) {
+          return renderShopVoteQuestion(question, showVoteOptions, totalActiveParticipantCount);
+        })
       )
     );
     return {
@@ -929,17 +1123,27 @@
 
   /**
    * Final.dc.html B-3 -- the decision (adr/0040, extended by P5/adr/0041,
-   * simplified by adr/0050 decision 3, 2026-09-09 human decision: "あなたの
-   * 回答は見れても別に意味ないかも"). ``decision.yourShopVotes`` (the
-   * per-shop retrospective P5 added, generalized by adr/0044, extended by
-   * adr/0046) was retired -- this view now shows only this participant's own
-   * schedule response, plus the decided date/shop; it no longer reads or
-   * renders a per-shop breakdown.
+   * simplified by adr/0050 decision 3, then simplified once more by
+   * ADR-0055 decision 7, 2026-09-12: "あなたの回答は見れても別に意味ない
+   * かも" applies equally to the one remaining schedule-response line, so
+   * it too is deleted -- data-your-schedule-response no longer exists
+   * anywhere on this element). ADR-0056 decision 10 fixes what replaces it:
+   * exactly 5 things, in this order -- when, which shop, where (a map with
+   * the decided shop's pin and this participant's search origin, no
+   * connecting line, no walking-radius ring), the walking-time estimate,
+   * and a link to the shop's own page. The live shop-vote tally below this
+   * decision card is a *separate* element this function does not build
+   * (ADR-0055 decision 8: render()'s decision branch reuses
+   * renderShopVoteSection(false), unaffected by finalization).
    */
   function renderFinalizedView() {
     var decision = state.view.decision;
-    var yourScheduleResponseValue =
-      decision.yourScheduleResponse === null ? "UNANSWERED" : decision.yourScheduleResponse;
+
+    var decisionMapContainer = el(
+      "div",
+      { "data-testid": "gathering-participant-decision-map", class: "gth-final-map" },
+      []
+    );
 
     var decisionEl = el(
       "div",
@@ -947,21 +1151,26 @@
         "data-testid": "gathering-participant-decision",
         "data-confirmed-candidate-date": decision.confirmedCandidateDate,
         "data-shop-id": decision.shop.shopId,
-        "data-your-schedule-response": yourScheduleResponseValue,
+        "data-walking-time-minutes": decision.shop.walkingTimeMinutes,
         class: "gth-final",
       },
       [
         el("div", { class: "gth-final-badge" }, ["決まりました"]),
-        el("div", { class: "gth-final-when-lb" }, ["日時"]),
+        el("div", { class: "gth-final-when-lb" }, ["いつ"]),
         el("div", { class: "gth-final-when" }, [
           formatGatheringDateTime(decision.confirmedCandidateDate),
         ]),
-        el("div", { class: "gth-final-shop-lb" }, ["お店"]),
+        el("div", { class: "gth-final-shop-lb" }, ["どの店"]),
         el("div", { class: "gth-final-shop" }, [decision.shop.name]),
+        el("div", { class: "gth-final-where-lb" }, ["どこにあるか"]),
+        decisionMapContainer,
+        el("div", { class: "gth-final-walking" }, [
+          "徒歩 約" + decision.shop.walkingTimeMinutes + "分",
+        ]),
         el(
           "a",
           {
-            "data-testid": "gathering-participant-decision-shop-page-link",
+            "data-testid": "gathering-participant-decision-page-link",
             href: decision.shop.providerPageUrl,
             target: "_blank",
             rel: "noopener noreferrer",
@@ -969,96 +1178,149 @@
           },
           ["店のページを見る"]
         ),
-        el("div", { class: "gth-final-yours-lb" }, ["あなたの記録"]),
-        el("div", { class: "gth-final-yours-row" }, [
-          "この日へのあなたの回答: ",
-          el("b", {}, [
-            decision.yourScheduleResponse === null
-              ? "未回答"
-              : RESPONSE_LABELS[decision.yourScheduleResponse],
-          ]),
-        ]),
-        el("p", { class: "gth-fine" }, [
-          "締まっているので変えられません。ほかの人が何を選んだかは出していません。",
-        ]),
       ]
     );
 
-    return el("div", { class: "gth-body" }, [decisionEl]);
+    var children = [decisionEl];
+    // ADR-0055 decision 8 (2026-09-12 human ruling: "確定後も参加者は店
+    // ごとの票を見られるままにする") -- the live shop-vote tally/map/bar
+    // remain, only the three vote buttons themselves are suppressed
+    // (showVoteOptions: false, noOperations below).
+    var shopVoteSection = renderShopVoteSection(false);
+    if (shopVoteSection) {
+      children.push(shopVoteSection.node);
+    }
+
+    return {
+      node: el("div", { class: "gth-body" }, children),
+      decisionMap: {
+        container: decisionMapContainer,
+        shop: decision.shop,
+        searchOrigin: state.view.searchOrigin,
+      },
+      shopVoteSection: shopVoteSection,
+    };
   }
 
-  function renderFooter() {
-    // Answer.dc.html shows these two entry points ("あとで答える" /
-    // "結果をのぞく"). adr/0050 decision 1 (2026-09-09) assigns both a real
-    // requiredOutcome and a browserControlSurface purpose
-    // (gathering-participant-answer-later/-peek-results). **Wired up
-    // 2026-09-11**: the shared acceptance DSL's own allow-list of gathering
-    // purposes now recognizes both (tests/acceptance/dsl, confirmed present
-    // in GATHERING_ALLOWED_PURPOSES) -- the cross-role sequencing gap the
-    // previous developer round left behind is closed.
-    var answerLater = el(
-      "button",
-      {
-        type: "button",
-        "data-testid": "gathering-participant-answer-later",
-        "data-gathering-control-purpose": "gathering-participant-answer-later",
-        class: "gth-foot-btn",
-      },
-      ["あとで答える"]
-    );
-    answerLater.addEventListener("click", function () {
-      // answerLater.requiredOutcome: calls no public operation -- every
-      // answer already saved itself the moment it was submitted. This is a
-      // purely client-side acknowledgement.
-      state.answerLaterConfirmationOpen = true;
-      render();
-    });
-
-    var peekResults = el(
+  /**
+   * 結果をのぞく (peekResults). Placed at the very top of the scrollable
+   * body by render() below -- never a DOM sibling of answerLater's own row
+   * again (FR-034's own repro of the opposite arrangement).
+   */
+  function renderPeekResultsButton() {
+    var button = el(
       "button",
       {
         type: "button",
         "data-testid": "gathering-participant-peek-results",
         "data-gathering-control-purpose": "gathering-participant-peek-results",
-        class: "gth-foot-btn",
+        class: "gth-peek-btn",
       },
       ["結果をのぞく"]
     );
-    peekResults.addEventListener("click", function () {
+    button.addEventListener("click", function () {
       state.peekResultsActivated = true;
       render();
     });
-
-    // The two buttons stay in their own flex row (.gth-foot, flex:1 each) --
-    // the confirmation paragraph below is *not* pushed into that same row
-    // as a third flex sibling (ui_invariants/test_render_invariants.py's
-    // test_e_participant_answer_footer_controls_meet_44px_minimum_target,
-    // ADR-0020 decision 4(e), friction-log.md FR-035): a bare <p> has no
-    // flex-basis/flex-grow of its own, so it used to claim a large share of
-    // .gth-foot's width for its own long line-wrapping text, squeezing both
-    // flex:1 buttons down to well under 44px wide once
-    // answerLaterConfirmationOpen was true (real-measured repro: 27.5px).
-    // Placing it as a sibling *after* the button row instead, rather than
-    // inside it, leaves the two buttons' own flex distribution (exactly two
-    // flex:1 items) unaffected by whether the confirmation text is present.
-    var buttonRow = el("div", { class: "gth-foot" }, [answerLater, peekResults]);
-    if (!state.answerLaterConfirmationOpen) {
-      return buttonRow;
-    }
-    var confirmation = el(
-      "p",
-      { "data-testid": "gathering-participant-answer-later-confirmation", class: "gth-fine" },
-      ["ここまでの回答は保存されています。またあとで、続きから答えられます。"]
-    );
-    return el("div", {}, [buttonRow, confirmation]);
+    return button;
   }
 
-  function renderFinePrint() {
-    return el("p", { class: "gth-fine" }, [
-      "幹事から届いたリンクで開いています。ログインも名前も要りません。",
-      el("br", {}, []),
-      "名前はあとからでも付けられます。答えは何度でも変えられます。",
-    ]);
+  /**
+   * あとで答える (answerLater). Placed as the very last element of the
+   * scrollable body by render() below. Activating it opens
+   * renderAnswerLaterOverlay below -- calls no public operation, since
+   * every answer already saved itself the moment it was submitted.
+   */
+  function renderAnswerLaterButton() {
+    var button = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "gathering-participant-answer-later",
+        "data-gathering-control-purpose": "gathering-participant-answer-later",
+        class: "gth-answer-later-btn",
+      },
+      ["あとで答える"]
+    );
+    button.addEventListener("click", function () {
+      state.answerLaterConfirmationOpen = true;
+      render();
+    });
+    return button;
+  }
+
+  function closeAnswerLaterConfirmation() {
+    state.answerLaterConfirmationOpen = false;
+    render();
+  }
+
+  /**
+   * gathering-participant-answer-later-confirmation (ADR-0055 decision 3,
+   * FR-034, 2026-09-12 human ruling): reproduces this participant's own
+   * already-recorded answers verbatim -- never a sentence asserting they
+   * are saved. Rendered as a fixed-position scrim+panel overlapping the
+   * rest of the screen (第2束裁定: "確認は重なる別の面"), not inserted into
+   * any existing row. Dismissed by activating the scrim itself (a plain,
+   * purposeless `<div>`, outside forbiddenFormControlCategories' scan --
+   * no new allowedPurposes entry needed).
+   */
+  function renderAnswerLaterOverlay() {
+    if (!state.answerLaterConfirmationOpen || !state.view || state.view.decision) {
+      return null;
+    }
+    var rows = [];
+    (state.view.scheduleQuestions || []).forEach(function (question) {
+      if (question.yourResponse === null) {
+        return;
+      }
+      rows.push(
+        el(
+          "div",
+          {
+            class: "gth-overlay-row",
+            "data-candidate-date-id": question.candidateDateId,
+            "data-your-response": question.yourResponse,
+          },
+          [
+            el("span", {}, [formatGatheringDateTime(question.startAt)]),
+            el("span", {}, [RESPONSE_LABELS[question.yourResponse]]),
+          ]
+        )
+      );
+    });
+    (state.view.shopVoteQuestions || []).forEach(function (question) {
+      if (question.yourVote === null) {
+        return;
+      }
+      rows.push(
+        el(
+          "div",
+          {
+            class: "gth-overlay-row",
+            "data-shop-id": question.shopId,
+            "data-your-vote": question.yourVote,
+          },
+          [el("span", {}, [question.name]), el("span", {}, [VOTE_LABELS[question.yourVote]])]
+        )
+      );
+    });
+    if (rows.length === 0) {
+      rows.push(el("div", { class: "gth-overlay-empty" }, ["まだ回答がありません"]));
+    }
+    var panel = el(
+      "div",
+      {
+        "data-testid": "gathering-participant-answer-later-confirmation",
+        class: "gth-overlay-panel",
+      },
+      rows
+    );
+    panel.addEventListener("click", function (event) {
+      event.stopPropagation();
+    });
+    var overlay = el("div", { class: "gth-overlay" }, [panel]);
+    overlay.addEventListener("click", closeAnswerLaterConfirmation);
+    return overlay;
   }
 
   function renderProgress(total, answered) {
@@ -1114,14 +1376,23 @@
     }
     var children = [];
     var shopVoteMapPending = null;
+    var decisionMapPending = null;
     if (state.view) {
       if (state.view.decision) {
-        // finalizedView (adr/0042): replaces scheduleQuestion/
-        // shopVoteQuestion/progress and nameControl's open/submit entirely
-        // (replacesQuestionSurfaces/noOperations) -- built from a
-        // dedicated branch rather than gating each element individually.
+        // finalizedView (adr/0042): replaces scheduleQuestion/progress and
+        // nameControl's open/submit entirely (replacesQuestionSurfaces/
+        // noOperations) -- built from a dedicated branch rather than gating
+        // each element individually. **gathering-shop-vote-question is not
+        // one of the replaced surfaces** (ADR-0055 decision 8) --
+        // renderFinalizedView's own returned shopVoteSection carries it
+        // through unaffected by finalization.
         children.push(renderFinalizedHeader());
-        children.push(renderFinalizedView());
+        var finalized = renderFinalizedView();
+        children.push(finalized.node);
+        decisionMapPending = finalized.decisionMap;
+        if (finalized.shopVoteSection) {
+          shopVoteMapPending = finalized.shopVoteSection;
+        }
       } else {
         var questions = state.view.scheduleQuestions;
         var total = questions.length;
@@ -1137,6 +1408,10 @@
         children.push(renderHeader(answered, total));
 
         var body = [];
+        // 結果をのぞく sits at the very top of the scrollable body (第2束
+        // 裁定); あとで答える (pushed below) sits at the very bottom -- the
+        // two are never DOM siblings in the same row (FR-034).
+        body.push(renderPeekResultsButton());
         for (var doneIndex = 0; doneIndex < answered; doneIndex += 1) {
           body.push(renderDoneQuestionCard(questions[doneIndex]));
         }
@@ -1147,7 +1422,7 @@
           body.push(renderOpenQuestionCard(questions[firstUnansweredIndex]));
           remainingCount = total - firstUnansweredIndex - 1;
         }
-        var shopVoteSection = renderShopVoteSection();
+        var shopVoteSection = renderShopVoteSection(true);
         if (shopVoteSection) {
           body.push(shopVoteSection.node);
           shopVoteMapPending = shopVoteSection;
@@ -1156,8 +1431,7 @@
         if (nextPanel) {
           body.push(nextPanel);
         }
-        body.push(renderFooter());
-        body.push(renderFinePrint());
+        body.push(renderAnswerLaterButton());
         children.push(el("main", { class: "gth-body" }, body));
         children.push(renderProgress(total, answered));
       }
@@ -1167,8 +1441,8 @@
     }
     root.appendChild(el("div", { class: "gth-app" }, children));
 
-    // The map container above must already be attached to the live DOM
-    // before Leaflet initializes it (see initializeShopVoteMap's own
+    // The map containers above must already be attached to the live DOM
+    // before Leaflet initializes them (see initializeShopVoteMap's own
     // module-docstring precedent, gathering.js's initializeOpenShopMap).
     if (shopVoteMapPending) {
       initializeShopVoteMap(
@@ -1176,6 +1450,23 @@
         shopVoteMapPending.items,
         shopVoteMapPending.searchOrigin
       );
+    }
+    if (decisionMapPending) {
+      initializeDecisionMap(
+        decisionMapPending.container,
+        decisionMapPending.shop,
+        decisionMapPending.searchOrigin
+      );
+    }
+
+    // gathering-participant-answer-later-confirmation (ADR-0055 decision 3):
+    // an overlapping surface appended as a sibling of .gth-app, not a
+    // descendant pushed into any of its rows -- its own fixed positioning
+    // (participant_answer.html's .gth-overlay) is what makes it "重なる
+    // 別の面" rather than a layout participant.
+    var answerLaterOverlay = renderAnswerLaterOverlay();
+    if (answerLaterOverlay) {
+      root.appendChild(answerLaterOverlay);
     }
   }
 
