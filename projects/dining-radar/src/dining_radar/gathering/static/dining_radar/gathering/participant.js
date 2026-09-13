@@ -1029,17 +1029,28 @@
       render();
     });
 
-    var children = [answerLater, peekResults];
-    if (state.answerLaterConfirmationOpen) {
-      children.push(
-        el(
-          "p",
-          { "data-testid": "gathering-participant-answer-later-confirmation", class: "gth-fine" },
-          ["ここまでの回答は保存されています。またあとで、続きから答えられます。"]
-        )
-      );
+    // The two buttons stay in their own flex row (.gth-foot, flex:1 each) --
+    // the confirmation paragraph below is *not* pushed into that same row
+    // as a third flex sibling (ui_invariants/test_render_invariants.py's
+    // test_e_participant_answer_footer_controls_meet_44px_minimum_target,
+    // ADR-0020 decision 4(e), friction-log.md FR-035): a bare <p> has no
+    // flex-basis/flex-grow of its own, so it used to claim a large share of
+    // .gth-foot's width for its own long line-wrapping text, squeezing both
+    // flex:1 buttons down to well under 44px wide once
+    // answerLaterConfirmationOpen was true (real-measured repro: 27.5px).
+    // Placing it as a sibling *after* the button row instead, rather than
+    // inside it, leaves the two buttons' own flex distribution (exactly two
+    // flex:1 items) unaffected by whether the confirmation text is present.
+    var buttonRow = el("div", { class: "gth-foot" }, [answerLater, peekResults]);
+    if (!state.answerLaterConfirmationOpen) {
+      return buttonRow;
     }
-    return el("div", { class: "gth-foot" }, children);
+    var confirmation = el(
+      "p",
+      { "data-testid": "gathering-participant-answer-later-confirmation", class: "gth-fine" },
+      ["ここまでの回答は保存されています。またあとで、続きから答えられます。"]
+    );
+    return el("div", {}, [buttonRow, confirmation]);
   }
 
   function renderFinePrint() {

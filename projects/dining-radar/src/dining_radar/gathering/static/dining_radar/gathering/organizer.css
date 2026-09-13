@@ -597,10 +597,19 @@
    inline` is appended directly into this container instead, so there is no
    separate anchor element to hide here. Day-cell sizing is bumped past
    flatpickr's own ~39px default toward this file's own 44px tap-target
-   quality bar (see this file's header comment) -- not gate-enforced for
-   these screens (ADR-0020 decision 4(e) scopes that gate to
-   candidate-search only), but a real fix for the "ボタンが小さい" feedback
-   this round responds to. */
+   quality bar (see this file's header comment). Originally commented here
+   as "not gate-enforced for these screens (ADR-0020 decision 4(e) scopes
+   that gate to candidate-search only)" -- no longer true
+   (ui_invariants/test_render_invariants.py's GatheringScreenInvariantTests
+   extends that gate to these screens too, friction-log.md FR-035) -- the
+   `.dayContainer` override below closes the real, ~0.03px-under-44
+   shortfall that gate then caught: flatpickr's own vendored default fixes
+   `.dayContainer` at a hard-coded 307.875px regardless of this file's own
+   `.flatpickr-day` override below, and each day cell's flex-basis is a
+   percentage of *that* width (14.2857% = 1/7, flatpickr's own default,
+   unedited here) -- 307.875 / 7 is a hair under 44px. 308px (19.25rem)
+   divides evenly to exactly 44px per day and is otherwise indistinguishable
+   from flatpickr's own default width. */
 .gth-calendar,
 .gathering-calendar {
   display: block;
@@ -621,6 +630,12 @@
   border-radius: 0.625rem;
   box-shadow: none;
   font-family: inherit;
+}
+.gth-calendar .dayContainer,
+.gathering-calendar .dayContainer {
+  width: 19.25rem;
+  min-width: 19.25rem;
+  max-width: 19.25rem;
 }
 .gth-calendar .flatpickr-day,
 .gathering-calendar .flatpickr-day {
