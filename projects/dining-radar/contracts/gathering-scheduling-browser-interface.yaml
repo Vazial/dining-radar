@@ -526,11 +526,22 @@
 #   （新設testIdを持つ独立要素ではなく、既存要素の属性の追加であり、
 #   forbiddenFormControlCategoriesのスキャン対象にも`allowedPurposes`の宣言対象にも
 #   そもそも該当しない）。
+#
+# 2026-09-13 追補12 (architect、ADR-0056決定9。gathering-scheduling-api.yamlがv0.12.0で新設した
+#   ParticipantView.totalActiveParticipantCountに、この契約が観測面を1つも持っていなかった穴を
+#   埋める。contractVersion 0.14.0 -> 0.15.0):
+# - **`participantAnswer.shopVoteQuestion.tally`へ`data-total-active-participant-count`を
+#   新設した**: ParticipantView.totalActiveParticipantCountをそのまま写す、店の投票のたびに
+#   変わらない参加者ビュー単位の定数値であり、票の帯を「回答した人数」ではなく「会の総人数」を
+#   基準に描けるようにする（人間裁定「票の帯は全員の人数で固定する」）。この値を日程回答の画面
+#   （scheduleQuestion）でも見せるかどうかはADR-0056未決事項4のまま残る——本追補は店の投票の
+#   タリーにだけこの属性を要求し、日程回答の画面の扱いを縛らない。
+# - 新規シナリオTDR-GTH-56を`profiles.localAcceptance.verifiesScenarios`へ追加した。
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.14.0'
+contractVersion: '0.15.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -574,7 +585,7 @@ profiles:
        TDR-GTH-33, TDR-GTH-34, TDR-GTH-35, TDR-GTH-36, TDR-GTH-37,
        TDR-GTH-38, TDR-GTH-39, TDR-GTH-40, TDR-GTH-41, TDR-GTH-42,
        TDR-GTH-43, TDR-GTH-44, TDR-GTH-45, TDR-GTH-46, TDR-GTH-47,
-       TDR-GTH-48]
+       TDR-GTH-48, TDR-GTH-56]
     notVerifiedHere:
       - scenario: TDR-GTH-13
         reason: >-
@@ -2787,6 +2798,7 @@ browserControlSurface:
           okToGoCount: data-ok-to-go-count
           notGoingCount: data-not-going-count
           respondedCount: data-responded-count
+          totalActiveParticipantCount: data-total-active-participant-count
         presenceRule: >-
           **Changed 2026-09-09 (adr/0050 decision 2)**: always present
           within a given gathering-shop-vote-question, regardless of
@@ -2801,7 +2813,23 @@ browserControlSurface:
           this shop's tally as a single data-approval-count; the three
           attributes above replace it, mirroring this same shop's
           organizer-facing ShortlistedShop.wantToGoCount/okToGoCount/
-          notGoingCount/respondedParticipantCount exactly.
+          notGoingCount/respondedParticipantCount exactly. **data-total-
+          active-participant-count added 2026-09-13** (ADR-0056 decision 9,
+          human decision: 票の帯は全員の人数で固定する, TDR-GTH-56): mirrors
+          ParticipantView.totalActiveParticipantCount exactly, the same
+          value on every gathering-shop-vote-tally within one participant's
+          view (this is a per-participant-view constant, not a per-shop
+          count, unlike the other four attributes above) -- lets the vote
+          bar's length be sized against the whole group rather than only
+          data-responded-count's respondents-so-far denominator, so a
+          lightly-voted shop's bar reads as short rather than merely
+          "short among few responses". Whether this value is also shown on
+          the schedule-answer screen (before voting starts) remains open
+          (ADR-0056 未決事項4) -- this contract requires it only here, on
+          the shop-vote tally. No allowedPurposes/formControlExemptTestIds
+          entry is needed -- a display-only attribute on an already-
+          declared element, the same reason data-added-after-voting-started
+          above needed neither.
     progress:
       testId: gathering-participant-progress
       presenceRule: >-
