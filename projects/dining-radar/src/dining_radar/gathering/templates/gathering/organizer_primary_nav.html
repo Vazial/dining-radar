@@ -1,0 +1,47 @@
+{% load static %}
+{% comment %}
+  The two persistent locations (ADR-0054 decision 1, 2026-09-12 human
+  decision): "ランチ候補をさがす" and "ランチ会" stay reachable from every
+  organizer-facing gathering screen -- fixing the production report "会に
+  入ると出られない" (candidate-gathering-entry's own label text disappearing
+  entirely at narrow widths on the candidate-search screen).
+
+  candidate-gathering-entry itself is normatively defined by
+  contracts/candidate-search-browser-interface.yaml's gatheringEntry section
+  (that file's own header note: "gathering-scheduling-browser-interface.yaml
+  itself declares no test id of its own for this cross-screen presence...
+  this paragraph is the sole normative source for it"). This partial is this
+  app's (gathering's) own implementation of that cross-file requirement --
+  a plain, server-rendered `<a href>` (not a `<button>` and not an element
+  with an interactive ARIA role), the same style
+  web/templates/web/home.html's own copy uses, so it stays outside
+  unavailableControls.allGatheringScreenFormControlsMustDeclarePurpose's scan
+  the same way that copy stays outside the candidate-search contract's
+  identical scan. The badge (candidate-gathering-entry-badge) is attached by
+  each screen's own script once gathering-scheduling-api.yaml's
+  getInProgressGatheringCount responds (duplicated per script, no shared
+  module system exists in this codebase).
+
+  **Coordination note for the candidate-search/web developer (this file's
+  scope is `src/dining_radar/gathering/**` only, `web/` is out of bounds
+  here)**: web/templates/web/home.html's own candidate-gathering-entry copy
+  still (a) hides its label text entirely below the 64rem breakpoint (a
+  `display: none` rule this ADR explicitly retracts) and (b) still reads
+  "会" rather than "ランチ会" (the wording contracts/candidate-search-
+  browser-interface.yaml's own gatheringEntry.entry.requirement text now
+  quotes as the current wording). Both are `web/`-side edits this developer
+  did not make. If this becomes one shared, code-level component rather than
+  two hand-kept copies, that refactor needs to be coordinated through a PR
+  both developers review (CLAUDE.md's "role agents and parallel operation"
+  section) -- this partial does not attempt that on its own.
+{% endcomment %}
+<nav class="gathering-primary-nav" aria-label="ランチ機能">
+  <a href="{% url 'web:home' %}" class="gathering-primary-nav-link">
+    <span aria-hidden="true">🔍</span><span class="gathering-primary-nav-label">ランチ候補をさがす</span>
+  </a>
+  <a
+    href="{% url 'gathering:organizer-gathering-list' %}"
+    data-testid="candidate-gathering-entry"
+    class="candidate-gathering-entry"
+  ><span aria-hidden="true">🍽</span><span class="candidate-gathering-entry-label">ランチ会</span></a>
+</nav>

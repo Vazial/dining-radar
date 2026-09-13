@@ -116,13 +116,72 @@ SHORTLISTED_SHOP_ITEM = "gathering-shortlisted-shop-item"
 # attribute-name strings CandidateDate/ShortlistedShop already share.
 WANT_TO_GO_COUNT_ATTR = "data-want-to-go-count"
 OK_TO_GO_COUNT_ATTR = "data-ok-to-go-count"
+# shopVoteQuestion.tally.totalActiveParticipantCount (added gathering-
+# scheduling-browser-interface.yaml 0.15.0 追補12, ADR-0056 decision 9,
+# TDR-GTH-56): a per-participant-view constant (same value on every
+# gathering-shop-vote-tally in one view), not a per-shop count -- mirrors
+# ParticipantView.totalActiveParticipantCount exactly.
+TOTAL_ACTIVE_PARTICIPANT_COUNT_ATTR = "data-total-active-participant-count"
 # data-current-leader (adr/0050 decision 5): "true" for exactly the first
 # item in shortlistedShopVotes.list's own orderingInvariant order.
 CURRENT_LEADER_ATTR = "data-current-leader"
 SHORTLIST_OPEN = "gathering-shortlist-open"
 FINALIZE_SHOP_SELECT = "gathering-finalize-shop-select"
 FINALIZE_SELECTED_ATTR = "data-finalize-selected"
-FINALIZE_SUBMIT = "gathering-finalize-submit"
+# finalizeSubmit was split 2026-09-12 (ADR-0054 decision 5, human decision:
+# the same open-then-confirm two-step pattern deleteGathering already
+# establishes) into open/confirm-dialog/confirm/cancel -- the purpose
+# gathering-finalize-submit itself was retired, not merely disabled or
+# renamed (allowedPurposesNote2026_09_12). RETIRED_FINALIZE_SUBMIT is kept
+# only as a negative-assertion literal (mirrors this file's own
+# RETIRED_PARTICIPANT_DECISION_SHOP_VOTE treatment below), not as an
+# observed surface.
+RETIRED_FINALIZE_SUBMIT = "gathering-finalize-submit"
+FINALIZE_OPEN = "gathering-finalize-open"
+FINALIZE_CONFIRM_DIALOG = "gathering-finalize-confirm-dialog"
+FINALIZE_CONFIRM = "gathering-finalize-confirm"
+FINALIZE_CANCEL = "gathering-finalize-cancel"
+FINALIZE_CHANGES_TABLE = "gathering-finalize-confirm-changes"
+# changesTable.row/-before/-after (added gathering-scheduling-browser-
+# interface.yaml 0.18.0 追補15) -- see
+# assert_finalize_confirm_dialog_shows_changes_summary below for why this
+# replaced a same-element "non-empty text somewhere" check.
+FINALIZE_CHANGES_ROW = "gathering-finalize-confirm-changes-row"
+FINALIZE_CHANGES_ROW_BEFORE = "gathering-finalize-confirm-changes-row-before"
+FINALIZE_CHANGES_ROW_AFTER = "gathering-finalize-confirm-changes-row-after"
+CHANGE_SUBJECT_ATTR = "data-change-subject"
+FINALIZE_CHANGES_SUBJECT_VALUES = frozenset(
+    {"participant-link-issuance", "participant-screen", "date-and-shop"}
+)
+# candidateDateList.removeCandidateDate (ADR-0056 decision 2, TDR-GTH-50/51).
+CANDIDATE_DATE_REMOVE = "gathering-candidate-date-remove"
+# gathering-shortlisted-shop-item's new fields (ADR-0055 decision 5 / ADR-0056
+# decision 5/6, TDR-GTH-38/54/55).
+SHOP_NAME_ATTR = "data-shop-name"
+WALKING_TIME_MINUTES_ATTR = "data-walking-time-minutes"
+ADDED_AFTER_VOTING_STARTED_ATTR = "data-added-after-voting-started"
+SHORTLISTED_SHOP_MAP = "gathering-shortlisted-shop-map"
+SHORTLISTED_SHOP_MAP_MARKER = "gathering-shortlisted-shop-map-marker"
+SHORTLISTED_SHOP_PAGE_LINK = "gathering-shortlisted-shop-page-link"
+# participantLinkList.issuanceClosed (ADR-0056 decision 11).
+PARTICIPANT_LINK_ISSUANCE_CLOSED = "gathering-participant-link-issuance-closed"
+# organizerDashboard.responseTable (ADR-0056 decision 1, TDR-GTH-49).
+RESPONSE_TABLE = "gathering-response-table"
+RESPONSE_TABLE_ROW = "gathering-response-table-row"
+RESPONSE_TABLE_CELL = "gathering-response-table-cell"
+RESPONSE_STATUS_ATTR = "data-response-status"
+# Calendar month-navigation / remove-selected (ADR-0054 decision 3 / ADR-0056
+# decision 3): each screen owns its own, distinct pair of test ids (the same
+# "distinct test id per screen, shared input shape" design already governing
+# each screen's own day-cell/calendar test ids, adr/0051 decision 1).
+GATHERING_CREATE_MONTH_PREVIOUS = "gathering-create-candidate-date-month-previous"
+GATHERING_CREATE_MONTH_NEXT = "gathering-create-candidate-date-month-next"
+GATHERING_CREATE_REMOVE_SELECTED = "gathering-create-candidate-date-remove-selected"
+GATHERING_ADD_MONTH_PREVIOUS = "gathering-add-candidate-date-month-previous"
+GATHERING_ADD_MONTH_NEXT = "gathering-add-candidate-date-month-next"
+GATHERING_ADD_REMOVE_SELECTED = "gathering-add-candidate-date-remove-selected"
+_CALENDAR_MONTH_NEXT_BY_DAY_TEST_ID: dict[str, str] = {}  # populated below, after both day-cell
+# test ids are defined (GATHERING_CREATE_CANDIDATE_DATE_DAY/GATHERING_ADD_CANDIDATE_DATE_DAY).
 
 # candidate-search-browser-interface.yaml v1.8.0's gatheringMode (adr/0049
 # decision 1): the consolidated shop-selection screen shopSelectionEntry.open
@@ -138,17 +197,13 @@ CANDIDATE_GATHERING_SHORTLISTED_ATTR = "data-gathering-shortlisted"
 # reused unchanged in gathering mode -- this file's own module-boundary
 # note) -- used by TDR-GTH-45's shown-pool-priority technique below.
 CANDIDATE_SEARCH_AGAIN = "candidate-search-again"
-# The subset of candidate-search-browser-interface.yaml's own, pre-existing
-# card/map detail fields TDR-GTH-38 requires be visible from gatheringMode
-# (adr/0044's map/detail requirement, now satisfied entirely by this other
-# contract's unchanged card shape rather than a duplicate organizer-side
-# rendering, adr/0049 decision 1).
-CANDIDATE_MAP = "candidate-map"
-CANDIDATE_CARD_WALKING_TIME = "candidate-card-walking-time"
-CANDIDATE_CARD_TOTAL_SEATS = "candidate-card-total-seats"
-CANDIDATE_CARD_NON_SMOKING = "candidate-card-non-smoking"
-CANDIDATE_CARD_DINNER_BUDGET = "candidate-card-dinner-budget"
-CANDIDATE_CARD_PROVIDER_PAGE_LINK = "candidate-card-provider-page-link"
+# TDR-GTH-38's own map/detail-field check was retired 2026-09-13 (ADR-0055
+# decision 5 / ADR-0056 decision 5): the scenario now names organizerDashboard.
+# shortlistedShopVotes' own map/detail fields directly (see
+# SHORTLISTED_SHOP_MAP/-MAP_MARKER/-PAGE_LINK above), not gatheringMode's --
+# the candidate-card detail-field test ids this section used to name are no
+# longer read by this file at all (candidate_search_browser.py's own TDR-CS
+# suite still owns them for that screen's own scenarios).
 
 # participantAnswer.shopVoteQuestion / finalizedView (TDR-GTH-28..30/34,
 # adr/0042; restructured to three tiers, map/detail fields, and search-origin
@@ -160,13 +215,24 @@ VOTE_VALUE_ATTR = "data-vote-value"
 SHOP_VOTE_TALLY = "gathering-shop-vote-tally"
 PARTICIPANT_PROGRESS = "gathering-participant-progress"
 PARTICIPANT_DECISION = "gathering-participant-decision"
-YOUR_SCHEDULE_RESPONSE_ATTR = "data-your-schedule-response"
 # gathering-participant-decision-shop-vote / data-vote-status were retired
 # 2026-09-09 (adr/0050 decision 3, TDR-GTH-34 simplification): the finalized
-# record no longer carries a per-shop breakdown, only yourScheduleResponse.
-# RETIRED_PARTICIPANT_DECISION_SHOP_VOTE is kept only as a negative-assertion
-# constant (see assert_participant_decision below), not as an observed field.
+# record no longer carries a per-shop breakdown. data-your-schedule-response
+# was retired too, 2026-09-13 (ADR-0055 decision 7, TDR-GTH-34 simplified
+# further) -- neither is kept as a named constant any longer (both are
+# checked as literal attribute-name/test-id strings in their own negative
+# assertions, precisely because they no longer denote real observation
+# surfaces -- see assert_participant_decision_has_no_shop_breakdown and
+# assert_participant_decision_has_no_own_response_attribute below).
 RETIRED_PARTICIPANT_DECISION_SHOP_VOTE = "gathering-participant-decision-shop-vote"
+# gathering-participant-decision's own new fields (ADR-0056 decision 10,
+# TDR-GTH-52): the decided shop's location, walking-time estimate, and
+# provider-page link, plus the two-marker map that shows them.
+DECISION_WALKING_TIME_ATTR = "data-walking-time-minutes"
+PARTICIPANT_DECISION_MAP = "gathering-participant-decision-map"
+PARTICIPANT_DECISION_MAP_MARKER = "gathering-participant-decision-map-marker"
+PARTICIPANT_DECISION_ORIGIN_MARKER = "gathering-participant-decision-origin-marker"
+PARTICIPANT_DECISION_PROVIDER_PAGE_LINK = "gathering-participant-decision-page-link"
 SHOP_VOTE_MAP = "gathering-shop-vote-map"
 SHOP_VOTE_MAP_MARKER = "gathering-shop-vote-map-marker"
 SEARCH_ORIGIN_MARKER = "gathering-search-origin-marker"
@@ -208,6 +274,33 @@ GATHERING_ADD_CANDIDATE_DATE_DAY = "gathering-add-candidate-date-day"
 # Both calendars' day cells share the same attribute names (dayCell.attributes).
 CALENDAR_DAY_DATE_ATTR = "data-date"
 CALENDAR_DAY_SELECTED_ATTR = "data-selected"
+# Populates the forward-declared dict above (ADR-0054 decision 3 / ADR-0056
+# decision 3): which screen's own month-next control to activate when a
+# given day-cell test id's target date is not yet on screen.
+_CALENDAR_MONTH_NEXT_BY_DAY_TEST_ID.update(
+    {
+        GATHERING_CREATE_CANDIDATE_DATE_DAY: GATHERING_CREATE_MONTH_NEXT,
+        GATHERING_ADD_CANDIDATE_DATE_DAY: GATHERING_ADD_MONTH_NEXT,
+    }
+)
+_CALENDAR_MAX_MONTH_ADVANCES = 13
+# Which screen's own removeSelected control observes that screen's day-cell
+# selection state across every month at once (removeSelected.requirement,
+# ADR-0056 decision 3: "regardless of which month is currently displayed") --
+# used below instead of a single-month day-cell DOM snapshot, which only ever
+# reflects whichever one month the calendar last paged to (TDR-GTH-46
+# integration finding, orchestrator L4 run: a two-month-spanning batch's
+# earlier-month selection silently dropped out of a same-month-only read).
+# Each removeSelected instance also now carries its own data-date (contract
+# 0.19.0, closing 独立監査 audit-gathering-redesign-steps.md's Minor finding:
+# the prior month-rewind-and-revisit read this file used to correlate each
+# instance to a date rested on an assumption -- a 13-navigation round trip
+# always suffices -- this contract's monthNavigation does not guarantee a
+# floor for; see _selected_calendar_days below, which replaces that routine).
+_CALENDAR_REMOVE_SELECTED_BY_DAY_TEST_ID: dict[str, str] = {
+    GATHERING_CREATE_CANDIDATE_DATE_DAY: GATHERING_CREATE_REMOVE_SELECTED,
+    GATHERING_ADD_CANDIDATE_DATE_DAY: GATHERING_ADD_REMOVE_SELECTED,
+}
 
 # organizerDashboard.deleteGathering (adr/0050 decision 4, TDR-GTH-48): the
 # organizer's explicit, irreversible, two-step gathering-deletion control.
@@ -256,29 +349,46 @@ PARTICIPANT_LOAD_ERROR = "gathering-participant-load-error"
 # no scenario of their own.
 ANSWER_LATER = "gathering-participant-answer-later"
 ANSWER_LATER_CONFIRMATION = "gathering-participant-answer-later-confirmation"
+# confirmation.scheduleItem (added gathering-scheduling-browser-interface.yaml
+# 0.18.0 追補15): a dedicated, non-reused echo element -- see
+# assert_answer_later_confirmation_reproduces_schedule_answer below for why
+# this replaced a same-testId-reuse check that only ever ran conditionally.
+# confirmation.shopItem is this same addition's sibling
+# (gathering-participant-answer-later-confirmation-shop-item,
+# data-shop-id/data-your-vote) but no scenario in this suite currently
+# exercises "あとで答える" after a shop vote has been cast, so it is not
+# given a named constant here (this file's own convention of not declaring
+# a constant for an observation surface no test yet reads).
+ANSWER_LATER_CONFIRMATION_SCHEDULE_ITEM = (
+    "gathering-participant-answer-later-confirmation-schedule-item"
+)
 PEEK_RESULTS = "gathering-participant-peek-results"
 
 # unavailableControls (both namespaces; gathering-scheduling-browser-interface.yaml).
 # Mirrors candidate_search_browser.py's ALLOWED_CONTROL_PURPOSES /
 # assert_map_has_no_forbidden_surfaces convention for the sibling contract.
 GATHERING_CONTROL_PURPOSE_ATTR = "data-gathering-control-purpose"
-# Verified 1:1 against gathering-scheduling-browser-interface.yaml v0.11.0's
-# own unavailableControls.allowedPurposes list (26 entries, contract lines
-# ~768-782) -- every entry below has a matching contract entry and vice
-# versa. This is a full resync, not an incremental diff: v0.11.0 retired 4
-# entries this set previously carried (gathering-create-add-candidate-date-
-# row/-remove-candidate-date-row, adr/0051 decision 3's row-to-calendar
-# swap; gathering-open-shop-select/-shortlist-submit, adr/0049 decision 1's
-# shortlistSelection retirement) and added 7 (gathering-add-candidate-date-
-# day-select, gathering-create-candidate-date-day-select, adr/0049 decision
-# 3 / adr/0051 decision 3's calendars; gathering-delete-open/-confirm/
-# -cancel, adr/0050 decision 4; gathering-participant-answer-later/
-# -peek-results, adr/0050 decision 1).
+# Verified 1:1 against gathering-scheduling-browser-interface.yaml v0.14.0's
+# own unavailableControls.allowedPurposes list (33 entries, contract lines
+# ~859-879) -- every entry below has a matching contract entry and vice
+# versa. **Resynced 2026-09-13** (contracts/REVISION-PLAN.md 2節,
+# allowedPurposesNote2026_09_12): v0.11.0 -> v0.14.0 retired 1 entry this
+# set previously carried (gathering-finalize-submit, ADR-0054 decision 5 --
+# replaced, not merely renamed, by the four-part open/confirm-dialog/
+# confirm/cancel sequence below) and added 8 (gathering-create-candidate-
+# date-month-navigate/gathering-add-candidate-date-month-navigate,
+# gathering-create-candidate-date-remove-selected/gathering-add-candidate-
+# date-remove-selected, ADR-0054 decision 3 / ADR-0056 decision 3's calendar
+# month-paging and cross-month deselect; gathering-candidate-date-remove,
+# ADR-0056 decision 2; gathering-finalize-open/gathering-finalize-confirm/
+# gathering-finalize-cancel, ADR-0054 decision 5).
 GATHERING_ALLOWED_PURPOSES = {
     "gathering-add-candidate-date-open",
     "gathering-add-candidate-date-submit",
     "gathering-add-candidate-date-cancel",
     "gathering-add-candidate-date-day-select",
+    "gathering-add-candidate-date-month-navigate",
+    "gathering-add-candidate-date-remove-selected",
     "gathering-participant-link-copy",
     "gathering-candidate-date-tentative-select",
     "gathering-confirm-date-select",
@@ -294,14 +404,20 @@ GATHERING_ALLOWED_PURPOSES = {
     "gathering-create-open",
     "gathering-list-item-open",
     "gathering-create-candidate-date-day-select",
+    "gathering-create-candidate-date-month-navigate",
+    "gathering-create-candidate-date-remove-selected",
+    "gathering-candidate-date-remove",
     "gathering-create-submit",
     "gathering-create-cancel",
     # shopSelectionEntry (hoisted out of shortlistedShopVotes 2026-09-09,
-    # adr/0049 decision 1) / finalize / participant shop-vote (adr/0042,
-    # browser-interface v0.5's allowedPurposesNote2026_09_04).
+    # adr/0049 decision 1) / finalize (open-then-confirm, ADR-0054 decision
+    # 5, 2026-09-12) / participant shop-vote (adr/0042, browser-interface
+    # v0.5's allowedPurposesNote2026_09_04).
     "gathering-shortlist-open",
     "gathering-finalize-shop-select",
-    "gathering-finalize-submit",
+    "gathering-finalize-open",
+    "gathering-finalize-confirm",
+    "gathering-finalize-cancel",
     "gathering-shop-vote-select",
     # deleteGathering (adr/0050 decision 4, TDR-GTH-48).
     "gathering-delete-open",
@@ -750,6 +866,108 @@ class GatheringSchedulingBrowserDsl:
             after["unansweredCount"], after["activeIssuedLinks"] - responded
         )
 
+    # organizerDashboard.responseTable (ADR-0056 decision 1, TDR-GTH-49) -----
+
+    def _read_response_table(self) -> dict[str, dict[str, str]]:
+        """gathering-response-table's own row/cell shape: one row per
+        ParticipantLinkSummary keyed by data-participant-link-id, one cell
+        per *answered* candidate date keyed by data-candidate-date-id -- an
+        unanswered candidate date has no cell at all (mirrors
+        scheduleResponses' own "unanswered dates are not included" shape,
+        gathering-scheduling-api.yaml).
+        """
+        rows = wait_for_at_least_one(self.page, RESPONSE_TABLE_ROW)
+        result: dict[str, dict[str, str]] = {}
+        for row_index in range(rows.count()):
+            row = rows.nth(row_index)
+            link_id = row.get_attribute(PARTICIPANT_LINK_ID_ATTR)
+            cells = row.locator(f'[data-testid="{RESPONSE_TABLE_CELL}"]')
+            result[link_id] = {
+                cells.nth(cell_index).get_attribute(CANDIDATE_DATE_ID_ATTR): cells.nth(
+                    cell_index
+                ).get_attribute(RESPONSE_STATUS_ATTR)
+                for cell_index in range(cells.count())
+            }
+        return result
+
+    def assert_response_table_matches(self, expected: dict[str, dict[str, str]]) -> None:
+        """expected: participant-link-id -> {candidate-date-id: status}.
+        TDR-GTH-49's own core claim ("誰が・どの候補日に・何と答えたか"):
+        keyed by the same data-participant-link-id
+        participantLinkList.item.attributes already reads, so this suite can
+        correlate the two lists' identical ParticipantLinkSummary rows by
+        the actual link a caller issued and answered, not merely by DOM
+        position.
+        """
+        assert_present(self.assertions, self.page, RESPONSE_TABLE)
+        self.assertions.assertEqual(self._read_response_table(), expected)
+
+    # organizerDashboard.candidateDateList.removeCandidateDate (ADR-0056
+    # decision 2, TDR-GTH-50/51) --------------------------------------------
+
+    def remove_candidate_date(self, candidate_date_id: str) -> None:
+        """removeCandidateDate.presenceRule/requiredOutcome (TDR-GTH-50):
+        present only for an unconfirmed candidate date while phase is
+        SCHEDULING.
+        """
+        node = self._candidate_date_locator(candidate_date_id)
+        remove_control = by_test_id(node, CANDIDATE_DATE_REMOVE)
+        expect(remove_control).to_be_enabled()
+        remove_control.click()
+
+    def assert_candidate_date_absent(self, candidate_date_id: str) -> None:
+        expect(self._candidate_date_locator(candidate_date_id)).to_have_count(0)
+
+    def attempt_remove_candidate_date_via_api(self, candidate_date_id: str) -> CapturedApiResponse:
+        """TDR-GTH-51's own contract note: removeCandidateDate.presenceRule
+        already makes this control absent once phase leaves SCHEDULING, so
+        this bypasses that absence the same way TDR-GTH-20/47 already bypass
+        an unreachable UI control to prove the server itself enforces the
+        rule.
+        """
+        return self._api(
+            "DELETE",
+            f"/gatherings/{self.gathering_id}/candidate-dates/{candidate_date_id}",
+            None,
+            csrf=True,
+        )
+
+    def assert_remove_candidate_date_control_absent(self, candidate_date_id: str) -> None:
+        """removeCandidateDate.presenceRule (gathering-scheduling-browser-
+        interface.yaml 0.18.0, TDR-GTH-51): once phase has left SCHEDULING
+        (confirming a candidate date moves it there in the same operation),
+        the removeCandidateDate control is absent entirely for that
+        candidate date, not merely disabled -- the same
+        absent-rather-than-disabled convention participantLinkList.item.
+        revoke already established (ADR-0055 decision 2).
+        """
+        assert_absent(
+            self.assertions,
+            self._candidate_date_locator(candidate_date_id),
+            CANDIDATE_DATE_REMOVE,
+        )
+
+    def assert_remove_candidate_date_rejected_because_not_in_scheduling_phase(
+        self, response: CapturedApiResponse
+    ) -> None:
+        """removeCandidateDate's own named response for exactly this input
+        shape, since gathering-scheduling-api.yaml v0.13.0 追補10 (retired
+        the CANDIDATE_DATE_CONFIRMED code as unreachable: confirming a
+        candidate date moves Gathering.phase off SCHEDULING in the same
+        operation, and there is no operation that moves it back, so a
+        removeCandidateDate call targeting the confirmed candidate date
+        always fails GATHERING_NOT_IN_SCHEDULING_PHASE's own phase check
+        first). gathering-scheduling-browser-interface.yaml 0.17.0 追補14
+        (commit 4c99644) folded removeCandidateDate.presenceRule's own
+        confirmed-candidate-date case into this same, reachable code for
+        the identical reason. This assertion previously named
+        CANDIDATE_DATE_CONFIRMED, which stopped being reachable from the
+        public API in v0.13.0 (integration finding against this contract
+        revision).
+        """
+        self.assertions.assertEqual(response.status, 409)
+        self.assertions.assertEqual(response.payload["code"], "GATHERING_NOT_IN_SCHEDULING_PHASE")
+
     # Add-candidate-date (organizer, inline form) ----------------------------
     # gathering-scheduling-browser-interface.yaml v0.3 (adr/0038) defines
     # gathering-add-candidate-date-form as the surface addCandidateDateOpen
@@ -776,21 +994,105 @@ class GatheringSchedulingBrowserDsl:
             f'[data-testid="{calendar_day_test_id}"][{CALENDAR_DAY_DATE_ATTR}="{date_part}"]'
         )
 
+    def _advance_calendar_to_month_containing(self, calendar_day_test_id: str, iso: str) -> None:
+        """monthNavigation.requiredOutcome (ADR-0054 decision 3 / ADR-0056
+        decision 3): the calendar now shows one month at a time and must be
+        paged forward to reach a day beyond the initially-displayed month --
+        replacing the vendored flatpickr's own three-month-wide default this
+        suite's Given dates used to rely on being visible without paging at
+        all (FR-033: "テストを通すための選択だった"). The product's own
+        default is no longer this suite's to bend to its own convenience
+        (this round's own instruction) -- when a Given date happens to fall
+        in a later month than the one showing, this suite pages forward
+        itself instead. Bounded so a real defect (the cell never appearing
+        at all) fails loudly instead of looping forever.
+        """
+        next_month_test_id = require(
+            _CALENDAR_MONTH_NEXT_BY_DAY_TEST_ID.get(calendar_day_test_id),
+            f"no month-next control registered for {calendar_day_test_id}",
+        )
+        cell = self._calendar_day_locator(calendar_day_test_id, iso)
+        for _ in range(_CALENDAR_MAX_MONTH_ADVANCES):
+            if cell.count() > 0:
+                return
+            by_test_id(self.page, next_month_test_id).click()
+        date_part = datetime.fromisoformat(iso).strftime("%Y-%m-%d")
+        self.assertions.fail(
+            f"{calendar_day_test_id} cell for {date_part} did not appear within "
+            f"{_CALENDAR_MAX_MONTH_ADVANCES} month-next activations"
+        )
+
     def _select_calendar_days(self, calendar_day_test_id: str, isos: list[str]) -> None:
-        for iso in isos:
+        """Sorts ``isos`` ascending before paging (independent audit
+        audit-gathering-redesign-steps.md Minor 1): _advance_calendar_to_
+        month_containing only pages forward, so an unsorted or descending
+        ``isos`` would make an earlier date unreachable after a later one
+        already paged past it. Every current caller already passes isos in
+        ascending order, so this sort is defensive only -- it changes no
+        caller's observed behavior today, but removes the silent dependency
+        on callers maintaining that order themselves.
+        """
+        for iso in sorted(isos, key=lambda value: datetime.fromisoformat(value)):
+            self._advance_calendar_to_month_containing(calendar_day_test_id, iso)
             cell = self._calendar_day_locator(calendar_day_test_id, iso)
             expect(cell).to_be_enabled()
             cell.click()
             expect(cell).to_have_attribute(CALENDAR_DAY_SELECTED_ATTR, "true")
 
-    def _selected_calendar_day_dates(self, calendar_day_test_id: str) -> list[str]:
-        selected = self.page.locator(
-            f'[data-testid="{calendar_day_test_id}"][{CALENDAR_DAY_SELECTED_ATTR}="true"]'
+    def _selected_calendar_days(self, calendar_day_test_id: str) -> set[str]:
+        """removeSelected.attributes.date (contract 0.19.0, closing 独立監査
+        audit-gathering-redesign-steps.md's Minor finding on TDR-GTH-46's
+        fragility): each removeSelected instance now carries its own
+        data-date, same value/format as dayCell.attributes.date, so the
+        full cross-month selected-day set can be read directly from this
+        list-like control -- no month navigation needed to verify. Replaces
+        this file's previous _selected_calendar_day_count (cardinality
+        only) + _rewind_calendar_to_earliest_month/per-date revisit combo
+        (both removed): that combination was logically sound (count
+        equality plus every expected date individually confirmed selected
+        rules out both a missing and an extra selection) but its revisit
+        half depended on a 13-navigation round trip always being enough to
+        reach every month, an assumption this contract's monthNavigation
+        does not guarantee a floor for (independent audit's own reading of
+        the risk: not a false-pass risk, but a real implementation could be
+        wrongly failed by it). Reading from removeSelected.attributes.date
+        directly is immune to that risk and unaffected by the calendar's
+        displayed month.
+        """
+        remove_selected_test_id = require(
+            _CALENDAR_REMOVE_SELECTED_BY_DAY_TEST_ID.get(calendar_day_test_id),
+            f"no remove-selected control registered for {calendar_day_test_id}",
         )
-        return [
-            selected.nth(index).get_attribute(CALENDAR_DAY_DATE_ATTR)
-            for index in range(selected.count())
-        ]
+        items = self.page.locator(f'[data-testid="{remove_selected_test_id}"]')
+        return {
+            require(
+                items.nth(index).get_attribute(CALENDAR_DAY_DATE_ATTR),
+                f"{remove_selected_test_id} instance {index} has no {CALENDAR_DAY_DATE_ATTR}",
+            )
+            for index in range(items.count())
+        }
+
+    def _assert_selected_calendar_days_equal(
+        self, calendar_day_test_id: str, isos: list[str]
+    ) -> None:
+        """Confirms the calendar's currently-selected-day set equals exactly
+        ``isos`` (by date), read via _selected_calendar_days above -- a
+        direct set-equality comparison against removeSelected's own
+        data-date attributes, with no dependency on which month the
+        calendar currently displays.
+        """
+        expected_dates = {datetime.fromisoformat(iso).strftime("%Y-%m-%d") for iso in isos}
+        self.assertions.assertEqual(
+            self._selected_calendar_days(calendar_day_test_id), expected_dates
+        )
+
+    def _assert_no_calendar_days_selected(self, calendar_day_test_id: str) -> None:
+        """Cross-month equivalent of asserting every day cell reset to
+        data-selected="false" -- see _selected_calendar_days above for why
+        this reads removeSelected's own data-date attributes instead of a
+        single month's day-cell snapshot.
+        """
+        self.assertions.assertEqual(self._selected_calendar_days(calendar_day_test_id), set())
 
     def open_add_candidate_date_form(self) -> None:
         """addCandidateDateOpen.requiredOutcome: reveals
@@ -857,9 +1159,7 @@ class GatheringSchedulingBrowserDsl:
         )
         self.assertions.assertEqual(self._read_gathering_phase_from_dom(), expected_phase)
         assert_present(self.assertions, self.page, GATHERING_ADD_CANDIDATE_DATE_FORM)
-        self.assertions.assertEqual(
-            self._selected_calendar_day_dates(GATHERING_ADD_CANDIDATE_DATE_DAY), []
-        )
+        self._assert_no_calendar_days_selected(GATHERING_ADD_CANDIDATE_DATE_DAY)
 
     def assert_duplicate_candidate_date_rejected_by_inline_form(
         self,
@@ -872,17 +1172,21 @@ class GatheringSchedulingBrowserDsl:
         added (dates unchanged from the pre-submit snapshot), the form stays
         present, and every day cell's data-selected is unchanged -- not one
         of them resets, even the ones that did not themselves collide
-        (adr/0049 decision 3: "全部やるか全部やめるか").
+        (adr/0049 decision 3: "全部やるか全部やめるか"). Reads the post-
+        rejection selection via _assert_selected_calendar_days_equal, not a
+        single-month day-cell DOM snapshot -- when candidate_date_isos spans
+        more than one month, the calendar has already paged forward to the
+        last one navigated to, so a same-month-only read silently drops the
+        earlier month's still-selected day (orchestrator L4 run against this
+        integration, TDR-GTH-46).
         """
         self.assertions.assertEqual(response.status, 409)
         self.assertions.assertEqual(response.payload["code"], "DUPLICATE_CANDIDATE_DATE")
         self.assertions.assertEqual(self._read_candidate_dates(), before_dates)
         assert_present(self.assertions, self.page, GATHERING_ADD_CANDIDATE_DATE_FORM)
-        expected_selected = {
-            datetime.fromisoformat(iso).strftime("%Y-%m-%d") for iso in candidate_date_isos
-        }
-        actual_selected = set(self._selected_calendar_day_dates(GATHERING_ADD_CANDIDATE_DATE_DAY))
-        self.assertions.assertEqual(actual_selected, expected_selected)
+        self._assert_selected_calendar_days_equal(
+            GATHERING_ADD_CANDIDATE_DATE_DAY, candidate_date_isos
+        )
 
     # organizerGatheringList (TDR-GTH-21/22, adr/0038) -----------------------
 
@@ -1258,6 +1562,14 @@ class GatheringSchedulingBrowserDsl:
             if "revoked" in wanted:
                 self.assertions.assertEqual(actual["revoked"], wanted["revoked"])
 
+    def read_participant_link_ids_in_order(self) -> list[str]:
+        """The DOM order of gathering-participant-link-item's own
+        data-participant-link-id (issuedAt ascending) -- used by TDR-GTH-49
+        to correlate gathering-response-table's own rows back to a specific
+        link this test itself issued and answered, by identity.
+        """
+        return [item["id"] for item in self._read_participant_link_items()]
+
     def recopy_participant_link_at(self, index: int) -> str:
         item = wait_for_at_least_one(self.page, PARTICIPANT_LINK_ITEM).nth(index)
         recopy = by_test_id(item, PARTICIPANT_LINK_RECOPY)
@@ -1273,9 +1585,17 @@ class GatheringSchedulingBrowserDsl:
         revoke.click()
         expect(item).to_have_attribute(REVOKED_ATTR, "true")
 
-    def assert_revoke_control_disabled_at(self, index: int) -> None:
+    def assert_revoke_control_absent_at(self, index: int) -> None:
+        """participantLinkList.item.revoke's presenceRule, **overturned
+        2026-09-12 (ADR-0055 decision 2, human decision "取り消すは未回答の
+        行にだけ置く", TDR-GTH-20)**: an answered (or already-revoked) row no
+        longer carries a *disabled* revoke control -- the element itself is
+        absent from that row's DOM. Replaces this file's own retired
+        assert_revoke_control_disabled_at, which encoded the now-overturned
+        disable-at-the-boundary rule for this control specifically.
+        """
         item = wait_for_at_least_one(self.page, PARTICIPANT_LINK_ITEM).nth(index)
-        expect(by_test_id(item, PARTICIPANT_LINK_REVOKE)).to_be_disabled()
+        assert_absent(self.assertions, item, PARTICIPANT_LINK_REVOKE)
 
     def attempt_revoke_participant_link_via_api(self, index: int) -> CapturedApiResponse:
         """TDR-GTH-20's own contract note: the server must reject this even though
@@ -1579,11 +1899,15 @@ class GatheringSchedulingBrowserDsl:
             result.append(
                 {
                     "shopId": node.get_attribute(SHOP_ID_ATTR),
+                    "name": node.get_attribute(SHOP_NAME_ATTR),
+                    "walkingTimeMinutes": int(node.get_attribute(WALKING_TIME_MINUTES_ATTR)),
                     "wantToGoCount": int(node.get_attribute(WANT_TO_GO_COUNT_ATTR)),
                     "okToGoCount": int(node.get_attribute(OK_TO_GO_COUNT_ATTR)),
                     "notGoingCount": int(node.get_attribute(NOT_GOING_COUNT_ATTR)),
                     "respondedCount": int(node.get_attribute(RESPONDED_COUNT_ATTR)),
                     "currentLeader": node.get_attribute(CURRENT_LEADER_ATTR) == "true",
+                    "addedAfterVotingStarted": node.get_attribute(ADDED_AFTER_VOTING_STARTED_ATTR)
+                    == "true",
                 }
             )
         return result
@@ -1623,14 +1947,78 @@ class GatheringSchedulingBrowserDsl:
         ]
         self.assertions.assertEqual(combined, sorted(combined, reverse=True))
 
-    def assert_shortlisted_shop_current_leader(self, shop_id: str) -> None:
-        """data-current-leader (adr/0050 decision 5): "true" for exactly the
-        shop that is first in this list's own orderingInvariant order;
-        "false" for every other item.
+    def assert_shortlisted_shop_list_shows_map_and_shop_details(self) -> None:
+        """TDR-GTH-38, rewritten 2026-09-13 (ADR-0055 decision 5 / ADR-0056
+        decision 5, human decision "投票タリー画面にも地図・店の情報を出
+        す"): the scenario now names the organizer's own vote-tally view
+        (shortlistedShopVotes), not shopSelectionEntry/gatheringMode
+        (candidate-search-browser-interface.yaml) which this scenario used
+        to open before ADR-0049 retired the organizer's own shop-picking
+        screen entirely -- this reverses the 2026-09-05 exclusion this same
+        section's own description names ("a designer decision this contract
+        reflects, not an oversight" -- ADR-0055 decision 5 finds that
+        explanation was itself in error). Cross-checks name/walking-time/
+        provider-page-link against gathering-scheduling-api.yaml's own
+        getGathering response (not just DOM self-consistency), mirroring
+        assert_shop_vote_question_list_shows_map_and_shop_details's
+        equivalent cross-check on the participant side.
+        """
+        gathering = self.refresh_gathering_from_api()
+        shops_by_id = {shop["shopId"]: shop for shop in gathering["shortlistedShops"]}
+        items = self._read_shortlisted_shop_items()
+        self.assertions.assertTrue(items)
+        marker_nodes = wait_for_at_least_one(self.page, SHORTLISTED_SHOP_MAP_MARKER)
+        marker_ids = [
+            marker_nodes.nth(index).get_attribute(SHOP_ID_ATTR)
+            for index in range(marker_nodes.count())
+        ]
+        item_ids = [item["shopId"] for item in items]
+        # Reviewer audit Major#1 precedent (assert_shop_vote_question_list_
+        # shows_map_and_shop_details above): sorted-list equality plus an
+        # explicit no-duplicates check, not a set comparison alone.
+        self.assertions.assertEqual(sorted(marker_ids), sorted(item_ids))
+        self.assertions.assertEqual(len(marker_ids), len(set(marker_ids)))
+        for item in items:
+            shop = require(
+                shops_by_id.get(item["shopId"]),
+                f"shop {item['shopId']} missing from getGathering's shortlistedShops",
+            )
+            self.assertions.assertEqual(item["name"], shop["name"])
+            self.assertions.assertEqual(item["walkingTimeMinutes"], shop["walkingTimeMinutes"])
+            node = self.page.locator(
+                f'[data-testid="{SHORTLISTED_SHOP_ITEM}"][{SHOP_ID_ATTR}="{item["shopId"]}"]'
+            )
+            link = assert_present(self.assertions, node, SHORTLISTED_SHOP_PAGE_LINK)
+            self.assertions.assertEqual(link.get_attribute("href"), shop["providerPageUrl"])
+
+    def assert_no_shortlisted_shop_is_current_leader(self) -> None:
+        """data-current-leader (**corrected 2026-09-12, ADR-0055 decision 6,
+        human decision "票を入れた瞬間に嘘の最有力が出る"**, overturning the
+        original always-first-item rule this file's own retired
+        assert_shortlisted_shop_current_leader enforced): every item whose
+        data-responded-count is "0" carries data-current-leader="false"
+        regardless of DOM position (TDR-GTH-54).
         """
         items = self._read_shortlisted_shop_items()
-        leaders = [item["shopId"] for item in items if item["currentLeader"]]
-        self.assertions.assertEqual(leaders, [shop_id], f"expected exactly {shop_id} to lead")
+        self.assertions.assertTrue(items, "no shortlisted shop is present to check")
+        self.assertions.assertTrue(
+            all(item["respondedCount"] == 0 for item in items),
+            "this assertion only applies while every shortlisted shop is unanswered",
+        )
+        self.assertions.assertFalse(any(item["currentLeader"] for item in items))
+
+    def assert_shortlisted_shop_current_leaders_are(self, expected_leader_ids: set[str]) -> None:
+        """data-current-leader's tie handling (ADR-0055 decision 6, TDR-GTH-55):
+        every item sharing the highest wantToGoCount + okToGoCount among
+        items with a non-zero data-responded-count is "true" (a tie
+        produces more than one "true" item, all of them); every other item
+        is "false". Replaces this file's own retired
+        assert_shortlisted_shop_current_leader, whose "exactly one shopId
+        leads" shape cannot express a tie at all.
+        """
+        items = self._read_shortlisted_shop_items()
+        leaders = {item["shopId"] for item in items if item["currentLeader"]}
+        self.assertions.assertEqual(leaders, expected_leader_ids)
 
     # shopSelectionEntry / candidate-search-browser-interface.yaml's
     # gatheringMode (TDR-GTH-38/44/45, adr/0049 decision 1) -----------------
@@ -1690,27 +2078,6 @@ class GatheringSchedulingBrowserDsl:
         selected = [shop["shopId"] for shop in gathering["shortlistedShops"]]
         self.assertions.assertEqual(len(selected), n)
         return selected
-
-    def assert_gathering_mode_shows_map_and_shop_details(self) -> None:
-        """TDR-GTH-38: candidate-search-browser-interface.yaml's own map and
-        per-card detail fields (walking time, seating tier, non-smoking,
-        dinner budget, provider page link) are unchanged by adr/0049 -- this
-        checks their presence from gatheringMode, not this file's own
-        (now-retired) shortlistSelection map/detail rendering. This only
-        asserts presence (not exact values, e.g. provider-page href) --
-        candidate_search_browser.py's own TDR-CS suite already checks those
-        values against candidate-search-api.yaml's own response, and this
-        file does not import that sibling module (module-boundary note).
-        """
-        assert_present(self.assertions, self.page, CANDIDATE_MAP)
-        cards = wait_for_at_least_one(self.page, CANDIDATE_CARD)
-        for index in range(cards.count()):
-            card = cards.nth(index)
-            assert_present(self.assertions, card, CANDIDATE_CARD_WALKING_TIME)
-            assert_present(self.assertions, card, CANDIDATE_CARD_TOTAL_SEATS)
-            assert_present(self.assertions, card, CANDIDATE_CARD_NON_SMOKING)
-            assert_present(self.assertions, card, CANDIDATE_CARD_DINNER_BUDGET)
-            assert_present(self.assertions, card, CANDIDATE_CARD_PROVIDER_PAGE_LINK)
 
     def toggle_off_the_first_shortlisted_candidate_card(self) -> None:
         """gatheringMode.cardToggle's own "press again to remove" behavior
@@ -1870,17 +2237,103 @@ class GatheringSchedulingBrowserDsl:
             FINALIZE_SELECTED_ATTR, "true"
         )
 
-    def submit_finalize(self) -> None:
-        by_test_id(self.page, FINALIZE_SUBMIT).click()
+    def open_finalize_confirmation(self) -> None:
+        """shortlistedShopVotes.finalizeOpen.requiredOutcome (ADR-0054 decision
+        5, human decision: the same open-then-confirm two-step pattern this
+        contract already establishes for deleteGathering, replacing the
+        retired single-activation finalizeSubmit, TDR-GTH-53): reveals
+        gathering-finalize-confirm-dialog without itself calling
+        finalizeGathering.
+
+        Calls the cross-cutting check while the confirm dialog is open --
+        the same FR-030 lesson delete_gathering_via_dashboard already
+        applies to gathering-delete-confirm-dialog (this file's own
+        precedent). Independent audit (audit-gathering-redesign-steps.md
+        Major 2) found gathering-finalize-confirm-dialog -- a new DOM
+        shape this round introduced (gathering-finalize-confirm-changes-
+        row/-row-before/-row-after) -- had never once been scanned while
+        open, including by TDR-GTH-53 itself, the one scenario that opens
+        it directly. Placed here rather than only in TDR-GTH-53 so every
+        caller of finalize_via_dashboard (TDR-GTH-33/34/35/36) gains the
+        same coverage without duplicating the call at each call site.
+        """
+        before_phase = self._read_gathering_phase_from_dom()
+        by_test_id(self.page, FINALIZE_OPEN).click()
+        wait_for_at_least_one(self.page, FINALIZE_CONFIRM_DIALOG)
+        self.assert_gathering_screen_has_no_forbidden_surfaces()
+        self.assertions.assertEqual(self._read_gathering_phase_from_dom(), before_phase)
+
+    def assert_finalize_confirm_dialog_shows_changes_summary(self) -> None:
+        """finalizeConfirmDialog.changesTable.row (gathering-scheduling-
+        browser-interface.yaml 0.18.0 追補15, TDR-GTH-53): **replaces the
+        previous same-element "non-empty text somewhere" check**, which
+        could not tell "there are three rows" or "each row is the row it
+        claims to be" from a single blob of text (this slice's own prior
+        tester report flagged this as a gap; 0.18.0 closed it with a
+        row-level testId/attribute this suite can now correlate against,
+        the same way organizerDashboard.responseTable's row/cell test ids
+        already work). Confirms exactly three gathering-finalize-confirm-
+        changes-row elements exist, their data-change-subject values equal
+        exactly the three subjectValues (no duplicates, so set equality
+        proves full coverage), and each row contains exactly one -before
+        and one -after element with non-empty visible text.
+        """
+        changes = assert_present(self.assertions, self.page, FINALIZE_CHANGES_TABLE)
+        rows = changes.locator(f'[data-testid="{FINALIZE_CHANGES_ROW}"]')
+        expect(rows).to_have_count(3)
+        subjects = [
+            rows.nth(index).get_attribute(CHANGE_SUBJECT_ATTR) for index in range(rows.count())
+        ]
+        self.assertions.assertEqual(
+            len(subjects), len(set(subjects)), f"duplicate subject: {subjects}"
+        )
+        self.assertions.assertEqual(set(subjects), set(FINALIZE_CHANGES_SUBJECT_VALUES))
+        for index in range(rows.count()):
+            row = rows.nth(index)
+            before = row.locator(f'[data-testid="{FINALIZE_CHANGES_ROW_BEFORE}"]')
+            after = row.locator(f'[data-testid="{FINALIZE_CHANGES_ROW_AFTER}"]')
+            expect(before).to_have_count(1)
+            expect(after).to_have_count(1)
+            self.assertions.assertNotEqual(before.inner_text().strip(), "")
+            self.assertions.assertNotEqual(after.inner_text().strip(), "")
+
+    def confirm_finalize(self) -> None:
+        """shortlistedShopVotes.finalizeConfirm.requiredOutcome (ADR-0054
+        decision 5): only this control actually calls finalizeGathering."""
+        by_test_id(self.page, FINALIZE_CONFIRM).click()
         expect(by_test_id(self.page, GATHERING_PHASE_INDICATOR)).to_have_attribute(
             GATHERING_PHASE_ATTR, "FINALIZED"
         )
+        assert_absent(self.assertions, self.page, FINALIZE_CONFIRM_DIALOG)
+
+    def cancel_finalize(self) -> None:
+        """shortlistedShopVotes.finalizeCancel.requiredOutcome (ADR-0054
+        decision 5): closes the dialog without calling finalizeGathering;
+        the organizer's pending finalizeSelect choice survives (TDR-GTH-53's
+        own re-open-and-confirm path relies on this).
+        """
+        before_phase = self._read_gathering_phase_from_dom()
+        by_test_id(self.page, FINALIZE_CANCEL).click()
+        assert_absent(self.assertions, self.page, FINALIZE_CONFIRM_DIALOG)
+        self.assertions.assertEqual(self._read_gathering_phase_from_dom(), before_phase)
+
+    def finalize_via_dashboard(self) -> None:
+        """End-to-end open-then-confirm helper for scenarios that do not
+        themselves examine the confirmation dialog (TDR-GTH-33/34/35/36) --
+        replaces this file's own retired single-click submit_finalize.
+        """
+        self.open_finalize_confirmation()
+        self.confirm_finalize()
 
     def assert_finalized_controls_are_absent(self) -> None:
-        """FINALIZED局面で消える操作コントロールの一覧 (adr/0042 決定3): every
-        operational control this contract scopes to SCHEDULING/SELECTING_SHOP
-        becomes absent once FINALIZED -- only recopy remains reachable (P4,
-        exercised separately by TDR-GTH-36).
+        """FINALIZED局面で消える操作コントロールの一覧 (adr/0042 決定3, updated
+        2026-09-12 for the finalize-open/-confirm-dialog split, ADR-0054
+        decision 5, and the new removeCandidateDate control, ADR-0056
+        decision 2): every operational control this contract scopes to
+        SCHEDULING/SELECTING_SHOP becomes absent once FINALIZED -- only
+        recopy remains reachable (P4, exercised separately by TDR-GTH-36).
+        Mirrors shortlistedShopVotes.finalizeConfirm.requiredOutcome's own
+        exact enumeration of what becomes absent on a successful confirm.
         """
         assert_all_absent(
             self.assertions,
@@ -1888,9 +2341,12 @@ class GatheringSchedulingBrowserDsl:
             [
                 CONFIRM_DATE_SELECT,
                 ADD_CANDIDATE_DATE_OPEN,
+                CANDIDATE_DATE_REMOVE,
                 SHORTLIST_OPEN,
                 FINALIZE_SHOP_SELECT,
-                FINALIZE_SUBMIT,
+                FINALIZE_OPEN,
+                FINALIZE_CONFIRM_DIALOG,
+                RETIRED_FINALIZE_SUBMIT,
                 PARTICIPANT_LINK_COPY,
                 PARTICIPANT_LINK_REVOKE,
             ],
@@ -1899,6 +2355,15 @@ class GatheringSchedulingBrowserDsl:
             f'[{GATHERING_CONTROL_PURPOSE_ATTR}="gathering-candidate-date-tentative-select"]'
         )
         self.assertions.assertEqual(tentative_select_purpose.count(), 0)
+
+    def assert_participant_link_issuance_closed_badge_is_shown(self) -> None:
+        """participantLinkList.issuanceClosed (ADR-0056 decision 11): present
+        exactly when phase is FINALIZED -- a positive signal that issuance
+        ending was on purpose, distinct from participantLinkCopy's own mere
+        absence (which by itself looked like it might be a bug, per the
+        contract's own rationale).
+        """
+        assert_present(self.assertions, self.page, PARTICIPANT_LINK_ISSUANCE_CLOSED)
 
     def attempt_issue_participant_link_via_api(self) -> CapturedApiResponse:
         return self._api(
@@ -2055,12 +2520,27 @@ class GatheringSchedulingBrowserDsl:
             YOUR_RESPONSE_ATTR, expected
         )
 
-    def assert_schedule_question_open_shop_count(
-        self, candidate_date_id: str, expected: int
-    ) -> None:
-        expect(self._schedule_question_locator(candidate_date_id)).to_have_attribute(
-            OPEN_SHOP_COUNT_ATTR, str(expected)
-        )
+    def assert_schedule_question_has_no_open_shop_count(self, candidate_date_id: str) -> None:
+        """**Rewritten 2026-09-13 (ADR-0055 decision 1, human decision
+        "参加者の画面から『この日に開いている店N件』を消す", gathering-
+        scheduling.feature's TDR-GTH-09 rewritten to a negative
+        assertion)**: gathering-scheduling-api.yaml removed
+        ParticipantScheduleQuestion.openShopCount at v0.11.0;
+        gathering-scheduling-browser-interface.yaml 0.18.0 追補15 closed the
+        resulting contradiction (this contract had kept requiring an
+        attribute equal a value that no longer existed) by requiring this
+        element carry **no** data-open-shop-count attribute at all, for
+        every reachable gathering-schedule-question regardless of
+        data-your-response. Replaces the retired
+        assert_schedule_question_open_shop_count, which asserted the
+        attribute equalled a specific count -- checked here as a literal
+        attribute-name string (not OPEN_SHOP_COUNT_ATTR, which
+        organizerDashboard's own gathering-open-shop-preview, TDR-GTH-08,
+        still legitimately carries unchanged) precisely because it no
+        longer denotes a real observation surface on this element.
+        """
+        node = self._schedule_question_locator(candidate_date_id)
+        self.assertions.assertIsNone(node.get_attribute("data-open-shop-count"))
 
     def assert_schedule_question_no_shop_details(self, candidate_date_id: str) -> None:
         """D6 (2026-08-30): "店名やその他の店舗情報は示されない" -- a stronger
@@ -2147,6 +2627,70 @@ class GatheringSchedulingBrowserDsl:
         confirmation = assert_present(self.assertions, self.page, ANSWER_LATER_CONFIRMATION)
         self.assertions.assertNotEqual(confirmation.inner_text().strip(), "")
         self.assert_schedule_question_your_response(candidate_date_id, expected_response)
+
+    def assert_answer_later_confirmation_reproduces_schedule_answer(
+        self, candidate_date_id: str, expected_response: str
+    ) -> None:
+        """answerLater.confirmation.scheduleItem (gathering-scheduling-
+        browser-interface.yaml 0.18.0 追補15, ADR-0056): **replaces the
+        previous conditional check**, which only ran its strong assertion
+        when the implementation happened to reuse the live
+        gathering-schedule-question element inside the confirmation surface
+        -- a different implementation shape (a separate echo element) made
+        that branch never execute, leaving only the weak "non-empty text"
+        baseline (a tester finding this same contract revision's header
+        comment now records). 0.18.0 closes this by giving the reproduced
+        echo its own dedicated, non-reused testId
+        (gathering-participant-answer-later-confirmation-schedule-item) that
+        this suite can always find regardless of markup shape. Confirms
+        exactly one such item exists for this candidate date and its
+        data-your-response matches the participant's own recorded answer --
+        no weak fallback branch remains.
+        """
+        confirmation = assert_present(self.assertions, self.page, ANSWER_LATER_CONFIRMATION)
+        item = confirmation.locator(
+            f'[data-testid="{ANSWER_LATER_CONFIRMATION_SCHEDULE_ITEM}"]'
+            f'[{CANDIDATE_DATE_ID_ATTR}="{candidate_date_id}"]'
+        )
+        expect(item).to_have_count(1)
+        expect(item).to_have_attribute(YOUR_RESPONSE_ATTR, expected_response)
+
+    def assert_answer_later_confirmation_has_no_schedule_item_for(
+        self, candidate_date_id: str
+    ) -> None:
+        """answerLater.confirmation.scheduleItem's own requirement (0.19.0):
+        "No candidate date whose yourResponse is null appears here -- this
+        surface echoes answers given, not every candidate date". **Added
+        (2026-09-13, 欠陥注入で判明: 未回答の候補日の項目まで描く欠陥が緑の
+        まま通った)**: the prior Given had only one, already-answered
+        candidate date, so an unanswered one never existed for this
+        requirement to be checked against. Same direct-locator convention
+        as assert_answer_later_confirmation_reproduces_schedule_answer
+        above, filtered to the candidate date this participant left
+        unanswered.
+        """
+        confirmation = assert_present(self.assertions, self.page, ANSWER_LATER_CONFIRMATION)
+        item = confirmation.locator(
+            f'[data-testid="{ANSWER_LATER_CONFIRMATION_SCHEDULE_ITEM}"]'
+            f'[{CANDIDATE_DATE_ID_ATTR}="{candidate_date_id}"]'
+        )
+        expect(item).to_have_count(0)
+
+    def assert_answer_later_confirmation_schedule_item_count(self, expected_count: int) -> None:
+        """answerLater.confirmation.scheduleItem's own cardinality (0.19.0):
+        "One element per ParticipantScheduleQuestion whose yourResponse is
+        non-null". Checks the *total* count of schedule items reproduced,
+        so an item rendered for an unanswered candidate date cannot hide
+        behind an otherwise-correct answered-date item -- neither the
+        per-date reproduction check nor the per-date absence check above
+        looks at the total, so this is what actually closes the gap the
+        same tester finding above (a defect that draws every candidate
+        date's item, not only the answered ones) would otherwise slip
+        through.
+        """
+        confirmation = assert_present(self.assertions, self.page, ANSWER_LATER_CONFIRMATION)
+        items = confirmation.locator(f'[data-testid="{ANSWER_LATER_CONFIRMATION_SCHEDULE_ITEM}"]')
+        expect(items).to_have_count(expected_count)
 
     def activate_peek_results_and_verify_tallies_are_visible(self, candidate_date_id: str) -> None:
         """peekResults.requiredOutcome: makes every currently reachable
@@ -2334,6 +2878,26 @@ class GatheringSchedulingBrowserDsl:
             int(require(actual_responded, "responded count missing")),
         )
 
+    def assert_shop_vote_tally_total_active_participant_count(
+        self, shop_id: str, expected: int
+    ) -> None:
+        """shopVoteQuestion.tally.totalActiveParticipantCount (gathering-
+        scheduling-browser-interface.yaml 0.15.0 追補12, ADR-0056 decision
+        9, TDR-GTH-56): data-total-active-participant-count mirrors
+        ParticipantView.totalActiveParticipantCount exactly -- the count of
+        issued-and-not-revoked participant links, not the count of every
+        link ever issued (Given-state callers should issue at least one
+        link that is then revoked, so the two counts differ and this
+        assertion cannot pass by accident against the wrong denominator).
+        Does not change regardless of how many votes this shop itself has
+        gathered (a per-participant-view constant, unlike the other four
+        tally attributes assert_shop_vote_tally checks).
+        """
+        tally = self._shop_vote_question_locator(shop_id).locator(
+            f'[data-testid="{SHOP_VOTE_TALLY}"]'
+        )
+        expect(tally).to_have_attribute(TOTAL_ACTIVE_PARTICIPANT_COUNT_ATTR, str(expected))
+
     def attempt_set_schedule_response_via_api(
         self, link: dict[str, str], candidate_date_id: str, status: str
     ) -> CapturedApiResponse:
@@ -2461,14 +3025,19 @@ class GatheringSchedulingBrowserDsl:
         """**Simplified 2026-09-09 (adr/0050 decision 3, TDR-GTH-34)**: no
         longer reads a per-shop breakdown -- gathering-participant-decision-
         shop-vote and decision.yourShopVotes/ParticipantDecisionShopVote are
-        all retired. See assert_participant_decision_has_no_shop_breakdown
-        below for the accompanying negative assertion.
+        all retired. **Simplified further 2026-09-13 (ADR-0055 decision 7,
+        TDR-GTH-34)**: yourScheduleResponse/data-your-schedule-response is
+        fully removed too -- not merely read as null. **Extended 2026-09-12
+        (ADR-0056 decision 10, TDR-GTH-52)**: data-walking-time-minutes is
+        new. See assert_participant_decision_has_no_shop_breakdown and
+        assert_participant_decision_has_no_own_response_attribute below for
+        the accompanying negative assertions.
         """
         node = assert_present(self.assertions, self.page, PARTICIPANT_DECISION)
         return {
             "confirmedCandidateDate": node.get_attribute(GATHERING_CONFIRMED_CANDIDATE_DATE_ATTR),
             "shopId": node.get_attribute(SHOP_ID_ATTR),
-            "yourScheduleResponse": node.get_attribute(YOUR_SCHEDULE_RESPONSE_ATTR),
+            "walkingTimeMinutes": node.get_attribute(DECISION_WALKING_TIME_ATTR),
         }
 
     def assert_participant_decision(
@@ -2476,12 +3045,77 @@ class GatheringSchedulingBrowserDsl:
         *,
         confirmed_candidate_date: str,
         shop_id: str,
-        your_schedule_response: str,
     ) -> None:
         decision = self._read_participant_decision()
         self.assertions.assertEqual(decision["confirmedCandidateDate"], confirmed_candidate_date)
         self.assertions.assertEqual(decision["shopId"], shop_id)
-        self.assertions.assertEqual(decision["yourScheduleResponse"], your_schedule_response)
+
+    def assert_participant_decision_has_no_own_response_attribute(self) -> None:
+        """**Removed 2026-09-13 (ADR-0055 decision 7, human decision
+        "あなたの回答は見れても別に意味ないかも" 再確認, TDR-GTH-34)**:
+        data-your-schedule-response no longer exists anywhere on
+        gathering-participant-decision at all -- checked as a literal
+        attribute-name string (not a named constant) precisely because it no
+        longer denotes a real, defined observation surface (mirrors this
+        file's own assert_participant_decision_has_no_shop_breakdown
+        treatment of a fully-retired sibling surface).
+        """
+        node = assert_present(self.assertions, self.page, PARTICIPANT_DECISION)
+        self.assertions.assertIsNone(node.get_attribute("data-your-schedule-response"))
+
+    def assert_participant_decision_shows_shop_location_details(
+        self, *, shop_id: str, walking_time_minutes: int, provider_page_url: str
+    ) -> None:
+        """TDR-GTH-52 (new, ADR-0056 decision 10): decided shop location and
+        walking-time/provider-page-link, cross-checked against
+        gathering-scheduling-api.yaml's own getParticipantView response
+        rather than only self-consistency (mirrors this file's own
+        assert_shop_vote_question_list_shows_map_and_shop_details
+        precedent).
+        """
+        decision = self._read_participant_decision()
+        self.assertions.assertEqual(decision["shopId"], shop_id)
+        self.assertions.assertEqual(
+            decision["walkingTimeMinutes"],
+            str(walking_time_minutes),  # type: ignore[arg-type]
+        )
+        marker = assert_present(self.assertions, self.page, PARTICIPANT_DECISION_MAP_MARKER)
+        self.assertions.assertEqual(marker.get_attribute(SHOP_ID_ATTR), shop_id)
+        link = assert_present(self.assertions, self.page, PARTICIPANT_DECISION_PROVIDER_PAGE_LINK)
+        self.assertions.assertEqual(link.get_attribute("href"), provider_page_url)
+
+    def assert_participant_decision_map_shows_shop_and_origin_only(self) -> None:
+        """gathering-participant-decision-map's own scope (ADR-0056 decision
+        10, TDR-GTH-52): exactly the decided shop's own pin and this
+        participant's search origin -- **no route line or walking-radius
+        ring**.
+
+        **Strengthened (independent audit audit-gathering-redesign-steps.md
+        Major 1, contract 0.19.0 追補16)**: the candidate-walking-radius-ring
+        absence check below only ever proved this map does not leak *that*
+        one, unrelated contract's ring test id -- it could not detect an
+        implementation drawing its own untagged route line/ring (e.g. a raw
+        Leaflet Polyline/Circle carrying no test id at all). 0.19.0 closed
+        this by adding data-overlay-marker-count/-line-count/-ring-count to
+        gathering-participant-decision-map itself: the product's own running
+        count of overlays it drew, independent of whether a given overlay
+        kind additionally carries a test id. overlayMarkerCount MUST equal
+        "2" (marker + originMarker, forbidding a third untagged marker);
+        overlayLineCount/overlayRingCount MUST both equal "0" -- this is the
+        DOM-observable form of "描かない" that the walking-radius-ring check
+        alone could not provide. The walking-radius-ring check is kept
+        alongside, not replaced by, this strengthened check (never weaken an
+        existing assertion).
+        """
+        map_node = assert_present(self.assertions, self.page, PARTICIPANT_DECISION_MAP)
+        self.assertions.assertEqual(
+            map_node.locator('[data-testid="candidate-walking-radius-ring"]').count(), 0
+        )
+        self.assertions.assertEqual(map_node.get_attribute("data-overlay-marker-count"), "2")
+        self.assertions.assertEqual(map_node.get_attribute("data-overlay-line-count"), "0")
+        self.assertions.assertEqual(map_node.get_attribute("data-overlay-ring-count"), "0")
+        assert_present(self.assertions, self.page, PARTICIPANT_DECISION_MAP_MARKER)
+        assert_present(self.assertions, self.page, PARTICIPANT_DECISION_ORIGIN_MARKER)
 
     def assert_participant_decision_has_no_shop_breakdown(self) -> None:
         """TDR-GTH-34's simplified Then ("店ごとの回答の一覧は示されない",
@@ -2496,17 +3130,44 @@ class GatheringSchedulingBrowserDsl:
         )
 
     def assert_participant_question_surfaces_are_replaced(self) -> None:
-        """replacesQuestionSurfaces (adr/0042): once ParticipantView.decision is
-        non-null, the per-candidate-date/per-shop breakdowns are fully replaced
-        by the flat decision summary above -- this is also how "他の参加者の
-        回答や投票は示されない" (TDR-GTH-34) is enforced structurally, not only
-        by decision.yourShopVotes' own content.
+        """replacesQuestionSurfaces (adr/0042). **Narrowed 2026-09-12 (ADR-0055
+        decision 8, human decision "確定後も参加者は店ごとの票を見られるまま
+        にする", resolving a self-contradiction this contract carried since
+        2026-09-09 -- see this slice's tester report)**: only the
+        per-candidate-date schedule breakdown and the answered/total
+        progress counter stop being shown once finalized.
+        gathering-shop-vote-question (and its own gathering-shop-vote-tally)
+        is deliberately **not** included here any longer -- see
+        assert_finalized_view_still_shows_shop_vote_tally below for the
+        positive check of what remains visible.
         """
-        assert_all_absent(
-            self.assertions,
-            self.page,
-            [SCHEDULE_QUESTION, SHOP_VOTE_QUESTION, PARTICIPANT_PROGRESS],
+        assert_all_absent(self.assertions, self.page, [SCHEDULE_QUESTION, PARTICIPANT_PROGRESS])
+
+    def assert_finalized_view_still_shows_shop_vote_tally(
+        self, shop_id: str, *, want_to_go: int, ok_to_go: int, not_going: int, responded: int
+    ) -> None:
+        """finalizedView.replacesQuestionSurfaces, positive half (ADR-0055
+        decision 8, TDR-GTH-34): the live shop-vote tally remains present
+        and correct after finalization, even though
+        shopVoteQuestion.presenceRule's own literal prose elsewhere in this
+        contract was not updated to match (a genuine contract
+        self-contradiction -- see this slice's tester report). This suite
+        follows the more specific, more recently authored intent (this
+        section's own description text and the human decision it records),
+        not the stale presenceRule text. noOperations (same contract
+        section) additionally requires the vote *option* controls
+        themselves to be gone even though the question/tally remain --
+        checked here too, not only the tally values.
+        """
+        self.assert_shop_vote_tally(
+            shop_id,
+            want_to_go=want_to_go,
+            ok_to_go=ok_to_go,
+            not_going=not_going,
+            responded=responded,
         )
+        question = self._shop_vote_question_locator(shop_id)
+        assert_absent(self.assertions, question, SHOP_VOTE_OPTION)
 
     def assert_participant_name_controls_are_absent(self) -> None:
         """nameControl.open/submit's own presenceRule ("Absent once

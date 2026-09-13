@@ -23,13 +23,41 @@
  * only:
  *   - finalizeSelectedShopId: the one shopId currently selected by the
  *     gathering-finalize-shop-select radio group, before gathering-finalize-
- *     submit is activated.
- * **2026-09-09 (adr/0049 decision 1), removed 2026-09-11**: this section
- * used to also describe shortlistPending (the retired inline shortlist-
- * picker's own pending checkbox state) -- shop selection itself now happens
- * entirely on candidate-search-browser-interface.yaml's gatheringMode
- * screen, reached via shopSelectionEntry.open/navigateToShopSelectionEntry
- * below; this dashboard keeps no client-side pending state for it at all.
+ *     open is activated.
+ *
+ * **2026-09-13 (ADR-0054/ADR-0055/ADR-0056, human decision, 実機フィード
+ * バック第2段)**: this round's changes, in one place --
+ *   - The candidate-date calendar (addCandidateDateForm.calendar) no longer
+ *     vendors flatpickr -- see buildCandidateDateCalendar below (the same
+ *     "案B｜表" hand-built component gathering_create.js's own copy uses;
+ *     duplicated, not imported, per this file's existing no-shared-module
+ *     convention).
+ *   - candidateDateList.removeCandidateDate (ADR-0056 decision 2): a
+ *     previously-added, not-yet-confirmed candidate date can now be taken
+ *     back.
+ *   - shortlistedShopVotes now shows each shop's name/walking-time/map/
+ *     provider-page-link (ADR-0055 decision 5 / ADR-0056 decision 5,
+ *     reversing this file's own 2026-09-05 exclusion), fixes
+ *     data-current-leader for the 0-vote and tied cases (ADR-0055 decision
+ *     6), and carries data-added-after-voting-started (ADR-0056 decision 6,
+ *     computed client-side from fields already present on the response --
+ *     no API change needed for this organizer-facing half).
+ *   - finalizeSubmit is replaced by a 4-part open/confirm-dialog/confirm/
+ *     cancel flow, the same shape deleteGathering already used (ADR-0054
+ *     decision 5), with a 3-row before/after table (ADR-0056 decision 11).
+ *   - participantLinkList.item.revoke is now present only for an unanswered,
+ *     unrevoked row (ADR-0055 decision 2, overturning this contract's own
+ *     disable-at-the-boundary convention for this one control) and the
+ *     panel gains a "発行はおわり" badge once FINALIZED (ADR-0056 decision
+ *     11).
+ *   - organizerDashboard.responseTable (ADR-0056 decision 1) is new: one row
+ *     per participant link, one cell per candidate date that link answered.
+ *     Reads ParticipantLinkSummary.scheduleResponses -- **not yet populated
+ *     by this deployment's backend** (gathering-scheduling-api.yaml v0.12.0
+ *     requires the field, but the Python side of this round is being
+ *     implemented in parallel); this file reads `link.scheduleResponses ||
+ *     []` defensively so the table renders correctly (as all-empty rows)
+ *     until that lands, rather than throwing.
  *
  * data-issued-link-url (participantLinkCopy.requiredOutcome /
  * participantLinkList.item.recopy.requiredOutcome) is likewise tracked in
@@ -43,25 +71,6 @@
  * carried the attribute). Baking the value into the element's initial
  * attributes at build time, from state, means every rebuild reproduces it
  * instead of losing it.
- *
- * 2026-09-04 addition (human decision, same day as the adr/0042 slice --
- * "作りかけに見える。見て判断できるところまで作りこんでほしい"): visual
- * language pass. Every `el()` call below may now also carry a `class`
- * attribute -- purely presentational, built from the same designer tokens
- * `contracts/gathering-scheduling-browser-interface.yaml`'s referenced
- * canvases use (`E:\AWS\dsg-out\party\*.dc.html`) and already partially
- * adopted by web/static/dining_radar/web/candidate.js
- * (candidate-gathering-entry's #14614a/#c6cfc6/#17201b). **No test id, no
- * data-* attribute, and no data-gathering-control-purpose value changed or
- * was added/removed by this pass** -- every attribute a contract or test
- * observes is byte-for-byte the same as before. A handful of purely
- * decorative wrapper/heading elements (no test id, `gathering.css`'s
- * `.gth-pane`/`.gth-pane-head` etc.) were added around already-existing
- * controls to group them into panels the way the approved canvases draw
- * them; this changes *parent* nodes only, never the relative DOM order of
- * two elements that share a test id (orderingInvariant is unaffected) and
- * never how any element is located (tests locate by test id, not by exact
- * tree depth).
  */
 (function () {
   "use strict";
@@ -86,13 +95,15 @@
 
   // 2026-09-05 addition (adr/0044/0046): three-tier shop-vote display labels,
   // also used by web/static/dining_radar/web/candidate.js -- duplicated here
-  // (no shared module system exists in this codebase; every other small
-  // utility is already duplicated the same way, see this file's own
-  // date-formatting block below). The sibling capacity/non-smoking/budget
-  // tier label maps that used to live beside this one were removed
-  // 2026-09-11 along with renderOpenShopDetailFields/shortlistSelection
-  // (adr/0049 decision 1 -- see this file's shopSelectionEntry section).
+  // (no shared module system exists in this codebase).
   var VOTE_LABELS = { WANT_TO_GO: "行きたい", OK_TO_GO: "行ってもいい", NOT_GOING: "むり" };
+
+  // 2026-09-13 addition (ADR-0056 decision 1): schedule-response display
+  // labels for organizerDashboard.responseTable -- the same three-value
+  // vocabulary renderCandidateDate's own tally already uses ("行ける"/
+  // "たぶん"/"むり"), reused here so the same status reads the same word
+  // everywhere on this screen.
+  var SCHEDULE_RESPONSE_LABELS = { GOING: "行ける", MAYBE: "たぶん", NOT_GOING: "むり" };
 
   var state = {
     gathering: null,
@@ -100,8 +111,6 @@
     tentativeSelectedId: null,
     openShopPreview: null,
     addCandidateDateOpen: false,
-    // **Replaced 2026-09-11 (adr/0049 decision 3): a single addCandidateDateValue
-    // string became a multi-select calendar's own pending selection set.**
     // addCandidateDateSelectedIsos: { [isoDate]: true } -- every currently
     // pending-selected calendar day (gathering-add-candidate-date-day's own
     // data-selected="true" cells), keyed by "YYYY-MM-DD". Retained across a
@@ -115,55 +124,33 @@
     recopiedLinkUrls: {},
     // adr/0042: client-side pending radio selection for
     // shortlistedShopVotes.list.item.finalizeSelect, before
-    // gathering-finalize-submit is activated.
+    // gathering-finalize-open is activated.
     finalizeSelectedShopId: null,
+    // ADR-0054 decision 5 / ADR-0056 decision 11: whether
+    // gathering-finalize-confirm-dialog is currently revealed (client-side
+    // only -- opening it calls no public operation).
+    finalizeConfirmOpen: false,
     // adr/0050 decision 4, deleteGathering: whether gathering-delete-
     // confirm-dialog is currently revealed (client-side only -- opening it
     // calls no public operation).
     deleteConfirmOpen: false,
   };
 
-  // adr/0049 decision 3: the vendored flatpickr instance backing
-  // addCandidateDateForm.calendar (buildCandidateDateCalendar below). Built
-  // during render()'s DOM-construction pass (pendingAddCandidateDateCalendar
-  // holds the not-yet-initialized handle), then flatpickr() is called only
-  // after root.appendChild() below -- the same "must already be attached to
-  // the live DOM before initializing" precedent this file's own (now-retired)
-  // initializeOpenShopMap established for Leaflet. activeAddCandidateDate
-  // Calendar tracks the currently-live instance so the next render() (which
-  // rebuilds the whole DOM via root.innerHTML = "") can destroy() it first,
-  // the same destroy-before-recreate precedent that Leaflet map also used.
-  var pendingAddCandidateDateCalendar = null;
+  // The self-made calendar instance backing addCandidateDateForm.calendar --
+  // torn down (its own window-level pointerup/pointercancel listeners
+  // removed) before every render() rebuild, the same destroy-before-recreate
+  // precedent this file's own former Leaflet handle already established.
   var activeAddCandidateDateCalendar = null;
+
+  // The Leaflet map instance backing shortlistedShopVotes' shared map
+  // (gathering-shortlisted-shop-map) -- built once per render() that shows
+  // it, torn down before the next.
+  var activeShortlistedShopMap = null;
 
   function csrfToken() {
     var field = document.querySelector('input[name="csrfmiddlewaretoken"]');
     return field ? field.value : "";
   }
-
-  // **Retired 2026-09-11 (adr/0049 decision 3)**: this function used to
-  // convert a raw <input type="datetime-local"> value ("YYYY-MM-DDTHH:mm",
-  // no timezone) into a fixed-UTC CandidateDateInput.startAt
-  // (`value + ":00Z"`), deliberately never through
-  // `new Date(value).toISOString()` -- a real host-timezone-dependent bug an
-  // acceptance 合流 run surfaced (TDR-GTH-24, 2026-09-02): on a JST host,
-  // that conversion silently shifted a submitted instant by 9 hours (a
-  // timezone-less date-time literal is parsed as "the host system's own
-  // local time zone", per the JS spec's Date Time String Format). The
-  // datetime-local input itself is gone now (replaced by the multi-select
-  // calendar's own day cells, buildCandidateDateCalendar/
-  // calendarDayIsoToStartAtIso below), but that conversion's own lesson
-  // carries forward unchanged: calendarDayIsoToStartAtIso builds its ISO
-  // string directly from the calendar's own "YYYY-MM-DD" data-date digits
-  // the identical way, so it inherits the same host-timezone independence
-  // without reintroducing the retired bug.
-  //
-  // **Recorded trade-off, still unresolved (developer discretion -- FR-028,
-  // carried over unchanged from this function's own retired version)**: the
-  // calendar's "12:00始まり" default is tagged as literal UTC noon, not
-  // Asia/Tokyo noon (this project's real user base is JST-only,
-  // product-brief.md) -- an organizer's intended JST noon would need this
-  // tag corrected by an architect/human decision no contract has made yet.
 
   // --- shared-date-formatting BEGIN (identical copy in participant.js; keep both in sync) ---
   // Every startAt/confirmedCandidateDate value this screen ever receives
@@ -197,6 +184,34 @@
     return month + "/" + day + " (" + weekday + ") " + hours + ":" + minutes;
   }
   // --- shared-date-formatting END ---
+
+  // 2026-09-13 fix (integration round, GatheringDateTimeFormattingSourceTests.
+  // test_gathering_js_and_participant_js_carry_the_identical_code): this
+  // date-only ("M/D（曜）", no time) formatter is organizer-only -- every
+  // organizer-facing date rendered as a single point in time
+  // (gathering-candidate-date/gathering-decision-banner/the shortlisted-shop
+  // map's date labels) already shows its own time via
+  // gathering-schedule-question's own tally or an adjacent time chip
+  // elsewhere on the same screen, so this file grew a second, date-only
+  // formatter participant.js has no use for. It used to live *inside* the
+  // shared-date-formatting BEGIN/END block that
+  // GatheringDateTimeFormattingSourceTests requires be byte-identical
+  // between this file and participant.js -- a previous round added it here
+  // without adding a matching copy to participant.js, which broke that
+  // test. Moving it below the shared block's own END marker (rather than
+  // duplicating it, unused, into participant.js) keeps the guarded region
+  // limited to code both files actually need, per this contract's own
+  // "either move it out, or place it in both" allowance. Still reads
+  // WEEKDAY_LABELS_JA from the shared block above (same IIFE scope) --
+  // moving it below the block does not require moving that shared constant
+  // too.
+  function formatGatheringDate(isoString) {
+    var date = new Date(isoString);
+    var month = date.getUTCMonth() + 1;
+    var day = date.getUTCDate();
+    var weekday = WEEKDAY_LABELS_JA[date.getUTCDay()];
+    return month + "/" + day + "（" + weekday + "）";
+  }
 
   function el(tag, attrs, children) {
     var node = document.createElement(tag);
@@ -242,190 +257,427 @@
     return "/gatherings/" + gatheringId;
   }
 
-  // adr/0049 decision 3 (2026-09-09, 2026-09-08 human decision: 候補日は
-  // カレンダーで複数選択する): the vendored flatpickr library (MIT license,
-  // vendor/flatpickr/, same same-origin-serving convention Leaflet already
-  // established, ADR-0010) backs addCandidateDateForm.calendar /
-  // organizerGatheringCreate.calendar. This contract does not fix the
-  // calendar's rendered month range, week-start convention, markup, or
-  // specific library -- it fixes only the day-cell surface
-  // (data-testid/data-date/data-selected/purpose) and the disabled-day rule
-  // ("明日以降のみ"), both applied here directly to flatpickr's own day
-  // <span> elements via its onDayCreate hook rather than replacing them.
-  // flatpickr's own click delegation (bound once on its days container) is
-  // deliberately never allowed to see these clicks (stopPropagation in
-  // `activate` below) -- this developer's own click/keydown handlers are the
-  // only thing that ever mutates data-selected or `selectedIsos`, keeping
-  // flatpickr itself a pure calendar-grid/month-navigation renderer with no
-  // opinion of its own about which days are selected (mode/onChange are
-  // deliberately not used).
-  //
-  // `options`: { calendarTestId, dayTestId, purposeName, selectedIsos (a
-  // plain object this function mutates in place, iso date string -> true),
-  // onToggle (called after every toggle, with no arguments, so the caller
-  // can refresh its own submit-button disabled state) }. Returns
-  // { container, initialize, destroy } -- `container` (carrying
-  // calendarTestId) must be attached to the live DOM (inside the tree
-  // render() passes to root.appendChild) before `initialize()` runs.
-  //
-  // **The `<input>` flatpickr requires is deliberately never attached to
-  // the document at all** (real-measurement finding, 2026-09-11: running
-  // this suite's own cross-cutting `allGatheringScreenFormControlsMustDeclarePurpose`
-  // scan -- which matches any live `input:not([type='hidden'])`, and
-  // flatpickr's own `setupInputs()` unconditionally forces its managed
-  // input's `type` to `"text"` even if constructed with `type="hidden"`,
-  // so that attribute cannot be used to opt out -- found this anchor input
-  // itself failing the scan, since it carries no
-  // data-gathering-control-purpose and this contract's own closed
-  // allowedPurposes list has no entry for "a vendored library's internal
-  // bookkeeping input" and developer cannot extend tests/acceptance/**
-  // to add one). Passing `inline: true` with `appendTo: container` (below)
-  // makes flatpickr append its own rendered `.flatpickr-calendar` markup
-  // into `container` directly, without ever inserting the input itself as
-  // that container's sibling (its own source: "if (self.config.inline) {
-  // if (!customAppend && self.element.parentNode) {...} else if
-  // (self.config.appendTo !== undefined) { self.config.appendTo.
-  // appendChild(self.calendarContainer); } }" -- customAppend is true
-  // whenever appendTo is set). The detached input keeps working perfectly
-  // well for flatpickr's own internal bookkeeping (day-grid construction,
-  // month navigation, `.value`/`.classList`/`.setAttribute` all work
-  // identically on a detached node) since this file's own click handlers
-  // below never rely on flatpickr's own selection state or the input's
-  // value in the first place (mode/onChange are deliberately not used) --
-  // it is simply never queryable by Playwright, which only sees the live,
-  // attached document tree.
-  function buildCandidateDateCalendar(options) {
-    var container = el("div", { "data-testid": options.calendarTestId }, []);
-    var anchorInput = document.createElement("input");
-    var todayIso = isoDateOf(new Date());
-    var instance = null;
+  // adr/0049 decision 3: "12:00始まり" UI aid -- every calendar-selected day
+  // becomes a CandidateDateInput at literal UTC noon (this contract does not
+  // fix or require a way to edit each selected day's time-of-day separately
+  // from this default).
+  function calendarDayIsoToStartAtIso(dayIso) {
+    return dayIso + "T12:00:00Z";
+  }
 
-    function isoDateOf(date) {
+  // --- self-made calendar (adr/0054 decision 3 / adr/0056 decision 3) -----
+  // Replaces the vendored flatpickr library 2026-09-13 -- see this file's
+  // module docstring. Adopts, near-verbatim, the "案B｜表" grid/drag/
+  // range-selection mechanics a hand-built prototype the human actually
+  // pressed and approved (scratchpad/cal/looks.html + script.js) already
+  // established: a single shared drag-preview repaint queued at most once
+  // per animation frame (so a fast pointermove across many cells never
+  // rebuilds the grid more than once per frame), window-level pointerup/
+  // pointercancel listeners (so a drag still commits even if the pointer
+  // leaves the grid before release), and elementFromPoint-based hit-testing
+  // during the drag (so the grid only needs to listen on itself, not on
+  // every individual cell, to track which cell is currently under the
+  // pointer).
+  //
+  // A plain click (pointerdown immediately followed by pointerup at the
+  // same cell, no intervening pointermove) is a drag whose start and end
+  // are the same day, so dayCell.select's single-day toggle
+  // (TDR-GTH-01/46) falls out of the exact same code path as a genuine
+  // range drag, rather than needing a second, parallel implementation.
+  // Shift+click (rangeSelection's second accepted input method) reuses the
+  // same commit path, anchored at the day most recently committed by any
+  // previous click or drag.
+  //
+  // `options`: { calendarTestId, dayTestId, dayPurpose, monthPrevTestId,
+  // monthNextTestId, monthNavPurpose, removeSelectedTestId,
+  // removeSelectedPurpose, selectedIsos (a plain object this function
+  // mutates in place, "YYYY-MM-DD" -> true), onChange (called with no
+  // arguments after any change to selectedIsos, so the caller can refresh
+  // e.g. its own submit button's disabled state) }.
+  // Returns { container, destroy } -- destroy() must be called before this
+  // container is discarded (removes this instance's own window-level
+  // pointerup/pointercancel listeners).
+  function buildCandidateDateCalendar(options) {
+    var WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
+    var todayDate = new Date();
+    todayDate.setHours(0, 0, 0, 0);
+    var todayIso = isoOfDate(todayDate);
+    var viewMonth = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
+    var lastAnchorIso = null;
+    var drag = null;
+    var paintQueued = false;
+
+    var container = el("div", { "data-testid": options.calendarTestId, class: "gth-cal" }, []);
+
+    function isoOfDate(date) {
       return date.getFullYear() + "-" + pad2(date.getMonth() + 1) + "-" + pad2(date.getDate());
     }
+    function dateOfIso(iso) {
+      var parts = iso.split("-");
+      return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    }
+    function addDaysIso(iso, amount) {
+      var date = dateOfIso(iso);
+      date.setDate(date.getDate() + amount);
+      return isoOfDate(date);
+    }
+    function selectable(iso) {
+      return iso > todayIso;
+    }
+    function isInDragRange(iso) {
+      var lo = drag.startIso < drag.endIso ? drag.startIso : drag.endIso;
+      var hi = drag.startIso < drag.endIso ? drag.endIso : drag.startIso;
+      return iso >= lo && iso <= hi;
+    }
+    function effectiveSelected(iso) {
+      var on = Boolean(options.selectedIsos[iso]);
+      if (drag && selectable(iso) && isInDragRange(iso)) {
+        on = drag.mode === "add";
+      }
+      return on;
+    }
 
-    function onDayCreate(_selectedDates, _dateStr, _fpInstance, dayElem) {
-      // With showMonths > 1, flatpickr pads each month's own grid with
-      // "prevMonthDay"/"nextMonthDay" filler cells (visually hidden via its
-      // own "hidden" class) so adjacent months' weekday columns line up --
-      // every one of those filler cells represents the exact same calendar
-      // date as a real, fully-interactive cell inside its own neighboring
-      // month's grid. Tagging both would attach two elements to the same
-      // data-date value (a real, measured strict-mode Playwright locator
-      // violation, 2026-09-11) -- only the day's own home-month cell gets
-      // this contract's attributes; the filler duplicate is left as
-      // flatpickr's own plain, untagged placeholder.
-      if (dayElem.classList.contains("prevMonthDay") || dayElem.classList.contains("nextMonthDay")) {
-        return;
+    function monthCells() {
+      var year = viewMonth.getFullYear();
+      var month = viewMonth.getMonth();
+      var firstWeekday = new Date(year, month, 1).getDay();
+      var daysInMonth = new Date(year, month + 1, 0).getDate();
+      var cells = [];
+      for (var lead = 0; lead < firstWeekday; lead += 1) {
+        cells.push(null);
       }
-      var iso = isoDateOf(dayElem.dateObj);
-      dayElem.setAttribute("data-testid", options.dayTestId);
-      dayElem.setAttribute("data-date", iso);
-      dayElem.setAttribute("data-selected", options.selectedIsos[iso] ? "true" : "false");
-      // dayCell.disabledState: "today or earlier by the server's clock" --
-      // approximated client-side with the visiting browser's own clock (a UX
-      // affordance only; CANDIDATE_DATE_NOT_IN_FUTURE remains the
-      // authoritative server-side enforcement, unaffected by this).
-      if (iso <= todayIso) {
-        return;
+      for (var day = 1; day <= daysInMonth; day += 1) {
+        cells.push(isoOfDate(new Date(year, month, day)));
       }
-      dayElem.setAttribute("data-gathering-control-purpose", options.purposeName);
-      dayElem.setAttribute("role", "button");
-      dayElem.setAttribute("tabindex", "0");
-      var activate = function (event) {
-        event.preventDefault();
-        event.stopPropagation();
-        if (options.selectedIsos[iso]) {
-          delete options.selectedIsos[iso];
-        } else {
-          options.selectedIsos[iso] = true;
+      while (cells.length % 7 !== 0) {
+        cells.push(null);
+      }
+      return cells;
+    }
+
+    function outsideSelectedCount() {
+      var count = 0;
+      Object.keys(options.selectedIsos).forEach(function (iso) {
+        var date = dateOfIso(iso);
+        if (
+          date.getFullYear() !== viewMonth.getFullYear() ||
+          date.getMonth() !== viewMonth.getMonth()
+        ) {
+          count += 1;
         }
-        dayElem.setAttribute("data-selected", options.selectedIsos[iso] ? "true" : "false");
-        options.onToggle();
-      };
-      dayElem.addEventListener("click", activate);
-      dayElem.addEventListener("keydown", function (event) {
-        if (event.key === "Enter" || event.key === " ") {
-          activate(event);
+      });
+      return count;
+    }
+
+    function sortedSelectedIsos() {
+      return Object.keys(options.selectedIsos).sort();
+    }
+
+    function formatDayLabel(iso) {
+      var date = dateOfIso(iso);
+      return (date.getMonth() + 1) + "/" + date.getDate() + "（" + WEEKDAY_LABELS[date.getDay()] + "）";
+    }
+
+    function paintDragPreview() {
+      if (paintQueued) {
+        return;
+      }
+      paintQueued = true;
+      window.requestAnimationFrame(function () {
+        paintQueued = false;
+        var cells = container.querySelectorAll('[data-testid="' + options.dayTestId + '"]');
+        for (var index = 0; index < cells.length; index += 1) {
+          var cell = cells[index];
+          var iso = cell.getAttribute("data-date");
+          var selected = effectiveSelected(iso);
+          var nextValue = selected ? "true" : "false";
+          if (cell.getAttribute("data-selected") !== nextValue) {
+            cell.setAttribute("data-selected", nextValue);
+          }
+          cell.classList.toggle("gth-cal-day--selected", selected);
         }
       });
     }
 
+    function beginDrag(iso, shiftKey) {
+      if (!selectable(iso)) {
+        return;
+      }
+      if (shiftKey && lastAnchorIso && selectable(lastAnchorIso)) {
+        drag = { mode: "add", startIso: lastAnchorIso, endIso: iso };
+      } else {
+        drag = { mode: options.selectedIsos[iso] ? "remove" : "add", startIso: iso, endIso: iso };
+      }
+      paintDragPreview();
+    }
+
+    function extendDrag(iso) {
+      if (!drag || !selectable(iso) || drag.endIso === iso) {
+        return;
+      }
+      drag.endIso = iso;
+      paintDragPreview();
+    }
+
+    function commitDrag() {
+      if (!drag) {
+        return;
+      }
+      var lo = drag.startIso < drag.endIso ? drag.startIso : drag.endIso;
+      var hi = drag.startIso < drag.endIso ? drag.endIso : drag.startIso;
+      for (var iso = lo; ; iso = addDaysIso(iso, 1)) {
+        if (selectable(iso)) {
+          if (drag.mode === "add") {
+            options.selectedIsos[iso] = true;
+          } else {
+            delete options.selectedIsos[iso];
+          }
+        }
+        if (iso === hi) {
+          break;
+        }
+      }
+      lastAnchorIso = drag.endIso;
+      drag = null;
+      renderLocal();
+      if (options.onChange) {
+        options.onChange();
+      }
+    }
+
+    function onWindowPointerUp() {
+      commitDrag();
+    }
+    function onWindowPointerCancel() {
+      drag = null;
+      paintDragPreview();
+    }
+    window.addEventListener("pointerup", onWindowPointerUp);
+    window.addEventListener("pointercancel", onWindowPointerCancel);
+
+    function dateUnderPoint(clientX, clientY) {
+      var node = document.elementFromPoint(clientX, clientY);
+      var cell = node && node.closest ? node.closest("[data-date]") : null;
+      return cell ? cell.getAttribute("data-date") : null;
+    }
+
+    function stepMonth(amount) {
+      viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + amount, 1);
+      renderLocal();
+    }
+
+    function toggleOne(iso) {
+      if (!selectable(iso)) {
+        return;
+      }
+      if (options.selectedIsos[iso]) {
+        delete options.selectedIsos[iso];
+      } else {
+        options.selectedIsos[iso] = true;
+      }
+      lastAnchorIso = iso;
+      renderLocal();
+      if (options.onChange) {
+        options.onChange();
+      }
+    }
+
+    function removeSelected(iso) {
+      delete options.selectedIsos[iso];
+      renderLocal();
+      if (options.onChange) {
+        options.onChange();
+      }
+    }
+
+    function buildDayCell(iso) {
+      var enabled = selectable(iso);
+      var date = dateOfIso(iso);
+      var isWeekend = date.getDay() === 0 || date.getDay() === 6;
+      var isToday = iso === todayIso;
+      var isSelected = effectiveSelected(iso);
+      var classNames = ["gth-cal-day"];
+      if (isWeekend) {
+        classNames.push("gth-cal-day--weekend");
+      }
+      if (!enabled) {
+        classNames.push("gth-cal-day--disabled");
+      }
+      if (isToday) {
+        classNames.push("gth-cal-day--today");
+      }
+      if (isSelected) {
+        classNames.push("gth-cal-day--selected");
+      }
+      var attrs = {
+        "data-testid": options.dayTestId,
+        "data-date": iso,
+        "data-selected": isSelected ? "true" : "false",
+        class: classNames.join(" "),
+      };
+      if (enabled) {
+        attrs["data-gathering-control-purpose"] = options.dayPurpose;
+        attrs.role = "button";
+        attrs.tabindex = "0";
+      } else {
+        attrs["aria-disabled"] = "true";
+      }
+      var cell = el("div", attrs, [String(date.getDate())]);
+      if (enabled) {
+        cell.addEventListener("keydown", function (event) {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            toggleOne(iso);
+          }
+        });
+      }
+      return cell;
+    }
+
+    function wireGrid(grid) {
+      grid.addEventListener("pointerdown", function (event) {
+        var iso = dateUnderPoint(event.clientX, event.clientY);
+        if (!iso || !selectable(iso)) {
+          return;
+        }
+        event.preventDefault();
+        if (grid.setPointerCapture) {
+          try {
+            grid.setPointerCapture(event.pointerId);
+          } catch (error) {
+            // Not capturable in this environment.
+          }
+        }
+        beginDrag(iso, event.shiftKey);
+      });
+      grid.addEventListener("pointermove", function (event) {
+        if (!drag) {
+          return;
+        }
+        var iso = dateUnderPoint(event.clientX, event.clientY);
+        if (iso) {
+          extendDrag(iso);
+        }
+      });
+    }
+
+    function renderLocal() {
+      container.innerHTML = "";
+
+      var prevButton = el(
+        "button",
+        {
+          type: "button",
+          "data-testid": options.monthPrevTestId,
+          "data-gathering-control-purpose": options.monthNavPurpose,
+          "aria-label": "前の月",
+          class: "gth-cal-nav gth-cal-nav--prev",
+        },
+        ["‹"]
+      );
+      prevButton.addEventListener("click", function () {
+        stepMonth(-1);
+      });
+      var nextButton = el(
+        "button",
+        {
+          type: "button",
+          "data-testid": options.monthNextTestId,
+          "data-gathering-control-purpose": options.monthNavPurpose,
+          "aria-label": "次の月",
+          class: "gth-cal-nav gth-cal-nav--next",
+        },
+        ["›"]
+      );
+      nextButton.addEventListener("click", function () {
+        stepMonth(1);
+      });
+      var headChildren = [
+        prevButton,
+        el("div", { class: "gth-cal-month" }, [
+          viewMonth.getFullYear() + "年 " + (viewMonth.getMonth() + 1) + "月",
+        ]),
+        nextButton,
+      ];
+      var outsideCount = outsideSelectedCount();
+      if (outsideCount > 0) {
+        headChildren.push(
+          el("span", { class: "gth-cal-outside-badge" }, ["ほかの月にも " + outsideCount + "日"])
+        );
+      }
+      container.appendChild(el("div", { class: "gth-cal-head" }, headChildren));
+
+      var gridChildren = WEEKDAY_LABELS.map(function (label, index) {
+        var classNames = ["gth-cal-weekday"];
+        if (index === 0) {
+          classNames.push("gth-cal-weekday--sun");
+        }
+        if (index === 6) {
+          classNames.push("gth-cal-weekday--sat");
+        }
+        return el("div", { class: classNames.join(" ") }, [label]);
+      });
+      monthCells().forEach(function (iso) {
+        if (!iso) {
+          gridChildren.push(
+            el("div", { class: "gth-cal-day gth-cal-day--off", "aria-hidden": "true" }, [])
+          );
+          return;
+        }
+        gridChildren.push(buildDayCell(iso));
+      });
+      var grid = el("div", { class: "gth-cal-grid" }, gridChildren);
+      container.appendChild(el("div", { class: "gth-cal-scroll" }, [grid]));
+      wireGrid(grid);
+
+      var pickedRows = sortedSelectedIsos().map(function (iso) {
+        var removeButton = el(
+          "button",
+          {
+            type: "button",
+            "data-testid": options.removeSelectedTestId,
+            "data-gathering-control-purpose": options.removeSelectedPurpose,
+            "data-date": iso,
+            "aria-label": formatDayLabel(iso) + " を外す",
+            class: "gth-cal-picked-remove",
+          },
+          ["×"]
+        );
+        removeButton.addEventListener("click", function () {
+          removeSelected(iso);
+        });
+        return el("div", { class: "gth-cal-picked-row" }, [
+          el("span", { class: "gth-cal-picked-date" }, [
+            formatDayLabel(iso) + " ",
+            el("span", { class: "gth-cal-picked-time" }, ["12:00"]),
+          ]),
+          removeButton,
+        ]);
+      });
+      container.appendChild(
+        el(
+          "div",
+          { class: "gth-cal-picked" },
+          [
+            el("div", { class: "gth-cal-picked-head" }, [
+              el("span", {}, ["えらんだ日 ", el("b", {}, [String(sortedSelectedIsos().length)]), "日"]),
+              el("span", { class: "gth-cal-picked-note" }, ["どれも 12:00 から"]),
+            ]),
+          ].concat(pickedRows)
+        )
+      );
+    }
+
+    renderLocal();
+
     return {
       container: container,
-      initialize: function () {
-        var tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        instance = window.flatpickr(anchorInput, {
-          inline: true,
-          appendTo: container,
-          disableMobile: true,
-          minDate: tomorrow,
-          // 3 consecutive months, all their day cells simultaneously
-          // present in the DOM (flatpickr's own showMonths option) --
-          // dayCell has no contract-fixed cap on how many days ahead may be
-          // selected (adr/0049 decision 3), and this contract's own DSL
-          // locates a day cell purely by its data-date attribute with no
-          // month-navigation step of its own, so every selectable day this
-          // suite (or a real organizer) might pick across a single
-          // multi-select session must already be rendered, not merely
-          // reachable by clicking a next-month arrow first. 3 months
-          // comfortably covers this suite's own widest spread (a same-batch
-          // pairing of +3 and +20 days from today, TDR-GTH-46) with a full
-          // month of margin.
-          showMonths: 3,
-          onDayCreate: onDayCreate,
-        });
-        // Real-measurement finding, 2026-09-11: flatpickr's own month
-        // header unconditionally builds a genuine `<input class="cur-year">`
-        // (createNumberInput, editable year-jump field) per visible month,
-        // regardless of any config option -- unlike the month name itself
-        // (a plain, non-interactive <span> once showMonths > 1, flatpickr's
-        // own built-in behavior this file already relies on). This input
-        // carries no data-gathering-control-purpose and this contract's own
-        // closed allowedPurposes list has no entry for it (same reasoning
-        // as the detached main anchor input above), so
-        // allGatheringScreenFormControlsMustDeclarePurpose fails as soon as
-        // this calendar renders unless it is removed. Replaced with a
-        // plain, static text span showing the same year -- this developer
-        // does not need year-jump input since every practically reachable
-        // date already falls within the 3 simultaneously-rendered months
-        // above; the one accepted trade-off is that this static span does
-        // not itself update if the organizer clicks the prev/next-month
-        // arrows past this initial 3-month window (those arrows and the
-        // day grid they rebuild are otherwise fully unaffected -- only this
-        // cosmetic year label goes stale in that one edge case).
-        container.querySelectorAll(".numInputWrapper").forEach(function (wrapper) {
-          var yearInput = wrapper.querySelector("input.cur-year");
-          if (!yearInput) {
-            return;
-          }
-          var replacement = document.createElement("span");
-          replacement.className = "gth-calendar-year";
-          replacement.textContent = yearInput.value;
-          wrapper.replaceWith(replacement);
-        });
-      },
       destroy: function () {
-        if (instance) {
-          instance.destroy();
-          instance = null;
-        }
+        window.removeEventListener("pointerup", onWindowPointerUp);
+        window.removeEventListener("pointercancel", onWindowPointerCancel);
       },
     };
   }
-
-  // adr/0049 decision 1 (2026-09-09): shop selection is no longer a picker
-  // rendered inline on this dashboard (the retired shortlistSelection/
-  // PickFive.dc.html apparatus -- shortlistSelectionVisible/
-  // fetchOpenShopListForShortlist/renderShortlistSelection/
-  // renderOpenShopListItem/toggleShortlistPending/submitShortlist/
-  // openShortlistReplace all lived here and were removed 2026-09-11). The
-  // organizer now reaches shop selection exclusively through
-  // shopSelectionEntry.open (renderShopSelectionEntry below), which
-  // navigates to candidate-search-browser-interface.yaml's own gatheringMode
-  // screen -- see this file's module docstring and the contract's own
-  // 2026-09-09 追補8 for the removal rationale.
 
   function loadGathering() {
     return requestJson("GET", gatheringUrl())
@@ -472,9 +724,7 @@
         // deliberately left unchanged -- confirmDate's own requiredOutcome
         // says this call must not affect either.
         state.gathering = result.body;
-        return loadParticipantLinksOnly()
-          .then(fetchOpenShopListForShortlist)
-          .then(render);
+        return loadParticipantLinksOnly().then(render);
       }
     });
   }
@@ -491,14 +741,9 @@
     // same control was passing contracts/gathering-scheduling-browser-
     // interface.yaml's own "data-issued-link-url becomes non-empty"
     // acceptance check *immediately*, before this activation's own request
-    // had even reached the server -- the attribute already held the
-    // *previous* activation's non-empty URL, and the acceptance DSL's
-    // wildcard match (any non-empty value) cannot tell "still the old
-    // value" apart from "the new value arrived". Clearing the tracked value
-    // synchronously here, before the async request even starts, makes every
-    // activation transition through an observable
-    // absent-or-empty -> non-empty edge, not just the first ever
-    // activation for this gathering.
+    // had even reached the server. Clearing the tracked value synchronously
+    // here, before the async request even starts, makes every activation
+    // transition through an observable absent-or-empty -> non-empty edge.
     state.headerIssuedLinkUrl = null;
     render();
     requestJson("POST", gatheringUrl() + "/participant-links", { count: 1 }).then(function (result) {
@@ -506,9 +751,6 @@
         return;
       }
       var issued = result.body.issuedLinks[0];
-      // Tracked in state (see the module docstring) so the attribute
-      // survives the render() rebuild loadParticipantLinksOnly() below
-      // triggers, instead of being set on a DOM node that rebuild replaces.
       state.headerIssuedLinkUrl = issued.url;
       if (window.navigator && window.navigator.clipboard) {
         window.navigator.clipboard.writeText(issued.url).catch(function () {});
@@ -520,10 +762,6 @@
   }
 
   function recopyParticipantLink(linkId) {
-    // Same before/after clear-then-set pattern as copyParticipantLink above,
-    // and for the same real-measured reason: a second recopy of the same
-    // link must not let the first recopy's leftover non-empty value satisfy
-    // the acceptance check before this activation's own request completes.
     state.recopiedLinkUrls[linkId] = null;
     render();
     requestJson("POST", gatheringUrl() + "/participant-links/" + linkId + "/recopy").then(
@@ -554,6 +792,23 @@
     );
   }
 
+  // --- ADR-0056 decision 2: removeCandidateDate ---------------------------
+
+  function removeCandidateDate(candidateDateId) {
+    requestJson("DELETE", gatheringUrl() + "/candidate-dates/" + candidateDateId).then(
+      function (result) {
+        if (result.status === 200) {
+          state.gathering = result.body;
+          if (state.tentativeSelectedId === candidateDateId) {
+            state.tentativeSelectedId = null;
+            state.openShopPreview = null;
+          }
+          render();
+        }
+      }
+    );
+  }
+
   function openAddCandidateDate() {
     state.addCandidateDateOpen = true;
     render();
@@ -569,14 +824,6 @@
     state.addCandidateDateDuplicateError = false;
     state.addCandidateDateNotInFutureError = false;
     render();
-  }
-
-  // adr/0049 decision 3: "12:00始まり" UI aid -- every calendar-selected day
-  // becomes a CandidateDateInput at literal UTC noon (this contract does not
-  // fix or require a way to edit each selected day's time-of-day separately
-  // from this default).
-  function calendarDayIsoToStartAtIso(dayIso) {
-    return dayIso + "T12:00:00Z";
   }
 
   function submitAddCandidateDates() {
@@ -604,9 +851,6 @@
         result.body &&
         result.body.code === "DUPLICATE_CANDIDATE_DATE"
       ) {
-        // adr/0049 decision 3: whole-batch rejection -- the form remains
-        // present with every day cell's data-selected unchanged, and no new
-        // gathering-candidate-date appears.
         state.addCandidateDateDuplicateError = true;
         state.addCandidateDateNotInFutureError = false;
         render();
@@ -624,25 +868,12 @@
 
   // --- adr/0042/adr/0049: approval voting / finalization -------------------
   // (shop shortlisting itself moved to candidate-search-browser-interface.
-  // yaml's gatheringMode, adr/0049 decision 1 -- navigateToShopSelectionEntry/
-  // renderShopSelectionEntry below are this dashboard's only remaining
-  // involvement in shop selection.)
+  // yaml's gatheringMode, adr/0049 decision 1.)
 
   function navigateToShopSelectionEntry() {
-    // shopSelectionEntry.open.requiredOutcome (adr/0049 decision 1): this
-    // contract does not fix the exact navigation mechanism -- a URL query
-    // parameter matching web/static/dining_radar/web/candidate.js's own
-    // readGatheringIdFromUrl() is this implementation's choice (that file's
-    // own module docstring makes the same choice from the other direction).
     window.location.href = "/?gatheringId=" + encodeURIComponent(gatheringId);
   }
 
-  // shopSelectionEntry.open (adr/0049 decision 1): reused for both the
-  // first-ever selection (votingStartedAt still null) and every later D7
-  // replace (votingStartedAt non-null) -- the contract's own cardinality
-  // note treats every instance sharing this test id as the same purpose
-  // regardless of label, and this dashboard only ever renders one of the
-  // two at a time (render()'s own phase/votingStartedAt branches below).
   function renderShopSelectionEntry(label, className) {
     var button = el(
       "button",
@@ -659,13 +890,51 @@
   }
 
   function selectFinalizeShop(shopId) {
-    // Client-side pending selection only (shortlistedShopVotes.list.item.
-    // finalizeSelect.requiredOutcome) -- calls no public operation.
     state.finalizeSelectedShopId = shopId;
     render();
   }
 
-  function finalizeGathering() {
+  // ADR-0055 decision 6: "true" for every item tied for the highest
+  // wantToGoCount+okToGoCount among items that have at least one response,
+  // "false" for everything else (including every item when no one has
+  // answered any of them yet).
+  function computeCurrentLeaderShopIds(shops) {
+    var respondedShops = shops.filter(function (shop) {
+      return shop.wantToGoCount + shop.okToGoCount + shop.notGoingCount > 0;
+    });
+    if (respondedShops.length === 0) {
+      return {};
+    }
+    var maxScore = respondedShops.reduce(function (max, shop) {
+      var score = shop.wantToGoCount + shop.okToGoCount;
+      return score > max ? score : max;
+    }, -Infinity);
+    var leaders = {};
+    respondedShops.forEach(function (shop) {
+      if (shop.wantToGoCount + shop.okToGoCount === maxScore) {
+        leaders[shop.shopId] = true;
+      }
+    });
+    return leaders;
+  }
+
+  function openFinalizeGathering() {
+    if (!state.finalizeSelectedShopId) {
+      return;
+    }
+    state.finalizeConfirmOpen = true;
+    render();
+  }
+
+  function cancelFinalizeGathering() {
+    // finalizeCancel.requiredOutcome: makes the confirm dialog absent
+    // without calling finalizeGathering. Every shop's own
+    // data-finalize-selected is unaffected.
+    state.finalizeConfirmOpen = false;
+    render();
+  }
+
+  function confirmFinalizeGathering() {
     if (!state.finalizeSelectedShopId) {
       return;
     }
@@ -675,6 +944,7 @@
       if (result.status === 200) {
         state.gathering = result.body;
         state.finalizeSelectedShopId = null;
+        state.finalizeConfirmOpen = false;
         render();
       }
     });
@@ -688,9 +958,6 @@
   }
 
   function cancelDeleteGathering() {
-    // deleteGathering.cancel.requiredOutcome: makes gathering-delete-
-    // confirm-dialog absent without calling deleteGathering. The gathering
-    // itself is unaffected.
     state.deleteConfirmOpen = false;
     render();
   }
@@ -698,11 +965,9 @@
   function confirmDeleteGathering() {
     requestJson("DELETE", gatheringUrl()).then(function (result) {
       if (result.status === 204) {
-        // deleteGathering.confirm.requiredOutcome: this contract does not
-        // fix the immediate post-delete destination screen -- the
-        // organizer's own gathering list is the most useful next stop (the
-        // same "no longer appears in organizerGatheringList.list" outcome
-        // TDR-GTH-48 itself checks).
+        // deleteGathering.confirm.requiredOutcome (ADR-0054 decision 6): the
+        // organizer's own gathering list -- the only destination that still
+        // makes sense once this specific gathering no longer exists.
         window.location.href = "/gatherings/";
       }
     });
@@ -748,9 +1013,9 @@
       children.push(
         el(
           "div",
-          { "data-testid": "gathering-delete-confirm-dialog", class: "gth-delete-dialog" },
+          { "data-testid": "gathering-delete-confirm-dialog", class: "gth-confirm-dialog gth-confirm-dialog--danger" },
           [
-            el("p", { class: "gth-delete-dialog-text" }, [
+            el("p", { class: "gth-confirm-dialog-text" }, [
               "この会を削除すると元に戻せません。発行済みのリンクもすべて無効になります。",
             ]),
             el("div", { class: "gth-inline-form-row" }, [confirmButton, cancelButton]),
@@ -816,13 +1081,6 @@
 
   function renderCandidateDate(candidateDate) {
     var isTentative = state.tentativeSelectedId === candidateDate.id;
-    // tentativeSelectionAndPreview.trigger.presenceRuleForPurpose (adr/0042):
-    // once phase is SELECTING_SHOP or FINALIZED, this element remains
-    // present as a record but no longer accepts the tentative-select
-    // activation -- represented here by dropping the purpose/role/tabindex
-    // and the event listeners entirely, rather than leaving an inert
-    // role="button" with no declared purpose (which would fail
-    // unavailableControls.allGatheringScreenFormControlsMustDeclarePurpose).
     var isSchedulingPhase = state.gathering.phase === "SCHEDULING";
     var attrs = {
       "data-testid": "gathering-candidate-date",
@@ -839,11 +1097,41 @@
       attrs.role = "button";
       attrs.tabindex = "0";
     }
+
+    var topChildren = [
+      el("span", { class: "gth-date-value" }, [formatGatheringDateTime(candidateDate.startAt)]),
+      candidateDate.isConfirmed ? el("span", { class: "gth-date-badge" }, ["決定"]) : null,
+    ];
+
+    // ADR-0056 decision 2: present once per not-yet-confirmed candidate
+    // date, only while SCHEDULING.
+    var canRemove = isSchedulingPhase && !candidateDate.isConfirmed;
+    if (canRemove) {
+      var removeButton = el(
+        "button",
+        {
+          type: "button",
+          "data-testid": "gathering-candidate-date-remove",
+          "data-gathering-control-purpose": "gathering-candidate-date-remove",
+          "aria-label": "この候補日を削除",
+          class: "gth-date-remove",
+        },
+        ["削除"]
+      );
+      removeButton.addEventListener("click", function (event) {
+        // Stop this from also bubbling into the parent's own
+        // tentative-select click handler below.
+        event.stopPropagation();
+        removeCandidateDate(candidateDate.id);
+      });
+      removeButton.addEventListener("keydown", function (event) {
+        event.stopPropagation();
+      });
+      topChildren.push(removeButton);
+    }
+
     var node = el("div", attrs, [
-      el("div", { class: "gth-date-top" }, [
-        el("span", { class: "gth-date-value" }, [formatGatheringDateTime(candidateDate.startAt)]),
-        candidateDate.isConfirmed ? el("span", { class: "gth-date-badge" }, ["決定"]) : null,
-      ]),
+      el("div", { class: "gth-date-top" }, topChildren),
       el("div", { class: "gth-date-tally" }, [
         el("span", {}, ["行ける ", el("b", {}, [String(candidateDate.goingCount)])]),
         el("span", {}, ["たぶん ", el("b", {}, [String(candidateDate.maybeCount)])]),
@@ -865,13 +1153,6 @@
   }
 
   function renderAddCandidateDateForm() {
-    // **Replaced 2026-09-11 (adr/0049 decision 3, 2026-09-08 human decision:
-    // 候補日はカレンダーで複数選択する)**: the single datetime-local input
-    // this form used to expose is gone -- see buildCandidateDateCalendar
-    // below and this file's module docstring history. The form still opens
-    // inline within gathering-candidate-date-list and stays open across a
-    // successful submit; only cancel makes it absent again (AddDate.dc.html
-    // 案A, human decision 2026-09-01, unchanged by this round).
     var submit = el(
       "button",
       {
@@ -888,14 +1169,18 @@
     var calendar = buildCandidateDateCalendar({
       calendarTestId: "gathering-add-candidate-date-calendar",
       dayTestId: "gathering-add-candidate-date-day",
-      purposeName: "gathering-add-candidate-date-day-select",
+      dayPurpose: "gathering-add-candidate-date-day-select",
+      monthPrevTestId: "gathering-add-candidate-date-month-previous",
+      monthNextTestId: "gathering-add-candidate-date-month-next",
+      monthNavPurpose: "gathering-add-candidate-date-month-navigate",
+      removeSelectedTestId: "gathering-add-candidate-date-remove-selected",
+      removeSelectedPurpose: "gathering-add-candidate-date-remove-selected",
       selectedIsos: state.addCandidateDateSelectedIsos,
-      onToggle: function () {
+      onChange: function () {
         submit.disabled = Object.keys(state.addCandidateDateSelectedIsos).length < 1;
       },
     });
-    calendar.container.className = "gth-calendar";
-    pendingAddCandidateDateCalendar = calendar;
+    activeAddCandidateDateCalendar = calendar;
 
     var cancel = el(
       "button",
@@ -946,14 +1231,11 @@
     return el("div", { class: "gth-add-date" }, children);
   }
 
-  // **Narrowed 2026-09-09 (adr/0049 decision 2, 2026-09-08 human decision:
-  // 日程を聞いている段階の店は件数だけ)**: this preview no longer carries
-  // any item/list sub-structure -- gathering-open-shop-preview-item and the
-  // OpenShopPreviewItem schema it projected were both retired the same day
-  // (gathering-scheduling-api.yaml). data-open-shop-count is the only
-  // observable value; no shop name or other shop attribute may appear
-  // anywhere inside gathering-open-shop-preview (TDR-GTH-08: "店名やその他
-  // の店舗情報は示されない").
+  // ADR-0055 decision 1: participants no longer see "この日に開いている店
+  // N件" at all; the organizer keeps it, but only for the one candidate
+  // date currently tentatively selected -- not shown per candidate date at
+  // once (this is a display-only narrowing; previewOpenShopsForCandidateDate
+  // itself is unchanged, ADR-0049 decision 2).
   function renderOpenShopPreview() {
     if (!state.tentativeSelectedId || !state.openShopPreview) {
       return null;
@@ -992,44 +1274,74 @@
     return button;
   }
 
-  // --- adr/0049 decision 1: shortlistSelection (PickFive.dc.html 案A) was
-  // retired 2026-09-09 and removed from this file 2026-09-11 -- see
-  // renderShopSelectionEntry above and render()'s own SELECTING_SHOP branch
-  // below for its replacement.
-
   // --- adr/0042: shortlistedShopVotes (Organizer.dc.html 状態②) ------------
+  // ADR-0055 decision 5 / ADR-0056 decision 5 (2026-09-12): this view now
+  // also shows a shared map plus each shop's name/walking-time/provider-page
+  // link -- reversing this file's own 2026-09-05 exclusion.
 
-  function renderShortlistedShopItem(shop, index) {
+  function shopAddedAfterVotingStarted(shop) {
+    if (!state.gathering.votingStartedAt) {
+      return false;
+    }
+    return new Date(shop.addedAt).getTime() > new Date(state.gathering.votingStartedAt).getTime();
+  }
+
+  function renderShortlistedShopItem(shop, index, leaders) {
     var attrs = {
       "data-testid": "gathering-shortlisted-shop-item",
       "data-shop-id": shop.shopId,
+      "data-shop-name": shop.name,
+      "data-walking-time-minutes": shop.walkingTimeMinutes,
       "data-want-to-go-count": shop.wantToGoCount,
       "data-ok-to-go-count": shop.okToGoCount,
       "data-not-going-count": shop.notGoingCount,
       "data-responded-count": shop.respondedParticipantCount,
-      // adr/0050 decision 5 (architect technical judgment): "true" for
-      // exactly the first item in this list's own orderingInvariant order
-      // (wantToGoCount + okToGoCount descending, ties broken by distance
-      // ascending then shopId ascending -- already the exact order
-      // state.gathering.shortlistedShops arrives in, so index 0 is always
-      // the leader). Independent of gathering-finalize-shop-select below.
-      "data-current-leader": index === 0 ? "true" : "false",
+      // ADR-0055 decision 6: 0 responses -> always "false"; otherwise
+      // "true" for every item tied for the highest wantToGoCount+
+      // okToGoCount (leaders, computed once per render by
+      // computeCurrentLeaderShopIds).
+      "data-current-leader": leaders[shop.shopId] ? "true" : "false",
+      // ADR-0056 decision 6: computed client-side from addedAt/
+      // votingStartedAt, both already present on this response -- no API
+      // change needed for this organizer-facing half.
+      "data-added-after-voting-started": shopAddedAfterVotingStarted(shop) ? "true" : "false",
       class: "gth-shop-row gth-shop-row--vote",
     };
-    // TDR-GTH-40: the three-tier breakdown, denominator = respondedParticipantCount
-    // (adr/0044 -- this section deliberately carries no map/detail fields,
-    // see this file's own module docstring history and adr/0046 decision 2).
+    if (leaders[shop.shopId]) {
+      attrs.class += " gth-shop-row--leader";
+    }
     var tallyRow = el("div", { class: "gth-shop-tally-row" }, [
       el("span", {}, [VOTE_LABELS.WANT_TO_GO + " ", el("b", {}, [String(shop.wantToGoCount)])]),
       el("span", {}, [VOTE_LABELS.OK_TO_GO + " ", el("b", {}, [String(shop.okToGoCount)])]),
       el("span", {}, [VOTE_LABELS.NOT_GOING + " ", el("b", {}, [String(shop.notGoingCount)])]),
       el("span", {}, [String(shop.respondedParticipantCount) + "人中"]),
     ]);
+    var detailRow = el("div", { class: "gth-shop-detail-row" }, [
+      el("span", { class: "gth-shop-detail" }, [String(shop.walkingTimeMinutes) + "分"]),
+      el(
+        "a",
+        {
+          "data-testid": "gathering-shortlisted-shop-page-link",
+          href: shop.providerPageUrl,
+          target: "_blank",
+          rel: "noopener noreferrer",
+          class: "gth-shop-link",
+        },
+        ["店のページを見る"]
+      ),
+    ]);
+    if (shopAddedAfterVotingStarted(shop)) {
+      detailRow.insertBefore(
+        el("span", { class: "gth-shop-added-after-badge" }, ["あとから入りました"]),
+        detailRow.firstChild
+      );
+    }
     var children = [
       el("span", { class: "gth-shop-rank" }, [String(index + 1)]),
       el("div", { class: "gth-shop-body" }, [
         el("span", { class: "gth-shop-name" }, [shop.name]),
         tallyRow,
+        detailRow,
       ]),
     ];
     if (state.gathering.phase === "SELECTING_SHOP") {
@@ -1055,15 +1367,64 @@
     return el("div", attrs, children);
   }
 
+  function initializeShortlistedShopMap(container, shops) {
+    if (activeShortlistedShopMap) {
+      activeShortlistedShopMap.remove();
+      activeShortlistedShopMap = null;
+    }
+    if (!window.L || !container || shops.length === 0) {
+      return;
+    }
+    var map = window.L.map(container, { attributionControl: false });
+    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+    }).addTo(map);
+    var latLngs = shops.map(function (shop) {
+      return [shop.location.latitude, shop.location.longitude];
+    });
+    map.fitBounds(window.L.latLngBounds(latLngs), { padding: [24, 24] });
+    shops.forEach(function (shop, index) {
+      var icon = window.L.divIcon({
+        className: "gathering-shortlisted-shop-map-marker-icon",
+        html: '<span class="gathering-shortlisted-shop-map-marker-visual"></span>',
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+      });
+      // keyboard: false -- these pins are display-only (organizerDashboard.
+      // shortlistedShopVotes.list.item.detailFields.map scope note: "shops'
+      // own relative position", not an interactive control of their own).
+      var marker = window.L.marker(latLngs[index], { icon: icon, keyboard: false });
+      marker.addTo(map);
+      var markerEl = marker.getElement();
+      if (!markerEl) {
+        return;
+      }
+      markerEl.setAttribute("data-testid", "gathering-shortlisted-shop-map-marker");
+      markerEl.setAttribute("data-shop-id", shop.shopId);
+    });
+    activeShortlistedShopMap = map;
+  }
+
+  var pendingShortlistedShopMap = null;
+
   function renderShortlistedShopVotes() {
     var phase = state.gathering.phase;
+    var shops = state.gathering.shortlistedShops;
+    var leaders = computeCurrentLeaderShopIds(shops);
     var list = el(
       "div",
       { "data-testid": "gathering-shortlisted-shop-list", class: "gth-shop-list" },
-      state.gathering.shortlistedShops.map(function (shop, index) {
-        return renderShortlistedShopItem(shop, index);
+      shops.map(function (shop, index) {
+        return renderShortlistedShopItem(shop, index, leaders);
       })
     );
+    var mapContainer = el(
+      "div",
+      { "data-testid": "gathering-shortlisted-shop-map", class: "gth-shop-map" },
+      []
+    );
+    pendingShortlistedShopMap = { container: mapContainer, shops: shops };
+
     var paneChildren = [
       el("div", { class: "gth-pane-head" }, [
         "お店の候補",
@@ -1071,33 +1432,110 @@
           "並び: 「行きたい」＋「行ってもいい」の合計が多い順",
         ]),
       ]),
+      mapContainer,
       list,
     ];
 
-    // replaceOpen/finalizeSubmit: both present only while SELECTING_SHOP
-    // (absent once FINALIZED, shortlistedShopVotes.replaceOpen.presenceRule /
-    // finalizeSubmit.presenceRule).
     if (phase === "SELECTING_SHOP") {
       var actions = [renderShopSelectionEntry("店を絞りなおす", "gth-btn")];
-      if (state.gathering.shortlistedShops.length > 0) {
-        var finalizeSubmit = el(
+      if (shops.length > 0) {
+        var finalizeOpen = el(
           "button",
           {
             type: "button",
-            "data-testid": "gathering-finalize-submit",
-            "data-gathering-control-purpose": "gathering-finalize-submit",
+            "data-testid": "gathering-finalize-open",
+            "data-gathering-control-purpose": "gathering-finalize-open",
             disabled: !state.finalizeSelectedShopId,
             class: "gth-btn gth-btn-primary",
           },
           ["日と店を確定する"]
         );
-        finalizeSubmit.addEventListener("click", finalizeGathering);
-        actions.push(finalizeSubmit);
+        finalizeOpen.addEventListener("click", openFinalizeGathering);
+        actions.push(finalizeOpen);
       }
       paneChildren.push(el("div", { class: "gth-pane-actions" }, actions));
+
+      if (state.finalizeConfirmOpen) {
+        paneChildren.push(renderFinalizeConfirmDialog(shops));
+      }
     }
 
     return el("div", { class: "gth-pane" }, paneChildren);
+  }
+
+  // ADR-0054 decision 5 / ADR-0056 decision 11: the same open-then-confirm
+  // shape deleteGathering already uses, with a 3-row before/after table
+  // instead of persuasive prose (ADR-0055 decision 3's "no persuasive prose
+  // in production screens" principle does not forbid a factual table).
+  function renderFinalizeConfirmDialog(shops) {
+    var confirmedDate = state.gathering.candidateDates.filter(function (candidateDate) {
+      return candidateDate.isConfirmed;
+    })[0];
+    var selectedShop = shops.filter(function (shop) {
+      return shop.shopId === state.finalizeSelectedShopId;
+    })[0];
+    var dateAndShopAfter =
+      (confirmedDate ? formatGatheringDate(confirmedDate.startAt) : "―") +
+      " ・ " +
+      (selectedShop ? selectedShop.name : state.finalizeSelectedShopId);
+
+    // 2026-09-13 integration fix (contract 0.17.0 -> 0.18.0 addendum 15,
+    // ADR-0055 decision 3's factual table narrowed 2026-09-13): a tester
+    // found this table could only be checked as "some non-empty text exists
+    // somewhere" -- never "there are three rows" or "each row is the row it
+    // claims to be". Each row now carries
+    // gathering-finalize-confirm-changes-row with a data-change-subject
+    // (one of the contract's fixed subjectValues) plus exactly one
+    // gathering-finalize-confirm-changes-row-before/-after cell -- label
+    // text itself remains an implementation choice, only the row's own
+    // identity and cell shape are now machine-observable.
+    function changeRow(subject, label, before, after) {
+      return el("div", { "data-testid": "gathering-finalize-confirm-changes-row", "data-change-subject": subject, class: "gth-changes-row" }, [
+        el("span", { class: "gth-changes-label" }, [label]),
+        el("span", { "data-testid": "gathering-finalize-confirm-changes-row-before", class: "gth-changes-before" }, [before]),
+        el("span", { class: "gth-changes-arrow", "aria-hidden": "true" }, ["→"]),
+        el("span", { "data-testid": "gathering-finalize-confirm-changes-row-after", class: "gth-changes-after" }, [after]),
+      ]);
+    }
+
+    var changesTable = el(
+      "div",
+      { "data-testid": "gathering-finalize-confirm-changes", class: "gth-changes-table" },
+      [
+        changeRow("participant-link-issuance", "回答リンク", "発行・取り消しができる", "どちらもできなくなる"),
+        changeRow("participant-screen", "参加者の画面", "日程・投票に答えられる", "決定と、店ごとの票だけを見る"),
+        changeRow("date-and-shop", "日と店", "未確定", dateAndShopAfter),
+      ]
+    );
+
+    var confirmButton = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "gathering-finalize-confirm",
+        "data-gathering-control-purpose": "gathering-finalize-confirm",
+        class: "gth-btn gth-btn-primary",
+      },
+      ["確定する"]
+    );
+    confirmButton.addEventListener("click", confirmFinalizeGathering);
+    var cancelButton = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "gathering-finalize-cancel",
+        "data-gathering-control-purpose": "gathering-finalize-cancel",
+        class: "gth-btn",
+      },
+      ["やめる"]
+    );
+    cancelButton.addEventListener("click", cancelFinalizeGathering);
+
+    return el(
+      "div",
+      { "data-testid": "gathering-finalize-confirm-dialog", class: "gth-confirm-dialog gth-confirm-dialog--finalize" },
+      [changesTable, el("div", { class: "gth-inline-form-row" }, [confirmButton, cancelButton])]
+    );
   }
 
   // --- adr/0042: finalizedSummary (Final.dc.html A③) -----------------------
@@ -1106,11 +1544,6 @@
     var confirmed = state.gathering.candidateDates.filter(function (candidateDate) {
       return candidateDate.isConfirmed;
     })[0];
-    // Display only: prefer the shortlisted shop's own live-projected name
-    // over the raw opaque shopId, if it is still resolvable (shortlistedShops
-    // remains present, unchanged, once FINALIZED -- shortlistedShopVotes.
-    // presenceRule above). data-finalized-shop-id itself always carries the
-    // raw Gathering.finalizedShopId value unchanged, regardless of this.
     var finalizedShop = state.gathering.shortlistedShops.filter(function (shop) {
       return shop.shopId === state.gathering.finalizedShopId;
     })[0];
@@ -1176,17 +1609,19 @@
       el("div", { class: "gth-link-actions" }, [recopyButton]),
     ];
 
-    // participantLinkList.item.revoke.presenceRule (adr/0042): absent once
-    // phase is FINALIZED (P4) -- present (with its own pre-existing
-    // disabledState) while SCHEDULING or SELECTING_SHOP.
-    if (state.gathering.phase !== "FINALIZED") {
+    // participantLinkList.item.revoke.presenceRule -- **changed 2026-09-12
+    // (ADR-0055 decision 2)**: present only for a row whose data-has-
+    // responded is "false" and data-revoked is "false", and only while
+    // phase is SCHEDULING or SELECTING_SHOP. An answered or already-revoked
+    // row no longer carries a disabled revoke control at all.
+    var canRevoke = !link.hasResponded && !link.revoked && state.gathering.phase !== "FINALIZED";
+    if (canRevoke) {
       var revokeButton = el(
         "button",
         {
           type: "button",
           "data-testid": "gathering-participant-link-revoke",
           "data-gathering-control-purpose": "gathering-participant-link-revoke",
-          disabled: link.hasResponded || link.revoked,
           class: "gth-btn gth-btn-small",
         },
         ["失効"]
@@ -1220,36 +1655,79 @@
     );
   }
 
+  // ADR-0056 decision 1: one row per participant link, one cell per
+  // candidate date that link answered -- reads
+  // ParticipantLinkSummary.scheduleResponses (v0.12.0). Read defensively
+  // (`|| []`): this deployment's Python side of this round has not yet
+  // populated the field (this file's own module docstring records the
+  // coordination point), so an absent value renders as an all-empty row
+  // rather than throwing.
+  function renderResponseTable() {
+    var candidateDateStartAtById = {};
+    state.gathering.candidateDates.forEach(function (candidateDate) {
+      candidateDateStartAtById[candidateDate.id] = candidateDate.startAt;
+    });
+    var rows = state.participantLinks.map(function (link) {
+      var responses = link.scheduleResponses || [];
+      var cells = responses.map(function (entry) {
+        var startAt = candidateDateStartAtById[entry.candidateDateId];
+        var label = (startAt ? formatGatheringDate(startAt) + " " : "") +
+          (SCHEDULE_RESPONSE_LABELS[entry.status] || "");
+        return el(
+          "span",
+          {
+            "data-testid": "gathering-response-table-cell",
+            "data-candidate-date-id": entry.candidateDateId,
+            "data-response-status": entry.status,
+            class: "gth-response-cell gth-response-cell--" + entry.status.toLowerCase(),
+          },
+          [label]
+        );
+      });
+      return el(
+        "div",
+        {
+          "data-testid": "gathering-response-table-row",
+          "data-participant-link-id": link.id,
+          class: "gth-response-row",
+        },
+        [
+          el("span", { class: "gth-response-row-name" }, [
+            link.displayName === null ? "名無し" : link.displayName,
+          ]),
+          el(
+            "div",
+            { class: "gth-response-row-cells" },
+            cells.length > 0 ? cells : [el("span", { class: "gth-response-row-empty" }, ["未回答"])]
+          ),
+        ]
+      );
+    });
+    return el(
+      "div",
+      { class: "gth-pane" },
+      [el("div", { class: "gth-pane-head" }, ["誰が・どの日に答えたか"])].concat([
+        el("div", { "data-testid": "gathering-response-table", class: "gth-response-table" }, rows),
+      ])
+    );
+  }
+
   function render() {
-    // destroy-before-recreate (this file's own former initializeOpenShopMap
-    // precedent): root.innerHTML below discards the DOM node any live
-    // flatpickr instance is attached to, so the instance itself must be torn
-    // down first or it leaks (flatpickr keeps document-level listeners
-    // alive otherwise).
     if (activeAddCandidateDateCalendar) {
       activeAddCandidateDateCalendar.destroy();
       activeAddCandidateDateCalendar = null;
     }
-    pendingAddCandidateDateCalendar = null;
+    if (activeShortlistedShopMap) {
+      activeShortlistedShopMap.remove();
+      activeShortlistedShopMap = null;
+    }
+    pendingShortlistedShopMap = null;
     root.innerHTML = "";
     if (!state.gathering) {
       return;
     }
     var phase = state.gathering.phase;
 
-    // Human decision 2026-09-04 (real-measurement finding: the heading was
-    // the generic "会の日程調整" title only, with no way to tell which
-    // gathering is open from the screen itself -- Organizer.dc.html's own
-    // header always shows the gathering's own name). This contract's
-    // organizerDashboard section defines no test id for the gathering's
-    // own name (unlike organizerGatheringList's data-gathering-title) --
-    // rendered as a plain, purposeless <div> (no data-testid, no
-    // data-gathering-control-purpose; `allowedPurposes` is a closed list
-    // this developer cannot extend), the same style already established
-    // for candidate-gathering-entry/candidate-map-open.
-    // deleteGathering.open.presenceRule: "Present unconditionally, across
-    // all three phases" -- rendered in the header row so it is reachable
-    // from every phase without competing for space inside any one pane.
     var header = el("div", { class: "gth-header" }, [
       el("div", { class: "gth-header-row" }, [
         el("div", { class: "gth-title" }, [state.gathering.title]),
@@ -1259,15 +1737,6 @@
       el("div", { class: "gth-stats-row" }, [renderResponseSummary(), renderUnansweredSummary()]),
     ]);
 
-    // adr/0038, addCandidateDateOpen.requiredOutcome: the revealed form
-    // must sit inline *within* gathering-candidate-date-list (AddDate.dc.
-    // html 案A "その場で開く"), not beside it -- so the open control/form
-    // is appended as this list's own last child, after every
-    // gathering-candidate-date row (orderingInvariant only constrains the
-    // relative order of gathering-candidate-date-tagged children, which
-    // this trailing, differently-tagged child does not disturb).
-    // addCandidateDateOpen.presenceRule (adr/0042): present only while
-    // SCHEDULING.
     var candidateDateListChildren = state.gathering.candidateDates.map(renderCandidateDate);
     if (phase === "SCHEDULING") {
       candidateDateListChildren = candidateDateListChildren.concat([renderAddCandidateDateOpen()]);
@@ -1290,11 +1759,6 @@
 
     var sections = [header, schedulePane];
 
-    // shopSelectionEntry.open (adr/0049 decision 1): before any shop has
-    // ever been added (votingStartedAt still null), this entry button is
-    // the dashboard's only shop-selection surface -- the retired
-    // shortlistSelection picker this used to open inline is gone (see
-    // renderShopSelectionEntry's own module-docstring history above).
     if (phase === "SELECTING_SHOP" && state.gathering.votingStartedAt === null) {
       sections.push(
         el("div", { class: "gth-pane" }, [
@@ -1312,10 +1776,24 @@
       sections.push(renderFinalizedSummary());
     }
 
+    // ADR-0056 decision 1: always present, alongside (not replacing) the
+    // per-candidate-date tally above and the link-management list below.
+    sections.push(renderResponseTable());
+
     var linkPaneHeadChildren = [el("div", { class: "gth-pane-head" }, ["発行済みリンク"])];
-    // participantLinkCopy.presenceRule (adr/0042): absent once FINALIZED (P4).
     if (phase !== "FINALIZED") {
       linkPaneHeadChildren.push(renderParticipantLinkCopy());
+    } else {
+      // ADR-0056 decision 11: a short badge marking that issuance itself
+      // has ended on purpose, distinct from participantLinkCopy's own
+      // plain absence (which by itself carried no such signal).
+      linkPaneHeadChildren.push(
+        el(
+          "span",
+          { "data-testid": "gathering-participant-link-issuance-closed", class: "gth-badge-muted" },
+          ["発行はおわり"]
+        )
+      );
     }
     sections.push(
       el("div", { class: "gth-pane" }, [
@@ -1326,15 +1804,53 @@
 
     root.appendChild(el("div", { class: "gth-dash" }, sections));
 
-    // The calendar's anchor input above must already be attached to the
-    // live DOM before flatpickr initializes it (the same "must already be
-    // attached" precedent this file's own former initializeOpenShopMap
-    // established for Leaflet).
-    if (pendingAddCandidateDateCalendar) {
-      pendingAddCandidateDateCalendar.initialize();
-      activeAddCandidateDateCalendar = pendingAddCandidateDateCalendar;
+    if (pendingShortlistedShopMap) {
+      initializeShortlistedShopMap(
+        pendingShortlistedShopMap.container,
+        pendingShortlistedShopMap.shops
+      );
     }
   }
 
+  // contracts/candidate-search-browser-interface.yaml's gatheringEntry
+  // section (ADR-0054 decision 1): candidate-gathering-entry itself is
+  // plain, server-rendered HTML (organizer_dashboard.html) and therefore
+  // already present before this script runs. Only the badge is built here,
+  // once fetched (duplicated verbatim from
+  // web/static/dining_radar/web/candidate.js's own loadGatheringEntryBadge).
+  function loadGatheringEntryBadge() {
+    var entry = document.querySelector('[data-testid="candidate-gathering-entry"]');
+    if (!entry) {
+      return;
+    }
+    fetch("/gatherings/in-progress-count", { credentials: "same-origin" })
+      .then(function (response) {
+        return response.status === 200 ? response.json() : null;
+      })
+      .then(function (body) {
+        if (!body) {
+          return;
+        }
+        var count = body.inProgressGatheringCount;
+        var badge = entry.querySelector('[data-testid="candidate-gathering-entry-badge"]');
+        if (count > 0) {
+          if (!badge) {
+            badge = el(
+              "span",
+              { "data-testid": "candidate-gathering-entry-badge", "class": "candidate-gathering-entry-badge" },
+              []
+            );
+            entry.appendChild(badge);
+          }
+          badge.setAttribute("data-in-progress-gathering-count", String(count));
+          badge.textContent = String(count);
+        } else if (badge) {
+          badge.remove();
+        }
+      })
+      .catch(function () {});
+  }
+
   loadGathering();
+  loadGatheringEntryBadge();
 })();

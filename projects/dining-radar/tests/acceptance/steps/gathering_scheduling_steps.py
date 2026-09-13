@@ -1,4 +1,12 @@
-"""Thin Gherkin-to-DSL mappings for TDR-GTH-01 through TDR-GTH-43."""
+"""Thin Gherkin-to-DSL mappings for TDR-GTH-01 through TDR-GTH-56.
+
+Updated 2026-09-13 (独立監査 audit-gathering-redesign-steps.md Minor 2,
+FR update pattern this codebase already applies to
+test_gathering_scheduling_acceptance.py's own module docstring): this
+file's docstring had not been updated to cover
+shop_vote_tally_total_active_participant_count_is (TDR-GTH-56), even
+though that mapping was already present.
+"""
 
 from __future__ import annotations
 
@@ -312,8 +320,8 @@ class GatheringSchedulingSteps:
     def no_candidate_date_is_confirmed(self) -> None:
         self.dsl.assert_no_candidate_date_confirmed()
 
-    def schedule_question_shows_open_shop_count(self, candidate_date_id: str, count: int) -> None:
-        self.dsl.assert_schedule_question_open_shop_count(candidate_date_id, count)
+    def schedule_question_has_no_open_shop_count(self, candidate_date_id: str) -> None:
+        self.dsl.assert_schedule_question_has_no_open_shop_count(candidate_date_id)
 
     def schedule_question_shows_no_shop_details(self, candidate_date_id: str) -> None:
         self.dsl.assert_schedule_question_no_shop_details(candidate_date_id)
@@ -364,6 +372,19 @@ class GatheringSchedulingSteps:
     ) -> None:
         self.dsl.activate_peek_results_and_verify_tallies_are_visible(candidate_date_id)
 
+    def answer_later_confirmation_reproduces_schedule_answer(
+        self, candidate_date_id: str, expected_response: str
+    ) -> None:
+        self.dsl.assert_answer_later_confirmation_reproduces_schedule_answer(
+            candidate_date_id, expected_response
+        )
+
+    def answer_later_confirmation_has_no_schedule_item_for(self, candidate_date_id: str) -> None:
+        self.dsl.assert_answer_later_confirmation_has_no_schedule_item_for(candidate_date_id)
+
+    def answer_later_confirmation_schedule_item_count_is(self, expected_count: int) -> None:
+        self.dsl.assert_answer_later_confirmation_schedule_item_count(expected_count)
+
     def prior_responses_are_retained(self, before: dict[str, dict[str, object]]) -> None:
         self.dsl.assert_answer_state_unchanged(before)
 
@@ -388,8 +409,8 @@ class GatheringSchedulingSteps:
     def participant_token_is_not_persisted(self, link: dict[str, str]) -> None:
         self.dsl.assert_participant_token_not_persisted(link)
 
-    def revoke_control_is_disabled_at(self, index: int) -> None:
-        self.dsl.assert_revoke_control_disabled_at(index)
+    def revoke_control_is_absent_at(self, index: int) -> None:
+        self.dsl.assert_revoke_control_absent_at(index)
 
     def revoke_is_rejected_because_already_answered(self, response: object) -> None:
         self.dsl.assert_revoke_rejected_because_already_answered(response)  # type: ignore[arg-type]
@@ -437,8 +458,20 @@ class GatheringSchedulingSteps:
     def organizer_selects_a_shop_for_finalize(self, shop_id: str) -> None:
         self.dsl.select_shop_for_finalize(shop_id)
 
-    def organizer_submits_finalize(self) -> None:
-        self.dsl.submit_finalize()
+    def organizer_finalizes_via_dashboard(self) -> None:
+        self.dsl.finalize_via_dashboard()
+
+    def organizer_opens_finalize_confirmation(self) -> None:
+        self.dsl.open_finalize_confirmation()
+
+    def finalize_confirm_dialog_shows_changes_summary(self) -> None:
+        self.dsl.assert_finalize_confirm_dialog_shows_changes_summary()
+
+    def organizer_confirms_finalize(self) -> None:
+        self.dsl.confirm_finalize()
+
+    def organizer_cancels_finalize_confirmation(self) -> None:
+        self.dsl.cancel_finalize()
 
     def organizer_attempts_to_issue_a_participant_link_via_api(self) -> object:
         return self.dsl.attempt_issue_participant_link_via_api()
@@ -465,11 +498,14 @@ class GatheringSchedulingSteps:
     def shortlisted_shop_list_is_ordered_by_combined_tier_descending(self) -> None:
         self.dsl.assert_shortlisted_shop_list_is_ordered_by_combined_tier_descending()
 
-    def shortlisted_shop_current_leader_is(self, shop_id: str) -> None:
-        self.dsl.assert_shortlisted_shop_current_leader(shop_id)
+    def no_shortlisted_shop_is_the_current_leader(self) -> None:
+        self.dsl.assert_no_shortlisted_shop_is_current_leader()
 
-    def gathering_mode_shows_map_and_shop_details(self) -> None:
-        self.dsl.assert_gathering_mode_shows_map_and_shop_details()
+    def shortlisted_shop_current_leaders_are(self, expected_leader_ids: set[str]) -> None:
+        self.dsl.assert_shortlisted_shop_current_leaders_are(expected_leader_ids)
+
+    def shortlisted_shop_list_shows_map_and_shop_details(self) -> None:
+        self.dsl.assert_shortlisted_shop_list_shows_map_and_shop_details()
 
     def rejected_as_invalid_shop_selection(self, response: object) -> None:
         self.dsl.assert_rejected_as_invalid_shop_selection(response)  # type: ignore[arg-type]
@@ -513,6 +549,11 @@ class GatheringSchedulingSteps:
     def shop_vote_question_list_shows_map_and_shop_details(self, link: dict[str, str]) -> None:
         self.dsl.assert_shop_vote_question_list_shows_map_and_shop_details(link)
 
+    def shop_vote_tally_total_active_participant_count_is(
+        self, shop_id: str, expected: int
+    ) -> None:
+        self.dsl.assert_shop_vote_tally_total_active_participant_count(shop_id, expected)
+
     def shop_vote_map_shows_search_origin_marker(self) -> None:
         self.dsl.assert_shop_vote_map_shows_search_origin_marker()
 
@@ -540,19 +581,46 @@ class GatheringSchedulingSteps:
         *,
         confirmed_candidate_date: str,
         shop_id: str,
-        your_schedule_response: str,
     ) -> None:
         self.dsl.assert_participant_decision(
             confirmed_candidate_date=confirmed_candidate_date,
             shop_id=shop_id,
-            your_schedule_response=your_schedule_response,
         )
 
     def participant_decision_has_no_shop_breakdown(self) -> None:
         self.dsl.assert_participant_decision_has_no_shop_breakdown()
 
+    def participant_decision_has_no_own_response_attribute(self) -> None:
+        self.dsl.assert_participant_decision_has_no_own_response_attribute()
+
+    def participant_decision_shows_shop_location_details(
+        self, *, shop_id: str, walking_time_minutes: int, provider_page_url: str
+    ) -> None:
+        self.dsl.assert_participant_decision_shows_shop_location_details(
+            shop_id=shop_id,
+            walking_time_minutes=walking_time_minutes,
+            provider_page_url=provider_page_url,
+        )
+
+    def participant_decision_map_shows_shop_and_origin_only(self) -> None:
+        self.dsl.assert_participant_decision_map_shows_shop_and_origin_only()
+
+    def participant_view_via_api(self, link: dict[str, str]) -> dict:
+        return self.dsl.fetch_participant_view_via_api(link)
+
     def participant_question_surfaces_are_replaced(self) -> None:
         self.dsl.assert_participant_question_surfaces_are_replaced()
+
+    def finalized_view_still_shows_shop_vote_tally(
+        self, shop_id: str, *, want_to_go: int, ok_to_go: int, not_going: int, responded: int
+    ) -> None:
+        self.dsl.assert_finalized_view_still_shows_shop_vote_tally(
+            shop_id,
+            want_to_go=want_to_go,
+            ok_to_go=ok_to_go,
+            not_going=not_going,
+            responded=responded,
+        )
 
     def participant_name_controls_are_absent(self) -> None:
         self.dsl.assert_participant_name_controls_are_absent()
@@ -581,3 +649,38 @@ class GatheringSchedulingSteps:
 
     def unselected_candidate_toggle_is_disabled(self) -> None:
         self.dsl.assert_unselected_candidate_card_toggle_is_disabled()
+
+    # organizerDashboard.responseTable (ADR-0056 decision 1, TDR-GTH-49) -----
+
+    def participant_link_ids_in_order(self) -> list[str]:
+        return self.dsl.read_participant_link_ids_in_order()
+
+    def response_table_matches(self, expected: dict[str, dict[str, str]]) -> None:
+        self.dsl.assert_response_table_matches(expected)
+
+    # organizerDashboard.candidateDateList.removeCandidateDate (ADR-0056
+    # decision 2, TDR-GTH-50/51) --------------------------------------------
+
+    def organizer_removes_the_candidate_date(self, candidate_date_id: str) -> None:
+        self.dsl.remove_candidate_date(candidate_date_id)
+
+    def candidate_date_is_absent(self, candidate_date_id: str) -> None:
+        self.dsl.assert_candidate_date_absent(candidate_date_id)
+
+    def organizer_attempts_to_remove_candidate_date_via_api(self, candidate_date_id: str) -> object:
+        return self.dsl.attempt_remove_candidate_date_via_api(candidate_date_id)
+
+    def remove_candidate_date_control_is_absent(self, candidate_date_id: str) -> None:
+        self.dsl.assert_remove_candidate_date_control_absent(candidate_date_id)
+
+    def remove_candidate_date_is_rejected_because_not_in_scheduling_phase(
+        self, response: object
+    ) -> None:
+        self.dsl.assert_remove_candidate_date_rejected_because_not_in_scheduling_phase(
+            response  # type: ignore[arg-type]
+        )
+
+    # participantLinkList.issuanceClosed (ADR-0056 decision 11) -------------
+
+    def participant_link_issuance_closed_badge_is_shown(self) -> None:
+        self.dsl.assert_participant_link_issuance_closed_badge_is_shown()

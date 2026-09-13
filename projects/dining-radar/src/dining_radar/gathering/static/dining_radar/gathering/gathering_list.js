@@ -188,9 +188,50 @@
     }
   }
 
+  // contracts/candidate-search-browser-interface.yaml's gatheringEntry
+  // section (ADR-0054 decision 1): candidate-gathering-entry itself is
+  // plain, server-rendered HTML (organizer_gathering_list.html) and
+  // therefore already present before this script runs. Only the badge is
+  // built here, once fetched (duplicated verbatim from
+  // web/static/dining_radar/web/candidate.js's own loadGatheringEntryBadge;
+  // no shared module system exists in this codebase).
+  function loadGatheringEntryBadge() {
+    var entry = document.querySelector('[data-testid="candidate-gathering-entry"]');
+    if (!entry) {
+      return;
+    }
+    fetch("/gatherings/in-progress-count", { credentials: "same-origin" })
+      .then(function (response) {
+        return response.status === 200 ? response.json() : null;
+      })
+      .then(function (body) {
+        if (!body) {
+          return;
+        }
+        var count = body.inProgressGatheringCount;
+        var badge = entry.querySelector('[data-testid="candidate-gathering-entry-badge"]');
+        if (count > 0) {
+          if (!badge) {
+            badge = el(
+              "span",
+              { "data-testid": "candidate-gathering-entry-badge", "class": "candidate-gathering-entry-badge" },
+              []
+            );
+            entry.appendChild(badge);
+          }
+          badge.setAttribute("data-in-progress-gathering-count", String(count));
+          badge.textContent = String(count);
+        } else if (badge) {
+          badge.remove();
+        }
+      })
+      .catch(function () {});
+  }
+
   requestJson("GET", "/gatherings").then(function (result) {
     if (result.status === 200) {
       render(result.body.gatherings);
     }
   });
+  loadGatheringEntryBadge();
 })();

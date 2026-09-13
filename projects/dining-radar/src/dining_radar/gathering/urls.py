@@ -24,6 +24,11 @@ urlpatterns = [
         name="candidate-dates",
     ),
     path(
+        "gatherings/<uuid:gathering_id>/candidate-dates/<uuid:candidate_date_id>",
+        views.candidate_date_detail,
+        name="candidate-date-detail",
+    ),
+    path(
         "gatherings/<uuid:gathering_id>/candidate-dates/<uuid:candidate_date_id>/open-shop-preview",
         views.open_shop_preview,
         name="open-shop-preview",

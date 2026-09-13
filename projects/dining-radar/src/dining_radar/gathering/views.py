@@ -418,6 +418,26 @@ def candidate_dates(request, gathering_id):
     return JsonResponse(serialize_gathering(gathering), status=201)
 
 
+@csrf_exempt
+@require_http_methods(["DELETE"])
+def candidate_date_detail(request, gathering_id, candidate_date_id):
+    """``DELETE .../candidate-dates/{candidateDateId}``: ``removeCandidateDate``
+    (ADR-0056 decision 2, 2026-09-12 human decision)."""
+    if not request.user.is_authenticated:
+        return _problem(*_AUTHENTICATION_REQUIRED)
+    if _csrf_failed(request):
+        return _problem(*_REQUEST_REJECTED)
+    try:
+        gathering = services.remove_candidate_date(request.user, gathering_id, candidate_date_id)
+    except (
+        services.GatheringNotFoundError,
+        services.GatheringNotInSchedulingPhaseError,
+        services.CandidateDateNotFoundError,
+    ) as error:
+        return _organizer_error_response(error)
+    return JsonResponse(serialize_gathering(gathering), status=200)
+
+
 @require_GET
 def open_shop_preview(request, gathering_id, candidate_date_id):
     """``GET .../candidate-dates/{candidateDateId}/open-shop-preview``."""
@@ -441,11 +461,17 @@ def participant_links(request, gathering_id):
 
     if request.method == "GET":
         try:
-            _gathering, links = services.list_participant_links(request.user, gathering_id)
+            gathering, links = services.list_participant_links(request.user, gathering_id)
         except services.GatheringNotFoundError as error:
             return _organizer_error_response(error)
+        responses_by_link = services.participant_link_schedule_responses(gathering)
         return JsonResponse(
-            {"participantLinks": [serialize_participant_link_summary(link) for link in links]},
+            {
+                "participantLinks": [
+                    serialize_participant_link_summary(link, responses_by_link.get(link.id, []))
+                    for link in links
+                ]
+            },
             status=200,
         )
 
@@ -508,9 +534,12 @@ def revoke_participant_link(request, gathering_id, link_id):
         services.ParticipantLinkAlreadyAnsweredError,
     ) as error:
         return _organizer_error_response(error)
+    responses_by_link = services.participant_link_schedule_responses(gathering)
     return JsonResponse(
         {
-            "participantLink": serialize_participant_link_summary(link),
+            "participantLink": serialize_participant_link_summary(
+                link, responses_by_link.get(link.id, [])
+            ),
             "gathering": serialize_gathering(gathering),
         },
         status=200,

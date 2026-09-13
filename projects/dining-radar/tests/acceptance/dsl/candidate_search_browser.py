@@ -334,6 +334,12 @@ STATUS_BY_PROBLEM_CODE = {"PROVIDER_UNAVAILABLE": 503, "PROPOSAL_RATE_LIMITED": 
 GATHERING_MODE_BAND = "candidate-gathering-mode-band"
 GATHERING_MODE_SHORTLISTED_COUNT_ATTR = "data-gathering-shortlisted-count"
 GATHERING_MODE_MAX_SHORTLISTED_ATTR = "data-gathering-max-shortlisted"
+# gatheringMode.band.limitReached (ADR-0056 decision 7, TDR-CS-21, human
+# decision "5件に達すると新たに入れることはできない理由が帯から分かる" --
+# "true" exactly when shortlistedShopCount >= maxShortlistedShops, the same
+# boundary cardToggle.disabledState already computes per-card, exposed once
+# at the band level).
+GATHERING_MODE_LIMIT_REACHED_ATTR = "data-shortlist-limit-reached"
 CANDIDATE_CARD_GATHERING_TOGGLE = "candidate-card-gathering-toggle"
 CANDIDATE_GATHERING_SHORTLISTED_ATTR = "data-gathering-shortlisted"
 GATHERING_SHORTLIST_OPEN = "gathering-shortlist-open"
@@ -643,19 +649,22 @@ class CandidateSearchBrowserDsl:
             self._applied_filters = self._normalized_filters(self._current_filters())
             self._pending_filters = dict(self._applied_filters)
 
-    def _read_gathering_mode_band(self) -> dict[str, int]:
+    def _read_gathering_mode_band(self) -> dict[str, object]:
         node = assert_present(self.assertions, self.page, GATHERING_MODE_BAND)
         return {
             "shortlisted": int(node.get_attribute(GATHERING_MODE_SHORTLISTED_COUNT_ATTR)),
             "max": int(node.get_attribute(GATHERING_MODE_MAX_SHORTLISTED_ATTR)),
+            "limitReached": node.get_attribute(GATHERING_MODE_LIMIT_REACHED_ATTR) == "true",
         }
 
     def assert_gathering_mode_band_shows(
-        self, *, shortlisted: int, max_shortlisted: int = 5
+        self, *, shortlisted: int, max_shortlisted: int = 5, limit_reached: bool | None = None
     ) -> None:
         band = self._read_gathering_mode_band()
         self.assertions.assertEqual(band["shortlisted"], shortlisted)
         self.assertions.assertEqual(band["max"], max_shortlisted)
+        if limit_reached is not None:
+            self.assertions.assertEqual(band["limitReached"], limit_reached)
 
     def toggle_first_candidate_into_gathering(self) -> None:
         """gatheringMode.cardToggle's requiredOutcome (TDR-CS-17): toggles the
@@ -715,6 +724,56 @@ class CandidateSearchBrowserDsl:
         target.click()
         expect(target).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "false")
         self.assertions.assertEqual(self._read_gathering_mode_band()["shortlisted"], before - 1)
+
+    def toggle_a_not_yet_shortlisted_card_and_return_ref(self) -> str:
+        """gatheringMode.cardToggle/mapMarker (TDR-CS-20, ADR-0056 decision 4,
+        human decision "地図とカードの相互強調に、会に入れた状態の対応も
+        揃える"): toggles the first not-yet-shortlisted card's own toggle,
+        scoped *within* that specific card (not a flat, index-matched
+        sibling locator) so this suite can read that same card's own
+        data-candidate-ref and hand it to the caller for correlating the
+        matching map marker -- mapMarker.presenceRule/attribute mirror
+        cardToggle's own data-gathering-shortlisted value for "the same
+        data-candidate-ref", so identity must be read from the card that
+        was actually clicked, not merely "some" not-yet-shortlisted card.
+        """
+        cards = wait_for_at_least_one(self.page, CARD)
+        target_index = next(
+            index
+            for index in range(cards.count())
+            if cards.nth(index)
+            .locator(f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]')
+            .get_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR)
+            == "false"
+        )
+        card = cards.nth(target_index)
+        candidate_ref = card.get_attribute("data-candidate-ref")
+        toggle = card.locator(f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]')
+        toggle.click()
+        expect(toggle).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "true")
+        return candidate_ref
+
+    def toggle_off_card_by_candidate_ref(self, candidate_ref: str) -> None:
+        card = self.page.locator(f'[data-testid="{CARD}"][data-candidate-ref="{candidate_ref}"]')
+        toggle = card.locator(f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]')
+        expect(toggle).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "true")
+        toggle.click()
+        expect(toggle).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "false")
+
+    def assert_map_marker_gathering_shortlisted_is(
+        self, candidate_ref: str, expected: bool
+    ) -> None:
+        """gatheringMode.mapMarker (TDR-CS-20): data-gathering-shortlisted on
+        candidate-map-marker mirrors that same candidate's cardToggle value
+        exactly, correlated by data-candidate-ref (the existing card/marker
+        mutual-highlight convention, markerDataAttributes/selectionState).
+        """
+        marker = self.page.locator(
+            f'[data-testid="{MAP_MARKER}"][data-candidate-ref="{candidate_ref}"]'
+        )
+        expect(marker).to_have_attribute(
+            CANDIDATE_GATHERING_SHORTLISTED_ATTR, "true" if expected else "false"
+        )
 
     def assert_unselected_candidate_toggle_is_disabled(self) -> None:
         toggle = self.page.locator(

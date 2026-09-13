@@ -8,22 +8,53 @@
  * required (this contract's own securityObservations.participantAnswer
  * rationale: the token itself, supplied in the URL, is the sole credential).
  *
- * Human decision 2026-08-31: matches the approved screen skeleton
- * (E:\AWS\dsg-out\party\Answer.dc.html, "B｜参加者の回答") as a one-question-
- * at-a-time wizard, not the developer's earlier discretionary choice of
- * rendering every candidate date simultaneously. Per this contract's own
- * scheduleQuestion.cardinality note ("This contract does not fix whether
- * every CandidateDate renders simultaneously or progressively... It
- * requires only that whichever candidate dates are currently reachable in
- * the DOM each expose exactly one gathering-schedule-question... and that
+ * **Superseded 2026-09-13 (integration round, human decision, 第2束の板
+ * `E:\AWS\dsg-out\party\b2-schedule\Answer.dc.html`: "候補日 4つ" -- 4枚の
+ * カードを同時に描く, "4つのうち2つ答えたところ" caption)**: the paragraph
+ * below (2026-08-31, the *original* Answer.dc.html draft) chose a
+ * one-question-at-a-time wizard; the human has since ruled on a later,
+ * revised board that shows every candidate date's card simultaneously
+ * instead, and a decided design is followed even where this contract's own
+ * scheduleQuestion.cardinality note only *permits*, but does not *require*,
+ * progressive disclosure ("this contract does not fix whether every
+ * CandidateDate renders simultaneously or progressively... it requires
+ * only that whichever candidate dates are currently reachable in the DOM
+ * each expose exactly one gathering-schedule-question... and that
  * gathering-participant-progress always reflects the true total regardless
- * of how many are currently rendered"), progressive disclosure is
- * contract-conformant. "Currently reachable" here means every candidate
- * date already answered (rendered as a compact "done" card, matching
- * Answer.dc.html's .card.done) plus the first still-unanswered one
- * (rendered as the full interactive "open" card) -- candidate dates beyond
- * that are folded into the "このあと聞かれること" summary panel and are
- * not built as DOM nodes at all.
+ * of how many are currently rendered"). Every candidate date is now
+ * "currently reachable" at once -- render() below no longer computes a
+ * single firstUnansweredIndex to gate which cards exist; it builds one
+ * card per entry in ParticipantView.scheduleQuestions (its own order,
+ * unchanged), classifying each independently as done (yourResponse
+ * non-null, Answer.dc.html's `.card.done`) or open (yourResponse null,
+ * `.card` without the `done` modifier) using the same
+ * renderDoneQuestionCard/renderOpenQuestionCard functions the original
+ * wizard already defined -- neither function's own per-card shape changes,
+ * only how many of each render() now builds. The "このあと聞かれること"
+ * summary panel (renderNextPanel, folding not-yet-reachable dates into a
+ * count) is retired along with it: nothing is folded away any longer, so a
+ * panel describing what remains folded has nothing left to describe (the
+ * revised board carries no such panel either). The original paragraph
+ * below is left unedited beneath this note (P-06: a decision is replaced,
+ * not rewritten) since its own reasoning about *why* a wizard was once
+ * chosen remains historically accurate context for this file.
+ *
+ * Human decision 2026-08-31 (superseded above): matches the approved screen
+ * skeleton (E:\AWS\dsg-out\party\Answer.dc.html, "B｜参加者の回答") as a
+ * one-question-at-a-time wizard, not the developer's earlier discretionary
+ * choice of rendering every candidate date simultaneously. Per this
+ * contract's own scheduleQuestion.cardinality note ("This contract does not
+ * fix whether every CandidateDate renders simultaneously or
+ * progressively... It requires only that whichever candidate dates are
+ * currently reachable in the DOM each expose exactly one
+ * gathering-schedule-question... and that gathering-participant-progress
+ * always reflects the true total regardless of how many are currently
+ * rendered"), progressive disclosure is contract-conformant. "Currently
+ * reachable" here means every candidate date already answered (rendered as
+ * a compact "done" card, matching Answer.dc.html's .card.done) plus the
+ * first still-unanswered one (rendered as the full interactive "open"
+ * card) -- candidate dates beyond that are folded into the "このあと聞かれ
+ * ること" summary panel and are not built as DOM nodes at all.
  *
  * Design-vs-DSL judgment call (see this slice's developer report for the
  * full reasoning): Answer.dc.html's .card.done mockup omits the
@@ -128,6 +159,70 @@
  * (gathering.js's tentativelySelectCandidateDate already used this same
  * shape of guard, ad hoc, for one single call; this generalizes it to
  * every participant-facing write plus the initial load).
+ *
+ * 2026-09-13 revision (ADR-0054/0055/0056, human ruling 2026-09-12 chat,
+ * 5-bucket redesign of the gathering screen group, buckets 2/4/5):
+ * - **All three approval-seeking prose strings FR-034 named are deleted
+ *   outright, with no replacement sentence** -- "ほかの人の回答も見えています"
+ *   (both the done-card hint and the open-card mask, ADR-0055 decision 1
+ *   context), "ここまでの回答は保存されています。またあとで、続きから答え
+ *   られます。" (answerLater's old confirmation prose), and "幹事から届いた
+ *   リンクで開いています。ログインも名前も要りません。名前はあとからでも
+ *   付けられます。答えは何度でも変えられます。" (the screen's old fine
+ *   print, renderFinePrint, removed along with the function itself).
+ * - **openShopCount is gone**: gathering-scheduling-api.yaml v0.12.0 no
+ *   longer sends it on ParticipantScheduleQuestion (ADR-0055 decision 1) --
+ *   this file no longer reads question.openShopCount or renders
+ *   data-open-shop-count/"この日に開いている店 N件" anywhere.
+ * - **答え結果をのぞく／あとで答える no longer share a row** (FR-034's own
+ *   repro: a `<p>` confirmation sibling squeezed both flex:1 buttons under
+ *   44px wide). peekResults now renders at the very top of the scrollable
+ *   body (renderPeekResultsButton); answerLater renders as the very last
+ *   element (renderAnswerLaterButton) -- the two are never DOM siblings in
+ *   the same flex row again.
+ * - **answerLater's confirmation is an overlapping surface, not an inline
+ *   sentence** (renderAnswerLaterOverlay): a fixed-position scrim+panel
+ *   listing this participant's own already-recorded answers (schedule
+ *   responses and shop votes), reproducing scheduleQuestion.attributes'/
+ *   shopVoteQuestion.attributes' own data-candidate-date-id/data-your-
+ *   response and data-shop-id/data-your-vote values verbatim (this
+ *   contract's own "does not fix the markup used to reproduce these
+ *   values" allowance) -- never a sentence asserting the answers are
+ *   saved. Dismissed by activating the scrim (a plain, purposeless `<div>`
+ *   click target, outside forbiddenFormControlCategories' scan).
+ * - **The shop-vote tally now also renders a fixed-length bar**
+ *   (renderShopVoteBar) sized against ParticipantView.
+ *   totalActiveParticipantCount (ADR-0056 decision 9) rather than however
+ *   many participants have voted on that shop so far, so a thinly-
+ *   supported shop shows as a short bar even while voting is still in
+ *   progress. Omitted entirely if the API has not yet started returning
+ *   this field (this round's API work ships from a different developer in
+ *   parallel).
+ * - **"あとから入りました" (ADR-0056 decision 6) is a separate mark from
+ *   "did I answer this shop"**: data-added-after-voting-started (mirrored
+ *   verbatim from ParticipantShopVoteOption.addedAfterVotingStarted) drives
+ *   only a small badge next to the shop name; a card's own border
+ *   highlight (gth-vote-row--answered) is driven only by data-your-vote
+ *   being non-"UNANSWERED" -- human ruling: "印は2つに分ける。札は『あとから
+ *   入ったか』だけ、カードの縁は『自分が答えたか』だけ。1つの印に2つの意味を
+ *   持たせない。"
+ * - **finalizedView shows exactly 5 things, in this order** (いつ／どの店／
+ *   どこにあるか／徒歩の目安／店のページへの線, ADR-0056 decision 10):
+ *   data-your-schedule-response and its "あなたの日程への回答" row are
+ *   deleted entirely (ADR-0055 decision 7, one step past adr/0050 decision
+ *   3's earlier simplification), replaced by a map (gathering-participant-
+ *   decision-map, showing only the decided shop's own pin and this
+ *   participant's search origin -- **no line connecting them, no walking-
+ *   radius ring**: this product never queries a routing service and does
+ *   not assert path information it does not have) plus data-walking-time-
+ *   minutes and a provider-page link.
+ * - **The live shop-vote tally remains visible after finalization**
+ *   (ADR-0055 decision 8: replacesQuestionSurfaces no longer names
+ *   gathering-shop-vote-question) -- renderShopVoteSection/
+ *   renderShopVoteQuestion take a showVoteOptions flag so the finalized
+ *   branch can reuse the exact same map/tally/bar rendering with only the
+ *   three vote buttons themselves suppressed (noOperations: no
+ *   gathering-shop-vote-option once decision is non-null).
  */
 (function () {
   "use strict";
@@ -427,6 +522,144 @@
     shopVoteMapInstance = map;
   }
 
+  // 2026-09-13 addition (ADR-0056 decision 10): finalizedView's own map,
+  // showing exactly two points -- the decided shop's own pin and this
+  // participant's search origin -- and nothing else. Deliberately does not
+  // draw a line between them or a walking-radius ring (this file's own
+  // module-docstring entry for this date explains why); reuses the same
+  // marker visuals as initializeShopVoteMap above (a plain CSS choice, not
+  // a shared test id -- gathering-participant-decision-map-marker/
+  // -origin-marker are set as separate data-testid attributes below,
+  // distinct from gathering-shop-vote-map-marker/gathering-search-origin-
+  // marker per this contract's own forbiddenTestIds/distinct-element
+  // notes).
+  var decisionMapInstance = null;
+
+  function initializeDecisionMap(container, shop, searchOrigin) {
+    if (decisionMapInstance) {
+      decisionMapInstance.remove();
+      decisionMapInstance = null;
+    }
+    if (!window.L || !container) {
+      return;
+    }
+    var map = window.L.map(container, { attributionControl: false });
+    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+    }).addTo(map);
+    var shopLatLng = [shop.location.latitude, shop.location.longitude];
+    var boundsLatLngs = [shopLatLng];
+    if (searchOrigin) {
+      boundsLatLngs.push([searchOrigin.latitude, searchOrigin.longitude]);
+    }
+    map.fitBounds(window.L.latLngBounds(boundsLatLngs), { padding: [24, 24] });
+
+    // browserControlSurface.participantAnswer.finalizedView.decision.map's
+    // data-overlay-marker-count/-line-count/-ring-count (spec .spec/11-a,
+    // closing 独立監査 audit-gathering-redesign-steps.md's Major 1). A
+    // 2026-09-13 defect injection found that a running tally kept by this
+    // module's own add-helpers (incremented only when *this* code called
+    // them) can be bypassed by any code path that instead calls
+    // `L.polyline(...).addTo(map)` / `L.circle(...).addTo(map)` /
+    // `L.marker(...).addTo(map)` directly: the injected line/ring/marker
+    // rendered on the map but the counter stayed at 0, so the check
+    // stopped observing anything it claimed to observe. Reading counts
+    // off `map.eachLayer` instead -- Leaflet's own public API for listing
+    // every layer actually registered on the map -- counts whatever is
+    // really drawn, independent of how it got there, and does not touch
+    // the map library's internal DOM (this contract's scope forbids
+    // coupling to that; `eachLayer` is API, not DOM).
+    //
+    // Classification below is `instanceof` against Leaflet's own exported
+    // constructors, checked against this vendored leaflet.js's actual
+    // extend() chain before writing this code (do not assume Leaflet's
+    // class hierarchy):
+    //   L.Layer
+    //     L.Marker                      -- counted as "marker"
+    //     L.Path
+    //       L.CircleMarker              -- counted as "ring"
+    //         L.Circle                  -- counted as "ring" (is-a
+    //                                      CircleMarker)
+    //       L.Polyline                  -- counted as "line"
+    //         L.Polygon                 -- counted as "line" (is-a
+    //                                      Polyline; still path segments
+    //                                      drawn on the map, and this map
+    //                                      must draw none, so a polygon
+    //                                      must not slip through
+    //                                      uncounted either)
+    //     L.GridLayer
+    //       L.TileLayer                 -- neither Marker nor Path;
+    //                                      never counted (the base map
+    //                                      tile layer added above is
+    //                                      correctly excluded)
+    // (L.Circle is a L.CircleMarker but never a L.Polyline -- the two
+    // branches under L.Path are disjoint -- so "line" and "ring" never
+    // double-count the same layer.)
+    function countOverlaysByType() {
+      var counts = { marker: 0, line: 0, ring: 0 };
+      map.eachLayer(function (layer) {
+        if (layer instanceof window.L.Marker) {
+          counts.marker += 1;
+        } else if (layer instanceof window.L.CircleMarker) {
+          counts.ring += 1;
+        } else if (layer instanceof window.L.Polyline) {
+          counts.line += 1;
+        }
+      });
+      return counts;
+    }
+    function refreshOverlayCountAttributes() {
+      var counts = countOverlaysByType();
+      container.setAttribute("data-overlay-marker-count", String(counts.marker));
+      container.setAttribute("data-overlay-line-count", String(counts.line));
+      container.setAttribute("data-overlay-ring-count", String(counts.ring));
+    }
+    // Recount on every future add/remove, not just once below -- if this
+    // map ever becomes mutable after first render, the attributes must
+    // not go stale. Leaflet fires both events on `map` for any
+    // addTo()/removeLayer() call, regardless of which code performs it.
+    map.on("layeradd layerremove", refreshOverlayCountAttributes);
+
+    var shopIcon = window.L.divIcon({
+      className: "gathering-shop-vote-map-marker-icon",
+      html: '<span class="gathering-shop-vote-map-marker-visual"></span>',
+      iconSize: [22, 22],
+      iconAnchor: [11, 11],
+    });
+    var shopMarker = window.L.marker(shopLatLng, { icon: shopIcon, keyboard: false });
+    shopMarker.addTo(map);
+    var shopMarkerEl = shopMarker.getElement();
+    if (shopMarkerEl) {
+      shopMarkerEl.setAttribute("data-testid", "gathering-participant-decision-map-marker");
+      shopMarkerEl.setAttribute("data-shop-id", shop.shopId);
+    }
+    if (searchOrigin) {
+      var originIcon = window.L.divIcon({
+        className: "gathering-search-origin-marker-icon",
+        html: '<span class="gathering-search-origin-marker-visual"></span>',
+        iconSize: [20, 20],
+        iconAnchor: [10, 10],
+      });
+      var originMarker = window.L.marker([searchOrigin.latitude, searchOrigin.longitude], {
+        icon: originIcon,
+        keyboard: false,
+        alt: "検索基点",
+      });
+      originMarker.addTo(map);
+      var originEl = originMarker.getElement();
+      if (originEl) {
+        originEl.setAttribute("data-testid", "gathering-participant-decision-origin-marker");
+        originEl.setAttribute("aria-label", "検索基点");
+      }
+    }
+    // No line between the two markers and no walking-radius ring
+    // (ADR-0056 decision 10): this product does not query a routing
+    // service and does not assert a walking path it cannot back with
+    // real routing data.
+    refreshOverlayCountAttributes();
+    decisionMapInstance = map;
+  }
+
   function applyResult(sequence, result, onSuccess) {
     if (isStaleResponse(sequence)) {
       return;
@@ -683,12 +916,6 @@
     );
   }
 
-  // adr/0050 decision 2 (2026-09-08/09 human decision: "約束は覆してもよい"):
-  // other participants' tallies are visible regardless of whether this
-  // participant has answered yet -- shared between the done and open
-  // question cards below, replacing the retired "answer first" wording.
-  var VISIBILITY_HINT = "ほかの人の回答も見えています";
-
   /**
    * A previously-answered candidate date: Answer.dc.html's .card.done
    * (date + answer badge + tally), with the response options kept present
@@ -707,7 +934,6 @@
     if (tally) {
       children.push(tally);
     }
-    children.push(el("div", { class: "gth-done-hint" }, [VISIBILITY_HINT]));
     children.push(
       el(
         "div",
@@ -721,7 +947,6 @@
       {
         "data-testid": "gathering-schedule-question",
         "data-candidate-date-id": question.candidateDateId,
-        "data-open-shop-count": question.openShopCount,
         "data-your-response": yourResponse,
         class: "gth-card gth-card--done",
       },
@@ -731,27 +956,27 @@
 
   /**
    * The one currently-open question: Answer.dc.html's dashed-border .card
-   * (question label, date, "この日に開いている店 N件" -- D6 -- the
-   * "answer to see others" mask hint -- product-brief.md §2 -- and the
-   * three full-size response options).
+   * (question label, date, and the three full-size response options).
+   * **The "この日に開いている店 N件" count is gone** (ADR-0055 decision 1,
+   * 2026-09-12 human decision -- a shop count did not help a participant
+   * decide on a candidate date; gathering-scheduling-api.yaml v0.12.0 no
+   * longer sends ParticipantScheduleQuestion.openShopCount at all).
    */
   function renderOpenQuestionCard(question) {
     var children = [
       el("div", { class: "gth-open-label" }, ["この日、行けそう？"]),
       el("div", { class: "gth-open-date" }, [formatGatheringDateTime(question.startAt)]),
-      el("div", { class: "gth-open-shop-count" }, [
-        "この日に開いている店 ",
-        el("b", {}, [String(question.openShopCount)]),
-        "件",
-      ]),
     ];
     var tally = renderTally(question);
     if (tally) {
       // peekResults.requiredOutcome (adr/0050 decision 1): this one open
       // question's own tally stays hidden until the participant explicitly
-      // activates gathering-participant-peek-results (renderFooter below) --
-      // see this file's own state.peekResultsActivated comment for why only
-      // the open question's tally is gated this way.
+      // activates gathering-participant-peek-results (renderPeekResultsButton
+      // below) -- see this file's own state.peekResultsActivated comment for
+      // why only the open question's tally is gated this way. **No
+      // explanatory mask text here** (FR-034, ADR-0055: the retired
+      // "ほかの人の回答も見えています" prose is deleted, not replaced --
+      // the tally simply appears once revealed).
       children.push(
         el(
           "div",
@@ -760,7 +985,7 @@
               "gth-open-tally-wrap" +
               (state.peekResultsActivated ? " gth-open-tally-wrap--revealed" : ""),
           },
-          [tally, el("div", { class: "gth-mask" }, [VISIBILITY_HINT])]
+          [tally]
         )
       );
     }
@@ -776,7 +1001,6 @@
       {
         "data-testid": "gathering-schedule-question",
         "data-candidate-date-id": question.candidateDateId,
-        "data-open-shop-count": question.openShopCount,
         "data-your-response": "UNANSWERED",
         class: "gth-card gth-card--open",
       },
@@ -784,33 +1008,11 @@
     );
   }
 
-  /**
-   * "このあと聞かれること" -- a count only (Answer.dc.html shows "日程 —
-   * あと1つ", never a per-date list) for candidate dates beyond the one
-   * open card. These dates have no gathering-schedule-question element in
-   * the DOM at all until the participant reaches them (see this file's
-   * module docstring).
-   */
-  function renderNextPanel(remainingCount, phase) {
-    if (remainingCount <= 0) {
-      return null;
-    }
-    return el("div", { class: "gth-next" }, [
-      el("div", { class: "gth-next-heading" }, ["このあと聞かれること"]),
-      el("div", { class: "gth-next-row" }, [
-        el("span", {}, ["日程"]),
-        el("span", {}, ["あと " + remainingCount + "つ"]),
-      ]),
-      el("div", { class: "gth-next-row" }, [
-        el("span", {}, ["お店の投票"]),
-        el(
-          "span",
-          { class: "gth-next-muted" },
-          [phase === "SCHEDULING" ? "幹事が日を決めてから" : "開催日が決まりました"]
-        ),
-      ]),
-    ]);
-  }
+  // renderNextPanel ("このあと聞かれること", folding not-yet-reachable
+  // candidate dates into a count) is retired 2026-09-13 -- see this file's
+  // module docstring's superseding note. All candidate dates now render
+  // simultaneously, so nothing is ever folded away for this panel to
+  // summarize.
 
   /**
    * The approval-voting surface (Vote.dc.html B-2, shopVoteQuestion).
@@ -847,7 +1049,19 @@
     });
   }
 
-  function renderShopVoteTally(question) {
+  /**
+   * @param totalActiveParticipantCount ParticipantView.
+   *   totalActiveParticipantCount (contract addendum 12, ADR-0056 decision
+   *   9). **Fixed 2026-09-13 (integration round)**: this attribute existed
+   *   on renderShopVoteBar's own sizing calculation already but had never
+   *   been added to this tally element itself -- the contract requires it
+   *   here (gathering-shop-vote-tally.data-total-active-participant-count),
+   *   not merely somewhere on the page. The field is required (non-nullable)
+   *   on ParticipantView as of gathering-scheduling-api.yaml v0.12.0, so
+   *   this is never omitted the way renderShopVoteBar's own now-stale
+   *   "may not exist yet" comment once allowed for.
+   */
+  function renderShopVoteTally(question, totalActiveParticipantCount) {
     // adr/0050 decision 2 (2026-09-08/09 human decision): tally is always
     // present now, regardless of whether this participant has voted on this
     // shop yet (reverses the original "answer first, then see others" rule,
@@ -863,6 +1077,7 @@
         "data-ok-to-go-count": question.tally.okToGoCount,
         "data-not-going-count": question.tally.notGoingCount,
         "data-responded-count": question.tally.respondedParticipantCount,
+        "data-total-active-participant-count": totalActiveParticipantCount,
         class: "gth-vote-tally",
       },
       [
@@ -873,18 +1088,76 @@
     );
   }
 
-  function renderShopVoteQuestion(question) {
+  // 2026-09-13 addition (ADR-0056 decision 9, 第4束裁定): the vote bar's own
+  // total length is fixed to the gathering's total active participant
+  // count, not however many participants have voted on this particular
+  // shop so far -- a thinly-supported shop is visible as a short filled
+  // bar rather than a bar scaled to a shrinking, per-shop denominator.
+  // Rendered-geometry only, no new required test id (this contract does
+  // not fix this bar's markup any more than it fixes scheduleQuestion's
+  // own progress-bar rendering elsewhere on this screen). Omitted entirely
+  // when totalActiveParticipantCount is not yet present on the response
+  // (this round's API work ships from a different developer in parallel).
+  function renderShopVoteBar(question, totalActiveParticipantCount) {
+    if (!question.tally || !totalActiveParticipantCount) {
+      return null;
+    }
+    function segment(count, modifierClass) {
+      var width = Math.max(0, Math.min(100, (count / totalActiveParticipantCount) * 100));
+      return el(
+        "span",
+        { class: "gth-vote-bar-seg " + modifierClass, style: "width:" + width + "%" },
+        []
+      );
+    }
+    return el("div", { class: "gth-vote-bar" }, [
+      segment(question.tally.wantToGoCount, "gth-vote-bar-seg--want"),
+      segment(question.tally.okToGoCount, "gth-vote-bar-seg--ok"),
+      segment(question.tally.notGoingCount, "gth-vote-bar-seg--not"),
+    ]);
+  }
+
+  /**
+   * @param showVoteOptions false once ParticipantView.decision is non-null
+   *   (noOperations: no gathering-shop-vote-option once finalized) -- the
+   *   map/detail fields/tally/bar are otherwise identical and remain
+   *   present (ADR-0055 decision 8: this element is not one
+   *   replacesQuestionSurfaces names).
+   * @param totalActiveParticipantCount ParticipantView.
+   *   totalActiveParticipantCount, threaded through for renderShopVoteBar.
+   */
+  function renderShopVoteQuestion(question, showVoteOptions, totalActiveParticipantCount) {
     var yourVoteValue = question.yourVote === null ? "UNANSWERED" : question.yourVote;
+    var addedAfterVotingStarted = !!question.addedAfterVotingStarted;
     var detailRow = el(
       "div",
       { class: "gth-shop-detail-row" },
       renderShopVoteDetailFields(question)
     );
-    var children = [el("span", { class: "gth-vote-name" }, [question.name]), detailRow];
-    children.push(el("div", { class: "gth-vote-options" }, voteOptionButtons(question)));
-    var tally = renderShopVoteTally(question);
+    // ADR-0056 decision 6, human ruling: "印は2つに分ける。札は『あとから
+    // 入ったか』だけ、カードの縁は『自分が答えたか』だけ。1つの印に2つの
+    // 意味を持たせない。" The badge below reads only
+    // addedAfterVotingStarted; the card's own border highlight
+    // (gth-vote-row--answered below) reads only whether this participant
+    // has answered (data-your-vote !== "UNANSWERED") -- neither derives
+    // from, or substitutes for, the other.
+    var nameRow = el("div", { class: "gth-vote-name-row" }, [
+      el("span", { class: "gth-vote-name" }, [question.name]),
+      addedAfterVotingStarted
+        ? el("span", { class: "gth-vote-added-badge" }, ["あとから入りました"])
+        : null,
+    ]);
+    var children = [nameRow, detailRow];
+    if (showVoteOptions) {
+      children.push(el("div", { class: "gth-vote-options" }, voteOptionButtons(question)));
+    }
+    var tally = renderShopVoteTally(question, totalActiveParticipantCount);
     if (tally) {
       children.push(tally);
+    }
+    var bar = renderShopVoteBar(question, totalActiveParticipantCount);
+    if (bar) {
+      children.push(bar);
     }
 
     return el(
@@ -893,13 +1166,20 @@
         "data-testid": "gathering-shop-vote-question",
         "data-shop-id": question.shopId,
         "data-your-vote": yourVoteValue,
-        class: "gth-vote-row",
+        "data-added-after-voting-started": addedAfterVotingStarted ? "true" : "false",
+        class: "gth-vote-row" + (yourVoteValue !== "UNANSWERED" ? " gth-vote-row--answered" : ""),
       },
       children
     );
   }
 
-  function renderShopVoteSection() {
+  /**
+   * @param showVoteOptions see renderShopVoteQuestion above; threaded
+   *   through unchanged. The heading text itself also varies -- "お店に
+   *   投票してください" implies an action this finalized reuse (render()'s
+   *   decision branch) must not suggest is still available.
+   */
+  function renderShopVoteSection(showVoteOptions) {
     if (!state.view.shopVoteQuestions) {
       return null;
     }
@@ -912,11 +1192,15 @@
       { "data-testid": "gathering-shop-vote-map", class: "gth-shop-map" },
       []
     );
+    var totalActiveParticipantCount = state.view.totalActiveParticipantCount;
+    var heading = showVoteOptions ? "お店に投票してください" : "お店ごとの票";
     var node = el(
       "div",
       { class: "gth-vote-section" },
-      [el("div", { class: "gth-vote-heading" }, ["お店に投票してください"]), mapContainer].concat(
-        state.view.shopVoteQuestions.map(renderShopVoteQuestion)
+      [el("div", { class: "gth-vote-heading" }, [heading]), mapContainer].concat(
+        state.view.shopVoteQuestions.map(function (question) {
+          return renderShopVoteQuestion(question, showVoteOptions, totalActiveParticipantCount);
+        })
       )
     );
     return {
@@ -929,17 +1213,27 @@
 
   /**
    * Final.dc.html B-3 -- the decision (adr/0040, extended by P5/adr/0041,
-   * simplified by adr/0050 decision 3, 2026-09-09 human decision: "あなたの
-   * 回答は見れても別に意味ないかも"). ``decision.yourShopVotes`` (the
-   * per-shop retrospective P5 added, generalized by adr/0044, extended by
-   * adr/0046) was retired -- this view now shows only this participant's own
-   * schedule response, plus the decided date/shop; it no longer reads or
-   * renders a per-shop breakdown.
+   * simplified by adr/0050 decision 3, then simplified once more by
+   * ADR-0055 decision 7, 2026-09-12: "あなたの回答は見れても別に意味ない
+   * かも" applies equally to the one remaining schedule-response line, so
+   * it too is deleted -- data-your-schedule-response no longer exists
+   * anywhere on this element). ADR-0056 decision 10 fixes what replaces it:
+   * exactly 5 things, in this order -- when, which shop, where (a map with
+   * the decided shop's pin and this participant's search origin, no
+   * connecting line, no walking-radius ring), the walking-time estimate,
+   * and a link to the shop's own page. The live shop-vote tally below this
+   * decision card is a *separate* element this function does not build
+   * (ADR-0055 decision 8: render()'s decision branch reuses
+   * renderShopVoteSection(false), unaffected by finalization).
    */
   function renderFinalizedView() {
     var decision = state.view.decision;
-    var yourScheduleResponseValue =
-      decision.yourScheduleResponse === null ? "UNANSWERED" : decision.yourScheduleResponse;
+
+    var decisionMapContainer = el(
+      "div",
+      { "data-testid": "gathering-participant-decision-map", class: "gth-final-map" },
+      []
+    );
 
     var decisionEl = el(
       "div",
@@ -947,21 +1241,26 @@
         "data-testid": "gathering-participant-decision",
         "data-confirmed-candidate-date": decision.confirmedCandidateDate,
         "data-shop-id": decision.shop.shopId,
-        "data-your-schedule-response": yourScheduleResponseValue,
+        "data-walking-time-minutes": decision.shop.walkingTimeMinutes,
         class: "gth-final",
       },
       [
         el("div", { class: "gth-final-badge" }, ["決まりました"]),
-        el("div", { class: "gth-final-when-lb" }, ["日時"]),
+        el("div", { class: "gth-final-when-lb" }, ["いつ"]),
         el("div", { class: "gth-final-when" }, [
           formatGatheringDateTime(decision.confirmedCandidateDate),
         ]),
-        el("div", { class: "gth-final-shop-lb" }, ["お店"]),
+        el("div", { class: "gth-final-shop-lb" }, ["どの店"]),
         el("div", { class: "gth-final-shop" }, [decision.shop.name]),
+        el("div", { class: "gth-final-where-lb" }, ["どこにあるか"]),
+        decisionMapContainer,
+        el("div", { class: "gth-final-walking" }, [
+          "徒歩 約" + decision.shop.walkingTimeMinutes + "分",
+        ]),
         el(
           "a",
           {
-            "data-testid": "gathering-participant-decision-shop-page-link",
+            "data-testid": "gathering-participant-decision-page-link",
             href: decision.shop.providerPageUrl,
             target: "_blank",
             rel: "noopener noreferrer",
@@ -969,85 +1268,174 @@
           },
           ["店のページを見る"]
         ),
-        el("div", { class: "gth-final-yours-lb" }, ["あなたの記録"]),
-        el("div", { class: "gth-final-yours-row" }, [
-          "この日へのあなたの回答: ",
-          el("b", {}, [
-            decision.yourScheduleResponse === null
-              ? "未回答"
-              : RESPONSE_LABELS[decision.yourScheduleResponse],
-          ]),
-        ]),
-        el("p", { class: "gth-fine" }, [
-          "締まっているので変えられません。ほかの人が何を選んだかは出していません。",
-        ]),
       ]
     );
 
-    return el("div", { class: "gth-body" }, [decisionEl]);
+    var children = [decisionEl];
+    // ADR-0055 decision 8 (2026-09-12 human ruling: "確定後も参加者は店
+    // ごとの票を見られるままにする") -- the live shop-vote tally/map/bar
+    // remain, only the three vote buttons themselves are suppressed
+    // (showVoteOptions: false, noOperations below).
+    var shopVoteSection = renderShopVoteSection(false);
+    if (shopVoteSection) {
+      children.push(shopVoteSection.node);
+    }
+
+    return {
+      node: el("div", { class: "gth-body" }, children),
+      decisionMap: {
+        container: decisionMapContainer,
+        shop: decision.shop,
+        searchOrigin: state.view.searchOrigin,
+      },
+      shopVoteSection: shopVoteSection,
+    };
   }
 
-  function renderFooter() {
-    // Answer.dc.html shows these two entry points ("あとで答える" /
-    // "結果をのぞく"). adr/0050 decision 1 (2026-09-09) assigns both a real
-    // requiredOutcome and a browserControlSurface purpose
-    // (gathering-participant-answer-later/-peek-results). **Wired up
-    // 2026-09-11**: the shared acceptance DSL's own allow-list of gathering
-    // purposes now recognizes both (tests/acceptance/dsl, confirmed present
-    // in GATHERING_ALLOWED_PURPOSES) -- the cross-role sequencing gap the
-    // previous developer round left behind is closed.
-    var answerLater = el(
-      "button",
-      {
-        type: "button",
-        "data-testid": "gathering-participant-answer-later",
-        "data-gathering-control-purpose": "gathering-participant-answer-later",
-        class: "gth-foot-btn",
-      },
-      ["あとで答える"]
-    );
-    answerLater.addEventListener("click", function () {
-      // answerLater.requiredOutcome: calls no public operation -- every
-      // answer already saved itself the moment it was submitted. This is a
-      // purely client-side acknowledgement.
-      state.answerLaterConfirmationOpen = true;
-      render();
-    });
-
-    var peekResults = el(
+  /**
+   * 結果をのぞく (peekResults). Placed at the very top of the scrollable
+   * body by render() below -- never a DOM sibling of answerLater's own row
+   * again (FR-034's own repro of the opposite arrangement).
+   */
+  function renderPeekResultsButton() {
+    var button = el(
       "button",
       {
         type: "button",
         "data-testid": "gathering-participant-peek-results",
         "data-gathering-control-purpose": "gathering-participant-peek-results",
-        class: "gth-foot-btn",
+        class: "gth-peek-btn",
       },
       ["結果をのぞく"]
     );
-    peekResults.addEventListener("click", function () {
+    button.addEventListener("click", function () {
       state.peekResultsActivated = true;
       render();
     });
-
-    var children = [answerLater, peekResults];
-    if (state.answerLaterConfirmationOpen) {
-      children.push(
-        el(
-          "p",
-          { "data-testid": "gathering-participant-answer-later-confirmation", class: "gth-fine" },
-          ["ここまでの回答は保存されています。またあとで、続きから答えられます。"]
-        )
-      );
-    }
-    return el("div", { class: "gth-foot" }, children);
+    return button;
   }
 
-  function renderFinePrint() {
-    return el("p", { class: "gth-fine" }, [
-      "幹事から届いたリンクで開いています。ログインも名前も要りません。",
-      el("br", {}, []),
-      "名前はあとからでも付けられます。答えは何度でも変えられます。",
-    ]);
+  /**
+   * あとで答える (answerLater). Placed as the very last element of the
+   * scrollable body by render() below. Activating it opens
+   * renderAnswerLaterOverlay below -- calls no public operation, since
+   * every answer already saved itself the moment it was submitted.
+   */
+  function renderAnswerLaterButton() {
+    var button = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "gathering-participant-answer-later",
+        "data-gathering-control-purpose": "gathering-participant-answer-later",
+        class: "gth-answer-later-btn",
+      },
+      ["あとで答える"]
+    );
+    button.addEventListener("click", function () {
+      state.answerLaterConfirmationOpen = true;
+      render();
+    });
+    return button;
+  }
+
+  function closeAnswerLaterConfirmation() {
+    state.answerLaterConfirmationOpen = false;
+    render();
+  }
+
+  /**
+   * gathering-participant-answer-later-confirmation (ADR-0055 decision 3,
+   * FR-034, 2026-09-12 human ruling): reproduces this participant's own
+   * already-recorded answers verbatim -- never a sentence asserting they
+   * are saved. Rendered as a fixed-position scrim+panel overlapping the
+   * rest of the screen (第2束裁定: "確認は重なる別の面"), not inserted into
+   * any existing row. Dismissed by activating the scrim itself (a plain,
+   * purposeless `<div>`, outside forbiddenFormControlCategories' scan --
+   * no new allowedPurposes entry needed).
+   */
+  function renderAnswerLaterOverlay() {
+    if (!state.answerLaterConfirmationOpen || !state.view || state.view.decision) {
+      return null;
+    }
+    var rows = [];
+    (state.view.scheduleQuestions || []).forEach(function (question) {
+      if (question.yourResponse === null) {
+        return;
+      }
+      rows.push(
+        el(
+          "div",
+          {
+            // contract 0.18.0 addendum 15: this element's own testId
+            // (previously missing -- only its data-* attributes existed,
+            // so no assertion could ever locate this row by contract-fixed
+            // identity).
+            "data-testid": "gathering-participant-answer-later-confirmation-schedule-item",
+            class: "gth-overlay-row",
+            "data-candidate-date-id": question.candidateDateId,
+            "data-your-response": question.yourResponse,
+          },
+          [
+            el("span", {}, [formatGatheringDateTime(question.startAt)]),
+            el("span", {}, [RESPONSE_LABELS[question.yourResponse]]),
+          ]
+        )
+      );
+    });
+    (state.view.shopVoteQuestions || []).forEach(function (question) {
+      if (question.yourVote === null) {
+        return;
+      }
+      rows.push(
+        el(
+          "div",
+          {
+            "data-testid": "gathering-participant-answer-later-confirmation-shop-item",
+            class: "gth-overlay-row",
+            "data-shop-id": question.shopId,
+            "data-your-vote": question.yourVote,
+          },
+          [el("span", {}, [question.name]), el("span", {}, [VOTE_LABELS[question.yourVote]])]
+        )
+      );
+    });
+    if (rows.length === 0) {
+      rows.push(el("div", { class: "gth-overlay-empty" }, ["まだ回答がありません"]));
+    }
+    var panel = el(
+      "div",
+      {
+        "data-testid": "gathering-participant-answer-later-confirmation",
+        class: "gth-overlay-panel",
+      },
+      rows
+    );
+    panel.addEventListener("click", function (event) {
+      event.stopPropagation();
+    });
+    // 2026-09-13 integration fix: the scrim was mouse-only -- a
+    // keyboard-only participant had no way to dismiss this overlay at all
+    // (tests/ui_invariants' own new coverage for this surface caught this).
+    // role="button"/tabindex make it focusable and Enter/Space-activatable
+    // without adding a new allowedPurposes entry -- [role="button"] is not
+    // one of GATHERING_FORM_CONTROL_SELECTOR's scanned categories (unlike
+    // [role="checkbox"]/[role="radio"]/etc.), the same "plain, purposeless
+    // click target" this element's own contract note already relies on for
+    // the mouse path.
+    var overlay = el(
+      "div",
+      { class: "gth-overlay", role: "button", tabindex: "0", "aria-label": "閉じる" },
+      [panel]
+    );
+    overlay.addEventListener("click", closeAnswerLaterConfirmation);
+    overlay.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        closeAnswerLaterConfirmation();
+      }
+    });
+    return overlay;
   }
 
   function renderProgress(total, answered) {
@@ -1103,50 +1491,61 @@
     }
     var children = [];
     var shopVoteMapPending = null;
+    var decisionMapPending = null;
     if (state.view) {
       if (state.view.decision) {
-        // finalizedView (adr/0042): replaces scheduleQuestion/
-        // shopVoteQuestion/progress and nameControl's open/submit entirely
-        // (replacesQuestionSurfaces/noOperations) -- built from a
-        // dedicated branch rather than gating each element individually.
+        // finalizedView (adr/0042): replaces scheduleQuestion/progress and
+        // nameControl's open/submit entirely (replacesQuestionSurfaces/
+        // noOperations) -- built from a dedicated branch rather than gating
+        // each element individually. **gathering-shop-vote-question is not
+        // one of the replaced surfaces** (ADR-0055 decision 8) --
+        // renderFinalizedView's own returned shopVoteSection carries it
+        // through unaffected by finalization.
         children.push(renderFinalizedHeader());
-        children.push(renderFinalizedView());
+        var finalized = renderFinalizedView();
+        children.push(finalized.node);
+        decisionMapPending = finalized.decisionMap;
+        if (finalized.shopVoteSection) {
+          shopVoteMapPending = finalized.shopVoteSection;
+        }
       } else {
+        // 2026-09-13 (integration round, human decision, board
+        // b2-schedule/Answer.dc.html): every candidate date's
+        // gathering-schedule-question renders simultaneously now, in
+        // ParticipantView.scheduleQuestions' own order
+        // (orderingInvariant) -- no firstUnansweredIndex split, no folded
+        // "next" panel. Each entry is classified independently (done vs
+        // open) by its own yourResponse, not by position -- this order is
+        // goingCount-descending (adr/0048), so an answered date and an
+        // unanswered date can appear in either relative order; counting
+        // "answered" must scan every entry rather than assume answered
+        // entries are a contiguous prefix.
         var questions = state.view.scheduleQuestions;
         var total = questions.length;
-        var firstUnansweredIndex = -1;
-        for (var index = 0; index < questions.length; index += 1) {
-          if (questions[index].yourResponse === null) {
-            firstUnansweredIndex = index;
-            break;
-          }
-        }
-        var answered = firstUnansweredIndex === -1 ? total : firstUnansweredIndex;
+        var answered = questions.filter(function (question) {
+          return question.yourResponse !== null;
+        }).length;
 
         children.push(renderHeader(answered, total));
 
         var body = [];
-        for (var doneIndex = 0; doneIndex < answered; doneIndex += 1) {
-          body.push(renderDoneQuestionCard(questions[doneIndex]));
-        }
-        var remainingCount;
-        if (firstUnansweredIndex === -1) {
-          remainingCount = 0;
-        } else {
-          body.push(renderOpenQuestionCard(questions[firstUnansweredIndex]));
-          remainingCount = total - firstUnansweredIndex - 1;
-        }
-        var shopVoteSection = renderShopVoteSection();
+        // 結果をのぞく sits at the very top of the scrollable body (第2束
+        // 裁定); あとで答える (pushed below) sits at the very bottom -- the
+        // two are never DOM siblings in the same row (FR-034).
+        body.push(renderPeekResultsButton());
+        questions.forEach(function (question) {
+          if (question.yourResponse !== null) {
+            body.push(renderDoneQuestionCard(question));
+          } else {
+            body.push(renderOpenQuestionCard(question));
+          }
+        });
+        var shopVoteSection = renderShopVoteSection(true);
         if (shopVoteSection) {
           body.push(shopVoteSection.node);
           shopVoteMapPending = shopVoteSection;
         }
-        var nextPanel = renderNextPanel(remainingCount, state.view.phase);
-        if (nextPanel) {
-          body.push(nextPanel);
-        }
-        body.push(renderFooter());
-        body.push(renderFinePrint());
+        body.push(renderAnswerLaterButton());
         children.push(el("main", { class: "gth-body" }, body));
         children.push(renderProgress(total, answered));
       }
@@ -1156,8 +1555,8 @@
     }
     root.appendChild(el("div", { class: "gth-app" }, children));
 
-    // The map container above must already be attached to the live DOM
-    // before Leaflet initializes it (see initializeShopVoteMap's own
+    // The map containers above must already be attached to the live DOM
+    // before Leaflet initializes them (see initializeShopVoteMap's own
     // module-docstring precedent, gathering.js's initializeOpenShopMap).
     if (shopVoteMapPending) {
       initializeShopVoteMap(
@@ -1165,6 +1564,23 @@
         shopVoteMapPending.items,
         shopVoteMapPending.searchOrigin
       );
+    }
+    if (decisionMapPending) {
+      initializeDecisionMap(
+        decisionMapPending.container,
+        decisionMapPending.shop,
+        decisionMapPending.searchOrigin
+      );
+    }
+
+    // gathering-participant-answer-later-confirmation (ADR-0055 decision 3):
+    // an overlapping surface appended as a sibling of .gth-app, not a
+    // descendant pushed into any of its rows -- its own fixed positioning
+    // (participant_answer.html's .gth-overlay) is what makes it "重なる
+    // 別の面" rather than a layout participant.
+    var answerLaterOverlay = renderAnswerLaterOverlay();
+    if (answerLaterOverlay) {
+      root.appendChild(answerLaterOverlay);
     }
   }
 

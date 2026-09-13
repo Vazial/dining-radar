@@ -405,3 +405,44 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         # adr/0049 決定8 後段: 既に選択済みのカードは5件到達後も外す操作として活性のまま
         self.steps.selected_candidate_toggle_is_enabled()
         self.steps.gathering_shortlisted_shop_ids_match_server(gathering_id, selected)
+
+    # TDR-CS-20/21 (new, 2026-09-13, ADR-0056決定4・決定7) -------------------
+
+    def test_tdr_cs_20_map_marker_reflects_gathering_shortlist_state(self) -> None:
+        """新規（2026-09-13、ADR-0056決定4、人間裁定「地図とカードの相互強調に、
+        会に入れた状態の対応も揃える」）。同じdata-candidate-refで相関する
+        カードのトグルと地図のピンが、常に同じ値を持つことを確かめる。
+
+        **修正（統合ラウンドで判明した不具合）**: 会に1件だけ入れてからその
+        1件を外そうとしていた。gathering-scheduling-api.yaml's
+        SetShortlistedShopsRequest.shopIds は minItems: 1 を定めており
+        （2026-09-03 の人間裁定 P2）、最後の1件を外す要求はサーバが400で
+        拒否し、画面は契約どおり状態を変えない（developer実測確認済み、
+        実装は正しい）。会に先に1件入れて土台を作ってから、2件目を
+        `data-candidate-ref` で追跡してトグルON/OFFすることで、外す時点で
+        常に1件が残っている状態にする。
+        """
+        self._sign_in()
+        self.steps.lunch_candidates_can_be_proposed()
+        gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会CS20")
+        self.steps.organizer_opens_this_screen_in_gathering_mode(gathering_id)
+        self.steps.organizer_adds_a_candidate_to_the_gathering()
+        candidate_ref = self.steps.organizer_toggles_a_shop_into_the_gathering_and_returns_its_ref()
+        self.steps.map_marker_gathering_shortlisted_is(candidate_ref, True)
+        self.steps.organizer_toggles_off_the_shop_by_ref(candidate_ref)
+        self.steps.map_marker_gathering_shortlisted_is(candidate_ref, False)
+        self.steps.no_location_range_or_manual_order_control_exists()
+
+    def test_tdr_cs_21_band_shows_the_limit_reached_reason_at_five(self) -> None:
+        """新規（2026-09-13、ADR-0056決定7、人間裁定「5件に達すると新たに
+        入れることはできない理由が帯から分かる」）。
+        """
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会CS21", thursday)
+        self.steps.organizer_opens_this_screen_in_gathering_mode(gathering_id)
+        self.steps.gathering_mode_band_shows(shortlisted=0, limit_reached=False)
+        for _ in range(5):
+            self.steps.organizer_adds_a_candidate_to_the_gathering()
+        self.steps.gathering_mode_band_shows(shortlisted=5, limit_reached=True)
