@@ -63,6 +63,7 @@ from __future__ import annotations
 
 import os
 import re
+from datetime import UTC, datetime, timedelta
 
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
 from django.urls import reverse
@@ -1060,6 +1061,120 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
                 for test_id in RENDER_MODE_TOUCH_TEST_IDS:
                     expect(by_test_id(self.page, test_id)).to_have_count(0)
 
+    # --- gatheringMode band / persistent primary nav (2026-09-13 integration
+    # round, friction-log.md FR-035's own recurrence: the organizer-facing
+    # gathering screens' new controls got this file's coverage extended for
+    # them (GatheringScreenInvariantTests.
+    # test_gathering_screens_persistent_primary_nav_meets_44px_and_is_
+    # keyboard_operable below); this screen's own new controls -- the
+    # gatheringMode band (candidate-search-browser-interface.yaml 1.9.0,
+    # ADR-0054 decision 4) and its own copy of the two-location persistent
+    # nav (ADR-0054 decision 1) -- never got the same extension until now.
+    # ------------------------------------------------------------------
+
+    def _create_selecting_shop_gathering_via_api(self, title: str) -> str:
+        """Raw-HTTP Given-state builder (mirrors GatheringScreenInvariantTests.
+        _seed_one_shortlisted_shop's own precedent of calling public
+        gathering-scheduling-api.yaml operations directly via
+        self.context.request rather than tests/acceptance/dsl/
+        gathering_scheduling_browser.py, which is reserved to tester per
+        ADR-0020 decision 6, the same boundary this file's own module
+        docstring states). Creates one candidate date tomorrow and
+        immediately confirms it, reaching SELECTING_SHOP -- the phase
+        gatheringMode.band requires (candidate-search-browser-interface.yaml
+        gatheringMode.band's own gatingcondition is
+        response.gatheringContext non-null, which candidate-proposals only
+        returns once a gatheringId names a gathering past SCHEDULING).
+        ``self.page`` must already be on an organizer-authenticated page
+        carrying the hidden CSRF field (the candidate screen itself, reached
+        via sign_in, satisfies this -- home.html's own
+        auth-account-menu-toggle sits behind the same hidden token
+        organizer_dashboard.html's `<div hidden>{% csrf_token %}</div>`
+        exposes).
+        """
+        token = csrf_token(self.page)
+        tomorrow = (datetime.now(UTC) + timedelta(days=3)).strftime("%Y-%m-%dT12:00:00Z")
+        create_response = self.context.request.post(
+            f"{self.dsl.base_url}/gatherings",
+            data={"title": title, "candidateDates": [{"startAt": tomorrow}]},
+            headers={"X-CSRFToken": token},
+        )
+        self.assertEqual(create_response.status, 201, create_response.text())
+        gathering = create_response.json()
+        candidate_date_id = gathering["candidateDates"][0]["id"]
+        confirm_response = self.context.request.post(
+            f"{self.dsl.base_url}/gatherings/{gathering['id']}/confirm-date",
+            data={"candidateDateId": candidate_date_id},
+            headers={"X-CSRFToken": token},
+        )
+        self.assertEqual(confirm_response.status, 200, confirm_response.text())
+        return gathering["id"]
+
+    def test_gathering_mode_band_and_persistent_nav_meet_44px_and_are_keyboard_operable(
+        self,
+    ) -> None:
+        """New controls this integration round adds to this screen that
+        friction-log.md FR-035's gate never covered: candidate-gathering-
+        mode-band (会モードの帯, this screen's sole return path back to the
+        gathering, ADR-0054 decision 4 -- see candidate-search-browser-
+        interface.yaml's gatheringMode.band.navigation) and this screen's
+        own copy of the persistent two-location nav (ADR-0054 decision 1:
+        "ランチ候補をさがす"/"ランチ会", added to web/templates/web/home.html
+        this same integration round). Neither carries
+        data-candidate-control-purpose (both are plain `<a href>` navigation
+        elements per this contract's own precedent, outside
+        allCandidateScreenFormControlsMustDeclarePurpose's scan -- see
+        gatheringEntry.entry.requirement/gatheringMode.band.navigation), so
+        neither is caught by test_e_activatable_controls_meet_44px_minimum_
+        target's purpose-based scan above; this test measures all three
+        directly instead, mirroring GatheringScreenInvariantTests.
+        test_gathering_screens_persistent_primary_nav_meets_44px_and_is_
+        keyboard_operable's identical reasoning for candidate-gathering-
+        entry on the organizer-facing screens.
+        """
+        self.dsl.reset_authentication_state()
+        self.dsl.reset_candidate_state()
+        self.dsl.enable_organizer(ORGANIZER_ACCOUNT_REF, ORGANIZER_IDENTIFIER, ORGANIZER_PASSWORD)
+        self.dsl.sign_in(ORGANIZER_IDENTIFIER, ORGANIZER_PASSWORD)
+        self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING")
+        self.dsl.open_candidate_screen()
+        gathering_id = self._create_selecting_shop_gathering_via_api("会UI不変量の確認会")
+
+        for width, height, label in CONTROL_SIZE_VIEWPORTS:
+            with self.subTest(viewport=label):
+                self.page.set_viewport_size({"width": width, "height": height})
+                self.page.goto(f"{self.dsl.base_url}/?gatheringId={gathering_id}")
+                band = by_test_id(self.page, "candidate-gathering-mode-band")
+                expect(band).to_be_visible()
+                self._assert_tabbable(band, f"candidate-gathering-mode-band at {label}")
+                band_box = band.bounding_box()
+                self.assertIsNotNone(band_box, f"band has no bounding box ({label})")
+                self.assertGreaterEqual(band_box["width"], MINIMUM_TARGET_PX, label)
+                self.assertGreaterEqual(band_box["height"], MINIMUM_TARGET_PX, label)
+
+                for test_id, label_class in (
+                    ("candidate-gathering-entry", "candidate-gathering-entry-label"),
+                    (None, "gathering-primary-nav-label"),
+                ):
+                    entry = (
+                        by_test_id(self.page, test_id)
+                        if test_id
+                        else self.page.locator(".gathering-primary-nav-link--current")
+                    )
+                    expect(entry).to_be_visible()
+                    entry_label = test_id or "gathering-primary-nav-link"
+                    self._assert_tabbable(entry, f"{entry_label} at {label}")
+                    entry_box = entry.bounding_box()
+                    self.assertIsNotNone(entry_box, f"{test_id} has no bounding box ({label})")
+                    self.assertGreaterEqual(entry_box["width"], MINIMUM_TARGET_PX, label)
+                    self.assertGreaterEqual(entry_box["height"], MINIMUM_TARGET_PX, label)
+                    label_node = entry.locator(f".{label_class}")
+                    self.assertNotEqual(
+                        (label_node.text_content() or "").strip(),
+                        "",
+                        f"{test_id or 'gathering-primary-nav-link'} label text empty ({label})",
+                    )
+
 
 # ---------------------------------------------------------------------------
 # 会の画面群 (organizerGatheringList / organizerGatheringCreate /
@@ -1293,7 +1408,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         (``gathering_create.js``'s own post-submit navigation) and returns
         its ``gatheringId``.
         """
-        self.page.goto(f"{self.base_url}/gatherings/new/")
+        self.page.goto(f"{self.dsl.base_url}/gatherings/new/")
         by_test_id(self.page, "gathering-create-name-input").fill(title)
         day_cells = self.page.locator(
             '[data-testid="gathering-create-candidate-date-day"][data-gathering-control-purpose]'
@@ -1379,7 +1494,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         self.assertGreater(len(candidates), 0, "no synthetic candidates available to shortlist")
         shop_id = candidates[0]["shopId"]
         put_response = self.context.request.put(
-            f"{self.base_url}/gatherings/{gathering_id}/shortlisted-shops",
+            f"{self.dsl.base_url}/gatherings/{gathering_id}/shortlisted-shops",
             data={"shopIds": [shop_id]},
             headers={"X-CSRFToken": token},
         )
@@ -1455,23 +1570,23 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
     def test_b_gathering_list_entry_points_are_keyboard_operable(self) -> None:
         self._sign_in_as_organizer()
         gathering_id = self._create_gathering_via_ui("キーボード到達性の確認会")
-        self.page.goto(f"{self.base_url}/gatherings/")
+        self.page.goto(f"{self.dsl.base_url}/gatherings/")
 
         list_item_open = by_test_id(self.page, "gathering-list-item-open")
         self._assert_tabbable(list_item_open, "gathering-list-item-open")
         list_item_open.press("Enter")
-        expect(self.page).to_have_url(f"{self.base_url}/gatherings/{gathering_id}/")
+        expect(self.page).to_have_url(f"{self.dsl.base_url}/gatherings/{gathering_id}/")
 
-        self.page.goto(f"{self.base_url}/gatherings/")
+        self.page.goto(f"{self.dsl.base_url}/gatherings/")
         create_open = by_test_id(self.page, "gathering-create-open")
         self._assert_tabbable(create_open, "gathering-create-open")
         create_open.press("Enter")
-        expect(self.page).to_have_url(f"{self.base_url}/gatherings/new/")
+        expect(self.page).to_have_url(f"{self.dsl.base_url}/gatherings/new/")
 
     def test_c_gathering_list_phase_is_never_shown_as_raw_enum_text(self) -> None:
         self._sign_in_as_organizer()
         self._create_gathering_via_ui("表示enumの確認会（一覧）")
-        self.page.goto(f"{self.base_url}/gatherings/")
+        self.page.goto(f"{self.dsl.base_url}/gatherings/")
         wait_for_at_least_one(self.page, "gathering-list-item")
         self._assert_no_forbidden_enum_token_is_visible_standalone_text(self.page)
 
@@ -1480,7 +1595,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         self._create_gathering_via_ui("サイズ確認会（一覧）")
         for width, height, label in GATHERING_CONTROL_SIZE_VIEWPORTS:
             self.page.set_viewport_size({"width": width, "height": height})
-            self.page.goto(f"{self.base_url}/gatherings/")
+            self.page.goto(f"{self.dsl.base_url}/gatherings/")
             wait_for_at_least_one(self.page, "gathering-list-item")
             self._assert_all_declared_gathering_controls_meet_44px(
                 self.page, f"populated list at {label}"
@@ -1492,7 +1607,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         self._reset_gathering_state()
         for width, height, label in GATHERING_CONTROL_SIZE_VIEWPORTS:
             self.page.set_viewport_size({"width": width, "height": height})
-            self.page.goto(f"{self.base_url}/gatherings/")
+            self.page.goto(f"{self.dsl.base_url}/gatherings/")
             wait_for_at_least_one(self.page, "gathering-list-empty")
             self._assert_all_declared_gathering_controls_meet_44px(
                 self.page, f"empty list at {label}"
@@ -1502,7 +1617,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
 
     def test_b_gathering_create_calendar_and_actions_are_keyboard_operable(self) -> None:
         self._sign_in_as_organizer()
-        self.page.goto(f"{self.base_url}/gatherings/new/")
+        self.page.goto(f"{self.dsl.base_url}/gatherings/new/")
 
         day_cell = self._first_enabled_day_cell(
             self.page,
@@ -1523,11 +1638,11 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         expect(self.page).to_have_url(re.compile(r"/gatherings/[0-9a-fA-F-]+/$"))
 
         # cancel, exercised on a second, fresh instance of this screen.
-        self.page.goto(f"{self.base_url}/gatherings/new/")
+        self.page.goto(f"{self.dsl.base_url}/gatherings/new/")
         cancel = by_test_id(self.page, "gathering-create-cancel")
         self._assert_tabbable(cancel, "gathering-create-cancel")
         cancel.press("Enter")
-        expect(self.page).to_have_url(f"{self.base_url}/gatherings/")
+        expect(self.page).to_have_url(f"{self.dsl.base_url}/gatherings/")
 
     # No test_c here: organizerGatheringCreate shows only a free-text name
     # and a plain date calendar -- no Gathering.phase or other API enum is
@@ -1537,7 +1652,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         self._sign_in_as_organizer()
         for width, height, label in GATHERING_CONTROL_SIZE_VIEWPORTS:
             self.page.set_viewport_size({"width": width, "height": height})
-            self.page.goto(f"{self.base_url}/gatherings/new/")
+            self.page.goto(f"{self.dsl.base_url}/gatherings/new/")
             expect(
                 self._first_enabled_day_cell(
                     self.page,
@@ -1558,7 +1673,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         い操作を足したのに検査が増えていなければ、それは...再発である").
         """
         self._sign_in_as_organizer()
-        self.page.goto(f"{self.base_url}/gatherings/new/")
+        self.page.goto(f"{self.dsl.base_url}/gatherings/new/")
 
         month_label = by_test_id(self.page, "gathering-create-candidate-date-calendar").locator(
             ".gth-cal-month"
@@ -1607,7 +1722,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         self._sign_in_as_organizer()
         for width, height, label in GATHERING_CONTROL_SIZE_VIEWPORTS:
             self.page.set_viewport_size({"width": width, "height": height})
-            self.page.goto(f"{self.base_url}/gatherings/new/")
+            self.page.goto(f"{self.dsl.base_url}/gatherings/new/")
             day_cell = self._first_enabled_day_cell(
                 self.page,
                 "gathering-create-candidate-date-day",
@@ -1644,7 +1759,9 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         # this stays correct regardless of which day of the month "today" is
         # (ADR-0054 decision 3: a single-month calendar, not the retired
         # 3-simultaneous-month one).
-        existing_response = self.context.request.get(f"{self.base_url}/gatherings/{gathering_id}")
+        existing_response = self.context.request.get(
+            f"{self.dsl.base_url}/gatherings/{gathering_id}"
+        )
         self.assertEqual(existing_response.status, 200, existing_response.text())
         excluded_isos = {
             candidate_date["startAt"][:10]
@@ -1861,9 +1978,9 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         self._sign_in_as_organizer()
         gathering_id = self._create_gathering_via_ui("常設ナビの確認会")
         urls = [
-            f"{self.base_url}/gatherings/",
-            f"{self.base_url}/gatherings/new/",
-            f"{self.base_url}/gatherings/{gathering_id}/",
+            f"{self.dsl.base_url}/gatherings/",
+            f"{self.dsl.base_url}/gatherings/new/",
+            f"{self.dsl.base_url}/gatherings/{gathering_id}/",
         ]
         for url in urls:
             with self.subTest(url=url):
@@ -1904,7 +2021,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         delete_confirm = by_test_id(self.page, "gathering-delete-confirm")
         self._assert_tabbable(delete_confirm, "gathering-delete-confirm")
         delete_confirm.press("Enter")
-        expect(self.page).to_have_url(f"{self.base_url}/gatherings/")
+        expect(self.page).to_have_url(f"{self.dsl.base_url}/gatherings/")
 
     def test_c_gathering_dashboard_phase_is_never_shown_as_raw_enum_text(self) -> None:
         self._sign_in_as_organizer()
@@ -2024,3 +2141,54 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
             self._assert_all_declared_gathering_controls_meet_44px(
                 page, f"after answer-later confirmation shown at {label}"
             )
+
+    def test_e_answer_later_confirmations_overlapping_surface_and_peek_are_keyboard_operable(
+        self,
+    ) -> None:
+        """2026-09-13 integration-round fixes, both newly covered here
+        (friction-log.md FR-035's own recurrence -- this file previously had
+        no test exercising either): (1) the answerLater confirmation's own
+        overlapping surface (``.gth-overlay``, ADR-0055 decision 3's "重なる
+        別の面") was mouse-only -- a keyboard-only participant had no way to
+        dismiss it at all before this round's fix added a
+        tabindex/role="button"/Enter-Space handler to the scrim; (2) that
+        same scrim used to sit above *every* other control at a higher
+        z-index, including 結果をのぞく (gathering-participant-peek-results,
+        a read-only, non-destructive control this round's fix deliberately
+        keeps reachable regardless of any open overlay) -- a real
+        integration defect this round found via
+        ``test_gth_answer_later_and_peek_results_are_functional`` (a
+        30-second Playwright actionability timeout, ".gth-overlay
+        intercepts pointer events"), fixed by giving peekResults a higher
+        stacking order than the scrim.
+        """
+        link_url = self._build_participant_link()
+        page = self._open_participant_view(link_url)
+        wait_for_at_least_one(page, "gathering-participant-answer-later")
+
+        by_test_id(page, "gathering-participant-answer-later").click()
+        overlay = page.locator(".gth-overlay")
+        confirmation = by_test_id(page, "gathering-participant-answer-later-confirmation")
+        expect(confirmation).to_be_visible()
+        box = confirmation.bounding_box()
+        self.assertIsNotNone(box, "answerLater confirmation has no bounding box")
+        self.assertGreater(box["width"], 0)
+        self.assertGreater(box["height"], 0)
+
+        # (2) peekResults stays reachable through the still-open overlay --
+        # a real click, not merely a tabindex check, since this is exactly
+        # the actionability failure the integration round reproduced.
+        peek = by_test_id(page, "gathering-participant-peek-results")
+        peek.click()
+        expect(by_test_id(page, "gathering-schedule-tally").first).to_be_visible()
+        # The overlay itself is unaffected by activating peek (peekResults
+        # calls no public operation and does not touch answerLater's own
+        # state) -- still open, confirming this was a real click-through fix,
+        # not an accidental dismissal.
+        expect(confirmation).to_be_visible()
+
+        # (1) the scrim itself is keyboard-tabbable and Enter closes it.
+        self._assert_tabbable(overlay, "gathering answerLater overlay scrim")
+        overlay.focus()
+        page.keyboard.press("Enter")
+        expect(confirmation).to_have_count(0)

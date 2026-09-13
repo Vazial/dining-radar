@@ -8,22 +8,53 @@
  * required (this contract's own securityObservations.participantAnswer
  * rationale: the token itself, supplied in the URL, is the sole credential).
  *
- * Human decision 2026-08-31: matches the approved screen skeleton
- * (E:\AWS\dsg-out\party\Answer.dc.html, "B｜参加者の回答") as a one-question-
- * at-a-time wizard, not the developer's earlier discretionary choice of
- * rendering every candidate date simultaneously. Per this contract's own
- * scheduleQuestion.cardinality note ("This contract does not fix whether
- * every CandidateDate renders simultaneously or progressively... It
- * requires only that whichever candidate dates are currently reachable in
- * the DOM each expose exactly one gathering-schedule-question... and that
+ * **Superseded 2026-09-13 (integration round, human decision, 第2束の板
+ * `E:\AWS\dsg-out\party\b2-schedule\Answer.dc.html`: "候補日 4つ" -- 4枚の
+ * カードを同時に描く, "4つのうち2つ答えたところ" caption)**: the paragraph
+ * below (2026-08-31, the *original* Answer.dc.html draft) chose a
+ * one-question-at-a-time wizard; the human has since ruled on a later,
+ * revised board that shows every candidate date's card simultaneously
+ * instead, and a decided design is followed even where this contract's own
+ * scheduleQuestion.cardinality note only *permits*, but does not *require*,
+ * progressive disclosure ("this contract does not fix whether every
+ * CandidateDate renders simultaneously or progressively... it requires
+ * only that whichever candidate dates are currently reachable in the DOM
+ * each expose exactly one gathering-schedule-question... and that
  * gathering-participant-progress always reflects the true total regardless
- * of how many are currently rendered"), progressive disclosure is
- * contract-conformant. "Currently reachable" here means every candidate
- * date already answered (rendered as a compact "done" card, matching
- * Answer.dc.html's .card.done) plus the first still-unanswered one
- * (rendered as the full interactive "open" card) -- candidate dates beyond
- * that are folded into the "このあと聞かれること" summary panel and are
- * not built as DOM nodes at all.
+ * of how many are currently rendered"). Every candidate date is now
+ * "currently reachable" at once -- render() below no longer computes a
+ * single firstUnansweredIndex to gate which cards exist; it builds one
+ * card per entry in ParticipantView.scheduleQuestions (its own order,
+ * unchanged), classifying each independently as done (yourResponse
+ * non-null, Answer.dc.html's `.card.done`) or open (yourResponse null,
+ * `.card` without the `done` modifier) using the same
+ * renderDoneQuestionCard/renderOpenQuestionCard functions the original
+ * wizard already defined -- neither function's own per-card shape changes,
+ * only how many of each render() now builds. The "このあと聞かれること"
+ * summary panel (renderNextPanel, folding not-yet-reachable dates into a
+ * count) is retired along with it: nothing is folded away any longer, so a
+ * panel describing what remains folded has nothing left to describe (the
+ * revised board carries no such panel either). The original paragraph
+ * below is left unedited beneath this note (P-06: a decision is replaced,
+ * not rewritten) since its own reasoning about *why* a wizard was once
+ * chosen remains historically accurate context for this file.
+ *
+ * Human decision 2026-08-31 (superseded above): matches the approved screen
+ * skeleton (E:\AWS\dsg-out\party\Answer.dc.html, "B｜参加者の回答") as a
+ * one-question-at-a-time wizard, not the developer's earlier discretionary
+ * choice of rendering every candidate date simultaneously. Per this
+ * contract's own scheduleQuestion.cardinality note ("This contract does not
+ * fix whether every CandidateDate renders simultaneously or
+ * progressively... It requires only that whichever candidate dates are
+ * currently reachable in the DOM each expose exactly one
+ * gathering-schedule-question... and that gathering-participant-progress
+ * always reflects the true total regardless of how many are currently
+ * rendered"), progressive disclosure is contract-conformant. "Currently
+ * reachable" here means every candidate date already answered (rendered as
+ * a compact "done" card, matching Answer.dc.html's .card.done) plus the
+ * first still-unanswered one (rendered as the full interactive "open"
+ * card) -- candidate dates beyond that are folded into the "このあと聞かれ
+ * ること" summary panel and are not built as DOM nodes at all.
  *
  * Design-vs-DSL judgment call (see this slice's developer report for the
  * full reasoning): Answer.dc.html's .card.done mockup omits the
@@ -909,33 +940,11 @@
     );
   }
 
-  /**
-   * "このあと聞かれること" -- a count only (Answer.dc.html shows "日程 —
-   * あと1つ", never a per-date list) for candidate dates beyond the one
-   * open card. These dates have no gathering-schedule-question element in
-   * the DOM at all until the participant reaches them (see this file's
-   * module docstring).
-   */
-  function renderNextPanel(remainingCount, phase) {
-    if (remainingCount <= 0) {
-      return null;
-    }
-    return el("div", { class: "gth-next" }, [
-      el("div", { class: "gth-next-heading" }, ["このあと聞かれること"]),
-      el("div", { class: "gth-next-row" }, [
-        el("span", {}, ["日程"]),
-        el("span", {}, ["あと " + remainingCount + "つ"]),
-      ]),
-      el("div", { class: "gth-next-row" }, [
-        el("span", {}, ["お店の投票"]),
-        el(
-          "span",
-          { class: "gth-next-muted" },
-          [phase === "SCHEDULING" ? "幹事が日を決めてから" : "開催日が決まりました"]
-        ),
-      ]),
-    ]);
-  }
+  // renderNextPanel ("このあと聞かれること", folding not-yet-reachable
+  // candidate dates into a count) is retired 2026-09-13 -- see this file's
+  // module docstring's superseding note. All candidate dates now render
+  // simultaneously, so nothing is ever folded away for this panel to
+  // summarize.
 
   /**
    * The approval-voting surface (Vote.dc.html B-2, shopVoteQuestion).
@@ -972,7 +981,19 @@
     });
   }
 
-  function renderShopVoteTally(question) {
+  /**
+   * @param totalActiveParticipantCount ParticipantView.
+   *   totalActiveParticipantCount (contract addendum 12, ADR-0056 decision
+   *   9). **Fixed 2026-09-13 (integration round)**: this attribute existed
+   *   on renderShopVoteBar's own sizing calculation already but had never
+   *   been added to this tally element itself -- the contract requires it
+   *   here (gathering-shop-vote-tally.data-total-active-participant-count),
+   *   not merely somewhere on the page. The field is required (non-nullable)
+   *   on ParticipantView as of gathering-scheduling-api.yaml v0.12.0, so
+   *   this is never omitted the way renderShopVoteBar's own now-stale
+   *   "may not exist yet" comment once allowed for.
+   */
+  function renderShopVoteTally(question, totalActiveParticipantCount) {
     // adr/0050 decision 2 (2026-09-08/09 human decision): tally is always
     // present now, regardless of whether this participant has voted on this
     // shop yet (reverses the original "answer first, then see others" rule,
@@ -988,6 +1009,7 @@
         "data-ok-to-go-count": question.tally.okToGoCount,
         "data-not-going-count": question.tally.notGoingCount,
         "data-responded-count": question.tally.respondedParticipantCount,
+        "data-total-active-participant-count": totalActiveParticipantCount,
         class: "gth-vote-tally",
       },
       [
@@ -1061,7 +1083,7 @@
     if (showVoteOptions) {
       children.push(el("div", { class: "gth-vote-options" }, voteOptionButtons(question)));
     }
-    var tally = renderShopVoteTally(question);
+    var tally = renderShopVoteTally(question, totalActiveParticipantCount);
     if (tally) {
       children.push(tally);
     }
@@ -1277,6 +1299,11 @@
         el(
           "div",
           {
+            // contract 0.18.0 addendum 15: this element's own testId
+            // (previously missing -- only its data-* attributes existed,
+            // so no assertion could ever locate this row by contract-fixed
+            // identity).
+            "data-testid": "gathering-participant-answer-later-confirmation-schedule-item",
             class: "gth-overlay-row",
             "data-candidate-date-id": question.candidateDateId,
             "data-your-response": question.yourResponse,
@@ -1296,6 +1323,7 @@
         el(
           "div",
           {
+            "data-testid": "gathering-participant-answer-later-confirmation-shop-item",
             class: "gth-overlay-row",
             "data-shop-id": question.shopId,
             "data-your-vote": question.yourVote,
@@ -1318,8 +1346,27 @@
     panel.addEventListener("click", function (event) {
       event.stopPropagation();
     });
-    var overlay = el("div", { class: "gth-overlay" }, [panel]);
+    // 2026-09-13 integration fix: the scrim was mouse-only -- a
+    // keyboard-only participant had no way to dismiss this overlay at all
+    // (tests/ui_invariants' own new coverage for this surface caught this).
+    // role="button"/tabindex make it focusable and Enter/Space-activatable
+    // without adding a new allowedPurposes entry -- [role="button"] is not
+    // one of GATHERING_FORM_CONTROL_SELECTOR's scanned categories (unlike
+    // [role="checkbox"]/[role="radio"]/etc.), the same "plain, purposeless
+    // click target" this element's own contract note already relies on for
+    // the mouse path.
+    var overlay = el(
+      "div",
+      { class: "gth-overlay", role: "button", tabindex: "0", "aria-label": "閉じる" },
+      [panel]
+    );
     overlay.addEventListener("click", closeAnswerLaterConfirmation);
+    overlay.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        closeAnswerLaterConfirmation();
+      }
+    });
     return overlay;
   }
 
@@ -1394,16 +1441,22 @@
           shopVoteMapPending = finalized.shopVoteSection;
         }
       } else {
+        // 2026-09-13 (integration round, human decision, board
+        // b2-schedule/Answer.dc.html): every candidate date's
+        // gathering-schedule-question renders simultaneously now, in
+        // ParticipantView.scheduleQuestions' own order
+        // (orderingInvariant) -- no firstUnansweredIndex split, no folded
+        // "next" panel. Each entry is classified independently (done vs
+        // open) by its own yourResponse, not by position -- this order is
+        // goingCount-descending (adr/0048), so an answered date and an
+        // unanswered date can appear in either relative order; counting
+        // "answered" must scan every entry rather than assume answered
+        // entries are a contiguous prefix.
         var questions = state.view.scheduleQuestions;
         var total = questions.length;
-        var firstUnansweredIndex = -1;
-        for (var index = 0; index < questions.length; index += 1) {
-          if (questions[index].yourResponse === null) {
-            firstUnansweredIndex = index;
-            break;
-          }
-        }
-        var answered = firstUnansweredIndex === -1 ? total : firstUnansweredIndex;
+        var answered = questions.filter(function (question) {
+          return question.yourResponse !== null;
+        }).length;
 
         children.push(renderHeader(answered, total));
 
@@ -1412,24 +1465,17 @@
         // 裁定); あとで答える (pushed below) sits at the very bottom -- the
         // two are never DOM siblings in the same row (FR-034).
         body.push(renderPeekResultsButton());
-        for (var doneIndex = 0; doneIndex < answered; doneIndex += 1) {
-          body.push(renderDoneQuestionCard(questions[doneIndex]));
-        }
-        var remainingCount;
-        if (firstUnansweredIndex === -1) {
-          remainingCount = 0;
-        } else {
-          body.push(renderOpenQuestionCard(questions[firstUnansweredIndex]));
-          remainingCount = total - firstUnansweredIndex - 1;
-        }
+        questions.forEach(function (question) {
+          if (question.yourResponse !== null) {
+            body.push(renderDoneQuestionCard(question));
+          } else {
+            body.push(renderOpenQuestionCard(question));
+          }
+        });
         var shopVoteSection = renderShopVoteSection(true);
         if (shopVoteSection) {
           body.push(shopVoteSection.node);
           shopVoteMapPending = shopVoteSection;
-        }
-        var nextPanel = renderNextPanel(remainingCount, state.view.phase);
-        if (nextPanel) {
-          body.push(nextPanel);
         }
         body.push(renderAnswerLaterButton());
         children.push(el("main", { class: "gth-body" }, body));
