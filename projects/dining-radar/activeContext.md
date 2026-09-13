@@ -271,6 +271,43 @@ ADR が要る。
 **(2) 契約6本を書き直す**。(1)(2) は段を分けること——1回の実行で契約を全文再生成させると
 FR-031（既存シナリオの消失）を再発させる。**着手前後でシナリオ件数を突き合わせること。**
 
+### 契約の書き直し（第2段）の進み具合（2026-09-13）
+
+**やり方**: architect は `Write`（全文書き出し）しか持たず、大きい契約は1回の出力上限を超える（FR-023:
+2,591行の全文書き出しが途中で打ち切られファイルが空になった。コミット前に復元）。そこで architect は
+**差分の指定**（見つける文字列と置き換える文字列の対）を `contracts/.spec/` に分割して書き、
+orchestrator が `scratchpad/apply_spec.py` で当てる（各アンカーがちょうど1回出現することを assert、
+契約が CRLF・指定が LF なので正規化）。当てたあと `scratchpad/check_contract.py` で**消えたキー・
+シナリオID**を機械的に洗い出してからコミットする。
+
+| 契約 | 版 | 状態 |
+|---|---|---|
+| `gathering-scheduling-api.yaml` | v0.10.0 → **v0.12.0** | 完了（`c480593`・`78c8f53`） |
+| `gathering-scheduling-browser-interface.yaml` | 0.11.0 → **0.14.0** | 完了（`807f03d`・`d357252`） |
+| `candidate-search-browser-interface.yaml` | 1.8.0 → **1.9.0** | 完了（`65ab294`） |
+| `gathering-scheduling.feature`・`candidate-search.feature` | — | **進行中**（新規は TDR-GTH-49〜・TDR-CS-20〜） |
+| `test-support-api.yaml` | v1.5.7 | 未着手（シナリオの Given 次第） |
+| `candidate-search-api.yaml` | v1.3.0 | 変更不要（計画4節） |
+
+**architect が計画・既存契約の誤りを実行前に見つけて止めた件（5件）**:
+`ShortlistedShop` への4フィールド追加は `adr/0044` で済んでいた／`GATHERING_NOT_IN_SCHEDULING_PHASE`
+は既存コード／参加者側の「あとから入りました」の値が API に無かった（→ v0.12.0 で
+`ParticipantShopVoteOption.addedAfterVotingStarted` を新設して解消）／会モードのカードの同じ印は
+`candidate-search-api.yaml` の `Candidate` に値が無く、計画4節「このAPIは変更不要」と矛盾（**保留**）／
+「モバイル幅の display:none 規則を撤回」は契約上の規則ではなく実装の CSS の話だった（Must の新設として処理）。
+
+**契約に Must を置かず、実装で裁定に従うもの**（architect の判断: この契約は文言・幾何を実装裁量に
+残す既存の流儀なので、Must にするなら別の ADR が要る。**裁定そのものは有効**）:
+- 会モードの帯の日付は「9/17（木）」、曜日を残す（第3束）
+- スマホでは会モードの帯を画面上部に貼り付ける（第3束）
+
+**保留（次のラウンドへ）**:
+- 会モードの候補画面のカードに「あとから入りました」の印を出すか——`Candidate` に値が無い。
+  出すなら `candidate-search-api.yaml` の改訂が要る。幹事の会の画面と参加者の投票画面には出る。
+- 「ランチ候補をさがす」側の常設ナビに独立した testId が要るか（契約上は「ランチ会」側だけが定義済み）。
+- `totalActiveParticipantCount` を日程回答の画面でも見せるか（ADR-0056 未決4。契約は暫定で常に返す）。
+- 幹事の個人回答表に店の投票も含めるか（ADR-0056 未決1。契約は日程のみ）。
+
 ### 待っている間にやること
 
 - **`tests/ui_invariants` を会の画面群へ広げる**（FR-035）。9番の潰れたボタンは、幅と高さを
