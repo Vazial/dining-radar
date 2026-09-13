@@ -1,4 +1,4 @@
-"""JS-capable browser/API L4 runner for TDR-GTH-01 through TDR-GTH-55.
+"""JS-capable browser/API L4 runner for TDR-GTH-01 through TDR-GTH-56.
 
 gathering-scheduling-browser-interface.yaml's own profiles.localAcceptance
 marks only TDR-GTH-13 (token guessing is API-level fuzzing, not a browser
@@ -37,11 +37,23 @@ table (49), removing a candidate date and the confirmed-date rejection
 boundary (50/51), the post-finalize decision map (52), the finalize
 confirmation dialog (53), and the corrected zero-vote/tie current-leader
 rules (54/55). TDR-GTH-20/34/38's own bodies were rewritten this round too
-(see each test's own docstring for what changed and why). TDR-GTH-09 is
-unchanged by this round -- the launching brief's own note that it might
-conflict with a new observation surface does not hold against this
-contract version; participantAnswer.scheduleQuestion still requires
-data-open-shop-count unconditionally (see this slice's tester report).
+(see each test's own docstring for what changed and why).
+
+**Corrected (2026-09-13, gathering-scheduling-browser-interface.yaml 0.18.0
+追補15, second integration round)**: the note this docstring previously
+carried here -- "TDR-GTH-09 is unchanged... participantAnswer.
+scheduleQuestion still requires data-open-shop-count unconditionally" -- was
+itself wrong against this contract revision. gathering-scheduling-api.yaml
+removed ParticipantScheduleQuestion.openShopCount at v0.11.0;
+gathering-scheduling.feature's own TDR-GTH-09 body was rewritten the same
+round (ADR-0055 decision 1) to a negative assertion ("その候補日に開いている
+店の件数は示されない"), and 0.18.0 closed the contradiction by requiring
+this element carry no data-open-shop-count attribute at all. See
+test_tdr_gth_09_participant_sees_no_open_shop_count_or_shop_details below.
+
+TDR-GTH-56 (ADR-0056 decision 9, gathering-scheduling-browser-interface.yaml
+0.15.0 追補12) adds the shop-vote bar's total-active-participant-count
+denominator, sized against the whole group rather than respondents so far.
 """
 
 from __future__ import annotations
@@ -247,7 +259,15 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.no_candidate_date_is_confirmed()
         self.steps.screen_has_no_forbidden_controls_or_disclosures()
 
-    def test_tdr_gth_09_participant_sees_only_the_open_shop_count(self) -> None:
+    def test_tdr_gth_09_participant_sees_no_open_shop_count_or_shop_details(self) -> None:
+        """**書き換え（2026-09-13、ADR-0055決定1、人間裁定「参加者の画面から
+        『この日に開いている店N件』を消す」、gathering-scheduling.feature
+        TDR-GTH-09本文の書き換えに追随）**: 旧シナリオは件数が「示される」
+        ことを検査していたが、gathering-scheduling-api.yamlがv0.11.0で
+        ParticipantScheduleQuestion.openShopCountを削除し、契約0.18.0
+        追補15がdata-open-shop-count属性そのものの不在を要求するよう
+        是正した。件数も店の情報も「無い」ことを検査する。
+        """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
         wednesday = next_weekday_iso(2)
@@ -255,9 +275,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         link = self.steps.a_participant_link_is_issued()
         self.steps.participant_opens_the_link(link)
         candidate_date_id = self.dsl.candidate_date_id_at(0)
-        self.steps.schedule_question_shows_open_shop_count(
-            candidate_date_id, OPEN_SHOP_COUNT_BY_WEEKDAY[2]
-        )
+        self.steps.schedule_question_has_no_open_shop_count(candidate_date_id)
         self.steps.schedule_question_shows_no_shop_details(candidate_date_id)
         self.steps.screen_has_no_forbidden_controls_or_disclosures()
         self.steps.participant_token_is_not_persisted(link)
@@ -1389,21 +1407,28 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.screen_has_no_forbidden_controls_or_disclosures()
 
     def test_tdr_gth_51_confirmed_candidate_date_cannot_be_removed(self) -> None:
-        """新規（2026-09-13、ADR-0056決定2）。removeCandidateDate.presenceRule
-        already makes this control absent for the confirmed candidate date
-        (and entirely, once phase leaves SCHEDULING), so this bypasses that
-        absence the same way TDR-GTH-20/47 already bypass an unreachable UI
-        control to prove the server itself enforces the rule --
-        CANDIDATE_DATE_CONFIRMED is gathering-scheduling-api.yaml's own
-        named response for exactly this input shape (removeCandidateDate
-        targeting the one already-confirmed candidate date).
+        """新規（2026-09-13、ADR-0056決定2）。**是正済み（2026-09-13、
+        gathering-scheduling-api.yaml v0.13.0 追補10 / gathering-scheduling-
+        browser-interface.yaml 0.17.0 追補14, commit 4c99644）**: この
+        シナリオが元々期待していたCANDIDATE_DATE_CONFIRMEDは、確定した候補日を
+        狙ったremoveCandidateDateが常に先にGATHERING_NOT_IN_SCHEDULING_PHASE
+        で拒否される（確定は同じ操作でphaseをSCHEDULINGから進める）ため、公開
+        APIから到達不能として廃止されたコードだった。GATHERING_NOT_IN_
+        SCHEDULING_PHASEへ検査を差し替え、あわせて観測面0.18.0の
+        removeCandidateDate.presenceRule（確定後の局面では削除の操作そのもの
+        が不在）もダッシュボードUI側で検査する -- 元のAPI直叩き検査
+        （TDR-GTH-20/47と同じ、不到達なUI制御を迂回してサーバ自身の強制を
+        証明する技法）はGATHERING_NOT_IN_SCHEDULING_PHASEの検証としてそのまま
+        残す。
         """
         self._sign_in()
         confirmed_id = self.steps.organizer_has_a_selecting_shop_gathering(
             "会51", [days_from_now_iso(3)]
         )
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.remove_candidate_date_control_is_absent(confirmed_id)
         response = self.steps.organizer_attempts_to_remove_candidate_date_via_api(confirmed_id)
-        self.steps.remove_candidate_date_is_rejected_because_confirmed(response)
+        self.steps.remove_candidate_date_is_rejected_because_not_in_scheduling_phase(response)
 
     def test_tdr_gth_52_participant_sees_the_decided_shops_location_after_finalize(self) -> None:
         """新規（2026-09-13、ADR-0056決定10）。API変更は不要（LiveProjectedShop
@@ -1492,3 +1517,28 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         )
         self.steps.organizer_opens_the_dashboard()
         self.steps.shortlisted_shop_current_leaders_are({shop_tied_a, shop_tied_b})
+
+    def test_tdr_gth_56_shop_vote_bar_is_sized_against_total_active_participants(
+        self,
+    ) -> None:
+        """新規（2026-09-13、gathering-scheduling-browser-interface.yaml
+        0.15.0 追補12、ADR-0056決定9、人間裁定「票の帯は全員の人数で固定
+        する」）。「発行され取り消されていない参加者リンクの本数」(n) を
+        「発行した本数」と食い違わせるため、3本発行したうち1本を未回答の
+        まま取り消す -- data-total-active-participant-countがn=2（3では
+        ない）に一致し、その店にまだ票が集まっていなくても値が変わらない
+        ことを確かめる。
+        """
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会56", [thursday])
+        shop_a = self.steps.open_shop_ids_for_the_confirmed_date()[0]
+        self.steps.organizer_shortlists_shops_via_api([shop_a])
+        link_a = self.steps.a_participant_link_is_issued()
+        self.steps.a_participant_link_is_issued()
+        self.steps.a_participant_link_is_issued()
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.organizer_revokes_the_link_at(2)
+        self.steps.participant_opens_the_link(link_a)
+        self.steps.shop_vote_tally_total_active_participant_count_is(shop_a, 2)

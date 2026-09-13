@@ -312,8 +312,8 @@ class GatheringSchedulingSteps:
     def no_candidate_date_is_confirmed(self) -> None:
         self.dsl.assert_no_candidate_date_confirmed()
 
-    def schedule_question_shows_open_shop_count(self, candidate_date_id: str, count: int) -> None:
-        self.dsl.assert_schedule_question_open_shop_count(candidate_date_id, count)
+    def schedule_question_has_no_open_shop_count(self, candidate_date_id: str) -> None:
+        self.dsl.assert_schedule_question_has_no_open_shop_count(candidate_date_id)
 
     def schedule_question_shows_no_shop_details(self, candidate_date_id: str) -> None:
         self.dsl.assert_schedule_question_no_shop_details(candidate_date_id)
@@ -535,6 +535,11 @@ class GatheringSchedulingSteps:
     def shop_vote_question_list_shows_map_and_shop_details(self, link: dict[str, str]) -> None:
         self.dsl.assert_shop_vote_question_list_shows_map_and_shop_details(link)
 
+    def shop_vote_tally_total_active_participant_count_is(
+        self, shop_id: str, expected: int
+    ) -> None:
+        self.dsl.assert_shop_vote_tally_total_active_participant_count(shop_id, expected)
+
     def shop_vote_map_shows_search_origin_marker(self) -> None:
         self.dsl.assert_shop_vote_map_shows_search_origin_marker()
 
@@ -651,8 +656,15 @@ class GatheringSchedulingSteps:
     def organizer_attempts_to_remove_candidate_date_via_api(self, candidate_date_id: str) -> object:
         return self.dsl.attempt_remove_candidate_date_via_api(candidate_date_id)
 
-    def remove_candidate_date_is_rejected_because_confirmed(self, response: object) -> None:
-        self.dsl.assert_remove_candidate_date_rejected_because_confirmed(response)  # type: ignore[arg-type]
+    def remove_candidate_date_control_is_absent(self, candidate_date_id: str) -> None:
+        self.dsl.assert_remove_candidate_date_control_absent(candidate_date_id)
+
+    def remove_candidate_date_is_rejected_because_not_in_scheduling_phase(
+        self, response: object
+    ) -> None:
+        self.dsl.assert_remove_candidate_date_rejected_because_not_in_scheduling_phase(
+            response  # type: ignore[arg-type]
+        )
 
     # participantLinkList.issuanceClosed (ADR-0056 decision 11) -------------
 
