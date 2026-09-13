@@ -362,6 +362,15 @@ GATHERING_PHASE_INDICATOR = "gathering-phase-indicator"
 # needs this to know, per confirmed weekday, exactly how many distinct
 # shopIds a fully-converged gatheringMode population must contain.
 OPEN_SHOP_COUNT_BY_WEEKDAY = {0: 5, 1: 5, 2: 4, 3: 6, 4: 6, 5: 6, 6: 5}
+# given_a_gathering_with_exactly_one_shortlisted_shop's own fixed weekday
+# (Wednesday, independent reviewer Major fix -- see that method's docstring):
+# strictly under the 5-item display cap, so every proposeCandidates call
+# against that Given's gathering deterministically returns this same
+# complete population with nothing excluded by sampling.
+# assert_only_shortlisted_toggle_is_disabled_with_last_shop_reason below
+# waits for exactly this many cards (a contract-guaranteed final state,
+# FR-039) before counting them individually.
+LAST_SHOP_GIVEN_OPEN_SHOP_COUNT = OPEN_SHOP_COUNT_BY_WEEKDAY[2]
 # Reviewer audit Major#1: upper bound on assert_gathering_mode_candidates_
 # are_within_open_shop_population's own search-again convergence loop --
 # GATHERING_OPEN_SHOP_WEEKDAY_MATCH's fixed 6-shop synthetic population
@@ -653,12 +662,44 @@ class CandidateSearchBrowserDsl:
         screen's own cardToggle, since that toggle is the Then's own subject,
         not something the Given should have already exercised.
 
+        **Fixed (independent reviewer, Major)**: this method's own
+        proposeCandidates call (to learn a shopId to shortlist) and the
+        *separate* proposeCandidates call open_gathering_mode_from_dashboard
+        below triggers when it later navigates to this screen are two
+        independent, non-deterministic samples (candidate-search-api.yaml's
+        own weighted-random sampling; nothing in that contract guarantees an
+        already-shortlisted shopId is prioritized into a later sample). When
+        the confirmed date's own open-shop population exceeds
+        candidate-search-api.yaml's 5-item display cap (Thursday/Friday/
+        Saturday, OPEN_SHOP_COUNT_BY_WEEKDAY), the shop shortlisted here can
+        be entirely absent from the second call's rendered cards, so
+        assert_only_shortlisted_toggle_is_disabled_with_last_shop_reason's
+        own `to_have_count(1)` wait times out waiting for a shortlisted
+        toggle that was never rendered (reproduced empirically forcing a
+        Thursday date, see this slice's own fault-injection report). This is
+        the exact class of bug fetch_confirmed_date_open_shop_ids_with_a_
+        spare's docstring (gathering_scheduling_browser.py) already
+        documents and TDR-CS-18's own Monday pin already avoids by choosing
+        a weekday whose population does not exceed the cap in the first
+        place -- **pin Wednesday** (OPEN_SHOP_COUNT_BY_WEEKDAY[2] == 4,
+        strictly under the 5-item cap) when the caller does not name a
+        specific date, so every proposeCandidates call against this
+        gathering deterministically returns the same complete 4-shop
+        population with nothing excluded by sampling; the shortlisted shop
+        is therefore guaranteed to render on every subsequent page load.
+        4 open shops with exactly 1 shortlisted still leaves 3 not-yet-
+        shortlisted candidates on screen, so FR-038's own discriminating-
+        Given requirement (unshortlisted candidates must also be present)
+        still holds.
+
         The shop shortlisted is read from this gathering's own
         proposeCandidates response (gatheringId-narrowed, the same
         GATHERING_OPEN_SHOP_WEEKDAY_MATCH population TDR-CS-17..21 already
         share) rather than any other gathering's, so it is guaranteed to be
         one of *this* screen's own rendered candidates.
         """
+        if candidate_date_iso is None:
+            candidate_date_iso = next_weekday_iso(2)  # Wednesday: 4 open shops, under the cap
         gathering_id = self.given_a_selecting_shop_gathering(title, candidate_date_iso)
         proposal_response = self._gathering_api(
             "POST", "/candidate-proposals", {"gatheringId": gathering_id}, csrf=True
@@ -873,22 +914,33 @@ class CandidateSearchBrowserDsl:
         toggle stays enabled with disabledReason absent and no notice.
 
         **FR-038 discriminating Given**: given_a_gathering_with_exactly_one_
-        shortlisted_shop's own population (GATHERING_OPEN_SHOP_WEEKDAY_MATCH)
-        always renders more than one candidate, so this screen also shows
-        not-yet-shortlisted cards alongside the one shortlisted card this
-        checks -- a defect that disables every toggle, or attaches
-        lastShopNotice to every card, fails the negative checks on those
-        other cards below instead of passing unnoticed. The initial
-        `to_have_count(1)` wait (rather than an immediate `.count()`) is
-        this method's own settle point before any card is indexed, since
-        Locator.count() itself does not auto-wait (FR-039).
+        shortlisted_shop's own population (GATHERING_OPEN_SHOP_WEEKDAY_MATCH,
+        pinned to Wednesday's 4 open shops) always renders more than one
+        candidate, so this screen also shows not-yet-shortlisted cards
+        alongside the one shortlisted card this checks -- a defect that
+        disables every toggle, or attaches lastShopNotice to every card,
+        fails the negative checks on those other cards below instead of
+        passing unnoticed.
+
+        **Fixed (independent reviewer, Minor 1)**: `wait_for_at_least_one`
+        only waits for its *first* matching element to attach (its own
+        docstring), so calling `.count()` on `cards` right after it could
+        read a render still in flight if this screen ever rendered its
+        cards progressively rather than in one pass. Waiting for the full,
+        contract-guaranteed final count first (LAST_SHOP_GIVEN_OPEN_SHOP_
+        COUNT -- the Given's own pinned Wednesday population size, now
+        deterministic after the Major fix above) is this method's own
+        settle point before any card is indexed at all, rather than relying
+        on `to_have_count(1)` (which only waits for the *toggle* subset) to
+        have incidentally also settled the full card list (FR-039).
         """
         shortlisted_toggles = self.page.locator(
             f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]'
             f'[{CANDIDATE_GATHERING_SHORTLISTED_ATTR}="true"]'
         )
         expect(shortlisted_toggles).to_have_count(1)
-        cards = wait_for_at_least_one(self.page, CARD)
+        cards = self.page.locator(f'[data-testid="{CARD}"]')
+        expect(cards).to_have_count(LAST_SHOP_GIVEN_OPEN_SHOP_COUNT)
         card_count = cards.count()
         self.assertions.assertGreaterEqual(
             card_count, 2, "Given must also render at least one unshortlisted candidate"
