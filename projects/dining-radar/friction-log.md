@@ -1636,7 +1636,7 @@ principles: [P-04]
 ```yaml
 id: FR-040
 date: 2026-09-13
-found_at: reviewer
+found_at: AI
 slice: 残り1件の店のトグル（ADR-0057、TDR-CS-22）
 agents: [tester, reviewer]
 cause_category: 退役させた検査の書き方が次の書き手に伝わらない
