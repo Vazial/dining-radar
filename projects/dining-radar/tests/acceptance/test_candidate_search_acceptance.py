@@ -427,15 +427,34 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会CS20")
         self.steps.organizer_opens_this_screen_in_gathering_mode(gathering_id)
         self.steps.organizer_adds_a_candidate_to_the_gathering()
+        self.steps.gathering_mode_band_shows(shortlisted=1)
         candidate_ref = self.steps.organizer_toggles_a_shop_into_the_gathering_and_returns_its_ref()
+        self.steps.gathering_mode_band_shows(shortlisted=2)
         self.steps.map_marker_gathering_shortlisted_is(candidate_ref, True)
         self.steps.organizer_toggles_off_the_shop_by_ref(candidate_ref)
+        # ADR-0057 (2026-09-13 tester task): removal must actually succeed
+        # and be observed, not merely leave the toggle/marker attributes
+        # looking flipped -- the shortlisted count itself must go from 2
+        # back to 1 (the Given's own remaining shop), read from this
+        # screen's own band attribute right after toggle_off_the_shop_by_
+        # ref's own to_have_attribute wait already settled the DOM (FR-039).
+        self.steps.gathering_mode_band_shows(shortlisted=1)
         self.steps.map_marker_gathering_shortlisted_is(candidate_ref, False)
         self.steps.no_location_range_or_manual_order_control_exists()
 
     def test_tdr_cs_21_band_shows_the_limit_reached_reason_at_five(self) -> None:
         """新規（2026-09-13、ADR-0056決定7、人間裁定「5件に達すると新たに
         入れることはできない理由が帯から分かる」）。
+
+        **Extended (2026-09-13, ADR-0057 tester task)**: rather than adding a
+        new scenario, this also asserts that the per-card disabledReason
+        (ADR-0057 decision 2) reports "limit-reached" -- distinct from
+        TDR-CS-22's own "last-shop" value -- at this same 5-shop cap, and
+        that TDR-CS-22's own lastShopNotice does not leak into this
+        different disabled case. Reuses TDR-CS-19's own search-again
+        technique (this confirmed Thursday's population has 6 open shops
+        against the 5-item display cap) to surface a not-yet-shortlisted,
+        disabled 6th card to check the reason attribute against.
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
@@ -446,3 +465,32 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         for _ in range(5):
             self.steps.organizer_adds_a_candidate_to_the_gathering()
         self.steps.gathering_mode_band_shows(shortlisted=5, limit_reached=True)
+        self.steps.organizer_searches_again_on_shop_selection_entry()
+        self.steps.unselected_candidate_toggle_is_disabled()
+        self.steps.unselected_candidate_toggle_disabled_reason_is_limit_reached()
+
+    # TDR-CS-22 (new, 2026-09-13, ADR-0057, human ruling "押せない見た目に
+    # して理由を出す") -------------------------------------------------------
+
+    def test_tdr_cs_22_last_shortlisted_shop_toggle_is_disabled_with_a_reason(self) -> None:
+        """会に入れた店がちょうど1件のときは、その店を外すトグルは押せず
+        理由が添えられる。もう1件を会に入れると、両方のトグルが押せる見た目
+        に戻り理由は消える。
+
+        The Given (given_a_gathering_with_exactly_one_shortlisted_shop) uses
+        GATHERING_OPEN_SHOP_WEEKDAY_MATCH's default (unpinned) weekday, whose
+        every weekday renders at least 4 open shops (OPEN_SHOP_COUNT_BY_
+        WEEKDAY) -- always more than the 1 shortlisted here, so this
+        screen's own not-yet-shortlisted cards are present alongside the one
+        shortlisted card (FR-038, see this scenario's own Then-step
+        docstring for what that discriminates against).
+        """
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        gathering_id = self.steps.organizer_has_a_gathering_with_exactly_one_shortlisted_shop(
+            "会CS22"
+        )
+        self.steps.organizer_opens_this_screen_in_gathering_mode(gathering_id)
+        self.steps.only_shortlisted_toggle_is_disabled_with_last_shop_reason()
+        self.steps.organizer_adds_a_candidate_to_the_gathering()
+        self.steps.both_shortlisted_toggles_are_enabled_and_last_shop_notice_is_gone()

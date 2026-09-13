@@ -1277,36 +1277,46 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         correlation (its own contract note), so an exact-id-set assertion
         cannot be made here at all -- the "その店は会の候補として記録される"/
         "外れる" outcomes this scenario checks are already fully observed
-        in-place, per-shop, by organizer_selects_first_n_candidates_into_
-        gathering's and organizer_toggles_off_the_first_shortlisted_
-        candidate's own inline data-gathering-shortlisted assertions on the
-        one card each clicks, combined with the shortlisted-count band below
-        ruling out any other card having silently changed too.
+        in-place, per-shop, by this test's own ref-tracked toggle-on/off
+        assertions on the one card added and removed, combined with the
+        shortlisted-count band below ruling out any other card having
+        silently changed too.
 
-        **Fixed (2, found while fixing (1))**: selecting only 1 shop before
-        toggling it back off made the WHEN step attempt to empty the
-        shortlist entirely -- gathering-scheduling-api.yaml's
-        SetShortlistedShopsRequest.shopIds carries `minItems: 1` (confirmed
-        empirically: the client's own naive "current list minus this one"
-        computation sent `shopIds: []` and the server correctly rejected it
-        with 400 INVALID_SHOP_SELECTION, leaving the toggle's own attribute
-        unchanged -- reproduced before this fix). This scenario's own
-        assertions are about the one specific shop being toggled ("その店は
-        …記録される"/"外れる"), not about the shortlist becoming empty
-        overall, so selecting 2 before toggling one back off (leaving 1,
-        never 0) tests the identical business behavior without colliding
-        with this orthogonal Must.
+        **Rewritten (2026-09-13, ADR-0057)**: the .feature Given now reads
+        "すでに別の1件を会に入れている" -- removing the scenario's only
+        shortlisted shop would collide with gathering-scheduling-api.yaml's
+        SetShortlistedShopsRequest.shopIds `minItems: 1` (P2, adr/0041) and,
+        since ADR-0057, would also disable that shop's own toggle outright
+        (gatheringMode.cardToggle.disabledState case (2)). This Given is now
+        built *before* opening the screen at all -- open_shop_ids_for_the_
+        confirmed_date/organizer_shortlists_shops_via_api (both pre-existing
+        Given-state builders, adr/0037 decision 1's public-API path, already
+        used elsewhere for TDR-GTH-26/27/31/32) shortlist exactly 1 shop via
+        setShortlistedShops directly, so the toggle click this scenario's own
+        When drives is never the one used to build the Given. The When then
+        adds a *second* shop (toggle_one_not_yet_shortlisted_candidate_card_
+        and_return_ref, which must search for a not-yet-shortlisted card
+        rather than assume index 0, since the Given's own shop may render
+        first) and removes that same shop by its own data-candidate-ref
+        (toggle_off_candidate_card_by_ref) -- never the Given's shop, and
+        never emptying the shortlist. Each of the four gathering_mode_band_
+        shows calls below observes the shortlisted count transition
+        (1 -> 2 -> 1) via this screen's own band attribute, which the DSL's
+        own to_have_attribute waits already ensure reflects the just-
+        completed setShortlistedShops response before being read (FR-039).
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
         thursday = next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会44", [thursday])
+        already_shortlisted_shop_id = self.steps.open_shop_ids_for_the_confirmed_date()[0]
+        self.steps.organizer_shortlists_shops_via_api([already_shortlisted_shop_id])
         self.steps.organizer_opens_the_dashboard()
         self.steps.organizer_opens_shop_selection_entry()
-        self.steps.gathering_mode_band_shows(shortlisted=0)
-        self.steps.organizer_selects_first_n_candidates_into_gathering(2)
+        self.steps.gathering_mode_band_shows(shortlisted=1)
+        candidate_ref = self.steps.organizer_toggles_a_shop_into_the_gathering_and_returns_its_ref()
         self.steps.gathering_mode_band_shows(shortlisted=2)
-        self.steps.organizer_toggles_off_the_first_shortlisted_candidate()
+        self.steps.organizer_toggles_off_the_shop_by_ref(candidate_ref)
         self.steps.gathering_mode_band_shows(shortlisted=1)
 
     def test_tdr_gth_45_at_most_five_shops_can_be_in_the_gathering(self) -> None:

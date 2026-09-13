@@ -641,8 +641,11 @@ class GatheringSchedulingSteps:
             shortlisted=shortlisted, max_shortlisted=max_shortlisted
         )
 
-    def organizer_toggles_off_the_first_shortlisted_candidate(self) -> None:
-        self.dsl.toggle_off_the_first_shortlisted_candidate_card()
+    def organizer_toggles_a_shop_into_the_gathering_and_returns_its_ref(self) -> str:
+        return self.dsl.toggle_one_not_yet_shortlisted_candidate_card_and_return_ref()
+
+    def organizer_toggles_off_the_shop_by_ref(self, candidate_ref: str) -> None:
+        self.dsl.toggle_off_candidate_card_by_ref(candidate_ref)
 
     def organizer_searches_again_on_shop_selection_entry(self) -> None:
         self.dsl.search_again_on_shop_selection_entry()

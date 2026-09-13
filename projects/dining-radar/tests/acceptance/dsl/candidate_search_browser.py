@@ -342,6 +342,14 @@ GATHERING_MODE_MAX_SHORTLISTED_ATTR = "data-gathering-max-shortlisted"
 GATHERING_MODE_LIMIT_REACHED_ATTR = "data-shortlist-limit-reached"
 CANDIDATE_CARD_GATHERING_TOGGLE = "candidate-card-gathering-toggle"
 CANDIDATE_GATHERING_SHORTLISTED_ATTR = "data-gathering-shortlisted"
+# gatheringMode.cardToggle.disabledReason (ADR-0057 decision 2, TDR-CS-22):
+# present with exactly one of "limit-reached"/"last-shop" while the toggle
+# is disabled, absent (the attribute itself) while it is enabled.
+GATHERING_TOGGLE_DISABLED_REASON_ATTR = "data-gathering-toggle-disabled-reason"
+GATHERING_TOGGLE_DISABLED_REASON_LIMIT_REACHED = "limit-reached"
+GATHERING_TOGGLE_DISABLED_REASON_LAST_SHOP = "last-shop"
+# gatheringMode.cardToggle.lastShopNotice (ADR-0057 decision 3, TDR-CS-22).
+CANDIDATE_CARD_GATHERING_LAST_SHOP_NOTICE = "candidate-card-gathering-last-shop-notice"
 GATHERING_SHORTLIST_OPEN = "gathering-shortlist-open"
 GATHERING_PHASE_INDICATOR = "gathering-phase-indicator"
 # Duplicated from gathering_scheduling_browser.py's own OPEN_SHOP_COUNT_BY_
@@ -632,6 +640,44 @@ class CandidateSearchBrowserDsl:
         self.assertions.assertEqual(confirm_response.status, 200, confirm_response.body)
         return gathering["id"]
 
+    def given_a_gathering_with_exactly_one_shortlisted_shop(
+        self, title: str, candidate_date_iso: str | None = None
+    ) -> str:
+        """Given-state builder for TDR-CS-22's own Given ("幹事が会から店を
+        選ぶためにこの画面を開いており（会モード）、会に入れた店がちょうど
+        1件である", ADR-0057). Builds on given_a_selecting_shop_gathering
+        above, then shortlists exactly one shop through gathering-scheduling-
+        api.yaml's own public setShortlistedShops (adr/0037 decision 1's
+        Given-state path, the same technique test-support-api.yaml's
+        2026-09-13 追補10 names for this scenario) -- never through this
+        screen's own cardToggle, since that toggle is the Then's own subject,
+        not something the Given should have already exercised.
+
+        The shop shortlisted is read from this gathering's own
+        proposeCandidates response (gatheringId-narrowed, the same
+        GATHERING_OPEN_SHOP_WEEKDAY_MATCH population TDR-CS-17..21 already
+        share) rather than any other gathering's, so it is guaranteed to be
+        one of *this* screen's own rendered candidates.
+        """
+        gathering_id = self.given_a_selecting_shop_gathering(title, candidate_date_iso)
+        proposal_response = self._gathering_api(
+            "POST", "/candidate-proposals", {"gatheringId": gathering_id}, csrf=True
+        )
+        self.assertions.assertEqual(proposal_response.status, 200, proposal_response.body)
+        candidates = proposal_response.payload["candidates"]
+        self.assertions.assertTrue(
+            candidates, "gathering-mode proposal returned no candidates to shortlist"
+        )
+        shop_id_to_shortlist = candidates[0]["shopId"]
+        shortlist_response = self._gathering_api(
+            "PUT",
+            f"/gatherings/{gathering_id}/shortlisted-shops",
+            {"shopIds": [shop_id_to_shortlist]},
+            csrf=True,
+        )
+        self.assertions.assertEqual(shortlist_response.status, 200, shortlist_response.body)
+        return gathering_id
+
     def open_gathering_mode_from_dashboard(self, gathering_id: str) -> None:
         """Navigates to the organizer dashboard for ``gathering_id`` and
         activates shopSelectionEntry.open (gathering-scheduling-browser-
@@ -782,6 +828,28 @@ class CandidateSearchBrowserDsl:
         ).first
         expect(toggle).to_be_disabled()
 
+    def assert_unselected_candidate_toggle_disabled_reason_is_limit_reached(self) -> None:
+        """gatheringMode.cardToggle.disabledReason (ADR-0057 decision 2,
+        extending TDR-CS-21 rather than adding a new scenario, per this
+        round's own instruction): the 5-shop-cap disabled case
+        (disabledState case (1)) must report "limit-reached", the value
+        distinct from the last-shop case (TDR-CS-22) that shares the same
+        disabled boolean but a different cause. lastShopNotice (TDR-CS-22's
+        own card-level element for the *other* disabled case) must not leak
+        into this one.
+        """
+        toggle = self.page.locator(
+            f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]'
+            f'[{CANDIDATE_GATHERING_SHORTLISTED_ATTR}="false"]'
+        ).first
+        expect(toggle).to_be_disabled()
+        expect(toggle).to_have_attribute(
+            GATHERING_TOGGLE_DISABLED_REASON_ATTR,
+            GATHERING_TOGGLE_DISABLED_REASON_LIMIT_REACHED,
+        )
+        notices = self.page.locator(f'[data-testid="{CANDIDATE_CARD_GATHERING_LAST_SHOP_NOTICE}"]')
+        expect(notices).to_have_count(0)
+
     def assert_selected_candidate_toggle_is_enabled(self) -> None:
         """gatheringMode.cardToggle.disabledState's second half (adr/0049
         decision 8): a card already in the gathering
@@ -794,6 +862,93 @@ class CandidateSearchBrowserDsl:
             f'[{CANDIDATE_GATHERING_SHORTLISTED_ATTR}="true"]'
         ).first
         expect(toggle).to_be_enabled()
+
+    # gatheringMode.cardToggle.disabledState case (2) / disabledReason /
+    # lastShopNotice (TDR-CS-22, ADR-0057) -----------------------------------
+
+    def assert_only_shortlisted_toggle_is_disabled_with_last_shop_reason(self) -> None:
+        """TDR-CS-22 first Then/And: the gathering's one shortlisted card's
+        own toggle is disabled with disabledReason "last-shop" and carries
+        its own lastShopNotice; every other (not-yet-shortlisted) card's
+        toggle stays enabled with disabledReason absent and no notice.
+
+        **FR-038 discriminating Given**: given_a_gathering_with_exactly_one_
+        shortlisted_shop's own population (GATHERING_OPEN_SHOP_WEEKDAY_MATCH)
+        always renders more than one candidate, so this screen also shows
+        not-yet-shortlisted cards alongside the one shortlisted card this
+        checks -- a defect that disables every toggle, or attaches
+        lastShopNotice to every card, fails the negative checks on those
+        other cards below instead of passing unnoticed. The initial
+        `to_have_count(1)` wait (rather than an immediate `.count()`) is
+        this method's own settle point before any card is indexed, since
+        Locator.count() itself does not auto-wait (FR-039).
+        """
+        shortlisted_toggles = self.page.locator(
+            f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]'
+            f'[{CANDIDATE_GATHERING_SHORTLISTED_ATTR}="true"]'
+        )
+        expect(shortlisted_toggles).to_have_count(1)
+        cards = wait_for_at_least_one(self.page, CARD)
+        card_count = cards.count()
+        self.assertions.assertGreaterEqual(
+            card_count, 2, "Given must also render at least one unshortlisted candidate"
+        )
+        shortlisted_index = next(
+            index
+            for index in range(card_count)
+            if cards.nth(index)
+            .locator(f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]')
+            .get_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR)
+            == "true"
+        )
+        shortlisted_card = cards.nth(shortlisted_index)
+        shortlisted_toggle = shortlisted_card.locator(
+            f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]'
+        )
+        expect(shortlisted_toggle).to_be_disabled()
+        expect(shortlisted_toggle).to_have_attribute(
+            GATHERING_TOGGLE_DISABLED_REASON_ATTR, GATHERING_TOGGLE_DISABLED_REASON_LAST_SHOP
+        )
+        expect(
+            shortlisted_card.locator(f'[data-testid="{CANDIDATE_CARD_GATHERING_LAST_SHOP_NOTICE}"]')
+        ).to_have_count(1)
+        for index in range(card_count):
+            if index == shortlisted_index:
+                continue
+            other_card = cards.nth(index)
+            other_toggle = other_card.locator(f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]')
+            expect(other_toggle).to_be_enabled()
+            self.assertions.assertIsNone(
+                other_toggle.get_attribute(GATHERING_TOGGLE_DISABLED_REASON_ATTR),
+                "an unshortlisted card must not carry disabledReason while under the cap",
+            )
+            expect(
+                other_card.locator(f'[data-testid="{CANDIDATE_CARD_GATHERING_LAST_SHOP_NOTICE}"]')
+            ).to_have_count(0)
+
+    def assert_both_shortlisted_toggles_enabled_and_no_last_shop_notice(self) -> None:
+        """TDR-CS-22 second Then/And: once a second shop is shortlisted
+        (count 2, no longer "the last one"), both shortlisted toggles are
+        enabled, neither carries disabledReason, and lastShopNotice is gone
+        from the entire page -- the card disabled a moment ago must clear
+        its own reason/notice now that it is no longer the gathering's sole
+        shortlisted shop. The `to_have_count(2)` wait is this method's own
+        settle point (after the just-completed toggle response) before
+        counting toggles individually (FR-039).
+        """
+        shortlisted_toggles = self.page.locator(
+            f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]'
+            f'[{CANDIDATE_GATHERING_SHORTLISTED_ATTR}="true"]'
+        )
+        expect(shortlisted_toggles).to_have_count(2)
+        for index in range(shortlisted_toggles.count()):
+            toggle = shortlisted_toggles.nth(index)
+            expect(toggle).to_be_enabled()
+            self.assertions.assertIsNone(
+                toggle.get_attribute(GATHERING_TOGGLE_DISABLED_REASON_ATTR)
+            )
+        notices = self.page.locator(f'[data-testid="{CANDIDATE_CARD_GATHERING_LAST_SHOP_NOTICE}"]')
+        expect(notices).to_have_count(0)
 
     def assert_gathering_mode_candidates_are_within_open_shop_population(
         self, gathering_id: str, expected_open_shop_count: int

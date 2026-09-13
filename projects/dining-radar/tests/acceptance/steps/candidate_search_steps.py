@@ -405,8 +405,27 @@ class CandidateSearchSteps:
     def unselected_candidate_toggle_is_disabled(self) -> None:
         self.dsl.assert_unselected_candidate_toggle_is_disabled()
 
+    def unselected_candidate_toggle_disabled_reason_is_limit_reached(self) -> None:
+        self.dsl.assert_unselected_candidate_toggle_disabled_reason_is_limit_reached()
+
     def selected_candidate_toggle_is_enabled(self) -> None:
         self.dsl.assert_selected_candidate_toggle_is_enabled()
+
+    # gatheringMode.cardToggle.disabledState case (2) / disabledReason /
+    # lastShopNotice (TDR-CS-22, ADR-0057) -----------------------------------
+
+    def organizer_has_a_gathering_with_exactly_one_shortlisted_shop(
+        self, title: str, candidate_date_iso: str | None = None
+    ) -> str:
+        return self.dsl.given_a_gathering_with_exactly_one_shortlisted_shop(
+            title, candidate_date_iso
+        )
+
+    def only_shortlisted_toggle_is_disabled_with_last_shop_reason(self) -> None:
+        self.dsl.assert_only_shortlisted_toggle_is_disabled_with_last_shop_reason()
+
+    def both_shortlisted_toggles_are_enabled_and_last_shop_notice_is_gone(self) -> None:
+        self.dsl.assert_both_shortlisted_toggles_enabled_and_no_last_shop_notice()
 
     def gathering_mode_candidates_are_within_the_open_shop_population(
         self, gathering_id: str, expected_open_shop_count: int
