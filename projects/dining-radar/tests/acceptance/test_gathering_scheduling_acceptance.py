@@ -1,4 +1,4 @@
-"""JS-capable browser/API L4 runner for TDR-GTH-01 through TDR-GTH-43.
+"""JS-capable browser/API L4 runner for TDR-GTH-01 through TDR-GTH-55.
 
 gathering-scheduling-browser-interface.yaml's own profiles.localAcceptance
 marks only TDR-GTH-13 (token guessing is API-level fuzzing, not a browser
@@ -31,6 +31,17 @@ participantAnswer.scheduleQuestion (the latter's orderingInvariant is new to
 browser-interface.yaml v0.9.0 and has no separate .feature scenario of its
 own -- adr/0048 decision 3 declines a parallel scenario, so it is checked
 here as the same underlying defect this scenario already guards).
+TDR-GTH-49 through TDR-GTH-55 (ADR-0054/0055/0056, 2026-09-12〜13, contracts/
+REVISION-PLAN.md 5節) add: the per-participant/per-candidate-date response
+table (49), removing a candidate date and the confirmed-date rejection
+boundary (50/51), the post-finalize decision map (52), the finalize
+confirmation dialog (53), and the corrected zero-vote/tie current-leader
+rules (54/55). TDR-GTH-20/34/38's own bodies were rewritten this round too
+(see each test's own docstring for what changed and why). TDR-GTH-09 is
+unchanged by this round -- the launching brief's own note that it might
+conflict with a new observation surface does not hold against this
+contract version; participantAnswer.scheduleQuestion still requires
+data-open-shop-count unconditionally (see this slice's tester report).
 """
 
 from __future__ import annotations
@@ -345,6 +356,10 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.participant_activates_answer_later_and_state_is_unchanged(
             candidate_date_id, "GOING"
         )
+        # answerLater.confirmation.requirement, changed 2026-09-12 (ADR-0055
+        # decision 3, FR-034): reproduces the recorded answer instead of
+        # asserting in prose that it is saved.
+        self.steps.answer_later_confirmation_reproduces_schedule_answer(candidate_date_id, "GOING")
         self.steps.participant_activates_peek_results_and_tallies_are_visible(candidate_date_id)
         self.steps.screen_has_no_forbidden_controls_or_disclosures()
 
@@ -425,7 +440,20 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.participant_opens_the_link(link)
         self.steps.participant_sees_link_error("LINK_REVOKED")
 
-    def test_tdr_gth_20_answered_link_cannot_be_revoked(self) -> None:
+    def test_tdr_gth_20_answered_link_has_no_revoke_control(self) -> None:
+        """Rewritten 2026-09-13 (ADR-0055 decision 2, human decision "取り消
+        すは未回答の行にだけ置く", contracts/gathering-scheduling.feature
+        TDR-GTH-20). The prior scenario's own Then ("そのリンクを失効させる
+        操作は無効化される") is replaced by "示されない" (not merely
+        disabled): this test replaces the retired disabled-control check
+        (revoke_control_is_disabled_at) with an absence check. The API's own
+        PARTICIPANT_LINK_ALREADY_ANSWERED rejection is unchanged by this
+        round (gathering-scheduling-api.yaml) and is kept here as a
+        defense-in-depth boundary check, bypassing the (now absent, not
+        merely disabled) UI control the same way TDR-GTH-23/47 already
+        bypass a disabled/unreachable control to prove server-side
+        enforcement.
+        """
         self._sign_in()
         self.steps.organizer_has_a_scheduling_gathering("会20", [days_from_now_iso(3)])
         self.steps.organizer_opens_the_dashboard()
@@ -434,7 +462,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.participant_opens_the_link(link)
         self.steps.participant_answers_the_candidate_date(candidate_date_id, "GOING")
         self.steps.organizer_opens_the_dashboard()
-        self.steps.revoke_control_is_disabled_at(0)
+        self.steps.revoke_control_is_absent_at(0)
         before = self.steps.unanswered_summary_snapshot()
         response = self.steps.organizer_attempts_to_revoke_the_link_at_via_the_api(0)
         self.steps.revoke_is_rejected_because_already_answered(response)
@@ -853,12 +881,16 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         foreign_finalize = self.steps.organizer_attempts_to_finalize_via_api(foreign_shop)
         self.steps.rejected_as_invalid_shop_selection(foreign_finalize)
         self.steps.organizer_selects_a_shop_for_finalize(shop_a)
-        self.steps.organizer_submits_finalize()
+        self.steps.organizer_finalizes_via_dashboard()
         self.steps.gathering_phase_is("FINALIZED")
         # Reviewer audit Major#1: organizerDashboard.finalizedSummary is one of
         # six new screen states this cross-cutting check had never run against.
         self.steps.screen_has_no_forbidden_controls_or_disclosures()
         self.steps.finalized_controls_are_absent()
+        # participantLinkList.issuanceClosed (ADR-0056 decision 11): a new
+        # positive badge this round adds alongside participantLinkCopy's own
+        # (already-checked) absence.
+        self.steps.participant_link_issuance_closed_badge_is_shown()
         schedule_response = self.steps.participant_attempts_to_answer_via_api(
             link, candidate_date_id, "MAYBE"
         )
@@ -873,16 +905,26 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         refinalize_response = self.steps.organizer_attempts_to_finalize_via_api(shop_a)
         self.steps.rejected_because_gathering_finalized(refinalize_response)
 
-    def test_tdr_gth_34_finalized_view_shows_the_decision_and_own_record_only(self) -> None:
-        """**Simplified 2026-09-09 (adr/0050 decision 3, 2026-09-09 human
-        decision: あなたの回答は見れても別に意味ないかも)**: the per-shop
-        breakdown this scenario previously required (one entry per
-        shortlisted shop, including an "UNANSWERED" one for a shop this
-        participant never voted on -- adr/0044/adr/0046's own history) is
-        retired. Only yourScheduleResponse (the open-day answer, 1 line)
-        remains. shop_b (voted on only by other_link, never by `link`) is
-        kept in this Given purely to prove that fact no longer surfaces
-        anywhere in the finalized view.
+    def test_tdr_gth_34_finalized_view_shows_only_the_decision(self) -> None:
+        """**Further simplified 2026-09-13 (ADR-0055 decision 7, human
+        decision "あなたの回答は見れても別に意味ないかも" 再確認,
+        contracts/gathering-scheduling.feature TDR-GTH-34)**: the single
+        remaining self-record line this scenario previously required
+        (yourScheduleResponse, kept after the 2026-09-09 simplification,
+        adr/0050 decision 3) is retired too -- the finalized view now shows
+        only the decision itself (confirmed date + shop), never any of this
+        participant's own past answers.
+
+        **Also updated for ADR-0055 decision 8** (resolving a
+        self-contradiction this contract carried since 2026-09-09 -- see
+        this slice's tester report): the live shop-vote tally remains
+        visible after finalization (shop_a's own tally, checked below),
+        unlike the schedule breakdown and progress counter, which are still
+        replaced. shop_b (voted on only by other_link, never by `link`) is
+        kept in this Given purely to prove that fact does not surface as a
+        per-shop *retrospective* anywhere in the decision element itself
+        (participant_decision_has_no_shop_breakdown), even though the live
+        tally for shop_a remains readable.
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
@@ -906,15 +948,18 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         confirmed_date_iso = self.dsl.gathering["candidateDates"][0]["startAt"]
         self.steps.organizer_opens_the_dashboard()
         self.steps.organizer_selects_a_shop_for_finalize(shop_a)
-        self.steps.organizer_submits_finalize()
+        self.steps.organizer_finalizes_via_dashboard()
         self.steps.participant_opens_the_link(link)
         self.steps.participant_decision_is(
             confirmed_candidate_date=confirmed_date_iso,
             shop_id=shop_a,
-            your_schedule_response="GOING",
         )
+        self.steps.participant_decision_has_no_own_response_attribute()
         self.steps.participant_decision_has_no_shop_breakdown()
         self.steps.participant_question_surfaces_are_replaced()
+        self.steps.finalized_view_still_shows_shop_vote_tally(
+            shop_a, want_to_go=1, ok_to_go=0, not_going=0, responded=1
+        )
         # Reviewer audit Major#1: participantAnswer.finalizedView is one of six
         # new screen states this cross-cutting check had never run against.
         self.steps.screen_has_no_forbidden_controls_or_disclosures()
@@ -944,7 +989,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.organizer_shortlists_shops_via_api([shop_a])
         self.steps.organizer_opens_the_dashboard()
         self.steps.organizer_selects_a_shop_for_finalize(shop_a)
-        self.steps.organizer_submits_finalize()
+        self.steps.organizer_finalizes_via_dashboard()
         response = self.steps.organizer_attempts_to_issue_a_participant_link_via_api()
         self.steps.rejected_because_gathering_finalized(response)
         self.steps.finalized_controls_are_absent()
@@ -960,7 +1005,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.organizer_shortlists_shops_via_api([shop_a])
         self.steps.organizer_opens_the_dashboard()
         self.steps.organizer_selects_a_shop_for_finalize(shop_a)
-        self.steps.organizer_submits_finalize()
+        self.steps.organizer_finalizes_via_dashboard()
         recopied_url = self.steps.organizer_recopies_the_link_at(0)
         self.steps.recopied_link_matches_original(recopied_url, link)
 
@@ -1003,23 +1048,29 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.participant_opens_the_link(link)
         self.steps.shop_vote_question_order_is_unchanged(before_order)
 
-    def test_tdr_gth_38_organizer_sees_map_and_shop_details_while_selecting(self) -> None:
-        """TDR-GTH-38: "その日に開いている店の一覧" 's map and per-shop detail
-        fields. **Rewired 2026-09-09 (adr/0049 decision 1)**: this file's own
-        shortlistSelection.list (PickFive.dc.html) is retired -- the same
-        observation now lives entirely on candidate-search-browser-
-        interface.yaml's own, pre-existing card/map, reached through
-        shopSelectionEntry.open (gatheringMode). The cross-cutting purpose
-        scan for *that* screen belongs to candidate_search_browser.py
-        (module-boundary note, top of file) -- not re-run here.
+    def test_tdr_gth_38_organizer_sees_map_and_shop_details_on_the_vote_tally_view(self) -> None:
+        """Rewritten 2026-09-13 (ADR-0055 decision 5 / ADR-0056 decision 5,
+        human decision "投票タリー画面にも地図・店の情報を出す",
+        contracts/gathering-scheduling.feature TDR-GTH-38). The scenario now
+        names the organizer's own vote-tally view (organizerDashboard.
+        shortlistedShopVotes), not candidate-search-browser-interface.
+        yaml's gatheringMode (shopSelectionEntry.open) this test used to
+        open before ADR-0049 retired the organizer's own shop-picking
+        screen entirely -- shortlistedShopVotes now carries the map/detail
+        fields directly instead (reversing the 2026-09-05 exclusion this
+        same section's own contract description names as having been "a
+        designer decision, not an oversight" -- ADR-0055 decision 5 finds
+        that explanation itself was in error).
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
         thursday = next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会38", [thursday])
+        shop_a, shop_b = self.steps.open_shop_ids_for_the_confirmed_date()[:2]
+        self.steps.organizer_shortlists_shops_via_api([shop_a, shop_b])
         self.steps.organizer_opens_the_dashboard()
-        self.steps.organizer_opens_shop_selection_entry()
-        self.steps.gathering_mode_shows_map_and_shop_details()
+        self.steps.shortlisted_shop_list_shows_map_and_shop_details()
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
 
     def test_tdr_gth_39_participant_sees_map_and_shop_details_while_voting(self) -> None:
         self._sign_in()
@@ -1284,3 +1335,160 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.gathering_is_absent_from_the_list(gathering_id)
         self.steps.participant_opens_the_link(link)
         self.steps.participant_sees_link_error("LINK_NOT_FOUND")
+
+    # TDR-GTH-49 through TDR-GTH-55 (new, 2026-09-13, ADR-0054/0055/0056,
+    # contracts/REVISION-PLAN.md 5節) ---------------------------------------
+
+    def test_tdr_gth_49_organizer_sees_each_participants_per_date_responses(self) -> None:
+        """新規（2026-09-13、ADR-0056決定1、人間裁定「誰が・どの候補日に・
+        何と答えたかを幹事に見せる」）。organizerDashboard.responseTable
+        joins participantLinkList's own per-link identity with
+        candidateDateList's own per-date aggregate for the first time (this
+        contract's own header-comment note on the gap this closes) --
+        constructs two participant links through the public boundary
+        (adr/0037 decision 1) and has each answer a *different* candidate
+        date, so the table's own per-cell correlation (not merely
+        per-row/per-column totals, both already covered elsewhere by
+        participant_link_list_matches/candidate_date_tally_is) is what this
+        test actually exercises.
+        """
+        self._sign_in()
+        self.steps.organizer_has_a_scheduling_gathering(
+            "会49", [days_from_now_iso(3), days_from_now_iso(10)]
+        )
+        candidate_date_a = self.dsl.candidate_date_id_at(0)
+        candidate_date_b = self.dsl.candidate_date_id_at(1)
+        link_one = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_one)
+        self.steps.participant_answers_the_candidate_date(candidate_date_a, "GOING")
+        link_two = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_two)
+        self.steps.participant_answers_the_candidate_date(candidate_date_b, "MAYBE")
+        self.steps.organizer_opens_the_dashboard()
+        link_ids = self.steps.participant_link_ids_in_order()
+        self.steps.response_table_matches(
+            {
+                link_ids[0]: {candidate_date_a: "GOING"},
+                link_ids[1]: {candidate_date_b: "MAYBE"},
+            }
+        )
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+
+    def test_tdr_gth_50_organizer_removes_a_candidate_date(self) -> None:
+        """新規（2026-09-13、ADR-0056決定2、人間裁定「候補日を足せるが取り
+        除けないのは片手落ち」）。
+        """
+        self._sign_in()
+        self.steps.organizer_has_a_scheduling_gathering(
+            "会50", [days_from_now_iso(3), days_from_now_iso(10)]
+        )
+        self.steps.organizer_opens_the_dashboard()
+        candidate_date_id = self.dsl.candidate_date_id_at(1)
+        self.steps.organizer_removes_the_candidate_date(candidate_date_id)
+        self.steps.candidate_date_is_absent(candidate_date_id)
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+
+    def test_tdr_gth_51_confirmed_candidate_date_cannot_be_removed(self) -> None:
+        """新規（2026-09-13、ADR-0056決定2）。removeCandidateDate.presenceRule
+        already makes this control absent for the confirmed candidate date
+        (and entirely, once phase leaves SCHEDULING), so this bypasses that
+        absence the same way TDR-GTH-20/47 already bypass an unreachable UI
+        control to prove the server itself enforces the rule --
+        CANDIDATE_DATE_CONFIRMED is gathering-scheduling-api.yaml's own
+        named response for exactly this input shape (removeCandidateDate
+        targeting the one already-confirmed candidate date).
+        """
+        self._sign_in()
+        confirmed_id = self.steps.organizer_has_a_selecting_shop_gathering(
+            "会51", [days_from_now_iso(3)]
+        )
+        response = self.steps.organizer_attempts_to_remove_candidate_date_via_api(confirmed_id)
+        self.steps.remove_candidate_date_is_rejected_because_confirmed(response)
+
+    def test_tdr_gth_52_participant_sees_the_decided_shops_location_after_finalize(self) -> None:
+        """新規（2026-09-13、ADR-0056決定10）。API変更は不要（LiveProjectedShop
+        は既にname/location/walkingTimeMinutes/providerPageUrlを持つ）——足り
+        なかったのはブラウザ契約の観測面だけ、というarchitectの申し送りどおり、
+        既存のgetParticipantViewの値と突き合わせるだけで検査できる。
+        """
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会52", [thursday])
+        shop_a = self.steps.open_shop_ids_for_the_confirmed_date()[0]
+        self.steps.organizer_shortlists_shops_via_api([shop_a])
+        link = self.steps.a_participant_link_is_issued()
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.organizer_selects_a_shop_for_finalize(shop_a)
+        self.steps.organizer_finalizes_via_dashboard()
+        self.steps.participant_opens_the_link(link)
+        decision_shop = self.steps.participant_view_via_api(link)["decision"]["shop"]
+        self.steps.participant_decision_shows_shop_location_details(
+            shop_id=shop_a,
+            walking_time_minutes=decision_shop["walkingTimeMinutes"],
+            provider_page_url=decision_shop["providerPageUrl"],
+        )
+        self.steps.participant_decision_map_shows_shop_and_origin_only()
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+
+    def test_tdr_gth_53_organizer_sees_a_confirmation_before_finalizing(self) -> None:
+        """新規（2026-09-13、ADR-0054決定5・ADR-0056決定11、人間裁定「確定操作
+        にも削除と対称な確認の一段を置く」）。開く→キャンセル→開き直す→確定、
+        の順で通し、キャンセルが確定を呼ばず選択状態を保つこと
+        （finalizeCancel.requiredOutcome）も合わせて確かめる。
+        """
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会53", [thursday])
+        shop_a = self.steps.open_shop_ids_for_the_confirmed_date()[0]
+        self.steps.organizer_shortlists_shops_via_api([shop_a])
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.organizer_selects_a_shop_for_finalize(shop_a)
+        self.steps.organizer_opens_finalize_confirmation()
+        self.steps.gathering_phase_is("SELECTING_SHOP")
+        self.steps.finalize_confirm_dialog_shows_changes_summary()
+        self.steps.organizer_cancels_finalize_confirmation()
+        self.steps.gathering_phase_is("SELECTING_SHOP")
+        self.steps.organizer_opens_finalize_confirmation()
+        self.steps.organizer_confirms_finalize()
+        self.steps.gathering_phase_is("FINALIZED")
+
+    def test_tdr_gth_54_no_shop_leads_before_any_vote_is_cast(self) -> None:
+        """新規（2026-09-13、ADR-0055決定6、人間裁定「票を入れた瞬間に嘘の
+        最有力が出る」）。
+        """
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会54", [thursday])
+        shops = self.steps.open_shop_ids_for_the_confirmed_date()[:2]
+        self.steps.organizer_shortlists_shops_via_api(shops)
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.no_shortlisted_shop_is_the_current_leader()
+
+    def test_tdr_gth_55_a_tie_for_the_top_vote_marks_every_tied_shop_as_leading(self) -> None:
+        """新規（2026-09-13、ADR-0055決定6）。shop_tied_a/shop_tied_bを
+        wantToGoCount+okToGoCount=2で同点に、shop_behindを0にそろえ、偶然の
+        同点ではなく作為的な同点であることを保証する。
+        """
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会55", [thursday])
+        shop_tied_a, shop_tied_b, shop_behind = self.steps.open_shop_ids_for_the_confirmed_date()[
+            :3
+        ]
+        self.steps.organizer_shortlists_shops_via_api([shop_tied_a, shop_tied_b, shop_behind])
+        link_one = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_one)
+        self.steps.participant_answers_shop_votes(
+            {shop_tied_a: "WANT_TO_GO", shop_tied_b: "OK_TO_GO", shop_behind: "NOT_GOING"}
+        )
+        link_two = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_two)
+        self.steps.participant_answers_shop_votes(
+            {shop_tied_a: "WANT_TO_GO", shop_tied_b: "OK_TO_GO", shop_behind: "NOT_GOING"}
+        )
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.shortlisted_shop_current_leaders_are({shop_tied_a, shop_tied_b})
