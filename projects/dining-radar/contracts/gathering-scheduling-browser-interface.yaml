@@ -617,11 +617,29 @@
 #   描かれると強い検査が一度も走らなかった。実装（developer報告）が採っていた「別要素と
 #   して重ねて描く」形を、契約として妥当と判断し採用した。
 #
+# 2026-09-13 追補16 (architect、独立監査（audit-gathering-redesign-steps.md、branch
+#   review/gathering-redesign-steps）Major 1・Minor 1件を閉じる。contractVersion
+#   0.18.0 -> 0.19.0):
+# - **`participantAnswer.finalizedView.decision.map`に重ね描きの総数・種類を足した**
+#   （監査Major 1）: scopeが「経路の線も徒歩の範囲の輪も描かない」と明記していながら、
+#   それを観測する手段が無く、test idを持たない線や輪を描かれても検出できなかった。
+#   `data-overlay-marker-count`/`data-overlay-line-count`/`data-overlay-ring-count`
+#   （map要素自身が持つ属性、いかなるマッピングライブラリの内部DOM構造にも依存しない）
+#   を新設し、marker+originMarkerの2つ以外の重ね描きが存在しないことを検査できるように
+#   した。
+# - **候補日を選ぶカレンダーの「選んだ日の一覧」にどの日かを表す属性を足した**
+#   （監査Minor、TDR-GTH-46の脆さの根）: `organizerGatheringCreate.calendar.
+#   removeSelected`/`addCandidateDateForm.calendar.removeSelected`の各項目は
+#   選ばれた件数しか読めず、testerは日付ごとに月送りしてマスを読む回避を強いられて
+#   いた（月送りの下限をこの契約が保証していないため誤って落ちる危険がある、と監査は
+#   判定した）。dayCellのdata-dateと同じ値・同じ書式の`date: data-date`属性を各
+#   removeSelected項目にも足し、一覧だけで選択の集合を読めるようにした。
+#
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.18.0'
+contractVersion: '0.19.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -1264,9 +1282,20 @@ browserControlSurface:
           this path does not require navigating to the month that day
           belongs to first.
         cardinality: zero-or-more-elements-sharing-this-test-id
+        attributes:
+          date: data-date
         requirement: >-
           One instance per day currently carrying data-selected="true",
-          regardless of which month is currently displayed.
+          regardless of which month is currently displayed. This
+          instance's own data-date carries the same ISO-8601 value, same
+          format, as dayCell.attributes.date above for the day it
+          corresponds to (added 2026-09-13, spec .spec/11-b, closing
+          独立監査 audit-gathering-redesign-steps.md's Minor finding on
+          TDR-GTH-46's fragility: without this attribute, only the
+          instance count was readable here, so testers navigated back to
+          each selected day's own month to read its data-date from
+          dayCell instead -- a detour this contract did not guarantee a
+          month-navigation floor for).
         requiredOutcome: >-
           Activating the instance for a given day makes that day's
           gathering-create-candidate-date-day data-selected "false" (the
@@ -1607,9 +1636,17 @@ browserControlSurface:
               Added 2026-09-12 (ADR-0056 decision 3) -- same rationale as
               organizerGatheringCreate.calendar.removeSelected above.
             cardinality: zero-or-more-elements-sharing-this-test-id
+            attributes:
+              date: data-date
             requirement: >-
               One instance per day currently carrying data-selected="true",
-              regardless of which month is currently displayed.
+              regardless of which month is currently displayed. This
+              instance's own data-date carries the same ISO-8601 value,
+              same format, as dayCell.attributes.date above for the day
+              it corresponds to (added 2026-09-13, spec .spec/11-b -- same
+              rationale as organizerGatheringCreate.calendar.removeSelected
+              above, closing 独立監査 audit-gathering-redesign-steps.md's
+              Minor finding on TDR-GTH-46's fragility).
             requiredOutcome: >-
               Activating the instance for a given day makes that day's
               gathering-add-candidate-date-day data-selected "false" (the
@@ -3108,6 +3145,34 @@ browserControlSurface:
             walking path it cannot back with real routing data (ADR-0056
             decision 10's own rationale, mirroring product-brief.md §3's
             existing "徒歩経路と現在地は表示しない" boundary).
+          attributes:
+            overlayMarkerCount: data-overlay-marker-count
+            overlayLineCount: data-overlay-line-count
+            overlayRingCount: data-overlay-ring-count
+          requirement: >-
+            Added 2026-09-13 (spec .spec/11-a, closing 独立監査
+            audit-gathering-redesign-steps.md's Major 1: scope above's
+            「経路の線も徒歩の範囲の輪も描かない」claim had no DOM
+            observation, so a routing-line or walking-radius overlay drawn
+            without an assigned test id could not be detected). These
+            three attributes live on this gathering-participant-decision-
+            map element itself, not on any node internal to whichever
+            mapping library renders it -- this contract does not fix or
+            assume a particular library's DOM shape, the same developer's-
+            choice boundary calendar.note elsewhere in this file draws for
+            the calendar library. Each is the product's own running count
+            of overlay objects it has drawn on this map, by kind,
+            independent of whether that kind additionally carries its own
+            test id. overlayMarkerCount MUST equal exactly "2" whenever
+            this map is present -- marker and originMarker below already
+            each require their own single instance; this count
+            additionally forbids a third, untagged marker existing
+            alongside them. overlayLineCount and overlayRingCount MUST
+            both equal exactly "0" -- this is the DOM-observable form of
+            scope above's "描かない" requirement. All three are
+            decimal-integer strings ("0", "1", "2", ...); no fourth
+            overlay kind is anticipated, so no fourth attribute is
+            required.
           marker:
             testId: gathering-participant-decision-map-marker
             formControl: false
