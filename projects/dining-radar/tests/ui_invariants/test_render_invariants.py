@@ -68,6 +68,7 @@ from datetime import UTC, datetime, timedelta
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
 from django.urls import reverse
 from playwright.sync_api import Locator, expect, sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from tests.acceptance.dsl.candidate_search_browser import CandidateSearchBrowserDsl
 from tests.acceptance.dsl.js_browser_mechanics import (
@@ -1407,6 +1408,22 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         ``self.page`` on the newly created gathering's ``organizerDashboard``
         (``gathering_create.js``'s own post-submit navigation) and returns
         its ``gatheringId``.
+
+        Waits past the URL change to the dashboard's own post-fetch render
+        before returning: ``gathering_create.js``'s redirect changes the URL
+        as soon as navigation is committed, but ``gathering.js`` still has to
+        fetch this gathering and render it client-side afterwards
+        (``loadGathering``'s own ``requestJson(...).then(render)``), so a
+        caller that queries the dashboard's controls immediately after this
+        method returns can otherwise race that render. ``gathering-candidate-date``
+        is the element to wait for -- ``gathering-scheduling-browser-
+        interface.yaml``'s ``organizerDashboard.candidateDateList.candidateDate``
+        is "present unconditionally across all three phases", and a freshly
+        created gathering is always still SCHEDULING, where this same
+        element's ``tentativeSelectionAndPreview.trigger`` entry declares its
+        ``data-gathering-control-purpose`` activatable -- exactly the
+        attribute callers of this method scan for (e.g.
+        ``_assert_all_declared_gathering_controls_meet_44px``).
         """
         self.page.goto(f"{self.dsl.base_url}/gatherings/new/")
         by_test_id(self.page, "gathering-create-name-input").fill(title)
@@ -1424,6 +1441,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         expect(self.page).to_have_url(re.compile(r"/gatherings/[0-9a-fA-F-]+/$"))
         match = re.search(r"/gatherings/([0-9a-fA-F-]+)/", self.page.url)
         assert match is not None, self.page.url
+        expect(by_test_id(self.page, "gathering-candidate-date").first).to_be_visible()
         return match.group(1)
 
     def _issue_participant_link_url(self) -> str:
@@ -1532,6 +1550,21 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
 
     def _assert_all_declared_gathering_controls_meet_44px(self, page, context_label: str) -> None:
         controls = page.locator("[data-gathering-control-purpose]")
+        # Locator.count() itself never waits (unlike expect(...)/wait_for()),
+        # so it can observe 0 elements immediately after a navigation or a
+        # click that triggers a client-side re-render, before that render has
+        # actually happened -- a caller that has not already waited for one
+        # of this screen's own controls to appear (as
+        # _create_gathering_via_ui now does for organizerDashboard) would
+        # otherwise see a false "no controls" failure here. This wait only
+        # gives the render a chance to catch up; it does not change the
+        # outcome for a genuine 0-controls screen -- if none ever appears,
+        # this times out, count() below still observes 0, and the
+        # assertGreater below still fails exactly as before.
+        try:
+            controls.first.wait_for(state="attached")
+        except PlaywrightTimeoutError:
+            pass
         count = controls.count()
         self.assertGreater(
             count,
