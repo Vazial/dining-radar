@@ -375,10 +375,23 @@ class CandidateSearchSteps:
     def organizer_opens_this_screen_in_gathering_mode(self, gathering_id: str) -> None:
         self.dsl.open_gathering_mode_from_dashboard(gathering_id)
 
-    def gathering_mode_band_shows(self, *, shortlisted: int, max_shortlisted: int = 5) -> None:
+    def gathering_mode_band_shows(
+        self, *, shortlisted: int, max_shortlisted: int = 5, limit_reached: bool | None = None
+    ) -> None:
         self.dsl.assert_gathering_mode_band_shows(
-            shortlisted=shortlisted, max_shortlisted=max_shortlisted
+            shortlisted=shortlisted, max_shortlisted=max_shortlisted, limit_reached=limit_reached
         )
+
+    # gatheringMode.mapMarker (TDR-CS-20, ADR-0056 decision 4) ---------------
+
+    def organizer_toggles_a_shop_into_the_gathering_and_returns_its_ref(self) -> str:
+        return self.dsl.toggle_a_not_yet_shortlisted_card_and_return_ref()
+
+    def organizer_toggles_off_the_shop_by_ref(self, candidate_ref: str) -> None:
+        self.dsl.toggle_off_card_by_candidate_ref(candidate_ref)
+
+    def map_marker_gathering_shortlisted_is(self, candidate_ref: str, expected: bool) -> None:
+        self.dsl.assert_map_marker_gathering_shortlisted_is(candidate_ref, expected)
 
     def organizer_adds_a_candidate_to_the_gathering(self) -> None:
         self.dsl.toggle_first_candidate_into_gathering()
