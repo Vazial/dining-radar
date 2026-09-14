@@ -333,13 +333,22 @@ def serialize_decision(
 def serialize_participant_view(link: ParticipantLink) -> dict:
     gathering = link.gathering
     tallies = services.candidate_dates_with_tallies(gathering)
+    voting_started = gathering.voting_started_at is not None
     # Resolved once per request and reused for every candidate date and every
     # shop lookup, rather than triggering one real provider fetch per
     # gathering-schedule-question/shop-vote-question (see
-    # resolve_population_source's own docstring).
-    population_source = services.resolve_population_source()
+    # resolve_population_source's own docstring). Only needed once voting has
+    # started -- shopVoteQuestions/searchOrigin (gated below by
+    # voting_started) and decision (gated by FINALIZED, which
+    # set_shortlisted_shops/finalize_gathering guarantee only reaches after
+    # voting_started_at is set -- finalize_gathering requires a non-empty
+    # shortlist, and the only place that populates one also sets
+    # voting_started_at) are the only readers. Before voting starts this
+    # would otherwise trigger a real provider fetch on every schedule-answer
+    # PUT (and the initial GET), gated exactly like serialize_gathering's own
+    # identical population_source resolution above.
+    population_source = services.resolve_population_source() if voting_started else None
     origin = population_source[1] if population_source is not None else None
-    voting_started = gathering.voting_started_at is not None
     shop_lookup = (
         services.shop_lookup_for_gathering(gathering, population_source) if voting_started else {}
     )

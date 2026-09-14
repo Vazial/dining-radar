@@ -18,6 +18,7 @@ import unittest
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
+from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.test import Client, SimpleTestCase, TestCase, override_settings
@@ -4128,6 +4129,80 @@ class ParticipantViewApiTests(GatheringOrganizerTestCase):
         self.assertEqual(response.json()["phase"], "SCHEDULING")
         self.assertEqual(response.json()["totalActiveParticipantCount"], 1)
 
+    def test_resolve_population_source_not_called_before_voting_starts_on_get(self):
+        """Real-browser measurement (2026-09-14): before ``votingStartedAt``,
+        nothing in this view's output depends on the private population
+        (``shopVoteQuestions``/``searchOrigin`` are still null and
+        ``decision`` is still null too, since FINALIZED is unreachable
+        without voting having started first -- see
+        ``finalize_gathering``/``set_shortlisted_shops``). Resolving it
+        anyway used to trigger one real provider fetch per request."""
+        with mock.patch.object(services, "resolve_population_source") as resolve:
+            response = self.participant_client.get(
+                reverse("gathering:participant-view", kwargs={"token": self.token})
+            )
+
+        self.assertEqual(response.status_code, 200)
+        resolve.assert_not_called()
+
+    def test_resolve_population_source_not_called_before_voting_starts_on_put_schedule_response(
+        self,
+    ):
+        with mock.patch.object(services, "resolve_population_source") as resolve:
+            response = self.participant_client.put(
+                reverse(
+                    "gathering:schedule-response",
+                    kwargs={"token": self.token, "candidate_date_id": self.candidate_date_id},
+                ),
+                data=json.dumps({"status": "GOING"}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        resolve.assert_not_called()
+
+
+class ParticipantViewPopulationSourceCallTests(GatheringSelectingShopApiTestCase):
+    """Companion to ``ParticipantViewApiTests``'s "not called before voting
+    starts" tests above: once voting has started (and, a fortiori, once
+    finalized -- ``finalize_gathering`` requires a non-empty shortlist, and
+    the only place that populates one, ``set_shortlisted_shops``, also sets
+    ``votingStartedAt``), ``shopVoteQuestions``/``searchOrigin``/``decision``
+    do need it, and the response must be exactly what it was before this gate
+    was added."""
+
+    def test_called_once_and_response_unchanged_once_voting_has_started(self):
+        self.put_shortlisted_shops([self.open_shop_ids[0]])
+        token = self.issue_token()
+
+        with mock.patch.object(
+            services, "resolve_population_source", wraps=services.resolve_population_source
+        ) as resolve:
+            response = Client().get(reverse("gathering:participant-view", kwargs={"token": token}))
+
+        resolve.assert_called_once()
+        body = response.json()
+        self.assertEqual(body["phase"], "SELECTING_SHOP")
+        self.assertIsNotNone(body["searchOrigin"])
+        self.assertEqual({o["shopId"] for o in body["shopVoteQuestions"]}, {self.open_shop_ids[0]})
+        self.assertIsNone(body["decision"])
+
+    def test_called_once_and_response_unchanged_once_finalized(self):
+        self.put_shortlisted_shops([self.open_shop_ids[0]])
+        token = self.issue_token()
+        self.post_finalize(self.open_shop_ids[0])
+
+        with mock.patch.object(
+            services, "resolve_population_source", wraps=services.resolve_population_source
+        ) as resolve:
+            response = Client().get(reverse("gathering:participant-view", kwargs={"token": token}))
+
+        resolve.assert_called_once()
+        body = response.json()
+        self.assertEqual(body["phase"], "FINALIZED")
+        self.assertIsNotNone(body["searchOrigin"])
+        self.assertEqual(body["decision"]["shop"]["shopId"], self.open_shop_ids[0])
+
 
 # --- test-support: gathering-scheduling acceptance seams --------------------
 
@@ -4866,6 +4941,49 @@ class DateTimeLocalConversionSourceTests(SimpleTestCase):
         self.assertIn("function calendarDayIsoToStartAtIso(dayIso)", source)
         self.assertIn('return dayIso + "T12:00:00Z";', source)
         self.assertIn("calendarDayIsoToStartAtIso(iso)", source)
+
+
+class RecopyParticipantLinkClipboardSourceTests(SimpleTestCase):
+    """Guards the fix for a real human real-machine measurement (2026-09-14):
+    despite its name/button label, ``recopyParticipantLink`` never wrote
+    anything to the clipboard -- it only tracked the reissued URL in
+    ``state.recopiedLinkUrls`` and flipped ``data-issued-link-url``. Its
+    sibling, ``copyParticipantLink`` ("コピー"), did write to the clipboard.
+    Source-level, mirroring this file's other JS-adjacent conventions (a
+    Django-test-client reproduction cannot observe ``navigator.clipboard``
+    at all -- see ``DateTimeLocalConversionSourceTests`` above)."""
+
+    def test_recopy_participant_link_writes_the_recopied_url_to_the_clipboard(self):
+        source = GATHERING_JS.read_text(encoding="utf-8")
+        start = source.index("function recopyParticipantLink(linkId) {")
+        end = source.index("function revokeParticipantLink(linkId) {", start)
+        function_body = source[start:end]
+
+        self.assertIn("window.navigator.clipboard.writeText(result.body.url)", function_body)
+        # requiredOutcome (contracts/gathering-scheduling-browser-interface.yaml
+        # recopy) must still hold: data-issued-link-url still gets set, and no
+        # other tracked attribute is disturbed by this fix.
+        self.assertIn("state.recopiedLinkUrls[linkId] = result.body.url;", function_body)
+
+    def test_copy_and_recopy_write_to_the_clipboard_the_same_way(self):
+        """Guards against the two diverging again: both must gate on
+        ``navigator.clipboard``'s presence and swallow a rejected write the
+        same way (``copyParticipantLink`` was already doing this)."""
+        source = GATHERING_JS.read_text(encoding="utf-8")
+        copy_start = source.index("function copyParticipantLink() {")
+        copy_end = source.index("function recopyParticipantLink(linkId) {", copy_start)
+        copy_body = source[copy_start:copy_end]
+        recopy_start = source.index("function recopyParticipantLink(linkId) {")
+        recopy_end = source.index("function revokeParticipantLink(linkId) {", recopy_start)
+        recopy_body = source[recopy_start:recopy_end]
+
+        clipboard_guard = "if (window.navigator && window.navigator.clipboard) {"
+        self.assertIn(clipboard_guard, copy_body)
+        self.assertIn(clipboard_guard, recopy_body)
+        self.assertIn(".writeText(", copy_body)
+        self.assertIn(".writeText(", recopy_body)
+        self.assertIn(".catch(function () {});", copy_body)
+        self.assertIn(".catch(function () {});", recopy_body)
 
 
 class GatheringListAlwaysPresentSourceTests(SimpleTestCase):

@@ -768,6 +768,9 @@
       function (result) {
         if (result.status === 200) {
           state.recopiedLinkUrls[linkId] = result.body.url;
+          if (window.navigator && window.navigator.clipboard) {
+            window.navigator.clipboard.writeText(result.body.url).catch(function () {});
+          }
           render();
         }
       }
