@@ -30,8 +30,34 @@ from typing import Any
 
 from django.test import SimpleTestCase
 from playwright.sync_api import APIResponse, Locator, Page, Request, Response, expect
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 CANDIDATE_PROPOSAL_PATH = "/candidate-proposals"
+
+# ADR-0058: a Must this contract states as a side effect (a browser API call),
+# not a DOM attribute, so it is not observable through by_test_id/expect
+# alone. Headless Chromium's clipboard permission grant + OS-clipboard
+# readback (context.grant_permissions + navigator.clipboard.readText) is the
+# alternative ADR-0058 decision 3 names, but is unreliable under CI's
+# ubuntu-latest headless launch (no real desktop clipboard backing it), so
+# this instead wraps navigator.clipboard.writeText itself via an init script
+# and records what was passed to it -- deterministic regardless of headless
+# clipboard-permission support.
+_CLIPBOARD_MONITOR_INIT_SCRIPT = """
+(() => {
+  window.__clipboardWrites = [];
+  if (!window.navigator.clipboard) {
+    Object.defineProperty(window.navigator, "clipboard", {
+      value: {},
+      configurable: true,
+    });
+  }
+  window.navigator.clipboard.writeText = (text) => {
+    window.__clipboardWrites.push(text);
+    return Promise.resolve();
+  };
+})();
+"""
 
 
 def is_candidate_proposal_response(response: Response) -> bool:
@@ -167,3 +193,51 @@ def require(value: object, message: str) -> object:
     if value is None:
         raise AssertionError(message)
     return value
+
+
+def install_clipboard_write_monitor(page: Page) -> None:
+    """Install the navigator.clipboard.writeText monitor (see
+    _CLIPBOARD_MONITOR_INIT_SCRIPT above) on ``page``.
+
+    Must be called before ``page``'s first navigation -- Playwright's
+    add_init_script re-runs the script on every subsequent navigation of this
+    same page, but does not apply retroactively to a document already
+    loaded.
+    """
+    page.add_init_script(_CLIPBOARD_MONITOR_INIT_SCRIPT)
+
+
+def clipboard_write_count(page: Page) -> int:
+    """The number of navigator.clipboard.writeText calls recorded so far
+    (see install_clipboard_write_monitor above). A caller takes this
+    *before* triggering the activation under test, then passes it to
+    assert_clipboard_write_received as ``since_count`` -- recopy's returned
+    URL is byte-identical to the URL an earlier issue already wrote
+    (TDR-GTH-17: "同じ参加者に向けたリンクがあらためて得られる"), so checking
+    "this exact text appears anywhere in the whole history" would pass even
+    if *this* activation never called writeText at all, as long as some
+    earlier activation happened to write the same text.
+    """
+    return page.evaluate("(window.__clipboardWrites || []).length")
+
+
+def assert_clipboard_write_received(
+    assertions: SimpleTestCase, page: Page, expected_text: str, since_count: int
+) -> None:
+    """Wait for a navigator.clipboard.writeText call carrying exactly
+    ``expected_text`` among the writes recorded *after* ``since_count``
+    (see clipboard_write_count above; ADR-0058 decision 1).
+    """
+    try:
+        page.wait_for_function(
+            "([text, since]) => (window.__clipboardWrites || []).slice(since).includes(text)",
+            arg=[expected_text, since_count],
+            timeout=2000,
+        )
+    except PlaywrightTimeoutError:
+        writes = page.evaluate("window.__clipboardWrites || []")
+        assertions.fail(
+            f"navigator.clipboard.writeText was not called with "
+            f"{expected_text!r} after this activation (since index "
+            f"{since_count}); observed writes: {writes!r}"
+        )

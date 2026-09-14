@@ -44,11 +44,14 @@ from tests.acceptance.dsl.js_browser_mechanics import (
     assert_absent,
     assert_all_absent,
     assert_all_present,
+    assert_clipboard_write_received,
     assert_present,
     build_captured_response,
     by_test_id,
     capture_candidate_proposal_response,
+    clipboard_write_count,
     csrf_token,
+    install_clipboard_write_monitor,
     require,
     wait_for_at_least_one,
 )
@@ -527,6 +530,11 @@ class GatheringSchedulingBrowserDsl:
         self._prepared_candidate_date_isos: list[str] | None = None
         self._issued_order: list[dict[str, str]] = []
         self._current_open_shop_preview: CapturedApiResponse | None = None
+        # ADR-0058 decision 1: participantLinkCopy/recopy must also write the
+        # issued URL to the browser clipboard. Installed once, before this
+        # page's first navigation, so it is present for every navigation this
+        # DSL instance drives.
+        install_clipboard_write_monitor(self.page)
 
     # Given seams (test-support-api.yaml) -----------------------------------
 
@@ -1512,9 +1520,12 @@ class GatheringSchedulingBrowserDsl:
         """1クリック=1本 (D8, ADR-0036決定4). participantLinkCopy.requiredOutcome."""
         before = self._read_unanswered_summary()
         button = assert_present(self.assertions, self.page, PARTICIPANT_LINK_COPY)
+        writes_before = clipboard_write_count(self.page)
         button.click()
         expect(button).to_have_attribute(ISSUED_LINK_URL_ATTR, re.compile(r".+"))
         url = button.get_attribute(ISSUED_LINK_URL_ATTR)
+        # TDR-GTH-03 "そのまま貼り付けて使える状態で得られる" / ADR-0058 decision 1
+        assert_clipboard_write_received(self.assertions, self.page, url, writes_before)
         after = self._read_unanswered_summary()
         self.assertions.assertEqual(after["totalIssuedLinks"], before["totalIssuedLinks"] + 1)
         self.assertions.assertEqual(after["activeIssuedLinks"], before["activeIssuedLinks"] + 1)
@@ -1574,9 +1585,19 @@ class GatheringSchedulingBrowserDsl:
         item = wait_for_at_least_one(self.page, PARTICIPANT_LINK_ITEM).nth(index)
         recopy = by_test_id(item, PARTICIPANT_LINK_RECOPY)
         expect(recopy).to_be_enabled()
+        writes_before = clipboard_write_count(self.page)
         recopy.click()
         expect(recopy).to_have_attribute(ISSUED_LINK_URL_ATTR, re.compile(r".+"))
-        return recopy.get_attribute(ISSUED_LINK_URL_ATTR)
+        url = recopy.get_attribute(ISSUED_LINK_URL_ATTR)
+        # TDR-GTH-17 "再コピーで得たリンクも、そのまま貼り付けて使える状態で得られる"
+        # / ADR-0058 decision 1, including once phase is FINALIZED (TDR-GTH-36,
+        # recopy.requiredOutcome's own note -- same helper, no separate scenario).
+        # since_count matters here specifically: recopy returns the byte-identical
+        # URL an earlier issue already wrote (TDR-GTH-17's "あらためて得られる"),
+        # so a plain "was this text ever written" check cannot distinguish this
+        # activation actually writing from it silently doing nothing.
+        assert_clipboard_write_received(self.assertions, self.page, url, writes_before)
+        return url
 
     def revoke_participant_link_at(self, index: int) -> None:
         item = wait_for_at_least_one(self.page, PARTICIPANT_LINK_ITEM).nth(index)
