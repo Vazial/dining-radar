@@ -218,6 +218,23 @@
 #   `verifiesScenarios`・`test-support-api.yaml`の各`x-acceptance-scenarios`はいずれも
 #   TDR-GTH-44を既に登録済みであり、シナリオIDが変わらない本改訂はこれらの登録に影響しない。
 
+# 2026-09-14 追補 (architect、ADR-0058。実機フィードバック2026-09-14「確定後にリンクの
+#   再コピーができない」を調べたところ、`gathering-participant-link-recopy`が一度もクリップ
+#   ボードへ書き込んでいなかったことが判明した。契約側もクリップボードへの書き込みそのものを
+#   一度も要求していなかった（`grep -rn clipboard projects/dining-radar/contracts`が0件
+#   だった）ため、この欠落はL4の緑を止められなかった):
+# - **TDR-GTH-03（回答リンクの発行）とTDR-GTH-17（リンクの再コピー）に、得たリンクがそのまま
+#   貼り付けて使える状態で得られることを示すAndを1行ずつ足した**。新規シナリオIDは起こして
+#   いない——同じ操作の既存シナリオへの補強であり、新しい業務規則ではない。
+# - TDR-GTH-36（確定後の再コピー）は本文を変更しない。`gathering-scheduling-
+#   browser-interface.yaml`のrecopy.requiredOutcomeの注記で、TDR-GTH-17と同じ扱いが確定後も
+#   続くことを明記した——TDR-GTH-36が「そのリンクの回答状況は変わらない」をTDR-GTH-17の重複に
+#   せず注記で済ませている、この契約の既存の流儀を踏襲した。
+# - クリップボードへ実際に書き込むことの詳細（Must・拒否時の扱い）は`gathering-scheduling-
+#   browser-interface.yaml`のparticipantLinkCopy.requiredOutcome・participantLinkList.item.
+#   recopy.requiredOutcomeが持つ。本ファイルはL4シナリオの業務の言葉として「貼り付けて使える
+#   状態」とだけ述べ、Clipboard APIという語はここには置かない。
+
 Feature: 幹事が会をつくり参加者の日程を集めて開催日と店を決める
   幹事は会をつくって候補日を複数出し、署名付きの回答リンクを参加者に配る。
   参加者はログインなしでリンクを開き、名前を名乗らずに日程の出欠を答え、
@@ -270,6 +287,7 @@ Feature: 幹事が会をつくり参加者の日程を集めて開催日と店�
     When 幹事が参加者の人数ぶんの回答リンクを発行する
     Then 発行した本数ぶんの、互いに異なる署名付きリンクが得られる
     And それぞれのリンクは会と参加者の組に対してだけ有効である
+    And それぞれのリンクは、そのまま貼り付けて使える状態で得られる
 
   # TDR-GTH-04
   Scenario: 参加者が名前を名乗らずに日程の出欠に答える
@@ -383,6 +401,7 @@ Feature: 幹事が会をつくり参加者の日程を集めて開催日と店�
     When 幹事がそのリンクを一覧から再コピーする
     Then 同じ参加者に向けたリンクがあらためて得られる
     And そのリンクの回答状況は変わらない
+    And 再コピーで得たリンクも、そのまま貼り付けて使える状態で得られる
 
   # TDR-GTH-18
   Scenario: 未回答のリンクを失効させると未回答の分母から外れる
