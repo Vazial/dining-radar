@@ -5195,3 +5195,379 @@ class GatheringDateTimeFormattingExecutionTests(SimpleTestCase):
         self.assertEqual(utc_result, "9/7 (月) 00:00")
         self.assertEqual(utc_result, ahead_of_utc)
         self.assertEqual(utc_result, behind_utc)
+
+
+# --- keyboard focus survives a render() rebuild (orchestrator repro, 2026-09-15:
+# tentativelySelectCandidateDate's own render() -> fetch open-shop-preview ->
+# render() sequence silently dropped focus from gathering-confirm-date-select
+# to <body> once the held-back response landed after the user had already
+# Tab'd onto it) --
+
+_FOCUS_RESTORE_SNIPPET_BEGIN = "// --- focus-restore-across-rerender BEGIN"
+_FOCUS_RESTORE_SNIPPET_END = "// --- focus-restore-across-rerender END ---"
+# Mirrors _DATE_FORMAT_CODE_BEGIN above: the leading prose comment names the
+# *other two* files as "identical copy in ...", the one line expected to
+# differ across all three copies. Comparing from the first function
+# declaration onward excludes exactly that cosmetic difference while still
+# comparing every executable line verbatim.
+_FOCUS_RESTORE_CODE_BEGIN = "function captureFocusDescriptor"
+
+
+def _extract_focus_restore_snippet(source: str) -> str:
+    start = source.index(_FOCUS_RESTORE_SNIPPET_BEGIN)
+    end = source.index(_FOCUS_RESTORE_SNIPPET_END, start) + len(_FOCUS_RESTORE_SNIPPET_END)
+    return source[start:end]
+
+
+def _extract_focus_restore_code(source: str) -> str:
+    snippet = _extract_focus_restore_snippet(source)
+    return snippet[snippet.index(_FOCUS_RESTORE_CODE_BEGIN) :]
+
+
+def _extract_balanced_braces(source: str, start_index: int) -> str:
+    """The substring from ``start_index`` through the ``}`` that closes the
+    first ``{`` at or after it, tracking (and skipping the contents of)
+    string/template literals and comments so a brace inside a JS string or
+    comment never miscounts the nesting depth. Used below to pull out a
+    whole ``function render() { ... }`` body regardless of what function (if
+    any) happens to follow it in a given file -- unlike a plain
+    ``source.index("\\n  function ", ...)`` scan, this does not depend on
+    render() being followed by another same-indentation function
+    declaration (participant.js's render() is the last function in the
+    file).
+    """
+    brace_open = source.index("{", start_index)
+    depth = 0
+    i = brace_open
+    length = len(source)
+    while i < length:
+        ch = source[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return source[start_index : i + 1]
+        elif ch in ("'", '"', "`"):
+            quote = ch
+            i += 1
+            while i < length and source[i] != quote:
+                if source[i] == "\\":
+                    i += 1
+                i += 1
+        elif ch == "/" and i + 1 < length and source[i + 1] == "/":
+            i = source.index("\n", i)
+        elif ch == "/" and i + 1 < length and source[i + 1] == "*":
+            i = source.index("*/", i) + 1
+        i += 1
+    raise ValueError(f"unbalanced braces starting at index {start_index}")
+
+
+class FocusRestoreAcrossRerenderSourceTests(SimpleTestCase):
+    """Guards the fix for a real focus-loss bug (2026-09-15, orchestrator
+    real-browser repro): every render()-driven organizer/participant screen
+    in this project fully rebuilds its DOM (``root.innerHTML = ""``) on every
+    state change, including a rebuild triggered by an in-flight fetch's own
+    follow-up response landing *after* the user has since moved keyboard
+    focus onto a freshly built control. The concrete repro: the organizer
+    dashboard's tentativelySelectCandidateDate renders immediately, then
+    renders again once its own open-shop-preview request resolves; a user
+    who Tab's onto "この日にする" (gathering-confirm-date-select) and presses
+    Enter in the gap between those two renders had
+    ``document.activeElement`` silently dropped to ``<body>`` before Enter's
+    own keydown ever fired, because the second render discarded the node
+    focus was on and built a brand-new one carrying the same test id.
+
+    The fix is a small capture-before-wipe/restore-after-rebuild pair,
+    duplicated verbatim (no shared-module system exists in this codebase,
+    the same reason ``el()``/``csrfToken()``/``requestJson()`` are already
+    duplicated per-file) across every file whose own ``render()`` wipes and
+    rebuilds: gathering.js, participant.js, gathering_create.js.
+    ``FocusRestoreAcrossRerenderExecutionTests`` below additionally proves
+    the extracted logic behaves correctly by executing it under Node.js
+    against a small hand-built fake DOM.
+    """
+
+    def test_every_render_driven_screen_carries_the_snippet(self):
+        for path in (GATHERING_JS, PARTICIPANT_JS, GATHERING_CREATE_JS):
+            source = path.read_text(encoding="utf-8")
+            self.assertIn(
+                _FOCUS_RESTORE_SNIPPET_BEGIN,
+                source,
+                f"{path.name} is missing the focus-restore-across-rerender snippet",
+            )
+
+    def test_the_three_files_carry_byte_identical_code(self):
+        gathering_code = _extract_focus_restore_code(GATHERING_JS.read_text(encoding="utf-8"))
+        participant_code = _extract_focus_restore_code(PARTICIPANT_JS.read_text(encoding="utf-8"))
+        gathering_create_code = _extract_focus_restore_code(
+            GATHERING_CREATE_JS.read_text(encoding="utf-8")
+        )
+
+        self.assertEqual(
+            gathering_code,
+            participant_code,
+            "gathering.js and participant.js must carry byte-identical copies "
+            "of the focus-restore helpers (only the leading prose comment's "
+            "own self-reference may differ).",
+        )
+        self.assertEqual(
+            gathering_code,
+            gathering_create_code,
+            "gathering.js and gathering_create.js must carry byte-identical "
+            "copies of the focus-restore helpers (only the leading prose "
+            "comment's own self-reference may differ).",
+        )
+
+    def test_render_captures_focus_before_wiping_the_dom_in_every_file(self):
+        for path in (GATHERING_JS, PARTICIPANT_JS, GATHERING_CREATE_JS):
+            source = path.read_text(encoding="utf-8")
+            render_index = source.index("function render() {")
+            capture_index = source.index(
+                "captureFocusDescriptor(root, document.activeElement)", render_index
+            )
+            wipe_index = source.index('root.innerHTML = "";', render_index)
+            self.assertLess(
+                capture_index,
+                wipe_index,
+                f"{path.name}'s render() must capture the currently-focused "
+                'element before wiping the DOM (root.innerHTML = ""), or '
+                "the reference is already gone by the time it is read",
+            )
+
+    def test_render_restores_focus_on_every_return_path_in_each_file(self):
+        for path, expected_restore_calls in (
+            (GATHERING_JS, 1),
+            (GATHERING_CREATE_JS, 1),
+            # participant.js's render() has two exit paths -- the
+            # loadFailure branch and the normal path -- and restores focus
+            # separately in each, rather than sharing one trailing call.
+            (PARTICIPANT_JS, 2),
+        ):
+            source = path.read_text(encoding="utf-8")
+            render_index = source.index("function render() {")
+            render_body = _extract_balanced_braces(source, render_index)
+            self.assertEqual(
+                render_body.count("restoreFocusFromDescriptor(root, focusDescriptor);"),
+                expected_restore_calls,
+                f"{path.name}'s render() must call restoreFocusFromDescriptor "
+                "after every DOM rebuild path",
+            )
+
+
+@unittest.skipUnless(shutil.which("node"), "Node.js is not on PATH in this environment")
+class FocusRestoreAcrossRerenderExecutionTests(SimpleTestCase):
+    """Executes the real, extracted capture/restore helpers with Node.js
+    against a small hand-built fake DOM (no jsdom dependency available in
+    this environment) -- proving the *behaviour*, not merely the presence of
+    the right-looking source text above.
+    """
+
+    _FAKE_DOM_HARNESS = """
+    function FakeElement(attrs) {
+      this._attrs = Object.assign({}, attrs || {});
+      this.children = [];
+      this.parent = null;
+      this.focusCalls = [];
+    }
+    Object.defineProperty(FakeElement.prototype, "disabled", {
+      get: function () {
+        return Object.prototype.hasOwnProperty.call(this._attrs, "disabled");
+      },
+    });
+    Object.defineProperty(FakeElement.prototype, "attributes", {
+      get: function () {
+        var attrs = this._attrs;
+        return Object.keys(attrs).map(function (name) {
+          return { name: name, value: String(attrs[name]) };
+        });
+      },
+    });
+    FakeElement.prototype.appendChild = function (child) {
+      child.parent = this;
+      this.children.push(child);
+      return child;
+    };
+    FakeElement.prototype.getAttribute = function (name) {
+      return Object.prototype.hasOwnProperty.call(this._attrs, name) ? this._attrs[name] : null;
+    };
+    FakeElement.prototype.contains = function (node) {
+      var cur = node;
+      while (cur) {
+        if (cur === this) return true;
+        cur = cur.parent;
+      }
+      return false;
+    };
+    FakeElement.prototype.querySelectorAll = function (selector) {
+      var match = /^\\[data-testid="([^"]+)"\\]$/.exec(selector);
+      if (!match) { throw new Error("unsupported selector in fake DOM: " + selector); }
+      var testId = match[1];
+      var results = [];
+      function walk(node) {
+        node.children.forEach(function (child) {
+          if (child.getAttribute("data-testid") === testId) { results.push(child); }
+          walk(child);
+        });
+      }
+      walk(this);
+      return results;
+    };
+    FakeElement.prototype.focus = function (opts) {
+      this.focusCalls.push(opts || null);
+    };
+    """
+
+    def _run_scenario(self, path, scenario_js: str) -> str:
+        snippet = _extract_focus_restore_snippet(path.read_text(encoding="utf-8"))
+        script = self._FAKE_DOM_HARNESS + "\n" + snippet + "\n" + scenario_js
+        result = subprocess.run(
+            ["node", "-e", script],
+            capture_output=True,
+            encoding="utf-8",
+            timeout=30,
+            check=True,
+        )
+        return result.stdout.strip()
+
+    def test_a_unique_control_is_refocused_after_rebuild(self):
+        for path in (GATHERING_JS, PARTICIPANT_JS, GATHERING_CREATE_JS):
+            output = self._run_scenario(
+                path,
+                """
+                var testId = "gathering-confirm-date-select";
+                var root = new FakeElement({});
+                var confirmBtn = new FakeElement({ "data-testid": testId });
+                root.appendChild(confirmBtn);
+                var descriptor = captureFocusDescriptor(root, confirmBtn);
+                root.children = [];
+                var rebuilt = new FakeElement({ "data-testid": testId });
+                root.appendChild(rebuilt);
+                restoreFocusFromDescriptor(root, descriptor);
+                console.log(JSON.stringify(rebuilt.focusCalls));
+                """,
+            )
+            self.assertEqual(output, '[{"preventScroll":true}]', path.name)
+
+    def test_a_row_is_disambiguated_by_its_own_data_attribute_regardless_of_order(self):
+        for path in (GATHERING_JS, PARTICIPANT_JS, GATHERING_CREATE_JS):
+            output = self._run_scenario(
+                path,
+                """
+                var testId = "gathering-candidate-date";
+                function row(dateId) {
+                  return new FakeElement({
+                    "data-testid": testId,
+                    "data-candidate-date-id": dateId,
+                  });
+                }
+                var root = new FakeElement({});
+                var row1 = row("date-1");
+                var row2 = row("date-2");
+                root.appendChild(row1);
+                root.appendChild(row2);
+                var descriptor = captureFocusDescriptor(root, row2);
+                root.children = [];
+                // Reversed order on rebuild -- disambiguation must not
+                // depend on position when a real disambiguating attribute
+                // is present.
+                var newRow2 = row("date-2");
+                var newRow1 = row("date-1");
+                root.appendChild(newRow2);
+                root.appendChild(newRow1);
+                restoreFocusFromDescriptor(root, descriptor);
+                console.log(JSON.stringify({
+                  matched: newRow2.focusCalls.length,
+                  other: newRow1.focusCalls.length,
+                }));
+                """,
+            )
+            self.assertEqual(output, '{"matched":1,"other":0}', path.name)
+
+    def test_a_removed_row_is_not_replaced_by_an_unrelated_sibling(self):
+        for path in (GATHERING_JS, PARTICIPANT_JS, GATHERING_CREATE_JS):
+            output = self._run_scenario(
+                path,
+                """
+                var testId = "gathering-candidate-date";
+                function row(dateId) {
+                  return new FakeElement({
+                    "data-testid": testId,
+                    "data-candidate-date-id": dateId,
+                  });
+                }
+                var root = new FakeElement({});
+                var row1 = row("date-1");
+                root.appendChild(row1);
+                var descriptor = captureFocusDescriptor(root, row1);
+                root.children = [];
+                var onlyOtherRow = row("date-2");
+                root.appendChild(onlyOtherRow);
+                restoreFocusFromDescriptor(root, descriptor);
+                console.log(JSON.stringify(onlyOtherRow.focusCalls));
+                """,
+            )
+            self.assertEqual(output, "[]", path.name)
+
+    def test_a_now_disabled_control_is_not_focused(self):
+        for path in (GATHERING_JS, PARTICIPANT_JS, GATHERING_CREATE_JS):
+            output = self._run_scenario(
+                path,
+                """
+                var testId = "gathering-confirm-date-select";
+                var root = new FakeElement({});
+                var btn = new FakeElement({ "data-testid": testId });
+                root.appendChild(btn);
+                var descriptor = captureFocusDescriptor(root, btn);
+                root.children = [];
+                var rebuiltDisabled = new FakeElement({ "data-testid": testId, disabled: "" });
+                root.appendChild(rebuiltDisabled);
+                restoreFocusFromDescriptor(root, descriptor);
+                console.log(JSON.stringify(rebuiltDisabled.focusCalls));
+                """,
+            )
+            self.assertEqual(output, "[]", path.name)
+
+    def test_focus_outside_the_container_yields_a_null_descriptor(self):
+        for path in (GATHERING_JS, PARTICIPANT_JS, GATHERING_CREATE_JS):
+            output = self._run_scenario(
+                path,
+                """
+                var testId = "gathering-confirm-date-select";
+                var root = new FakeElement({});
+                var outsider = new FakeElement({ "data-testid": testId });
+                var descriptor = captureFocusDescriptor(root, outsider);
+                console.log(JSON.stringify(descriptor));
+                """,
+            )
+            self.assertEqual(output, "null", path.name)
+
+    def test_an_attribute_less_repeated_control_falls_back_to_position(self):
+        for path in (GATHERING_JS, PARTICIPANT_JS, GATHERING_CREATE_JS):
+            output = self._run_scenario(
+                path,
+                """
+                var testId = "gathering-candidate-date-remove";
+                function removeButton() {
+                  return new FakeElement({ "data-testid": testId });
+                }
+                var root = new FakeElement({});
+                var remove1 = removeButton();
+                var remove2 = removeButton();
+                root.appendChild(remove1);
+                root.appendChild(remove2);
+                var descriptor = captureFocusDescriptor(root, remove2);
+                root.children = [];
+                var newRemove1 = removeButton();
+                var newRemove2 = removeButton();
+                root.appendChild(newRemove1);
+                root.appendChild(newRemove2);
+                restoreFocusFromDescriptor(root, descriptor);
+                console.log(JSON.stringify({
+                  index: descriptor.index,
+                  first: newRemove1.focusCalls.length,
+                  second: newRemove2.focusCalls.length,
+                }));
+                """,
+            )
+            self.assertEqual(output, '{"index":1,"first":0,"second":1}', path.name)
