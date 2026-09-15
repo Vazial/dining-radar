@@ -90,14 +90,8 @@ TDR-CS-22 新規、TDR-CS-20・TDR-GTH-44 の前提を「別の1件をすでに�
   食い違う）／確定後の決定がスクロールしないと見えない。
 - **板なしで直したもの**: 「再コピー」がクリップボードに書き込んでいなかった（確定前も含め一度もコピーして
   いなかった。L4 は属性しか見ていなかった）／参加者画面の読み込みと日程回答のたびに、投票開始前でも
-  provider の実取得を待っていた／render() の全作り直しがキーボードフォーカスを消す不具合
-  （orchestrator が実機で再現確定。gathering.js・participant.js・gathering_create.js の render() に
-  data-testid＋区別用 data-* 属性でフォーカス中の要素を捕まえ、作り直し後に同じ要素が見つかり操作可能
-  ならそこへ `focus({preventScroll:true})` する capture/restore の対を追加。3ファイルとも
-  byte-identical（`shared-date-formatting` と同じ流儀）。単体テストは `tests/test_gathering.py` の
-  `FocusRestoreAcrossRerenderSourceTests`（ソース検査）・`FocusRestoreAcrossRerenderExecutionTests`
-  （Node.js＋手製フェイク DOM での実行検査、node 不在なら skip）。ブランチ
-  `fix/dining-radar-recopy-clipboard-and-answer-latency`）。
+  provider の実取得を待っていた／会の画面の描き直しがキーボードのフォーカスを消していた（L5 の間欠失敗
+  `test_b_gathering_dashboard_core_controls_are_keyboard_operable` の真因。応答を保留して再現してから直した）。
 - **別スライスのメモ（会の進み方。product-brief の改訂と ADR が要る規模）**: 日を決めてからでないと店を
   選べない／日を決めた後に変えられない／会から開いていない店を絞る画面は見るだけで行き先がない
   （店から会を作る導線に使えるとよい）。
