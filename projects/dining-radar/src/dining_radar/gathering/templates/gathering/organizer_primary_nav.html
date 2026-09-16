@@ -1,47 +1,132 @@
 {% load static %}
 {% comment %}
-  The two persistent locations (ADR-0054 decision 1, 2026-09-12 human
-  decision): "ランチ候補をさがす" and "ランチ会" stay reachable from every
-  organizer-facing gathering screen -- fixing the production report "会に
-  入ると出られない" (candidate-gathering-entry's own label text disappearing
-  entirely at narrow widths on the candidate-search screen).
+  ADR-0059 (2026-09-16 human decision, 束A "上部ナビと会への戻り道"):
+  replaces ADR-0054 decision 1's single always-visible-label nav with two
+  mutually exclusive render-mode shapes (candidate-search-browser-
+  interface.yaml's renderModes.twoColumnLayout / mapPrimaryTouchLayout) --
+  a desktop ≡ menu (candidate-primary-nav-menu-toggle/-panel) and a mobile
+  bottom bar (candidate-primary-nav-bar) plus its own account sheet. Both
+  are server-rendered unconditionally here (authentication-browser-
+  interface.yaml's renderModel requires auth-sign-out/
+  auth-password-change-open to exist in server-rendered HTML, not be
+  JS-inserted -- the note there scopes that Must to TDR-AUTH's own '/'
+  entry, but there is no harm in this screen meeting it too); each of
+  gathering.js/gathering_create.js/gathering_list.js's own
+  initializePrimaryNav() removes whichever one does not match the current
+  viewport at DOMContentLoaded, so exactly one survives in the live DOM
+  (renderModes.invariant -- crossFileSharedNavigation's own "present,
+  unconditionally, on every one of this file's own... screens").
 
-  candidate-gathering-entry itself is normatively defined by
-  contracts/candidate-search-browser-interface.yaml's gatheringEntry section
-  (that file's own header note: "gathering-scheduling-browser-interface.yaml
-  itself declares no test id of its own for this cross-screen presence...
-  this paragraph is the sole normative source for it"). This partial is this
-  app's (gathering's) own implementation of that cross-file requirement --
-  a plain, server-rendered `<a href>` (not a `<button>` and not an element
-  with an interactive ARIA role), the same style
-  web/templates/web/home.html's own copy uses, so it stays outside
-  unavailableControls.allGatheringScreenFormControlsMustDeclarePurpose's scan
-  the same way that copy stays outside the candidate-search contract's
-  identical scan. The badge (candidate-gathering-entry-badge) is attached by
-  each screen's own script once gathering-scheduling-api.yaml's
-  getInProgressGatheringCount responds (duplicated per script, no shared
-  module system exists in this codebase).
+  candidate-gathering-entry (the chip) is deliberately NOT reproduced
+  here: gatheringEntry.entry.requirement (as revised by ADR-0059) is
+  present only on the candidate-search screen itself, and only outside
+  gathering-scheduling-browser-interface.yaml's own three organizer-facing
+  screens -- this partial IS one of those three screens, so the chip must
+  never appear here (ADR-0059 決定2 reverses ADR-0054 決定1's "unconditional
+  on every organizer-facing screen too" for this element specifically; see
+  candidate-primary-nav-menu-gathering/candidate-primary-nav-gathering
+  below, which carry the same "ランチ会" destination unconditionally
+  instead).
 
-  **Coordination note for the candidate-search/web developer (this file's
-  scope is `src/dining_radar/gathering/**` only, `web/` is out of bounds
-  here)**: web/templates/web/home.html's own candidate-gathering-entry copy
-  still (a) hides its label text entirely below the 64rem breakpoint (a
-  `display: none` rule this ADR explicitly retracts) and (b) still reads
-  "会" rather than "ランチ会" (the wording contracts/candidate-search-
-  browser-interface.yaml's own gatheringEntry.entry.requirement text now
-  quotes as the current wording). Both are `web/`-side edits this developer
-  did not make. If this becomes one shared, code-level component rather than
-  two hand-kept copies, that refactor needs to be coordinated through a PR
-  both developers review (CLAUDE.md's "role agents and parallel operation"
-  section) -- this partial does not attempt that on its own.
+  data-primary-nav-current is hardcoded here (not JS-computed, unlike
+  home.html's own copy): every screen this partial is included from is
+  statically known, server-side, to be one of gathering-scheduling-
+  browser-interface.yaml's own organizer-facing screens, so "current" for
+  the ランチ会 destination is always true and "current" for the さがす
+  destination is always false on every one of these three screens
+  (gatheringEntry.mobileBarGathering/menuDestinationGathering's own
+  requirement text). The ランチ会 destination's own href always points at
+  the gathering list (organizer-gathering-list) -- these three screens
+  have no candidate-search-side gatheringContext of their own to branch
+  browserActions.openGatheringEntry/returnToGatheringFromEntry on, unlike
+  home.html's own copy (candidate.js's syncPrimaryNavGatheringLinks).
+
+  Duplicated, byte-for-byte in spirit, from
+  web/templates/web/home.html's own copy and organizer.css's own
+  ".primary-nav-*" rules (this codebase's existing no-shared-module-system
+  convention, kept in sync by hand across the two Django apps).
 {% endcomment %}
-<nav class="gathering-primary-nav" aria-label="ランチ機能">
-  <a href="{% url 'web:home' %}" class="gathering-primary-nav-link">
-    <span aria-hidden="true">🔍</span><span class="gathering-primary-nav-label">ランチ候補をさがす</span>
-  </a>
+<div data-primary-nav-desktop class="primary-nav-desktop">
+  <details class="primary-nav-menu">
+    <summary
+      data-testid="candidate-primary-nav-menu-toggle"
+      data-candidate-control-category="button"
+      data-candidate-control-purpose="candidate-primary-nav-menu-toggle"
+      class="primary-nav-menu-toggle"
+    ><span aria-hidden="true">☰</span><span class="visually-hidden">メニュー</span></summary>
+    <div data-testid="candidate-primary-nav-menu-panel" class="primary-nav-menu-panel">
+      <a
+        href="{% url 'web:home' %}"
+        data-testid="candidate-primary-nav-menu-search"
+        data-primary-nav-current="false"
+        class="primary-nav-menu-link"
+      ><span aria-hidden="true">🔍</span>ランチ候補をさがす</a>
+      <a
+        href="{% url 'gathering:organizer-gathering-list' %}"
+        data-testid="candidate-primary-nav-menu-gathering"
+        data-primary-nav-current="true"
+        class="primary-nav-menu-link"
+      ><span aria-hidden="true">🍽</span>ランチ会</a>
+      <a
+        href="{% url 'authentication:password_change' %}"
+        data-testid="auth-password-change-open"
+        data-candidate-control-category="button"
+        data-candidate-control-purpose="auth-password-change-open"
+        class="primary-nav-menu-link"
+      >パスワード変更</a>
+      <form method="post" action="{% url 'authentication:logout' %}" data-testid="auth-sign-out-form" class="primary-nav-menu-form">
+        {% csrf_token %}
+        <button
+          type="submit"
+          data-testid="auth-sign-out"
+          data-candidate-control-category="button"
+          data-candidate-control-purpose="auth-sign-out"
+          class="primary-nav-menu-link"
+        >サインアウト</button>
+      </form>
+    </div>
+  </details>
+</div>
+<nav data-testid="candidate-primary-nav-bar" data-primary-nav-mobile class="primary-nav-bar" aria-label="ランチ機能">
+  <a
+    href="{% url 'web:home' %}"
+    data-testid="candidate-primary-nav-search"
+    data-primary-nav-current="false"
+    class="primary-nav-bar-link"
+  ><span aria-hidden="true">🔍</span><span class="primary-nav-bar-label">さがす</span></a>
   <a
     href="{% url 'gathering:organizer-gathering-list' %}"
-    data-testid="candidate-gathering-entry"
-    class="candidate-gathering-entry"
-  ><span aria-hidden="true">🍽</span><span class="candidate-gathering-entry-label">ランチ会</span></a>
+    data-testid="candidate-primary-nav-gathering"
+    data-primary-nav-current="true"
+    class="primary-nav-bar-link"
+  ><span aria-hidden="true">🍽</span><span class="primary-nav-bar-label">ランチ会</span></a>
+  <button
+    type="button"
+    data-testid="candidate-primary-nav-account"
+    data-candidate-control-category="button"
+    data-candidate-control-purpose="auth-account-menu-toggle"
+    class="primary-nav-bar-link primary-nav-bar-account"
+    aria-haspopup="true"
+    aria-expanded="false"
+    aria-controls="primary-nav-account-sheet"
+  ><span aria-hidden="true">👤</span><span class="primary-nav-bar-label">アカウント</span></button>
 </nav>
+<div id="primary-nav-account-sheet" data-primary-nav-mobile class="primary-nav-account-sheet" hidden>
+  <a
+    href="{% url 'authentication:password_change' %}"
+    data-testid="auth-password-change-open"
+    data-candidate-control-category="button"
+    data-candidate-control-purpose="auth-password-change-open"
+    class="primary-nav-account-sheet-link"
+  >パスワード変更</a>
+  <form method="post" action="{% url 'authentication:logout' %}" data-testid="auth-sign-out-form" class="primary-nav-account-sheet-form">
+    {% csrf_token %}
+    <button
+      type="submit"
+      data-testid="auth-sign-out"
+      data-candidate-control-category="button"
+      data-candidate-control-purpose="auth-sign-out"
+      class="primary-nav-account-sheet-link"
+    >サインアウト</button>
+  </form>
+</div>

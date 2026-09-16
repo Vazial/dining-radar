@@ -57,6 +57,64 @@ GATHERING_CREATE_TEMPLATE = (
     / "gathering"
     / "organizer_gathering_create.html"
 )
+GATHERING_LIST_TEMPLATE = (
+    PROJECT_ROOT
+    / "src"
+    / "dining_radar"
+    / "gathering"
+    / "templates"
+    / "gathering"
+    / "organizer_gathering_list.html"
+)
+PRIMARY_NAV_PARTIAL = (
+    PROJECT_ROOT
+    / "src"
+    / "dining_radar"
+    / "gathering"
+    / "templates"
+    / "gathering"
+    / "organizer_primary_nav.html"
+)
+ORGANIZER_CSS = (
+    PROJECT_ROOT
+    / "src"
+    / "dining_radar"
+    / "gathering"
+    / "static"
+    / "dining_radar"
+    / "gathering"
+    / "organizer.css"
+)
+GATHERING_SCRIPT = (
+    PROJECT_ROOT
+    / "src"
+    / "dining_radar"
+    / "gathering"
+    / "static"
+    / "dining_radar"
+    / "gathering"
+    / "gathering.js"
+)
+GATHERING_CREATE_SCRIPT = (
+    PROJECT_ROOT
+    / "src"
+    / "dining_radar"
+    / "gathering"
+    / "static"
+    / "dining_radar"
+    / "gathering"
+    / "gathering_create.js"
+)
+GATHERING_LIST_SCRIPT = (
+    PROJECT_ROOT
+    / "src"
+    / "dining_radar"
+    / "gathering"
+    / "static"
+    / "dining_radar"
+    / "gathering"
+    / "gathering_list.js"
+)
 
 
 class GatheringCalendarNoLongerVendorsFlatpickrTests(SimpleTestCase):
@@ -492,3 +550,222 @@ class LeafletVendoringRenderedPageTests(TestCase):
         self.assertNotIn("unpkg.com", body)
         self.assertNotIn("cdn.jsdelivr.net", body)
         self.assertNotIn("cdnjs.cloudflare.com", body)
+
+
+class PrimaryNavSourceTests(SimpleTestCase):
+    """ADR-0059 (2026-09-16, 束A「上部ナビと会への戻り道」): the redrawn
+    primary nav (desktop ≡ menu / mobile bottom bar, both mutually
+    exclusive render-mode shapes) and the "入れた瞬間の小窓" return path.
+    Mirrors this module's own CandidateSurfaceSourceTests source-text-
+    assertion style -- these are markup/JS structural checks, not a
+    substitute for tests/acceptance's own browser-executed L4/L5 coverage.
+    """
+
+    def test_home_template_server_renders_both_render_mode_shapes_unconditionally(self):
+        source = HOME_TEMPLATE.read_text(encoding="utf-8")
+
+        # authentication-browser-interface.yaml's renderModel (2026-09-16
+        # amendment): auth-sign-out/auth-password-change-open must exist in
+        # server-rendered HTML, not be JS-inserted -- both the desktop menu
+        # panel and the mobile account sheet carry their own copy here
+        # (candidate.js's initializePrimaryNav removes whichever one does
+        # not match the viewport at DOMContentLoaded, after the raw HTTP
+        # response TDR-AUTH reads has already carried both).
+        self.assertIn("data-primary-nav-desktop", source)
+        self.assertIn('data-testid="candidate-primary-nav-menu-toggle"', source)
+        self.assertIn('data-candidate-control-purpose="candidate-primary-nav-menu-toggle"', source)
+        self.assertIn('data-testid="candidate-primary-nav-menu-panel"', source)
+        self.assertIn('data-testid="candidate-primary-nav-menu-search"', source)
+        self.assertIn('data-testid="candidate-primary-nav-menu-gathering"', source)
+        self.assertIn("data-primary-nav-mobile", source)
+        self.assertIn('data-testid="candidate-primary-nav-bar"', source)
+        self.assertIn('data-testid="candidate-primary-nav-search"', source)
+        self.assertIn('data-testid="candidate-primary-nav-gathering"', source)
+        self.assertIn('data-testid="candidate-primary-nav-account"', source)
+        self.assertIn('data-candidate-control-purpose="auth-account-menu-toggle"', source)
+        self.assertIn('id="primary-nav-account-sheet"', source)
+        # Each of the two account-control copies (menu panel, mobile sheet)
+        # carries its own auth-sign-out/auth-password-change-open, per
+        # menuPanel/mobileBarAccount's own requirement text -- both testids
+        # appear (at least) twice in the raw template source.
+        self.assertEqual(source.count('data-testid="auth-sign-out"'), 2)
+        self.assertEqual(source.count('data-testid="auth-password-change-open"'), 2)
+
+    def test_home_template_never_server_renders_the_chip(self):
+        # gatheringEntry.entry.requirement (revised 2026-09-16): the chip
+        # itself (not only its badge) must be entirely absent from the DOM
+        # at count zero -- candidate.js builds it in full, once fetched
+        # (loadGatheringEntryBadge), never server-rendered in home.html.
+        source = HOME_TEMPLATE.read_text(encoding="utf-8")
+
+        self.assertNotIn('data-testid="candidate-gathering-entry"', source)
+
+    def test_home_template_retires_the_old_adr_0054_nav_and_account_menu(self):
+        source = HOME_TEMPLATE.read_text(encoding="utf-8")
+
+        self.assertNotIn('class="gathering-primary-nav"', source)
+        self.assertNotIn('data-testid="auth-account-menu-toggle"', source)
+        self.assertNotIn('class="candidate-account-menu"', source)
+        self.assertNotIn('class="account-nav"', source)
+
+    def test_home_template_heading_reads_the_2026_09_16_wording(self):
+        # ADR-0059 decision 7: this heading carries no contract test id, so
+        # the wording change is implementation-only.
+        source = HOME_TEMPLATE.read_text(encoding="utf-8")
+
+        self.assertIn("<h1>ランチ候補をさがす</h1>", source)
+        self.assertNotIn("<h1>ランチ候補</h1>", source)
+
+    def test_home_template_shortlist_toast_test_ids_are_present(self):
+        source = HOME_TEMPLATE.read_text(encoding="utf-8")
+
+        self.assertIn("candidate-gathering-shortlist-toast", source)
+        self.assertIn("candidate-gathering-shortlist-toast-return", source)
+
+    def test_organizer_primary_nav_partial_matches_the_render_mode_shapes(self):
+        source = PRIMARY_NAV_PARTIAL.read_text(encoding="utf-8")
+
+        self.assertIn('data-testid="candidate-primary-nav-menu-toggle"', source)
+        self.assertIn('data-testid="candidate-primary-nav-menu-panel"', source)
+        self.assertIn('data-testid="candidate-primary-nav-menu-search"', source)
+        self.assertIn('data-testid="candidate-primary-nav-menu-gathering"', source)
+        self.assertIn('data-testid="candidate-primary-nav-bar"', source)
+        self.assertIn('data-testid="candidate-primary-nav-search"', source)
+        self.assertIn('data-testid="candidate-primary-nav-gathering"', source)
+        self.assertIn('data-testid="candidate-primary-nav-account"', source)
+        self.assertIn('id="primary-nav-account-sheet"', source)
+        self.assertEqual(source.count('data-testid="auth-sign-out"'), 2)
+        self.assertEqual(source.count('data-testid="auth-password-change-open"'), 2)
+
+    def test_organizer_primary_nav_partial_never_renders_the_chip(self):
+        # ADR-0059 decision 2 reverses ADR-0054 decision 1's "unconditional
+        # on every organizer-facing screen too" for candidate-gathering-
+        # entry specifically -- gatheringEntry.entry.requirement now
+        # excludes these three screens.
+        source = PRIMARY_NAV_PARTIAL.read_text(encoding="utf-8")
+
+        self.assertNotIn('data-testid="candidate-gathering-entry"', source)
+
+    def test_organizer_primary_nav_partial_hardcodes_current_location(self):
+        # These three screens are always "current" for the ランチ会
+        # destination and never "current" for さがす -- no JS is needed for
+        # this (unlike home.html's own JS-computed copy, which must react
+        # to gathering mode on the *same* URL).
+        source = PRIMARY_NAV_PARTIAL.read_text(encoding="utf-8")
+
+        self.assertIn(
+            'data-testid="candidate-primary-nav-menu-search"\n'
+            '        data-primary-nav-current="false"',
+            source,
+        )
+        self.assertIn(
+            'data-testid="candidate-primary-nav-menu-gathering"\n'
+            '        data-primary-nav-current="true"',
+            source,
+        )
+        self.assertIn(
+            'data-testid="candidate-primary-nav-search"\n    data-primary-nav-current="false"',
+            source,
+        )
+        self.assertIn(
+            'data-testid="candidate-primary-nav-gathering"\n    data-primary-nav-current="true"',
+            source,
+        )
+
+    def test_three_gathering_templates_include_the_primary_nav_partial(self):
+        for template in (DASHBOARD_TEMPLATE, GATHERING_CREATE_TEMPLATE, GATHERING_LIST_TEMPLATE):
+            with self.subTest(template=template.name):
+                source = template.read_text(encoding="utf-8")
+                self.assertIn('{% include "gathering/organizer_primary_nav.html" %}', source)
+
+    def test_organizer_css_defines_the_new_primary_nav_classes_not_the_old_ones(self):
+        source = ORGANIZER_CSS.read_text(encoding="utf-8")
+
+        self.assertIn(".primary-nav-menu-toggle {", source)
+        self.assertIn(".primary-nav-menu-panel {", source)
+        self.assertIn(".primary-nav-bar {", source)
+        self.assertIn(".primary-nav-account-sheet {", source)
+        self.assertNotIn(".gathering-primary-nav {", source)
+        self.assertNotIn(".gathering-primary-nav-link", source)
+
+    def test_candidate_js_band_is_a_status_only_div_with_no_navigation(self):
+        # ADR-0059 decision 5: gatheringMode.band.navigationNote -- the band
+        # is no longer returnToGatheringFromBand's input; renderGathering
+        # ModeBand must build a plain, href-less <div>, and the retired
+        # browserAction/empty|filled navigation-styled classes must not
+        # resurface.
+        source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        band_fn_start = source.index("function renderGatheringModeBand(context) {")
+        band_fn_end = source.index("\n  }\n", band_fn_start)
+        band_fn_source = source[band_fn_start:band_fn_end]
+        self.assertIn('el(\n      "div",', band_fn_source)
+        self.assertNotIn("href:", band_fn_source)
+
+        self.assertNotIn("returnToGatheringFromBand", source)
+        self.assertNotIn('"candidate-gathering-mode-band--empty"', source)
+        self.assertNotIn('"candidate-gathering-mode-band--filled"', source)
+
+    def test_candidate_js_builds_the_shortlist_toast_only_on_an_addition(self):
+        source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("function renderGatheringShortlistToast(context) {", source)
+        self.assertIn("function dismissGatheringShortlistToast() {", source)
+        self.assertIn('"data-testid": "candidate-gathering-shortlist-toast"', source)
+        self.assertIn('"data-testid": "candidate-gathering-shortlist-toast-return"', source)
+        self.assertIn("var isAddition = false;", source)
+        self.assertIn(
+            "if (isAddition) {\n          renderGatheringShortlistToast(currentGatheringContext);\n"
+            "        }",
+            source,
+        )
+        # shortlistToast.presenceRule: does not self-dismiss once
+        # shortlistedShopCount equals maxShortlistedShops -- the timer is
+        # only started in the non-limit-reached branch.
+        self.assertIn("if (!limitReached) {\n      shortlistToastDismissTimer", source)
+
+    def test_candidate_js_defines_initialize_primary_nav_and_sync_helpers(self):
+        source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("function initializePrimaryNav() {", source)
+        self.assertIn("function syncPrimaryNavGatheringLinks() {", source)
+        self.assertIn("initializePrimaryNav();", source)
+        # renderModes.invariant: exactly one render-mode nav survives --
+        # the other's whole subtree is removed outright (never merely
+        # hidden), mirroring this file's own isTwoColumnLayout precedent.
+        self.assertIn('document.querySelectorAll("[data-primary-nav-mobile]")', source)
+        self.assertIn('document.querySelector("[data-primary-nav-desktop]")', source)
+        # gatheringEntry.menuDestinationSearch/mobileBarSearch's own no-op
+        # rule (activating it while already current does not reload).
+        self.assertIn("event.preventDefault();", source)
+        # Esc closes both the ≡ <details> and the mobile account sheet.
+        self.assertIn('event.key !== "Escape" && event.key !== "Esc"', source)
+
+    def test_candidate_js_no_longer_builds_the_chip_from_a_static_element(self):
+        # loadGatheringEntryBadge must build the whole chip in full (not
+        # look one up that home.html no longer server-renders).
+        source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        badge_fn_start = source.index("function loadGatheringEntryBadge() {")
+        badge_fn_end = source.index("\n  }\n", badge_fn_start)
+        badge_fn_source = source[badge_fn_start:badge_fn_end]
+        self.assertIn('el(\n              "a",', badge_fn_source)
+        self.assertIn(
+            "document.querySelector('[data-testid=\"candidate-primary-nav-gathering\"]')",
+            badge_fn_source,
+        )
+
+    def test_gathering_scripts_define_initialize_primary_nav_and_drop_the_chip_lookup(self):
+        for script in (GATHERING_SCRIPT, GATHERING_CREATE_SCRIPT, GATHERING_LIST_SCRIPT):
+            with self.subTest(script=script.name):
+                source = script.read_text(encoding="utf-8")
+                self.assertIn("function initializePrimaryNav() {", source)
+                self.assertIn("initializePrimaryNav();", source)
+                self.assertIn(
+                    "document.querySelector('[data-testid=\"candidate-primary-nav-gathering\"]')",
+                    source,
+                )
+                # ADR-0059 decision 2: these three screens never build
+                # candidate-gathering-entry (the chip) at all any longer.
+                self.assertNotIn('"data-testid": "candidate-gathering-entry"', source)
+                self.assertNotIn("candidate-gathering-entry-badge", source)
