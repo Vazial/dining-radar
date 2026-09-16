@@ -635,11 +635,34 @@
 #   判定した）。dayCellのdata-dateと同じ値・同じ書式の`date: data-date`属性を各
 #   removeSelected項目にも足し、一覧だけで選択の集合を読めるようにした。
 #
+# 2026-09-14 追補17 (architect、ADR-0058。実機フィードバック2026-09-14「確定後にリンクの
+#   再コピーができない」。contractVersion 0.19.0 -> 0.20.0):
+# - **`participantLinkCopy`・`participantLinkList.item.recopy`のどちらのrequiredOutcomeにも、
+#   ブラウザのクリップボードへの書き込みをMustとして加えた**: `gathering-participant-
+#   link-recopy`はrecopy APIを呼び`data-issued-link-url`を立てるだけで、確定前も含め一度も
+#   クリップボードへ書き込んでいなかった。この契約はもともと（2026-08-30追補、本ファイル
+#   冒頭）クリップボードそのものへの書き込みを要求しておらず、`data-issued-link-url`だけを
+#   L4の検査対象としていたため、この見落としはL4を緑のまま通していた。
+# - 本ファイル冒頭の「クリップボードを信頼しない」という既存の方針は変えていない。その方針は
+#   L4が正しさの検査に生のOSクリップボードを使わないという意味であり、`data-issued-link-url`が
+#   引き続きL4の正しさの検査対象である。今回加えたのは製品としての書き込み義務であって、L4の
+#   検査手段ではない。Clipboard APIが実際に呼ばれたことを追加で確かめる技法（spyする、または
+#   permissionを与えて読む、等）はtest authorの裁量に残す。
+# - 拒否・非対応環境では書き込みをベストエフォートとし、失敗しても画面には何も出さない
+#   （FR-034、承認を得るための説明文を本番画面に置かない方針）。`data-issued-link-url`が常に
+#   この契約の唯一の必須観測チャネルである点は変わらない。
+# - `gathering-scheduling.feature`のTDR-GTH-03・TDR-GTH-17に、貼り付けて使える状態で得られる
+#   旨のAndを1行ずつ足した。新規シナリオIDは起こしていない——同じ操作の既存シナリオへの補強で
+#   あり、新しい業務規則ではないため。TDR-GTH-36（確定後の再コピー）へは重複させず、recopyの
+#   requiredOutcomeの注記でTDR-GTH-17と同じ扱いが確定後も続くことを明記するにとどめた——
+#   TDR-GTH-36が「そのリンクの回答状況は変わらない」をTDR-GTH-17の重複にせず注記で済ませている
+#   この契約の既存の流儀を踏襲した。
+#
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.19.0'
+contractVersion: '0.20.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -2219,6 +2242,23 @@ browserControlSurface:
         returned by that call. A new gathering-participant-link-item also
         appears in gathering-participant-link-list (see participantLinkList
         below), since issuing and listing share the same underlying data.
+        **Must also write that same URL to the browser clipboard**
+        (2026-09-14 addendum 17, ADR-0058, real-machine feedback that the
+        sibling recopy control never did this): activation calls the
+        Clipboard API (e.g. navigator.clipboard.writeText) with the
+        identical string held in data-issued-link-url, so a person using
+        this control can paste it without reading the attribute. If the
+        browser rejects the call or lacks the API, this contract requires
+        no visible notice, retry affordance, or other on-screen text about
+        that failure (FR-034: no explanatory prose in shipped screens); the
+        write is best-effort, its failure is silent, and
+        data-issued-link-url remains the attribute this contract requires
+        L4 to assert against regardless of whether the clipboard write
+        succeeded. This does not reverse the "don't trust the OS clipboard"
+        rationale stated two sentences above: correctness is still asserted
+        via data-issued-link-url, and whichever technique an acceptance
+        test additionally uses to confirm the Clipboard API was called is
+        left to the test author, not fixed by this contract.
     participantLinkList:
       description: >-
         The link-management surface (ADR-0036 decision 7, human concern
@@ -2300,7 +2340,15 @@ browserControlSurface:
             (TDR-GTH-17: "そのリンクの回答状況は変わらない"; TDR-GTH-36:
             this also holds once phase is FINALIZED). A participant
             re-visiting with the re-copied URL after FINALIZED reaches
-            participantAnswer.finalizedView below.
+            participantAnswer.finalizedView below. **Must also write that
+            same URL to the browser clipboard** (2026-09-14 addendum 17,
+            ADR-0058: real-machine feedback 2026-09-14 found this element
+            called recopyParticipantLink and set data-issued-link-url but
+            never wrote to the clipboard, in any phase, so a person
+            pressing it found nothing to paste): same convention and the
+            same silent-failure handling as participantLinkCopy.
+            requiredOutcome above, including once phase is FINALIZED
+            (TDR-GTH-36).
         revoke:
           testId: gathering-participant-link-revoke
           purpose: gathering-participant-link-revoke

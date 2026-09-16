@@ -768,6 +768,9 @@
       function (result) {
         if (result.status === 200) {
           state.recopiedLinkUrls[linkId] = result.body.url;
+          if (window.navigator && window.navigator.clipboard) {
+            window.navigator.clipboard.writeText(result.body.url).catch(function () {});
+          }
           render();
         }
       }
@@ -1712,7 +1715,94 @@
     );
   }
 
+  // --- focus-restore-across-rerender BEGIN (identical copy in
+  // participant.js/gathering_create.js; keep all three in sync) ---
+  //
+  // render() below fully rebuilds this screen's DOM on every state change
+  // (`root.innerHTML = ""`), including rebuilds triggered by an in-flight
+  // fetch's own follow-up response landing after the user has since moved
+  // keyboard focus onto a freshly built control (real-browser measurement,
+  // 2026-09-15: the organizer dashboard's tentativelySelectCandidateDate
+  // issues an open-shop-preview request and renders immediately, then
+  // renders again once that request resolves; when the user Tab'd to
+  // "この日にする" and pressed Enter in between, the second render silently
+  // dropped document.activeElement to <body> before Enter's own keydown
+  // ever fired -- the button still existed, but as a brand-new DOM node the
+  // browser had already un-focused). Every render()-driven screen in this
+  // codebase duplicates this same small capture/restore pair around its own
+  // rebuild (no shared module system exists here, the same reason
+  // el()/csrfToken()/requestJson() are already duplicated per-file).
+  //
+  // The identity carried across a rebuild is deliberately not a live DOM
+  // reference (the old node is gone) but this screen's own observable
+  // contract surface: data-testid, plus whichever other data-* attributes
+  // the same element actually carries (data-candidate-date-id/
+  // data-participant-link-id/data-shop-id disambiguate the common case of
+  // several same-data-testid rows; a control with none of those -- e.g.
+  // this screen's single gathering-confirm-date-select button -- needs
+  // none). Where even that full attribute set does not uniquely resolve (an
+  // attribute-less control repeated verbatim, e.g. several identical
+  // gathering-candidate-date-remove buttons), the position among same-
+  // data-testid elements at capture time is kept as a last-resort
+  // tiebreaker, since render() reproduces the same list order.
+  function captureFocusDescriptor(container, activeElement) {
+    if (!activeElement || !container.contains(activeElement)) {
+      return null;
+    }
+    var testId = activeElement.getAttribute("data-testid");
+    if (!testId) {
+      return null;
+    }
+    var attrs = {};
+    Array.prototype.forEach.call(activeElement.attributes, function (attribute) {
+      if (attribute.name.indexOf("data-") === 0 && attribute.name !== "data-testid") {
+        attrs[attribute.name] = attribute.value;
+      }
+    });
+    var sameTestId = Array.prototype.slice.call(
+      container.querySelectorAll('[data-testid="' + testId + '"]')
+    );
+    return { testId: testId, attrs: attrs, index: sameTestId.indexOf(activeElement) };
+  }
+
+  function findElementForFocusDescriptor(container, descriptor) {
+    if (!descriptor) {
+      return null;
+    }
+    var candidates = Array.prototype.slice.call(
+      container.querySelectorAll('[data-testid="' + descriptor.testId + '"]')
+    );
+    var attrKeys = Object.keys(descriptor.attrs);
+    // No disambiguating data-* attribute at all (a single unique control, or
+    // several verbatim-identical ones): the position among same-data-testid
+    // elements is the only signal available, and render() reproduces the
+    // same list order. Otherwise, only an exact attribute match counts as
+    // "the same element" -- falling back to position here could silently
+    // hand focus to an unrelated sibling row once the originally-focused
+    // one is actually gone (e.g. its own candidate date/shop/link was
+    // removed), which is worse than not restoring focus at all.
+    if (attrKeys.length === 0) {
+      return candidates[descriptor.index] || null;
+    }
+    var exact = candidates.filter(function (candidate) {
+      return attrKeys.every(function (key) {
+        return candidate.getAttribute(key) === descriptor.attrs[key];
+      });
+    });
+    return exact.length > 0 ? exact[0] : null;
+  }
+
+  function restoreFocusFromDescriptor(container, descriptor) {
+    var target = findElementForFocusDescriptor(container, descriptor);
+    if (!target || target.disabled || typeof target.focus !== "function") {
+      return;
+    }
+    target.focus({ preventScroll: true });
+  }
+  // --- focus-restore-across-rerender END ---
+
   function render() {
+    var focusDescriptor = captureFocusDescriptor(root, document.activeElement);
     if (activeAddCandidateDateCalendar) {
       activeAddCandidateDateCalendar.destroy();
       activeAddCandidateDateCalendar = null;
@@ -1810,6 +1900,7 @@
         pendingShortlistedShopMap.shops
       );
     }
+    restoreFocusFromDescriptor(root, focusDescriptor);
   }
 
   // contracts/candidate-search-browser-interface.yaml's gatheringEntry
