@@ -15,7 +15,16 @@
 # break this file's existing plain-HTTP observation. No scenario, test id,
 # or security observation changed. This amendment becomes durable when its
 # PR merges (meta/adr/0035 method (i)).
-contractVersion: '0.2'
+#
+# 2026-09-16 amendment (architect, dining-radar/adr/0059): generalizes
+# browserControlSurface.authenticated.renderModel's parenthetical example
+# to also name candidate-search-browser-interface.yaml's new
+# candidate-primary-nav-menu-toggle purpose (the desktop primary-navigation
+# menu, which also discloses auth-sign-out/auth-password-change-open) --
+# the same markup-level constraint this file already required for
+# auth-account-menu-toggle. No scenario, test id, or security observation
+# changed.
+contractVersion: '0.3'
 kind: acceptance-browser-interface
 scope: authentication
 profiles:
@@ -101,7 +110,9 @@ browserControlSurface:
       including auth-sign-out and auth-password-change-open when an
       implementation groups them behind a disclosure control (for example
       candidate-search-browser-interface.yaml's auth-account-menu-toggle
-      purpose, added by projects/dining-radar/adr/0013) -- must exist
+      purpose, added by projects/dining-radar/adr/0013, or its
+      candidate-primary-nav-menu-toggle purpose, added 2026-09-16 by
+      projects/dining-radar/adr/0059) -- must exist
       in the server-rendered HTML markup returned by that response. A
       control that only client-side JavaScript inserts into the DOM after
       load is absent for this profile's purposes, even though a JS-capable
@@ -111,7 +122,14 @@ browserControlSurface:
       visibility, exactly as semanticObservations.individualAccountGuidance
       below already establishes for that control. Only client-JS-only
       insertion (the control does not exist in the raw HTTP response at
-      all) is forbidden by this profile.
+      all) is forbidden by this profile. Note that
+      gathering-scheduling-browser-interface.yaml's own organizer-facing
+      screens (where these same disclosure controls also appear as of
+      adr/0059) are verified by a JS-capable browser automation DSL, not
+      this file's plain-HTTP DSL (that file's own renderModel key) -- this
+      paragraph's markup-level constraint is specific to TDR-AUTH's own
+      test surface (the '/' entry) and does not itself extend enforcement
+      to those screens.
     semanticObservations:
       individualAccountGuidance:
         testId: auth-individual-account-guidance

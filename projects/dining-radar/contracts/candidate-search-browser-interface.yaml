@@ -376,8 +376,54 @@
 # - `setShortlistedShops`のminItems: 1（P2、adr/0041）自体は変更しない——gathering-scheduling-
 #   api.yamlの公開スキーマ・制約は無変更（説明文のみの是正はADR-0057決定5、同ファイル側の
 #   .spec参照）。
+#
+# 2026-09-16 追補 (architect、ADR-0059。実機フィードバック第2便・束A（上部ナビ・会への戻り道、
+# 2026-09-15〜16人間裁定）。contractVersionを1.11.0から1.12.0へ上げる):
+# - **常設ナビをレンダーモードごとに作り直す**（ADR-0059決定1・2）: `authenticatedInitialOutcome.
+#   present`から`candidate-gathering-entry`を外す——その存在条件はもうビューポート非依存では
+#   ないため（下記のとおり両モードで別の形を取り、PC側はさらに件数と画面によって不在にもなる）。
+#   `renderModes.mapPrimaryTouchLayout.testIds`へ新設`candidate-primary-nav-bar`
+#   （下部固定ナビ、常設・3項目: `candidate-primary-nav-search`・`candidate-primary-nav-gathering`
+#   ・`candidate-primary-nav-account`）を追加し、`renderModes.twoColumnLayout.testIds`へ新設
+#   `candidate-primary-nav-menu-toggle`（右上の≡、常設）を追加した。
+# - **`gatheringEntry`節を拡張する**（ADR-0059決定2・3・4）: 新設`menuToggle`
+#   （`candidate-primary-nav-menu-toggle`、purpose新設）・`menuPanel`
+#   （`candidate-primary-nav-menu-panel`、開くと`candidate-primary-nav-menu-search`/
+#   `-gathering`の2destinationと既存`auth-sign-out`/`auth-password-change-open`が並ぶ）・
+#   `mobileBar`（`candidate-primary-nav-bar`とその3項目、`candidate-primary-nav-account`は
+#   既存purpose`auth-account-menu-toggle`を再利用）を新設した。既存`entry`（チップ、testId
+#   `candidate-gathering-entry`無変更）の`requirement`を書き換え、present条件を
+#   「`twoColumnLayout`成立中・`data-in-progress-gathering-count`>0・かつ
+#   `gathering-scheduling-browser-interface.yaml`の3画面（一覧・作成・詳細）の中ではない」へ
+#   改めた——**ADR-0054決定1の「モバイル幅でも文字を消さない・会の画面群でも常設」という文を、
+#   PCの0件時・会の画面群の中でだけ覆す**（モバイルは新設`mobileBar`が同じ役目を常設で引き継ぐ
+#   ため後退ではない）。
+# - **会モードのナビ行き先を切り替える**（ADR-0059決定4）: `browserActions.openGatheringEntry`
+#   の`input`を`[candidate-gathering-entry, candidate-primary-nav-gathering,
+#   candidate-primary-nav-menu-gathering]`へ広げ、`precondition`に
+#   「gatheringContextがnullである」を追加した。新設`browserActions.
+#   returnToGatheringFromEntry`が同じ3入力を共有し、`precondition`は逆
+#   （gatheringContextが非null）——押した結果、通常時は会の一覧へ、会モード中はその会の
+#   幹事ダッシュボードへ、それぞれ変わらず遷移する。
+# - **会モードの帯を状態表示専用へ格下げする**（ADR-0059決定5）:
+#   `gatheringMode.band.navigation`（帯自体が戻る動線を兼ねるという記述、ADR-0054決定4）を
+#   削除し、`formControl: false`の状態表示（緑の1行）としての性格だけを残した。新設
+#   `gatheringMode.shortlistToast`（testId`candidate-gathering-shortlist-toast`、店を
+#   会に追加した直後だけ現れ数秒で消える。ちょうど5件に達した瞬間に現れた場合は自動で消えない）
+#   と、その内側の`candidate-gathering-shortlist-toast-return`（新設
+#   `browserActions.returnToGatheringFromToast`の入力）を新設した。**既存
+#   `browserActions.returnToGatheringFromBand`は廃止する**——帯はもう戻る動線ではないため
+#   （ADR-0054決定4・ADR-0056決定7の一部を覆す）。
+# - `unavailableControls.allowedPurposes`へ`candidate-primary-nav-menu-toggle`を追加した。
+#   `auth-account-menu-toggle`は既存のまま、`mobileBar.account`の入口として転用する
+#   （新しいpurposeは要らない）。
+# - `profiles.localAcceptance.verifiesScenarios`へ新規TDR-CS-23を追加した。
+# - 見出し「ランチ候補」を「ランチ候補をさがす」に変える人間裁定は、この見出し自体が契約上の
+#   test idを持たないため契約変更を要しない。
+# - 具体的なYAML編集は次工程で行う（本改訂に同梱の`.spec`ファイル参照）。architect自身は
+#   `contracts/`配下のYAMLへ直接書き込まない。
 
-contractVersion: '1.11.0'
+contractVersion: '1.12.0'
 kind: acceptance-browser-interface
 scope: candidate-search
 profiles:
@@ -388,7 +434,7 @@ profiles:
       [TDR-CS-00, TDR-CS-01, TDR-CS-02, TDR-CS-03, TDR-CS-04, TDR-CS-05,
        TDR-CS-06, TDR-CS-08, TDR-CS-09, TDR-CS-10, TDR-CS-11, TDR-CS-12,
        TDR-CS-13, TDR-CS-14, TDR-CS-15, TDR-CS-16, TDR-CS-17, TDR-CS-18,
-       TDR-CS-19, TDR-CS-20, TDR-CS-21, TDR-CS-22]
+       TDR-CS-19, TDR-CS-20, TDR-CS-21, TDR-CS-22, TDR-CS-23]
     invariant:
       - The profile is isolated and must never be selected by a public deployment.
       - Candidate state is supplied only through contracts/test-support-api.yaml.
@@ -415,8 +461,7 @@ browserEntry:
   authenticatedInitialOutcome:
     present: [candidate-proposal-content, candidate-proposal-cards, candidate-map,
               candidate-provider-credit, candidate-filter-open,
-              candidate-search-again, candidate-origin-marker,
-              candidate-gathering-entry]
+              candidate-search-again, candidate-origin-marker]
     absent: [candidate-budget-tier-note, candidate-filter-genre-overflow,
              candidate-filter-pending-note,
              candidate-filter-apply, candidate-filter-revert,
@@ -429,7 +474,12 @@ browserEntry:
       gathering-scheduling-browser-interface.yaml's
       gathering-shortlist-open, adr/0049 decision 1) -- gatheringMode's
       test ids are therefore absent here, added to this outcome's absent
-      list by adr/0049.
+      list by adr/0049. candidate-gathering-entry is removed from this
+      list 2026-09-16 (ADR-0059) -- its presence is no longer viewport-
+      independent (renderModes and gatheringEntry.entry.requirement below
+      now govern it entirely: absent under mapPrimaryTouchLayout, and even
+      under twoColumnLayout absent when data-in-progress-gathering-count
+      is zero or this screen is not the one being loaded).
 
 renderModes:
   description: >-
@@ -466,25 +516,24 @@ renderModes:
     twoColumnLayout no longer needs).
   twoColumnLayout:
     exclusiveWith: mapPrimaryTouchLayout
-    testIds: []
+    testIds: [candidate-primary-nav-menu-toggle]
     note: >-
       The desktop, side-by-side list-and-map layout (adr/0049 decision 4,
       2026-09-08 human decision, replacing mapPrimaryLayout's map-primary,
-      button-paged deck). This mode owns no test id of its own -- unlike
-      mapPrimaryLayout before it, which owned candidate-deck-previous/-next
-      -- because showing all up to 5 cards as a plain list needs no paging
-      control and no swipe surface. Its testIds array is empty by design;
-      renderModes.invariant's mutual-exclusivity property still holds for
-      this mode (vacuously for its own, empty test id set, and
-      non-vacuously in requiring mapPrimaryTouchLayout's
-      candidate-deck-swipe-surface to be absent while this mode holds).
-      candidate-deck-position is likewise absent while this mode holds (see
-      deckNavigation.position.presenceRule below) -- it is no longer common
-      to both named modes as it was under adr/0033, because a plain list
-      has nothing for a position counter to describe.
+      button-paged deck). Unlike mapPrimaryLayout before it (which owned
+      candidate-deck-previous/-next), this mode's deck needs no paging
+      control and no swipe surface -- showing all up to 5 cards as a plain
+      list is enough. Its own test id (candidate-primary-nav-menu-toggle,
+      added 2026-09-16, ADR-0059) is the header's right-corner menu
+      toggle, unconditionally present whenever this mode holds -- see
+      gatheringEntry.menuToggle below for what it discloses.
+      candidate-deck-position is absent while this mode holds (see
+      deckNavigation.position.presenceRule below) -- it is no longer
+      common to both named modes as it was under adr/0033, because a plain
+      list has nothing for a position counter to describe.
   mapPrimaryTouchLayout:
     exclusiveWith: twoColumnLayout
-    testIds: [candidate-deck-swipe-surface]
+    testIds: [candidate-deck-swipe-surface, candidate-primary-nav-bar]
     note: >-
       The touch-driven mobile layout (adr/0033; human decision 2026-08-29:
       mobile widths become map-primary, replacing the prior list-primary
@@ -499,7 +548,14 @@ renderModes:
       see deckNavigation.swipeSurface below) both leave this mode's own
       name, exclusivity, and testIds untouched; adr/0049 decision 4's
       "mapPrimaryTouchLayout" mentions above are only for contrast with
-      the retired desktop mode.
+      the retired desktop mode. candidate-primary-nav-bar (added
+      2026-09-16, ADR-0059) is the persistent bottom navigation bar --
+      unconditionally present whenever this mode holds, mirroring
+      adr/0033's own precedent of registering a mobile-only element as
+      exclusive to this named mode rather than sharing a test id with the
+      desktop mode's own, differently shaped navigation
+      (candidate-primary-nav-menu-toggle). See gatheringEntry.mobileBar
+      below for its three children.
   invariant: >-
     Exactly one of the two named modes holds for the current render at any
     time. A test id listed under one mode is present only while that mode
@@ -1211,6 +1267,8 @@ browserControlSurface:
       band: candidate-gathering-mode-band
       cardToggle: candidate-card-gathering-toggle
       cardToggleLastShopNotice: candidate-card-gathering-last-shop-notice
+      shortlistToast: candidate-gathering-shortlist-toast
+      shortlistToastReturn: candidate-gathering-shortlist-toast-return
     band:
       testId: candidate-gathering-mode-band
       attributes:
@@ -1244,29 +1302,51 @@ browserControlSurface:
         computes per card, exposed here once at the band level so an
         organizer (or acceptance) can tell why the remaining cards' toggles
         are disabled without inspecting every card individually.
-      navigation: >-
-        candidate-gathering-mode-band is also this screen's sole return
-        path back to the gathering while in gathering mode (ADR-0054
-        decision 4, 2026-09-12 human ruling: no separate "戻る" button is
-        added, because a shop already saves the instant its toggle is
-        activated -- a later, separate "confirm and return" action would
-        falsely imply an unsaved state that does not exist). Activating the
-        band (by any input) is a pure navigation to
-        gathering-scheduling-browser-interface.yaml's
-        browserEntry.organizerDashboard for
-        response.gatheringContext.gatheringId; see
-        browserActions.returnToGatheringFromBand below for its
-        requiredOutcome. Like candidate-gathering-entry, it is implemented
-        as a plain link/navigation element rather than a `<button>` or an
-        interactive-ARIA-role element, keeping it outside
-        unavailableControls.allCandidateScreenFormControlsMustDeclarePurpose's
-        scan and requiring no new allowedPurposes entry (the same
-        precedent gatheringEntry.entry.requirement already documents).
-        This navigability does not change the "no control to turn it off"
-        property the presenceRule above states -- that property scopes
-        only the open-on-the-confirmed-date filter condition the band
-        displays, not whether the band itself can be activated to
-        navigate.
+      formControl: false
+      navigationNote: >-
+        2026-09-16 (ADR-0059): this band is no longer a return path. Its
+        prior navigation role (ADR-0054 decision 4: the band itself was
+        this screen's sole way back to the gathering) is retired --
+        activating this element (by any input) is no longer a recognized
+        input and produces no navigation and no public operation; it is a
+        pure status line (the "◯/◯（◯）に開いている店・入れた店 N / 5"
+        text, per band.presenceRule above). The return path is now
+        shortlistToast below (immediately after adding a shop) and, once
+        that toast has dismissed, gatheringEntry.entry (desktop chip) /
+        gatheringEntry.mobileBarGathering (mobile) via
+        browserActions.returnToGatheringFromEntry -- see those for their
+        own requiredOutcome. browserActions.returnToGatheringFromBand is
+        retired along with this navigation role.
+    shortlistToast:
+      testId: candidate-gathering-shortlist-toast
+      formControl: false
+      attributes:
+        shortlistedCount: data-gathering-shortlisted-count
+        maxShortlisted: data-gathering-max-shortlisted
+      requiredTestIds:
+        returnControl: candidate-gathering-shortlist-toast-return
+      presenceRule: >-
+        Added 2026-09-16 (ADR-0059, party2/a-back/Back2- board, "案2「入れた
+        瞬間だけ小窓」"). Appears immediately following a successful
+        toggleCardGatheringShortlist activation whose cardToggle attribute
+        flips from "false" to "true" (a shop being added, never a
+        removal). Its shortlistedCount/maxShortlisted attributes equal the
+        same fresh gatheringContext values band's own attributes update to
+        at that moment. An implementation dismisses it automatically after
+        a short, contract-unfixed delay, *unless* shortlistedCount equals
+        maxShortlisted at the moment it appeared, in which case it does
+        not self-dismiss (stays present until the organizer navigates away
+        via returnControl below or via gatheringEntry). It never appears
+        while shortlistedCount is zero and never appears as a result of
+        removing a shop.
+      returnControl:
+        testId: candidate-gathering-shortlist-toast-return
+        requirement: >-
+          A plain link/navigation element (same style as gatheringEntry.
+          entry, no allowedPurposes entry required) present only while
+          shortlistToast itself is present. See
+          browserActions.returnToGatheringFromToast below for its
+          requiredOutcome.
     cardToggle:
       testId: candidate-card-gathering-toggle
       purpose: candidate-card-gathering-toggle
@@ -1385,7 +1465,8 @@ browserControlSurface:
        candidate-filter-walking-time-max-selection,
        candidate-filter-apply, candidate-filter-revert, candidate-search-again,
        candidate-card-gathering-toggle,
-       auth-sign-out, auth-password-change-open, auth-account-menu-toggle]
+       auth-sign-out, auth-password-change-open, auth-account-menu-toggle,
+       candidate-primary-nav-menu-toggle]
     forbiddenPurposes:
       [sort, manual-ordering, free-text-search, search-origin,
        search-location, current-location, search-range, radius, distance]
@@ -1835,7 +1916,9 @@ browserActions:
         for a provider-unavailable (503) cause, which has no matching
         deterministic Given.
   openGatheringEntry:
-    input: candidate-gathering-entry
+    input: [candidate-gathering-entry, candidate-primary-nav-gathering,
+            candidate-primary-nav-menu-gathering]
+    precondition: response.gatheringContext-is-null
     requiredOutcome:
       navigation: navigates-to-the-organizer-gathering-list-screen
       unaffected: [cardsAndMarkersSet, dataCandidateRefValues,
@@ -1846,7 +1929,17 @@ browserActions:
       This action never calls /candidate-proposals or any of its request
       fields; it is a pure navigation to
       gathering-scheduling-browser-interface.yaml's
-      browserEntry.organizerGatheringList (adr/0038).
+      browserEntry.organizerGatheringList (adr/0038). 2026-09-16 (ADR-0059):
+      its input is widened from the single desktop chip
+      (candidate-gathering-entry) to the three render-mode/location-specific
+      shapes of the same navigation destination -- the mobile bottom-nav
+      item and the desktop menu-panel item both trigger this same action
+      when activated outside gathering mode. This action's precondition
+      (gatheringContext is null) and returnToGatheringFromEntry's own
+      opposite precondition below are mutually exclusive and jointly
+      exhaustive over the same three inputs -- exactly one of the two
+      actions is the recognized effect of activating any of them at any
+      moment.
   toggleCardGatheringShortlist:
     input: candidate-card-gathering-toggle
     precondition: >-
@@ -1890,8 +1983,9 @@ browserActions:
       from their pre-activation values; this contract does not fix a
       distinct visible error surface for this action beyond that
       no-op-on-failure guarantee.
-  returnToGatheringFromBand:
-    input: candidate-gathering-mode-band
+  returnToGatheringFromEntry:
+    input: [candidate-gathering-entry, candidate-primary-nav-gathering,
+            candidate-primary-nav-menu-gathering]
     precondition: response.gatheringContext-is-non-null
     requiredOutcome:
       navigation: >-
@@ -1902,14 +1996,31 @@ browserActions:
                    conditionSummary, mapViewport]
       publicOperation: none
     note: >-
-      This is gatheringMode's sole return path (ADR-0054 decision 4) --
-      there is no separate "戻る"/confirm control, because
-      toggleCardGatheringShortlist above already persists shortlist
-      membership on activation, one card at a time; the band merely
-      surfaces the count that makes clear the organizer's choices already
-      count as "done" (gatheringMode.band.limitReached, ADR-0056 decision
-      7, is the machine-observable half of this same "the number itself is
-      the signal" design). This action never calls /candidate-proposals or
+      2026-09-16 (ADR-0059): replaces returnToGatheringFromBand (retired) as
+      one of gatheringMode's two return paths -- the other is
+      returnToGatheringFromToast below, immediately after adding a shop.
+      gatheringMode.band is no longer interactive (see gatheringMode.band.
+      navigationNote); this action's three inputs are the same ones
+      openGatheringEntry above shares, distinguished only by
+      response.gatheringContext's nullness at the moment of activation.
+      This action never calls /candidate-proposals or any of its request
+      fields, mirroring openGatheringEntry above.
+  returnToGatheringFromToast:
+    input: candidate-gathering-shortlist-toast-return
+    precondition: gatheringMode.shortlistToast-is-present
+    requiredOutcome:
+      navigation: >-
+        navigates-to-gathering-scheduling-browser-interface.yaml's
+        browserEntry.organizerDashboard-for-response.gatheringContext.gatheringId
+      unaffected: [cardsAndMarkersSet, dataCandidateRefValues,
+                   dataSelectionStateValues, appliedFilters, pendingFilters,
+                   conditionSummary, mapViewport]
+      publicOperation: none
+    note: >-
+      2026-09-16 (ADR-0059, "案2「入れた瞬間だけ小窓」"): the organizer's
+      primary return path immediately after adding a shop -- surfaced only
+      while gatheringMode.shortlistToast itself is present (its own
+      presenceRule above). This action never calls /candidate-proposals or
       any of its request fields, mirroring openGatheringEntry above.
 
 disclosureObservations:
@@ -1944,53 +2055,74 @@ gatheringEntry:
     from gatheringMode above: this section is the ordinary screen's entry
     point into the gathering feature (list of gatherings); gatheringMode is
     what this same screen becomes once already inside one gathering's shop
-    selection (adr/0049 decision 1).
+    selection (adr/0049 decision 1). 2026-09-16 (ADR-0059) broadens this
+    section beyond a single chip into the full primary-navigation surface
+    (menuToggle/menuPanel/mobileBar and their children below) -- entry (the
+    chip) is now one shape among several the same underlying navigation
+    destination takes, not the only one.
   requiredTestIds:
     entry: candidate-gathering-entry
+    menuToggle: candidate-primary-nav-menu-toggle
+    menuPanel: candidate-primary-nav-menu-panel
+    menuDestinationSearch: candidate-primary-nav-menu-search
+    menuDestinationGathering: candidate-primary-nav-menu-gathering
+    mobileBar: candidate-primary-nav-bar
+    mobileBarSearch: candidate-primary-nav-search
+    mobileBarGathering: candidate-primary-nav-gathering
+    mobileBarAccount: candidate-primary-nav-account
   entry:
     testId: candidate-gathering-entry
     formControl: false
     requirement: >-
-      Present unconditionally on the authenticated candidate-search screen
-      (see browserEntry.authenticatedInitialOutcome.present above), and
-      also unconditionally present on every one of gathering-scheduling-
-      browser-interface.yaml's organizer-facing screens
-      (organizerGatheringList, organizerGatheringCreate, organizerDashboard)
-      -- ADR-0054 decision 1 (2026-09-12 human ruling: "会に入ると出られない"
-      -- this common navigation element must not disappear once inside the
-      gathering feature). gathering-scheduling-browser-interface.yaml
-      itself declares no test id of its own for this cross-screen presence
-      (see that file's own header note on this point); this paragraph is
-      the sole normative source for it. The participant screen
-      (participantAnswer, reached only through a signed link) is exempt
-      from this presence requirement (ADR-0054 decision 7: that screen is a
-      standalone, non-navigating one-page experience by design, not a
-      member of the "screen with a parent to go back to" set this element
-      otherwise serves). Implemented as a plain link/navigation element (an
-      `<a href>`, or a
+      2026-09-16 (ADR-0059): present only while twoColumnLayout holds
+      (this chip has no mobile counterpart of its own -- see mobileBar
+      below for the equivalent mobile element), only when
+      data-in-progress-gathering-count is greater than zero (badge below),
+      and only when the current screen is not one of
+      gathering-scheduling-browser-interface.yaml's organizer-facing
+      screens (organizerGatheringList, organizerGatheringCreate,
+      organizerDashboard) -- 2026-09-16 human ruling (party2/a-nav-r5
+      board): the chip sits beside menuToggle only when there is an
+      in-progress gathering to jump back to, and is redundant (so omitted)
+      on a screen that already is that gathering. **This reverses part of
+      ADR-0054 decision 1**, which had required this element present
+      unconditionally on every one of those same organizer-facing screens
+      and with a non-empty label at every viewport width without
+      exception -- ADR-0054 decision 1's underlying concern
+      ("会に入ると出られない", a first-time user losing all way back to
+      the gathering feature once inside it) is no longer carried by this
+      chip on mobile at all: mobileBar below (present whenever
+      mapPrimaryTouchLayout holds, on every one of these same screens, per
+      ADR-0059) is the element that continues to satisfy it,
+      unconditionally and regardless of in-progress-gathering count,
+      exactly as ADR-0054 decision 1 originally required. On desktop,
+      menuToggle (always present whenever twoColumnLayout holds, on every
+      one of these same screens) is the unconditional way back into the
+      gathering feature; this chip is merely a shortcut menuToggle's own
+      panel would otherwise require opening. gathering-scheduling-browser-
+      interface.yaml itself declares no test id of its own for any of this
+      cross-screen presence (see that file's own header note on this
+      point); this paragraph remains the sole normative source for it. The
+      participant screen (participantAnswer, reached only through a signed
+      link) remains exempt (ADR-0054 decision 7, unchanged). Implemented
+      as a plain link/navigation element (an `<a href>`, or a
       tabindex-carrying `<div>` mirroring candidate-map-open's existing
-      style) rather than a `<button>` or an element with an interactive ARIA
-      role -- this keeps it outside
+      style) rather than a `<button>` or an element with an interactive
+      ARIA role -- this keeps it outside
       unavailableControls.allCandidateScreenFormControlsMustDeclarePurpose's
-      scan (forbiddenFormControlCategories does not include a plain anchor
-      or a purposeless div; activeContext.md's 2026-08-25 record confirms
-      the tester DSL's FORM_CONTROL_SELECTOR does not capture a plain `<a>`
-      either), so no new allowedPurposes entry is required (mirrors
+      scan, so no new allowedPurposes entry is required (mirrors
       candidate-origin-marker and candidate-map-open's existing
       "display/navigation-only, no purpose declared" precedent). Activating
       it changes no proposal request, no displayed candidate/marker/filter
       state, and no configured origin/range or map viewport -- see
-      browserActions.openGatheringEntry. Its visible label text (the
-      "ランチ会" wording, not the badge count alone) must remain non-empty
-      at every viewport width this contract's acceptance drives, including
-      the narrowest -- production had removed this text at narrow widths
-      (a CSS rule leaving only an icon), which a first-time user could not
-      read as navigation (ADR-0054 decision 1, designer's report on this
-      screen). The exact width thresholds, font size, and icon remain
-      rendered-geometry/visual choices this contract does not fix (mirrors
-      how viewport breakpoints are left unfixed elsewhere, e.g. renderModes
-      above) -- only that some non-empty label text is present at every
-      width is a Must.
+      browserActions.openGatheringEntry and returnToGatheringFromEntry
+      below (which of the two fires depends on whether gatheringMode is
+      active at the moment of activation). Its visible label text (the
+      "ランチ会 N" wording) is a Must whenever the chip itself is present
+      at all (the presence rule above, not a separate viewport rule, now
+      governs when that is) -- the exact width thresholds, font size, and
+      icon remain rendered-geometry/visual choices this contract does not
+      fix.
     badge:
       testId: candidate-gathering-entry-badge
       attribute: data-in-progress-gathering-count
@@ -2014,6 +2146,135 @@ gatheringEntry:
         element entry.badge above describes; badge's own presenceRule
         (in-progress count) is unaffected and independent of this
         attribute.
+  menuToggle:
+    testId: candidate-primary-nav-menu-toggle
+    purpose: candidate-primary-nav-menu-toggle
+    requirement: >-
+      Added 2026-09-16 (ADR-0059). Present unconditionally whenever
+      twoColumnLayout holds (renderModes above), on the authenticated
+      candidate-search screen and on every one of gathering-scheduling-
+      browser-interface.yaml's organizer-facing screens
+      (organizerGatheringList, organizerGatheringCreate,
+      organizerDashboard) -- the desktop counterpart of ADR-0054 decision
+      1's "must not disappear once inside the gathering feature" concern,
+      now carried by this control rather than by entry's chip (see entry
+      above and its own revised requirement). Activating it toggles
+      menuPanel's own visibility; it changes no proposal request, no
+      displayed candidate/marker/filter state, and no configured
+      origin/range or map viewport. This new purpose
+      (candidate-primary-nav-menu-toggle) is declared separately from the
+      existing auth-account-menu-toggle (ADR-0013) because this control's
+      disclosure scope is broader -- two navigation destinations plus the
+      account controls, not the account controls alone -- rather than
+      widening auth-account-menu-toggle's own narrower, already-approved
+      scope (ADR-0013 decision 5). auth-account-menu-toggle itself is
+      unchanged and is not used on desktop -- see mobileBarAccount below
+      for its one remaining use.
+  menuPanel:
+    testId: candidate-primary-nav-menu-panel
+    formControl: false
+    requirement: >-
+      Added 2026-09-16 (ADR-0059). Disclosed by menuToggle (any
+      implementation-chosen mechanism; this contract does not fix
+      modal/dropdown/drawer shape). While open, contains exactly two
+      navigation destinations (menuDestinationSearch,
+      menuDestinationGathering below) followed by the existing account
+      controls (auth-sign-out, auth-password-change-open,
+      authentication-browser-interface.yaml) -- the first time those two
+      controls are reachable from any of gathering-scheduling-browser-
+      interface.yaml's organizer-facing screens (previously reachable only
+      from the candidate-search screen); see that file's own
+      crossFileSharedNavigation note for the corresponding acknowledgement
+      on its side.
+  menuDestinationSearch:
+    testId: candidate-primary-nav-menu-search
+    attribute: data-primary-nav-current
+    requirement: >-
+      Added 2026-09-16 (ADR-0059). A plain link/navigation element (same
+      style as entry above, no allowedPurposes entry required) inside
+      menuPanel. Its data-primary-nav-current attribute is the string
+      "true" when the screen currently loaded is the authenticated
+      candidate-search screen outside gathering mode, and "false"
+      otherwise. Activating it while already "true" does not reload the
+      same screen (no-op); activating it from any other screen, or while
+      gatheringMode is active on this same screen, navigates to the
+      authenticated candidate-search screen outside gathering mode
+      (mirrors mobileBarSearch's identical rule below) -- this is the
+      resolution for the reported "会モード中に押すと会の店選びから抜ける"
+      behavior: it is now the documented, intended effect of activating
+      this destination while in gathering mode, not a bug.
+  menuDestinationGathering:
+    testId: candidate-primary-nav-menu-gathering
+    attribute: data-primary-nav-current
+    requirement: >-
+      Added 2026-09-16 (ADR-0059). A plain link/navigation element (same
+      style as entry above) inside menuPanel. Its data-primary-nav-current
+      attribute is "true" whenever the current screen is one of
+      gathering-scheduling-browser-interface.yaml's organizer-facing
+      screens, or the candidate-search screen is in gathering mode;
+      "false" otherwise. One of the three shared inputs to
+      browserActions.openGatheringEntry / returnToGatheringFromEntry below
+      -- see those actions for which one fires and where it navigates.
+  mobileBar:
+    testId: candidate-primary-nav-bar
+    requiredTestIds:
+      search: candidate-primary-nav-search
+      gathering: candidate-primary-nav-gathering
+      account: candidate-primary-nav-account
+    requirement: >-
+      Added 2026-09-16 (ADR-0059). Present unconditionally whenever
+      mapPrimaryTouchLayout holds (renderModes above), on the
+      authenticated candidate-search screen and on every one of
+      gathering-scheduling-browser-interface.yaml's organizer-facing
+      screens (organizerGatheringList, organizerGatheringCreate,
+      organizerDashboard) -- the mobile counterpart of ADR-0054 decision
+      1's "must not disappear once inside the gathering feature" concern,
+      carried here unconditionally and regardless of in-progress-gathering
+      count, exactly as ADR-0054 decision 1 originally required (unlike
+      entry's chip above, which no longer carries that guarantee on
+      desktop -- see entry's own revised requirement). Its three children
+      are always all three present together whenever the bar itself is
+      present -- there is no partial bar.
+  mobileBarSearch:
+    testId: candidate-primary-nav-search
+    attribute: data-primary-nav-current
+    requirement: >-
+      Added 2026-09-16 (ADR-0059). Same presence/current/no-op rule as
+      menuDestinationSearch above, applied to the mobile bar instead of
+      the desktop menu panel -- the two are the same navigation
+      destination in two render-mode-specific shapes, never both present
+      at once (renderModes.invariant).
+  mobileBarGathering:
+    testId: candidate-primary-nav-gathering
+    attributes:
+      current: data-primary-nav-current
+      badgeCount: data-in-progress-gathering-count
+    requirement: >-
+      Added 2026-09-16 (ADR-0059). Same current-marker rule as
+      menuDestinationGathering above. Its badgeCount attribute follows
+      entry.badge's own presenceRule above (present, as a decimal integer
+      string, exactly when the count is greater than zero; absent when it
+      is zero) -- unlike entry's chip, this bar item's own "ランチ会"
+      label remains present either way, since mobileBar itself is
+      unconditional. One of the three shared inputs to
+      browserActions.openGatheringEntry / returnToGatheringFromEntry
+      below.
+  mobileBarAccount:
+    testId: candidate-primary-nav-account
+    purpose: auth-account-menu-toggle
+    requirement: >-
+      Added 2026-09-16 (ADR-0059). A `<button>` (unlike mobileBarSearch/
+      mobileBarGathering above, which are plain navigation elements)
+      declaring the existing auth-account-menu-toggle purpose (ADR-0013)
+      -- its disclosure scope matches that purpose's original, narrower
+      definition exactly (only auth-sign-out and auth-password-change-open,
+      no navigation destination), so no new purpose is introduced for it.
+      Activating it discloses those two controls (any
+      implementation-chosen mechanism, e.g. a bottom sheet; this contract
+      does not fix the shape). This is the first time those two controls
+      are reachable from any of gathering-scheduling-browser-interface.
+      yaml's organizer-facing screens on mobile widths -- the same gap
+      closure menuPanel above provides on desktop.
   crossContractReference:
     file: contracts/gathering-scheduling-api.yaml
     operationId: getInProgressGatheringCount
