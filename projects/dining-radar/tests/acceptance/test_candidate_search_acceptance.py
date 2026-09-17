@@ -306,14 +306,42 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         colliding with this orthogonal Must -- mirrors gathering_scheduling_
         browser.py's own identical fix for this same gatheringMode screen's
         TDR-GTH-44.
+
+        **Extended (2026-09-16, ADR-0059)**: the feature's own new And
+        ("会にもどる案内がしばらく示される") is checked right after the
+        first add -- gatheringMode.shortlistToast's presenceRule ("It never
+        appears while shortlistedCount is zero") is also checked just
+        before that add, this scenario's own natural "0件→1件目で現れる"
+        moment (activeContext.md's own architect申し送り: the contract
+        leaves the auto-dismiss delay unfixed, so this suite centers on
+        presence-at-appearance here, not on timing the dismissal).
+
+        **Fixed (date-rollover flake)**: this Given previously used
+        lunch_candidates_can_be_proposed (NORMAL_WITH_WEIGHTED_SAMPLING) with
+        given_a_selecting_shop_gathering's own unpinned "+3 days" default --
+        which weekday that lands on drifts with the calendar date the suite
+        happens to run on, and NORMAL_WITH_WEIGHTED_SAMPLING's population is
+        not documented to guarantee a non-empty confirmed-date match for
+        every weekday (unlike GATHERING_OPEN_SHOP_WEEKDAY_MATCH, which
+        TDR-CS-18's own "Fixed" note already migrated to for the identical
+        reason). Reproduced empirically: this scenario passed while "today"
+        was 2026-09-16 and failed once the date rolled to 2026-09-17,
+        "+3 days" landing on a date this population shows zero candidates
+        for. Pins Monday (OPEN_SHOP_COUNT_BY_WEEKDAY[0] == 5), mirroring
+        TDR-CS-18/19/21/22/23's own established pin -- this scenario itself
+        does not care about the exact population/mode, only that at least 2
+        not-yet-shortlisted candidates are available.
         """
         self._sign_in()
-        self.steps.lunch_candidates_can_be_proposed()
-        gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会CS17")
+        self.steps.gathering_open_shop_population_is_available()
+        monday = next_weekday_iso(0)  # OPEN_SHOP_COUNT_BY_WEEKDAY[0] == 5, date-stable
+        gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会CS17", monday)
         self.steps.organizer_opens_this_screen_in_gathering_mode(gathering_id)
         self.steps.gathering_mode_band_shows(shortlisted=0)
+        self.steps.gathering_shortlist_toast_is_absent()
         self.steps.organizer_adds_a_candidate_to_the_gathering()
         self.steps.gathering_mode_band_shows(shortlisted=1)
+        self.steps.gathering_shortlist_toast_shows(shortlisted=1)
         self.steps.organizer_adds_a_candidate_to_the_gathering()
         self.steps.gathering_mode_band_shows(shortlisted=2)
         self.steps.organizer_removes_the_shop_from_the_gathering()
@@ -421,10 +449,16 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         実装は正しい）。会に先に1件入れて土台を作ってから、2件目を
         `data-candidate-ref` で追跡してトグルON/OFFすることで、外す時点で
         常に1件が残っている状態にする。
+
+        **Fixed (date-rollover flake, 2026-09-17)**: same fix as TDR-CS-17's
+        own "Fixed (date-rollover flake)" note above -- swaps the unpinned
+        "+3 days" NORMAL_WITH_WEIGHTED_SAMPLING Given for a Monday-pinned
+        GATHERING_OPEN_SHOP_WEEKDAY_MATCH one, for the identical reason.
         """
         self._sign_in()
-        self.steps.lunch_candidates_can_be_proposed()
-        gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会CS20")
+        self.steps.gathering_open_shop_population_is_available()
+        monday = next_weekday_iso(0)  # OPEN_SHOP_COUNT_BY_WEEKDAY[0] == 5, date-stable
+        gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会CS20", monday)
         self.steps.organizer_opens_this_screen_in_gathering_mode(gathering_id)
         self.steps.organizer_adds_a_candidate_to_the_gathering()
         self.steps.gathering_mode_band_shows(shortlisted=1)
@@ -494,3 +528,85 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.only_shortlisted_toggle_is_disabled_with_last_shop_reason()
         self.steps.organizer_adds_a_candidate_to_the_gathering()
         self.steps.both_shortlisted_toggles_are_enabled_and_last_shop_notice_is_gone()
+
+    # TDR-CS-23 (new, 2026-09-16, ADR-0059, human ruling "入れた瞬間だけ
+    # 小窓" 束A・会への戻り道) -------------------------------------------------
+
+    def test_tdr_cs_23_shortlist_toast_does_not_self_dismiss_at_five(self) -> None:
+        """会に入れた店がちょうど5件そろうと、会にもどる案内は自分では消え
+        ない (ADR-0059決定5). The Given
+        (given_a_gathering_with_four_of_five_shops_shortlisted) pins Monday
+        (exactly 5 open shops == the display cap) so the one remaining
+        not-yet-shortlisted card is guaranteed to render on this screen's
+        own independent proposeCandidates call -- see that method's own
+        docstring.
+        """
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        gathering_id = self.steps.organizer_has_a_gathering_with_four_of_five_shops_shortlisted(
+            "会CS23"
+        )
+        self.steps.organizer_opens_this_screen_in_gathering_mode(gathering_id)
+        self.steps.gathering_mode_band_shows(shortlisted=4)
+        self.steps.organizer_adds_a_candidate_to_the_gathering()
+        self.steps.gathering_mode_band_shows(shortlisted=5)
+        self.steps.gathering_shortlist_toast_shows(shortlisted=5)
+        self.steps.gathering_shortlist_toast_persists_at_the_cap()
+
+    # ADR-0059 decision 4 (2026-09-16): openGatheringEntry / returnToGathering
+    # FromEntry share three inputs (desktop chip, desktop menu panel's
+    # gathering destination, mobile bottom nav's gathering item) and switch
+    # between them by gatheringMode's own on/off state. Not tied to a TDR-CS
+    # scenario id -- this nav structure has no corresponding business
+    # scenario (candidate-search.feature's own TDR-CS-23 header comment:
+    # "ナビの構造自体...は、対応する業務シナリオを持たない", mirroring the
+    # existing gatheringEntry/openGatheringEntry precedent adr/0054 decision4
+    # already established) -- this exercises the contract's own Must
+    # directly, the same non-scenario style this suite already uses
+    # elsewhere (see "gatheringMode server-truth cross-checks" above).
+    # -------------------------------------------------------------------
+
+    def test_adr_0059_desktop_chip_switches_between_gathering_list_and_this_gathering(
+        self,
+    ) -> None:
+        self._sign_in()
+        self.steps.lunch_candidates_can_be_proposed()
+        gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会Nav1")
+
+        self.steps.organizer_compares_candidates_at_two_column_viewport()
+        self.steps.desktop_chip_opens_the_gathering_list()
+
+        self.steps.organizer_opens_this_screen_in_gathering_mode_at_two_column_viewport(
+            gathering_id
+        )
+        self.steps.desktop_chip_returns_to_this_gathering(gathering_id)
+
+    def test_adr_0059_desktop_menu_gathering_destination_switches_between_list_and_this_gathering(
+        self,
+    ) -> None:
+        self._sign_in()
+        self.steps.lunch_candidates_can_be_proposed()
+        gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会Nav2")
+
+        self.steps.organizer_compares_candidates_at_two_column_viewport()
+        self.steps.desktop_menu_gathering_destination_opens_the_gathering_list()
+
+        self.steps.organizer_opens_this_screen_in_gathering_mode_at_two_column_viewport(
+            gathering_id
+        )
+        self.steps.desktop_menu_gathering_destination_returns_to_this_gathering(gathering_id)
+
+    def test_adr_0059_mobile_bar_gathering_item_switches_between_list_and_this_gathering(
+        self,
+    ) -> None:
+        self._sign_in()
+        self.steps.lunch_candidates_can_be_proposed()
+        gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会Nav3")
+
+        self.steps.organizer_compares_candidates_at_map_primary_touch_viewport()
+        self.steps.mobile_bar_gathering_item_opens_the_gathering_list()
+
+        self.steps.organizer_opens_this_screen_in_gathering_mode_at_map_primary_touch_viewport(
+            gathering_id
+        )
+        self.steps.mobile_bar_gathering_item_returns_to_this_gathering(gathering_id)
