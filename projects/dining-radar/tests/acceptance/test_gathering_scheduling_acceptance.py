@@ -54,6 +54,20 @@ test_tdr_gth_09_participant_sees_no_open_shop_count_or_shop_details below.
 TDR-GTH-56 (ADR-0056 decision 9, gathering-scheduling-browser-interface.yaml
 0.15.0 追補12) adds the shop-vote bar's total-active-participant-count
 denominator, sized against the whole group rather than respondents so far.
+
+**Updated 2026-09-17 (ADR-0061, 束C「参加者を呼ぶ・答える」, browser-interface
+0.23.0 / api 0.17.0)**: TDR-GTH-03 now issues at least one link through
+issueDialog's own two-step copy flow (issue_participant_link_and_copy_via_
+dialog), asserting the clipboard write there instead of on the bare
+participantLinkCopy activation (decision 1). TDR-GTH-34 is rewritten again --
+decision 5 reverses ADR-0055 decision 8 a second time, so the finalized
+participant view once more shows no other shop's tally/map, matching
+TDR-GTH-34's own text (which this round leaves unchanged, same as every prior
+round). test_gth_answer_later_and_peek_results_are_functional is retired along
+with the two controls it exercised (decision 3) and replaced by
+test_gth_participant_day_navigation_is_functional, the same "contract Must
+with no dedicated scenario" precedent, now covering daySkip/dayPrevious/
+dayList/auto-advance instead. New: TDR-GTH-64 (decision 2, respondentList).
 """
 
 from __future__ import annotations
@@ -163,10 +177,22 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         )
 
     def test_tdr_gth_03_organizer_issues_participant_links(self) -> None:
+        """**Rewritten 2026-09-17 (ADR-0061決定1, human decision "発行で小窓が
+        開き、そこでコピー")**: issuing now opens gathering-participant-link-
+        issue-dialog rather than writing to the clipboard directly; TDR-GTH-03's
+        own "そのまま貼り付けて使える状態で得られる" is now asserted against
+        the dialog's own 「リンクをコピー」 activation
+        (issue_participant_link_and_copy_via_dialog), not the bare
+        participantLinkCopy click every other scenario reuses as a Given
+        (issue_participant_link_from_dashboard, which no longer embeds a
+        clipboard assertion at all -- PR #196監査Minor, ADR-0061未決事項2).
+        """
         self._sign_in()
         self.steps.organizer_has_a_scheduling_gathering("会3", [days_from_now_iso(3)])
         self.steps.organizer_opens_the_dashboard()
-        links = self.steps.organizer_issues_participant_links(2)
+        first_link = self.steps.organizer_issues_and_copies_a_participant_link_via_dialog()
+        second_link = self.steps.organizer_issues_a_participant_link()
+        links = [first_link, second_link]
         self.steps.issued_links_are_distinct(links)
         first_date_id = self.dsl.candidate_date_id_at(0)
         self.steps.participant_opens_the_link(links[0])
@@ -343,59 +369,64 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.participant_answers_the_candidate_date(candidate_date_id, "MAYBE")
         self.steps.schedule_question_tally_is(candidate_date_id, going=1, maybe=1, not_going=0)
 
-    def test_gth_answer_later_and_peek_results_are_functional(self) -> None:
-        """UI実装詳細（adr/0050 決定1、2026-09-08〜09 人間裁定「『あとで答える』
-        『結果をのぞく』を実際に動くものにする」）: no dedicated TDR-GTH-4x
-        scenario names these two controls (the contract's own note --
-        gathering-scheduling-browser-interface.yaml's answerLater/peekResults
-        description), so this is verified here directly as a contract Must
-        with no scenario of its own, the same precedent TDR-GTH-43's ordering
-        check and TDR-CS-02's desktop/mobile split already establish.
-        Present while undecided, absent once finalized (mirrors
-        nameControl.open's own presenceRule); activating "あとで答える" saves
-        no new state and leaves the existing answer intact; activating
-        "結果をのぞく" makes the (already unconditionally present since
-        adr/0050 decision 2) schedule tally actually visible.
-
-        **Fixed (reviewer audit Minor#3)**: this is the only test that
-        actually clicks gathering-participant-answer-later/-peek-results
-        (both registered GATHERING_ALLOWED_PURPOSES entries), but it never
-        ran the FR-030 cross-cutting purpose-declaration scan with both
-        buttons rendered and peek-results' tallies actually visible --
-        added at the end, after every other action on this screen state.
-
-        **是正済み（2026-09-13、欠陥注入で判明: 「あとで答える」の確認の
-        再掲に未回答の候補日の項目まで描く欠陥が緑のまま通った）**: 元の
-        Given は候補日が1つだけで、しかもその1つに答え済みだったため、
-        未回答の候補日がそもそも存在せず、answerLater.confirmation.
-        scheduleItem の要件「No candidate date whose yourResponse is null
-        appears here」（0.19.0）を検査しようがなかった（既存の
-        answer_later_confirmation_reproduces_schedule_answer は答えた候補
-        日の項目が1件あり値が合うことしか見ていない）。候補日を2つにし、
-        1つだけ答えて、もう1つは未回答のまま「あとで答える」を開くことで、
-        未回答の候補日の項目が0件であること・再掲の日程項目の総数が答えた
-        数（1）と一致することを新たに検査する。
+    def test_gth_participant_day_navigation_is_functional(self) -> None:
+        """UI実装詳細（ADR-0061決定3、2026-09-17人間裁定「1日ずつ、答えると
+        自動で次の日へ」）: no dedicated TDR-GTH-6x scenario names daySkip/
+        dayPrevious/dayList/responseOptions' own auto-advance individually
+        (the contract's own note), so this is verified here directly as a
+        contract Must with no scenario of its own -- replacing the retired
+        test_gth_answer_later_and_peek_results_are_functional, which this
+        same round's decision 3 overturned (「あとで答える」「結果をのぞく」
+        は廃止). scheduleQuestion.cardinality's own reasoning applies: every
+        answer already saves itself the moment it is submitted, so there is
+        nothing this test needs to prove about leaving mid-way beyond what
+        TDR-GTH-06 already covers -- what this Must-only test proves instead
+        is the navigation surface itself (auto-advance, skip, previous, and
+        jumping via the day list), including the progress counter's own two
+        attributes staying correct throughout.
         """
         self._sign_in()
-        self.steps.organizer_has_a_scheduling_gathering(
-            "会later", [days_from_now_iso(3), days_from_now_iso(10)]
-        )
-        candidate_date_id = self.dsl.candidate_date_id_at(0)
-        unanswered_candidate_date_id = self.dsl.candidate_date_id_at(1)
+        self.steps.organizer_has_a_scheduling_gathering_with_business_days("会nav", 3)
+        date_a, date_b, date_c = (self.dsl.candidate_date_id_at(index) for index in range(3))
         link = self.steps.a_participant_link_is_issued()
         self.steps.participant_opens_the_link(link)
-        self.steps.participant_answers_the_candidate_date(candidate_date_id, "GOING")
-        self.steps.answer_later_and_peek_results_are_present()
-        self.steps.participant_activates_answer_later_and_state_is_unchanged(
-            candidate_date_id, "GOING"
-        )
-        # answerLater.confirmation.requirement, changed 2026-09-12 (ADR-0055
-        # decision 3, FR-034): reproduces the recorded answer instead of
-        # asserting in prose that it is saved.
-        self.steps.answer_later_confirmation_reproduces_schedule_answer(candidate_date_id, "GOING")
-        self.steps.answer_later_confirmation_has_no_schedule_item_for(unanswered_candidate_date_id)
-        self.steps.answer_later_confirmation_schedule_item_count_is(1)
-        self.steps.participant_activates_peek_results_and_tallies_are_visible(candidate_date_id)
+
+        self.steps.participant_schedule_progress_is(total=3, answered=0)
+        self.steps.participant_day_previous_is_disabled()
+
+        # responseOptions.requiredOutcome's own auto-advance: answering the
+        # currently-displayed (first) day moves on to the next one.
+        self.steps.participant_answers_the_currently_displayed_day("GOING")
+        self.steps.participant_currently_displayed_day_is(date_b)
+        self.steps.participant_schedule_progress_is(total=3, answered=1)
+        self.steps.schedule_question_shows_response(date_a, "GOING")
+        self.steps.schedule_question_shows_response(date_b, "UNANSWERED")
+
+        # daySkip (「とばす」): moves past date_b without answering it.
+        skipped = self.steps.participant_skips_the_currently_displayed_day()
+        self.assertEqual(skipped, date_b)
+        self.steps.participant_currently_displayed_day_is(date_c)
+        self.steps.schedule_question_shows_response(date_b, "UNANSWERED")
+        self.steps.participant_schedule_progress_is(total=3, answered=1)
+
+        # dayPrevious (「前の日」): steps back from date_c to date_b.
+        self.steps.participant_goes_to_the_previous_day()
+        self.steps.participant_currently_displayed_day_is(date_b)
+
+        # dayList (「日の一覧から日へ飛ぶ」): jumps directly to date_c.
+        self.steps.participant_jumps_to_day_via_day_list(date_c)
+        self.steps.participant_currently_displayed_day_is(date_c)
+        self.steps.participant_answers_the_candidate_date(date_c, "NOT_GOING")
+        self.steps.participant_schedule_progress_is(total=3, answered=2)
+
+        # Finishing the last unanswered day (date_b, reached via the day
+        # list) leaves every candidate date answered -- dayList doubles as
+        # the "全部答えました" summary via this same progress counter
+        # (gathering-participant-progress's own two attributes, contract's
+        # own derivation note), no separate completion element exists.
+        self.steps.participant_jumps_to_day_via_day_list(date_b)
+        self.steps.participant_answers_the_candidate_date(date_b, "MAYBE")
+        self.steps.participant_schedule_progress_is(total=3, answered=3)
         self.steps.screen_has_no_forbidden_controls_or_disclosures()
 
     def test_tdr_gth_13_guessing_a_token_is_denied_without_disclosure(self) -> None:
@@ -950,16 +981,20 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         only the decision itself (confirmed date + shop), never any of this
         participant's own past answers.
 
-        **Also updated for ADR-0055 decision 8** (resolving a
-        self-contradiction this contract carried since 2026-09-09 -- see
-        this slice's tester report): the live shop-vote tally remains
-        visible after finalization (shop_a's own tally, checked below),
-        unlike the schedule breakdown and progress counter, which are still
-        replaced. shop_b (voted on only by other_link, never by `link`) is
-        kept in this Given purely to prove that fact does not surface as a
-        per-shop *retrospective* anywhere in the decision element itself
-        (participant_decision_has_no_shop_breakdown), even though the live
-        tally for shop_a remains readable.
+        **Reversed back 2026-09-17 (ADR-0061決定5, human decision "他の候補の
+        店と票は出さない")**: ADR-0055 decision 8 (2026-09-12) had kept the
+        live shop-vote tally visible after finalization to resolve a
+        self-contradiction between this contract's own presenceRule and
+        TDR-GTH-34's literal text (which never stopped asserting "他の参加者の
+        回答・投票、店ごとの回答の一覧は示されない"). The human has now seen
+        the finalized screen in its real board form and chosen to hide every
+        other shop there -- participant_question_surfaces_are_replaced below
+        now asserts gathering-shop-vote-question/-tally/-map are all absent
+        once finalized, matching TDR-GTH-34's own text (unchanged this round,
+        same as every prior round). shop_b (voted on only by other_link,
+        never by `link`) is kept in this Given purely to prove that fact does
+        not surface anywhere once finalized -- not even as a live tally for a
+        shop this participant never touched.
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
@@ -992,9 +1027,6 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.participant_decision_has_no_own_response_attribute()
         self.steps.participant_decision_has_no_shop_breakdown()
         self.steps.participant_question_surfaces_are_replaced()
-        self.steps.finalized_view_still_shows_shop_vote_tally(
-            shop_a, want_to_go=1, ok_to_go=0, not_going=0, responded=1
-        )
         # Reviewer audit Major#1: participantAnswer.finalizedView is one of six
         # new screen states this cross-cutting check had never run against.
         self.steps.screen_has_no_forbidden_controls_or_disclosures()
@@ -1003,9 +1035,6 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         # ParticipantView.decision is non-null, not only the schedule/vote/
         # progress surfaces participant_question_surfaces_are_replaced checks.
         self.steps.participant_name_controls_are_absent()
-        # answerLater/peekResults share nameControl.open's own presenceRule
-        # (adr/0050 decision 1): both disappear once decision is non-null.
-        self.steps.answer_later_and_peek_results_are_absent()
         schedule_response = self.steps.participant_attempts_to_answer_via_api(
             link, candidate_date_id, "MAYBE"
         )
@@ -1579,3 +1608,41 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.organizer_revokes_the_link_at(2)
         self.steps.participant_opens_the_link(link_a)
         self.steps.shop_vote_tally_total_active_participant_count_is(shop_a, 2)
+
+    # TDR-GTH-64 (new, ADR-0061決定2, 2026-09-17人間裁定「束Cレイアウト案F2
+    # 『空いた所にだれが何と答えたかを名前つきで並べる』」) ------------------
+
+    def test_tdr_gth_64_participant_sees_other_respondents_names_and_answers(self) -> None:
+        """respondentList (ADR-0061決定2): これまでは候補日ごとの人数の内訳
+        だけだった参加者どうしの可視性を、幹事にはすでに開いている個人単位の
+        可視性（ADR-0056決定1）と同じ深さまで広げる。名前を付けた参加者は
+        その名前と回答が、名乗らなかった参加者は名無しとその回答が示される
+        -- 可視文字列そのものの一致は求めない契約なので（TDR-GTH-16と同じ
+        「名無しを含む」区別可能性の扱い）、data-participant-named/
+        data-response-value の対応だけを検査する。
+        """
+        self._sign_in()
+        self.steps.organizer_has_a_scheduling_gathering("会64", [next_weekday_iso(3)])
+        candidate_date_id = self.dsl.candidate_date_id_at(0)
+        named_link_a = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(named_link_a)
+        self.steps.participant_answers_the_candidate_date(candidate_date_id, "GOING")
+        self.steps.participant_attaches_a_display_name("あおい")
+        named_link_b = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(named_link_b)
+        self.steps.participant_answers_the_candidate_date(candidate_date_id, "MAYBE")
+        self.steps.participant_attaches_a_display_name("そら")
+        anonymous_link = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(anonymous_link)
+        self.steps.participant_answers_the_candidate_date(candidate_date_id, "NOT_GOING")
+        viewer_link = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(viewer_link)
+        self.steps.schedule_question_respondents_are(
+            candidate_date_id,
+            [
+                {"response": "GOING", "named": True},
+                {"response": "MAYBE", "named": True},
+                {"response": "NOT_GOING", "named": False},
+            ],
+        )
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
