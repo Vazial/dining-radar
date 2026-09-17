@@ -678,8 +678,33 @@
 #   により、`gathering-shortlist-open`からこの画面へ渡った後の戻り方は変わるが、この契約自身の
 #   `organizerDashboard`の観測面・操作は無変更——戻り方の変更は候補検索側の契約だけで完結する。
 #
-# 2026-09-16 追補19 (architect、ADR-0060。実機フィードバック第2便・束B（会を作る・日を決める、
-# 2026-09-16人間裁定）。contractVersionを0.21.0から0.22.0へ上げる):
+# 2026-09-17 追補20 (architect、ADR-0061。実機フィードバック第2便・束C（参加者を呼ぶ・答える、
+# 2026-09-17人間裁定）。contractVersionを0.22.0から0.23.0へ上げる):
+# - **回答リンクの発行を2段の操作へ分けた**（決定1）: participantLinkCopy.requiredOutcomeから
+#   クリップボード書き込みのMust（ADR-0058）を外し、新設 issueDialog（小窓）へ移した。小窓は
+#   dialogCopy（「リンクをコピー」、クリップボード書き込みのMustはここへ移る）と dialogClose
+#   （「閉じる」／「×」）を持つ。
+# - **参加者の日程回答画面に respondentList を新設した**（決定2、人間裁定「他の参加者の名前と
+#   答えを並べる」）: 候補日ごとに、回答済みの参加者の名前（名無しを含む）と回答を表示する
+#   表示専用の一覧。API側の対応するフィールドは gathering-scheduling-api.yaml
+#   ParticipantScheduleQuestion.respondents を参照。参加者どうしの可視性を人数レベルから
+#   個人レベルへ広げる製品境界の拡張である。
+# - **scheduleQuestionを1日ずつのフローへ作り直した**（決定3）: cardinalityを「同時表示を許容
+#   しない・常に1件だけ到達可能」というMustへ変え、responseOptions.requiredOutcomeへ自動送りを
+#   追加した。新設 daySkip（「とばす」）・dayPrevious（「前の日」）・dayList（「日の一覧」、
+#   完了時の自分の答えの一覧も兼ねる）。answerLater・peekResults（確認面・エコー要素を含む）は
+#   全廃した——adr/0050決定1・adr/0055決定3を覆す。
+# - **確定後の参加者画面から他の店の情報を消した**（決定5、ADR-0055決定8の反転）:
+#   shopVoteQuestion.presenceRule・shopVoteMap.presenceRuleを「確定後はabsent」へ戻し、
+#   finalizedView.replacesQuestionSurfacesへgathering-shop-vote-question/-tally/-mapを
+#   再度含め、finalizedView.decision.requirementの記述を「他のどの店の情報も見えない」へ
+#   書き換えた。
+# - **allowedPurposesへ4件を追加、2件を削除した**（決定1・3・6）: 追加は
+#   gathering-participant-link-issue-dialog-copy/-close、gathering-participant-answer-skip/
+#   -previous、gathering-participant-day-navigate。削除は gathering-participant-answer-later/
+#   -peek-results（全廃のため）。あわせて、ADR-0060決定5が新設していながらこの配列への登録を
+#   欠いていた gathering-create-review-open/-cancel/-month-navigate も、本改訂で同じ配列を
+#   触るのを機に追加した（新しい業務判断ではなく起草時の抜けの是正、決定6）。
 # - **候補日カレンダーの土日・祝日を押せなくした**（決定1・2）: organizerGatheringCreate.calendar.
 #   dayCell / addCandidateDateForm.calendar.dayCell の disabledState へ、土曜・日曜、および新規
 #   属性 data-holiday が true である日（この製品が初めて内部に持つ、同梱・年1回以上更新の日本の
@@ -714,7 +739,7 @@ openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.22.0'
+contractVersion: '0.23.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -1061,7 +1086,12 @@ unavailableControls:
      gathering-finalize-confirm, gathering-finalize-cancel,
      gathering-shop-vote-select, gathering-delete-open,
      gathering-delete-confirm, gathering-delete-cancel,
-     gathering-participant-answer-later, gathering-participant-peek-results]
+     gathering-create-review-open, gathering-create-review-cancel,
+     gathering-create-review-month-navigate,
+     gathering-participant-answer-skip, gathering-participant-answer-previous,
+     gathering-participant-day-navigate,
+     gathering-participant-link-issue-dialog-copy,
+     gathering-participant-link-issue-dialog-close]
   allowedPurposesNote2026_09_12: >-
     Eight purposes added, one removed (this file's own 2026-09-12 revision,
     ADR-0054/ADR-0055/ADR-0056, contracts/REVISION-PLAN.md 2節). Added:
@@ -1129,6 +1159,25 @@ unavailableControls:
     from addCandidateDateForm's gathering-add-candidate-date-day-select --
     see organizerGatheringCreate.calendar below for why the two screens do
     not share one test id despite sharing the same input shape).
+  allowedPurposesNoteAdr0061: >-
+    Six purposes added, two removed (ADR-0061, 2026-09-17). Removed:
+    gathering-participant-answer-later and gathering-participant-peek-results
+    (both controls retired entirely, decision 3 -- see
+    participantAnswer.dayNavigationNote below for why). Added:
+    gathering-participant-answer-skip/-previous (the new one-at-a-time
+    schedule flow's per-day navigation, decision 3),
+    gathering-participant-day-navigate (shared by every
+    gathering-participant-day-item the same way
+    gathering-schedule-response-select is already shared by three sibling
+    options), gathering-participant-link-issue-dialog-copy/-close (the new
+    two-step link issuance dialog, decision 1). Also added:
+    gathering-create-review-open, gathering-create-review-cancel,
+    gathering-create-review-month-navigate -- these three purposes were
+    already declared by organizerGatheringCreate.reviewDialog (ADR-0060
+    decision 5) but never registered in this array; closed here as a
+    drafting gap this round happens to touch this same list to fix
+    (architect technical judgment, no new human decision, decision 6),
+    not a new business decision.
   forbiddenPurposes:
     - manual-ordering
     - secondary-condition
@@ -2487,30 +2536,70 @@ browserControlSurface:
       requiredOutcome: >-
         Activating it calls issueParticipantLinks with count: 1.
         Gathering.totalIssuedParticipantLinks and activeParticipantLinkCount
-        each increase by exactly 1. Because acceptance automation cannot
-        reliably read the OS clipboard, the issued URL must also be exposed
-        via a data-issued-link-url attribute on the same element immediately
-        after activation, holding the exact IssuedParticipantLink.url value
-        returned by that call. A new gathering-participant-link-item also
-        appears in gathering-participant-link-list (see participantLinkList
-        below), since issuing and listing share the same underlying data.
-        **Must also write that same URL to the browser clipboard**
-        (2026-09-14 addendum 17, ADR-0058, real-machine feedback that the
-        sibling recopy control never did this): activation calls the
-        Clipboard API (e.g. navigator.clipboard.writeText) with the
-        identical string held in data-issued-link-url, so a person using
-        this control can paste it without reading the attribute. If the
-        browser rejects the call or lacks the API, this contract requires
-        no visible notice, retry affordance, or other on-screen text about
-        that failure (FR-034: no explanatory prose in shipped screens); the
-        write is best-effort, its failure is silent, and
-        data-issued-link-url remains the attribute this contract requires
-        L4 to assert against regardless of whether the clipboard write
-        succeeded. This does not reverse the "don't trust the OS clipboard"
-        rationale stated two sentences above: correctness is still asserted
-        via data-issued-link-url, and whichever technique an acceptance
-        test additionally uses to confirm the Clipboard API was called is
-        left to the test author, not fixed by this contract.
+        each increase by exactly 1. A new gathering-participant-link-item
+        also appears in gathering-participant-link-list (see
+        participantLinkList below), since issuing and listing share the
+        same underlying data. **Changed 2026-09-17 (ADR-0061 decision 1,
+        human decision: 「発行で小窓が開き、そこでコピー」)**: this
+        activation no longer writes to the clipboard itself and no longer
+        exposes data-issued-link-url on this element. Instead it reveals
+        issueDialog below, which carries the returned
+        IssuedParticipantLink.url value. ADR-0058's original "must also
+        write that same URL to the browser clipboard" requirement quoted
+        below described the single-step design this decision replaces, not
+        the current one -- that Must is superseded by issueDialog.
+        dialogCopy's own requiredOutcome, not removed; it only moves.
+        Because acceptance automation cannot reliably read the OS clipboard
+        (ADR-0058's original rationale, unchanged), correctness is still
+        asserted via a data-issued-link-url attribute -- see issueDialog
+        below for exactly where that attribute now lives.
+      issueDialog:
+        testId: gathering-participant-link-issue-dialog
+        presenceRule: >-
+          Added 2026-09-17 (ADR-0061 decision 1). Absent until
+          participantLinkCopy above is activated. Present immediately after
+          that activation, carrying a data-issued-link-url attribute equal
+          to the exact IssuedParticipantLink.url value that activation's
+          call to issueParticipantLinks returned. Absent again once
+          dialogCopy or dialogClose below is activated -- either one closes
+          this dialog; this contract does not require both to be offered,
+          only that activating whichever the implementation provides closes
+          it.
+        dialogCopy:
+          testId: gathering-participant-link-issue-dialog-copy
+          purpose: gathering-participant-link-issue-dialog-copy
+          requiredOutcome: >-
+            Activating it writes issueDialog's own data-issued-link-url
+            value to the browser clipboard (e.g.
+            navigator.clipboard.writeText) -- **this is where the Must
+            ADR-0058 established for participantLinkCopy's own activation
+            now lives** (2026-09-17, ADR-0061 decision 1, reassigning
+            rather than retracting that Must). Same silent-failure handling
+            ADR-0058 established: if the browser rejects the call or lacks
+            the Clipboard API, this contract requires no visible notice,
+            retry affordance, or other on-screen text about that failure
+            (FR-034: no explanatory prose in shipped screens); the write is
+            best-effort, its failure is silent, and data-issued-link-url
+            remains the attribute this contract requires L4 to assert
+            against regardless of whether the clipboard write succeeded.
+            This does not itself make issueDialog absent -- see dialogClose
+            below for the only activation this contract requires to close
+            it. This contract does not fix the visible text a successful
+            write may show (e.g. 「✓ コピーしました」) -- same non-binding
+            wording latitude as this file's "N件" precedent (ADR-0060
+            decision 9).
+        dialogClose:
+          testId: gathering-participant-link-issue-dialog-close
+          purpose: gathering-participant-link-issue-dialog-close
+          requiredOutcome: >-
+            Activating it makes issueDialog absent. Calls no public
+            operation, and does not affect data-issued-link-url,
+            Gathering.totalIssuedParticipantLinks, or
+            activeParticipantLinkCount. This contract does not fix whether
+            an implementation offers one control or two redundant controls
+            for this outcome (the board's separate 「閉じる」 text control
+            and 「×」 icon control) -- only that activating whichever is
+            offered yields this outcome.
     participantLinkList:
       description: >-
         The link-management surface (ADR-0036 decision 7, human concern
@@ -2965,14 +3054,18 @@ browserControlSurface:
         reasoning is superseded by this round's switch of the primary key
         itself.
       cardinality: >-
-        This contract does not fix whether every CandidateDate renders
-        simultaneously or progressively (a wizard-style one-at-a-time flow,
-        as Answer.dc.html's "このあと聞かれること" section suggests, is
-        permitted). It requires only that whichever candidate dates are
-        currently reachable in the DOM each expose exactly one
-        gathering-schedule-question with the attributes below, and that the
-        gathering-participant-progress element (see below) always reflects
-        the true total regardless of how many are currently rendered.
+        **Changed 2026-09-17 (ADR-0061 decision 3, human decision: 「答えると
+        自動で次の日へ」)**: exactly one gathering-schedule-question is
+        reachable in the DOM at a time -- the simultaneous-render
+        alternative this paragraph permitted through 2026-09-16 is no
+        longer permitted; this contract now requires the one-at-a-time flow
+        it previously only allowed. Which candidate date is the
+        currently-reachable one changes only via responseOptions' own
+        auto-advance (below), daySkip, dayPrevious, or dayList's own
+        navigation (all below) -- never simultaneously with another
+        gathering-schedule-question. The gathering-participant-progress
+        element (see below) always reflects the true total regardless of
+        which single candidate date is currently rendered.
       attributes:
         candidateDateId: data-candidate-date-id
         yourResponse: data-your-response
@@ -3009,6 +3102,16 @@ browserControlSurface:
           gathering-schedule-question's candidate date. data-your-response
           updates to V. Re-activating a different option updates
           data-your-response again (TDR-GTH-06: always changeable).
+          **Added 2026-09-17 (ADR-0061 decision 3, human decision: 「答えると
+          自動で次の日へ」)**: if a next candidate date exists in
+          scheduleQuestion.orderingInvariant order after this one, that next
+          date's gathering-schedule-question becomes the currently reachable
+          one immediately after this call succeeds (auto-advance). This
+          contract does not fix what becomes reachable when the
+          just-answered candidate date was the last in order (e.g.
+          remaining on it, or dayList becoming the primary view) -- only
+          that no other candidate date's data-your-response value changes
+          as a result of this auto-advance itself.
       tally:
         testId: gathering-schedule-tally
         attributes:
@@ -3045,128 +3148,153 @@ browserControlSurface:
           side). Presentation (emphasis, position) is left provisional
           pending a human decision when a later round redesigns this
           screen (ADR-0060 未決事項4).
-    answerLater:
-      testId: gathering-participant-answer-later
-      purpose: gathering-participant-answer-later
-      description: >-
-        Added 2026-09-09 (adr/0050 decision 1, 2026-09-08〜09 human
-        decision: 「あとで答える」を実際に動く操作にする -- this control
-        existed visually since the 2026-08-30 draft but had no
-        requiredOutcome of its own, "見た目だけの飾り" per designer's own
-        words).
-      presenceRule: >-
-        Present exactly when ParticipantView.decision is null (Answer.
-        dc.html②, the same phase scheduleQuestion/shopVoteQuestion render
-        in) -- absent once finalized, mirroring nameControl.open's
-        presenceRule.
-      requiredOutcome: >-
-        Activating it reveals gathering-participant-answer-later-confirmation
-        (see confirmation below). Calls no public operation -- every answer
-        already saved itself the moment it was submitted, per this
-        product's existing "1問ごとにその場で保存する" design (the same
-        reasoning setScheduleResponse/setShopVotes's own immediate-call
-        model already rests on); this control's own meaning is a
-        client-side reveal of already-saved state, not a state change.
-        This contract does not fix whether activating it also navigates
-        away from the page.
-      confirmation:
-        testId: gathering-participant-answer-later-confirmation
-        presenceRule: >-
-          Absent until gathering-participant-answer-later is activated.
-        requirement: >-
-          **Changed 2026-09-12 (ADR-0055 decision 3, human decision,
-          FR-034: 「全般的にユーザの承認を得るための文書を本番の画面に埋め込む
-          のはやめてください」)**: this surface no longer states in prose
-          that every answer is already saved and the participant may leave
-          and return later (Answer.dc.html②'s original「またあとで、
-          続きから答えられます」wording is retired). It instead reproduces,
-          for every candidate date this participant has answered
-          (ParticipantScheduleQuestion.yourResponse non-null) and for every
-          shop this participant has voted on
-          (ParticipantShopVoteOption.yourVote non-null, only reachable once
-          voting has started), that answer's own values -- the real
-          answers themselves, not a sentence asserting they are saved.
-          **Narrowed 2026-09-13 (a tester found this surface could only be
-          checked when the implementation happened to reuse the live
-          question elements -- if a different element was drawn instead, no
-          strong assertion ever ran)**: this surface renders its own,
-          separate elements (scheduleItem/shopItem below) -- it does not
-          reuse gathering-schedule-question or gathering-shop-vote-question.
-          This is an architect decision, not a transcription of one
-          implementation's shape: a snapshot that shared elements with the
-          live, still-answerable questions could not be told apart from
-          them by a tester (same testId, appearing/disappearing together),
-          even though this surface exists only while
-          gathering-participant-answer-later-confirmation is open (its own
-          presenceRule above), and mixing a read-only echo with controls
-          that still call setScheduleResponse/setShopVotes would leave the
-          echo's freshness under a live edit unspecified.
-        scheduleItem:
-          testId: gathering-participant-answer-later-confirmation-schedule-item
+      respondentList:
+        description: >-
+          Added 2026-09-17 (ADR-0061 decision 2, human decision: 束C
+          レイアウト案F2「空いた所にだれが何と答えたかを名前つきで並べる」).
+          A second, later widening of the same peer-to-peer visibility
+          boundary adr/0050 decision 2 opened for aggregate counts --
+          extended here to each respondent's own name and answer, mirroring
+          on the participant side what ADR-0056 decision 1 already opened
+          for the organizer (organizerDashboard.responseTable). Scoped to
+          the schedule-answer screen only; whether shopVoteQuestion below
+          gets the same treatment is left to a later round (this file's own
+          open questions).
+        testId: gathering-schedule-respondent-list
+        item:
+          testId: gathering-schedule-respondent-item
           formControl: false
           cardinality: >-
-            One element per ParticipantScheduleQuestion whose yourResponse
-            is non-null.
+            One element per entry in this candidate date's own
+            ParticipantScheduleQuestion.respondents array (gathering-
+            scheduling-api.yaml) -- i.e. one per participant link that has
+            answered this candidate date, including this viewer's own entry
+            if this viewer has answered. This contract does not fix the DOM
+            order of these items.
           attributes:
-            candidateDateId: data-candidate-date-id
-            yourResponse: data-your-response
+            response: data-response-value
+            named: data-participant-named
           requirement: >-
-            data-candidate-date-id/data-your-response mirror
-            ParticipantScheduleQuestion.candidateDateId/yourResponse
-            exactly, for the same candidate date scheduleQuestion.attributes
-            above projects. No candidate date whose yourResponse is null
-            appears here -- this surface echoes answers given, not every
-            candidate date (「今までの答えを再掲する」).
-        shopItem:
-          testId: gathering-participant-answer-later-confirmation-shop-item
-          formControl: false
-          cardinality: >-
-            One element per ParticipantShopVoteOption whose yourVote is
-            non-null, only reachable once Gathering.votingStartedAt is
-            non-null.
-          attributes:
-            shopId: data-shop-id
-            yourVote: data-your-vote
-          requirement: >-
-            data-shop-id/data-your-vote mirror
-            ParticipantShopVoteOption.shopId/yourVote exactly, for the same
-            shop shopVoteQuestion.attributes above projects. No shop whose
-            yourVote is null appears here, same reasoning as scheduleItem
-            above.
-        confirmationEchoNote: >-
-          No allowedPurposes/formControlExemptTestIds entry is needed for
-          scheduleItem or shopItem above -- both are display-only elements
-          outside forbiddenFormControlCategories' scan, the same reasoning
-          this file already applies to its other display-only echoes (e.g.
-          decision.map.marker above).
-    peekResults:
-      testId: gathering-participant-peek-results
-      purpose: gathering-participant-peek-results
+            data-response-value equals that respondent's own `response`
+            exactly (the same GOING/MAYBE/NOT_GOING vocabulary
+            responseOptions above uses -- never "UNANSWERED", since an
+            unanswered participant simply has no entry here, the same
+            "absence means unanswered" convention
+            organizerDashboard.responseTable.row.cell already establishes).
+            data-participant-named is "false" exactly when that
+            respondent's `displayName` is null, "true" otherwise (same
+            vocabulary as participantLinkList.item.attributes.named above);
+            this element does not require the name's exact visible text to
+            be machine-asserted, the same latitude
+            participantLinkList.item.requirement above already takes for
+            the identical reason (TDR-GTH-16's own "名無しを含む"
+            distinguishability, not text equality) -- though an
+            implementation may additionally show the name's visible text
+            (e.g. 「あおい」/「名無し」) inside this item without contract
+            obligation. No allowedPurposes/formControlExemptTestIds entry is
+            needed -- a display-only element, the same reasoning this
+            file's confirmationEchoNote (retired alongside answerLater
+            below) already established for its own echo elements.
+    dayNavigationNote: >-
+      **Retired 2026-09-17 (ADR-0061 decision 3, human decision:
+      「結果をのぞく」「あとで答える」とその確認の面は無くす, overturning
+      adr/0050 decision 1 and adr/0055 decision 3)**: this file previously
+      defined answerLater and peekResults here (testIds
+      gathering-participant-answer-later/-peek-results and their
+      confirmation echo, scheduleItem/shopItem). Both are removed entirely,
+      not merely re-scoped -- decision 2's tally always being present
+      already made peekResults's own reveal-what's-already-visible behavior
+      moot, and this round's one-at-a-time flow (scheduleQuestion.
+      cardinality above) makes leaving mid-way always safe without a
+      dedicated control: every answer already saves itself the moment it is
+      submitted (the same "1問ごとにその場で保存する" design answerLater's
+      own requiredOutcome rested on), so a participant may simply close the
+      page at any candidate date, answered or not, and return later to find
+      every prior answer intact and every answer still changeable
+      (TDR-GTH-06). dayList below now carries the "自分の答えの一覧" role
+      answerLater's confirmation echo used to.
+    daySkip:
+      testId: gathering-participant-answer-skip
+      purpose: gathering-participant-answer-skip
       description: >-
-        Added 2026-09-09 (adr/0050 decision 1, 2026-09-08〜09 human
-        decision: 「結果をのぞく」を実際に動く操作にする). Made possible
-        entirely by decision 2's visibility reversal (scheduleQuestion.
-        tally/shopVoteQuestion.tally above are now always present
-        regardless of yourResponse/yourVote) -- this control introduces no
-        new data and calls no new public operation; it only changes which
-        already-present elements are simultaneously visible in the DOM at
-        once (Answer.dc.html③'s「集まりぐあい」overview).
+        Added 2026-09-17 (ADR-0061 decision 3, board's 「とばす」, bottom
+        right). Lets a participant move past the currently reachable
+        candidate date without answering it.
       presenceRule: >-
         Present exactly when ParticipantView.decision is null (same gating
-        as answerLater above) -- once finalized, finalizedView already
-        shows the decision, making a separate "peek" unnecessary.
+        scheduleQuestion above uses).
       requiredOutcome: >-
-        Activating it makes every currently reachable gathering-schedule-
-        question's gathering-schedule-tally and every currently reachable
-        gathering-shop-vote-question's gathering-shop-vote-tally
-        simultaneously visible in the DOM at once (relevant only if
-        scheduleQuestion/shopVoteQuestion's own cardinality note permits a
-        progressive, one-at-a-time render where not every question is
-        otherwise reachable simultaneously) -- including for a candidate
-        date or shop this participant has not yet answered, since decision
-        2 already makes every tally present regardless of yourResponse/
-        yourVote. This contract does not fix the visible layout of this
-        overview.
+        Activating it, while some gathering-schedule-question is currently
+        reachable, makes the next candidate date in scheduleQuestion.
+        orderingInvariant order the currently reachable one, without
+        changing the skipped date's own data-your-response (remains
+        whatever it was, including "UNANSWERED"). Calls no public
+        operation. This contract does not fix what becomes reachable when
+        the currently-focused candidate date is the last in order.
+    dayPrevious:
+      testId: gathering-participant-answer-previous
+      purpose: gathering-participant-answer-previous
+      description: >-
+        Added 2026-09-17 (ADR-0061 decision 3, board's 「前の日」, bottom
+        left).
+      presenceRule: >-
+        Present exactly when ParticipantView.decision is null (same gating
+        scheduleQuestion above uses).
+      disabledState: >-
+        Carries the native disabled state whenever the currently reachable
+        candidate date is the first in scheduleQuestion.orderingInvariant
+        order (no earlier candidate date exists).
+      requiredOutcome: >-
+        Activating it (while not disabled) makes the immediately preceding
+        candidate date in order the currently reachable one. Calls no
+        public operation. Does not change any data-your-response value.
+    dayList:
+      description: >-
+        Added 2026-09-17 (ADR-0061 decision 3, board's 「日の一覧」 -- a
+        bottom sheet on narrow widths, an always-present panel on wide
+        widths; this contract fixes neither presentation, only the
+        elements below). Lets a participant jump directly to any candidate
+        date instead of only stepping day by day, and, once every candidate
+        date has a non-null data-your-response, doubles as the "自分の答え
+        の一覧" the retired answerLater confirmation used to show (see
+        dayNavigationNote above) -- both roles read the same item list;
+        this contract requires no separate "all answered" element (a test
+        may derive that state from gathering-participant-progress's own
+        data-total-candidate-dates == data-answered-candidate-dates, both
+        already required above).
+      testId: gathering-participant-day-list
+      presenceRule: >-
+        Present exactly when ParticipantView.decision is null (same gating
+        scheduleQuestion above uses).
+      item:
+        testId: gathering-participant-day-item
+        purpose: gathering-participant-day-navigate
+        cardinality: one-per-currently-present-CandidateDate
+        orderingInvariant: >-
+          DOM order equals scheduleQuestion.orderingInvariant's own order
+          (startAt ascending, ADR-0060 decision 6) -- the same order
+          candidateDateList.orderingInvariant and responseTable.header.
+          headerCell already share.
+        attributes:
+          candidateDateId: data-candidate-date-id
+          yourResponse: data-your-response
+        requirement: >-
+          One item per CandidateDate in ParticipantView.scheduleQuestions
+          (every one, regardless of which single date is currently the
+          reachable gathering-schedule-question). data-your-response uses
+          the same GOING/MAYBE/NOT_GOING/UNANSWERED vocabulary
+          scheduleQuestion.attributes above uses. This element does not
+          duplicate goingCount/maybeCount/notGoingCount/currentLeader --
+          those remain sourced from the corresponding
+          gathering-schedule-tally/gathering-schedule-question via the same
+          data-candidate-date-id value (the same no-duplication judgment
+          ADR-0060 decision 7 applied to responseTable.header.headerCell).
+        requiredOutcome: >-
+          Activating the item whose data-candidate-date-id is D makes that
+          candidate date's gathering-schedule-question the currently
+          reachable one (scheduleQuestion.cardinality above's one-at-a-time
+          requirement). Calls no public operation. Does not change any
+          data-your-response value.
     shopVoteMap:
       description: >-
         Added 2026-09-05 (adr/0044/adr/0045, TDR-GTH-39/41, Vote.dc.html's
@@ -3178,14 +3306,15 @@ browserControlSurface:
         search's own map/origin test ids.
       testId: gathering-shop-vote-map
       presenceRule: >-
-        **Fixed 2026-09-13 (ADR-0055 decision 8, same fix as
-        shopVoteQuestion.presenceRule below, which this element's
-        presenceRule quoted verbatim and so inherited the same
-        contradiction)**: present exactly when
-        ParticipantView.shopVoteQuestions is non-null (i.e. once
-        Gathering.votingStartedAt is non-null) -- absent while phase is
-        SCHEDULING, and, like shopVoteQuestion itself, does **not** become
-        absent once ParticipantView.decision is non-null.
+        Present exactly when ParticipantView.shopVoteQuestions is non-null
+        (i.e. once Gathering.votingStartedAt is non-null) -- absent while
+        phase is SCHEDULING. **Changed back 2026-09-17 (ADR-0061 decision 5,
+        human decision: 「他の候補の店と票は出さない」, reversing ADR-0055
+        decision 8 a second time)**: also absent once ParticipantView.
+        decision is non-null, the same gating shopVoteQuestion.presenceRule
+        below uses again after its own reversal. finalizedView.decision.map
+        below (a distinct element, decided-shop-plus-origin only, no other
+        shop's pin) is what a finalized participant screen shows instead.
       scope: >-
         Unlike organizerDashboard.shopSelectionEntry (which owns no map of
         its own -- that surface now lives entirely in candidate-search-
@@ -3229,27 +3358,28 @@ browserControlSurface:
         above; map/detail fields added the same round (TDR-GTH-38/39).
       testId: gathering-shop-vote-question
       presenceRule: >-
-        **Fixed 2026-09-13 (ADR-0055 decision 8, resolving a
-        self-contradiction this file carried since 2026-09-12: this
-        presenceRule had not been updated to match
-        finalizedView.replacesQuestionSurfaces below, which already
-        excludes this element from the surfaces finalization removes)**:
-        present exactly when ParticipantView.shopVoteQuestions is non-null
+        Present exactly when ParticipantView.shopVoteQuestions is non-null
         (i.e. once Gathering.votingStartedAt is non-null) -- absent while
-        phase is SCHEDULING. Unlike scheduleQuestion above, this element
-        does **not** become absent once ParticipantView.decision is
-        non-null: the human explicitly chose 「確定後も参加者は店ごとの票を
-        見られるままにする」(2026-09-12) over designer's own "見せない"
-        alternative, matching gathering-scheduling-api.yaml's own
-        ParticipantView.shopVoteQuestions (v0.13.0), which stays non-null
-        and unchanged post-finalization "for historical reference ...
-        including every other participant's tally". What finalization
-        changes is which controls this element may contain, not whether
-        the element itself is present -- see noOperations below
-        (gathering-shop-vote-option becomes absent, voting is over) and
-        tally's own presenceRule (tally remains, unaffected). finalizedView's
-        decision element below coexists with this element; it does not
-        replace it.
+        phase is SCHEDULING. **Changed back 2026-09-17 (ADR-0061 decision 5,
+        human decision: 「他の候補の店と票は出さない」, reversing ADR-0055
+        decision 8 a second time)**: this element becomes absent once
+        ParticipantView.decision is non-null, the same gating
+        scheduleQuestion above uses. ADR-0055 decision 8 (2026-09-12) had
+        made this element remain present post-finalization to resolve a
+        self-contradiction between this presenceRule and finalizedView.
+        replacesQuestionSurfaces below; the human has now seen the finalized
+        participant screen in its real-machine board form and chosen to
+        hide other shops and their votes there, restoring the "absent once
+        finalized" behavior this file's own TDR-GTH-34 text ("他の参加者の
+        回答・投票、店ごとの回答の一覧は示されない") had asserted all along
+        without this presenceRule ever having been brought into agreement
+        with it (see finalizedView.replacesQuestionSurfaces below, updated
+        the same round). Voting itself already stopped being possible once
+        finalized regardless (see noOperations below) -- what changes with
+        this reversal is that the element carrying the live tally
+        disappears too, not only its controls. finalizedView's decision
+        element below is the only record of "what happened" a finalized
+        participant screen carries.
       orderingInvariant: >-
         Added 2026-09-04 (adr/0044, fixing a production defect where this
         list re-sorted itself after every vote -- the human's report:
@@ -3498,12 +3628,20 @@ browserControlSurface:
           decision.yourShopVotes/ParticipantDecisionShopVote it projected
           are both gone; TDR-GTH-34's simplified assertion ("他の参加者の
           回答や投票、店ごとの回答の一覧は示されない") is what this
-          contract now enforces here. A participant can still see every
-          shop's live tally via gathering-shop-vote-question/
-          gathering-shop-vote-tally above (unaffected by finalization,
-          adr/0050 decision 2) -- this section shows only the confirmed
-          decision plus, since 2026-09-12, the decided shop's own location
-          (see map below), never a per-shop retrospective.
+          contract now enforces here. **Changed back 2026-09-17 (ADR-0061
+          decision 5, human decision: 「他の候補の店と票は出さない」)**: a
+          participant can no longer see any other shop's live tally once
+          finalized -- gathering-shop-vote-question/gathering-shop-vote-
+          tally/gathering-shop-vote-map are all absent once
+          ParticipantView.decision is non-null (see each element's own
+          presenceRule, and replacesQuestionSurfaces below, all updated the
+          same round). ADR-0055 decision 8 (2026-09-12) had kept them
+          visible to resolve a self-contradiction between this file's
+          presenceRule and TDR-GTH-34's own text; this reversal restores
+          agreement the other way, matching what TDR-GTH-34 asserted all
+          along. This section shows only the confirmed decision plus the
+          decided shop's own location (see map below), never any other
+          shop.
         map:
           testId: gathering-participant-decision-map
           formControl: false
@@ -3577,25 +3715,24 @@ browserControlSurface:
             plain anchor -- outside forbiddenFormControlCategories' scan
             (unavailableControls.formControlExemptTestIds).
       replacesQuestionSurfaces: >-
-        gathering-schedule-question and gathering-participant-progress are
-        absent once ParticipantView.decision is non-null (see each
-        element's own presenceRule above). **Changed 2026-09-12 (ADR-0055
-        decision 8, human decision, resolving a self-contradiction this
-        file had carried since 2026-09-09: decision.requirement above
-        already documented that a participant can still see every shop's
-        live tally via gathering-shop-vote-question/gathering-shop-vote-
-        tally post-finalization, while this entry, until now, listed
-        gathering-shop-vote-question among the elements finalization makes
-        absent -- the two could not both be true)**: gathering-shop-vote-
-        question (and its own gathering-shop-vote-tally) is deliberately
-        **not** included in this list -- the human explicitly chose
-        「確定後も参加者は店ごとの票を見られるままにする」 over designer's
-        own "見せない" alternative (ADR-0055 decision 8), so
-        shopVoteQuestion.presenceRule above continues to govern that
-        element's own presence and is not restated here. Only the
-        per-candidate-date schedule breakdown and the answered/total
-        progress counter stop being shown once finalized; the store-level
-        vote tally does not.
+        gathering-schedule-question, gathering-participant-progress,
+        gathering-participant-day-list, gathering-shop-vote-question (and
+        its own gathering-shop-vote-tally), and gathering-shop-vote-map are
+        all absent once ParticipantView.decision is non-null (see each
+        element's own presenceRule above). **Changed back 2026-09-17
+        (ADR-0061 decision 5, human decision: 「他の候補の店と票は出さない」)
+        **: ADR-0055 decision 8 (2026-09-12) had excluded
+        gathering-shop-vote-question from this list to resolve a
+        self-contradiction between this entry and decision.requirement
+        above (which, until this round, documented that a participant could
+        still see every shop's live tally post-finalization) -- the human
+        has now seen the finalized screen in its real-machine board form
+        and chosen to hide other shops there, so this round reverses that
+        exclusion and restores the original list, this time keeping
+        decision.requirement above in agreement with it (both updated the
+        same round) rather than repeating the earlier contradiction. Only
+        the confirmed decision (gathering-participant-decision) and its own
+        map/providerPageLink remain once finalized.
       noOperations: >-
         No gathering-schedule-response-option, gathering-shop-vote-option,
         or gathering-participant-name-open/submit is present once
@@ -3689,6 +3826,10 @@ browserActions:
     inputs: [gathering-add-candidate-date-cancel]
     success:
       requiredOutcome: browserControlSurface.organizerDashboard.candidateDateList.addCandidateDateForm.cancel.requiredOutcome
+  # Changed 2026-09-17 (ADR-0061 decision 1): this action's own requiredOutcome now only
+  # issues the link and reveals issueDialog -- it no longer writes to the clipboard. See
+  # issueParticipantLinkAndCopy above for the action that also performs the clipboard write,
+  # a second, separate input (gathering-participant-link-issue-dialog-copy).
   copyParticipantLink:
     inputs: [gathering-participant-link-copy]
     success:
@@ -3754,14 +3895,26 @@ browserActions:
              gathering-participant-name-submit]
     success:
       requiredOutcome: browserControlSurface.participantAnswer.nameControl.submit.requiredOutcome
-  answerLater:
-    inputs: [gathering-participant-answer-later]
+  issueParticipantLinkAndCopy:
+    inputs: [gathering-participant-link-copy, gathering-participant-link-issue-dialog-copy]
     success:
-      requiredOutcome: browserControlSurface.participantAnswer.answerLater.requiredOutcome
-  peekResults:
-    inputs: [gathering-participant-peek-results]
+      requiredOutcome: browserControlSurface.organizerDashboard.participantLinkCopy.issueDialog.dialogCopy.requiredOutcome
+  closeIssueParticipantLinkDialog:
+    inputs: [gathering-participant-link-copy, gathering-participant-link-issue-dialog-close]
     success:
-      requiredOutcome: browserControlSurface.participantAnswer.peekResults.requiredOutcome
+      requiredOutcome: browserControlSurface.organizerDashboard.participantLinkCopy.issueDialog.dialogClose.requiredOutcome
+  skipScheduleQuestion:
+    inputs: [gathering-participant-answer-skip]
+    success:
+      requiredOutcome: browserControlSurface.participantAnswer.daySkip.requiredOutcome
+  previousScheduleQuestion:
+    inputs: [gathering-participant-answer-previous]
+    success:
+      requiredOutcome: browserControlSurface.participantAnswer.dayPrevious.requiredOutcome
+  navigateToScheduleQuestion:
+    inputs: [gathering-participant-day-item]
+    success:
+      requiredOutcome: browserControlSurface.participantAnswer.dayList.item.requiredOutcome
   rateLimitedScheduleResponse:
     inputs: [gathering-schedule-response-option]
     rateLimited:
