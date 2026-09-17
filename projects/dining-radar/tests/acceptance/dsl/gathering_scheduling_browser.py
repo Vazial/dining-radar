@@ -144,28 +144,59 @@ FINALIZE_OPEN = "gathering-finalize-open"
 FINALIZE_CONFIRM_DIALOG = "gathering-finalize-confirm-dialog"
 FINALIZE_CONFIRM = "gathering-finalize-confirm"
 FINALIZE_CANCEL = "gathering-finalize-cancel"
+# finalizeConfirmDialog.changesTable (gathering-finalize-confirm-changes, the
+# 3-row before/after table) was **retired 2026-09-17** (ADR-0062 decision 3,
+# human decision, board D3: 「日時とお店があればいい。参加者は書かなくていい」)
+# -- replaced by confirmSummary's date/shop pair below. FINALIZE_CHANGES_TABLE
+# is kept only as a negative-assertion literal (mirrors this file's own
+# RETIRED_FINALIZE_SUBMIT treatment above), not as an observed surface --
+# gathering-finalize-confirm-changes-row/-row-before/-row-after and
+# data-change-subject (this contract's own former 0.18.0 追補15 shape) have no
+# replacement and are not referenced anywhere below any longer.
 FINALIZE_CHANGES_TABLE = "gathering-finalize-confirm-changes"
-# changesTable.row/-before/-after (added gathering-scheduling-browser-
-# interface.yaml 0.18.0 追補15) -- see
-# assert_finalize_confirm_dialog_shows_changes_summary below for why this
-# replaced a same-element "non-empty text somewhere" check.
-FINALIZE_CHANGES_ROW = "gathering-finalize-confirm-changes-row"
-FINALIZE_CHANGES_ROW_BEFORE = "gathering-finalize-confirm-changes-row-before"
-FINALIZE_CHANGES_ROW_AFTER = "gathering-finalize-confirm-changes-row-after"
-CHANGE_SUBJECT_ATTR = "data-change-subject"
-FINALIZE_CHANGES_SUBJECT_VALUES = frozenset(
-    {"participant-link-issuance", "participant-screen", "date-and-shop"}
-)
+# finalizeConfirmDialog.confirmSummary.date/shop (gathering-scheduling-browser-
+# interface.yaml 0.24.0, ADR-0062 decision 3, TDR-GTH-53 rewrite): the two
+# facts board D3 asked for, replacing the changesTable above.
+FINALIZE_CONFIRM_DATE = "gathering-finalize-confirm-date"
+FINALIZE_CONFIRM_SHOP = "gathering-finalize-confirm-shop"
 # candidateDateList.removeCandidateDate (ADR-0056 decision 2, TDR-GTH-50/51).
 CANDIDATE_DATE_REMOVE = "gathering-candidate-date-remove"
 # gathering-shortlisted-shop-item's new fields (ADR-0055 decision 5 / ADR-0056
 # decision 5/6, TDR-GTH-38/54/55).
 SHOP_NAME_ATTR = "data-shop-name"
 WALKING_TIME_MINUTES_ATTR = "data-walking-time-minutes"
-ADDED_AFTER_VOTING_STARTED_ATTR = "data-added-after-voting-started"
+# data-added-after-voting-started was **retired 2026-09-17** (ADR-0062
+# decision 1, human decision, board D1: 「あとから入りました」は出さない) from
+# this item, participantAnswer.shopVoteQuestion, and
+# ParticipantShopVoteOption.addedAfterVotingStarted alike. Kept only as a
+# negative-assertion literal (same RETIRED_* convention as
+# RETIRED_FINALIZE_SUBMIT/RETIRED_PARTICIPANT_DECISION_SHOP_VOTE) -- no reader
+# below treats it as a real observation surface any longer.
+RETIRED_ADDED_AFTER_VOTING_STARTED_ATTR = "data-added-after-voting-started"
 SHORTLISTED_SHOP_MAP = "gathering-shortlisted-shop-map"
 SHORTLISTED_SHOP_MAP_MARKER = "gathering-shortlisted-shop-map-marker"
 SHORTLISTED_SHOP_PAGE_LINK = "gathering-shortlisted-shop-page-link"
+# shortlistedShopVotes.list.item.detailFields' 5 new fields (ADR-0062 decision
+# 1, human decision, board D1 lists ジャンル・席・禁煙・予算・徒歩約◯分):
+# presence-only test ids (no data-value-state Must), except walkingTime whose
+# own visible-text content carries the 「徒歩」+approximation-marker Must (see
+# assert_shortlisted_shop_items_show_detail_fields below).
+SHORTLISTED_SHOP_WALKING_TIME = "gathering-shortlisted-shop-walking-time"
+SHORTLISTED_SHOP_GENRE = "gathering-shortlisted-shop-genre"
+SHORTLISTED_SHOP_CAPACITY_TIER = "gathering-shortlisted-shop-capacity-tier"
+SHORTLISTED_SHOP_NON_SMOKING = "gathering-shortlisted-shop-non-smoking"
+SHORTLISTED_SHOP_DINNER_BUDGET = "gathering-shortlisted-shop-dinner-budget"
+# finalizedSummary.decisionBanner (ADR-0062 decision 4, TDR-GTH-65/66): the
+# decided shop's own name/map/page-link, newly opened to the organizer,
+# mirroring participantAnswer.finalizedView.decision's own shape exactly
+# (adr/0056 decision 10's precedent applied here for the first time).
+GATHERING_DECISION_BANNER = "gathering-decision-banner"
+FINALIZED_SHOP_ID_ATTR = "data-finalized-shop-id"
+FINALIZED_SHOP_NAME_ATTR = "data-finalized-shop-name"
+GATHERING_DECISION_SHOP_MAP = "gathering-decision-shop-map"
+GATHERING_DECISION_SHOP_MAP_MARKER = "gathering-decision-shop-map-marker"
+GATHERING_DECISION_SHOP_MAP_ORIGIN_MARKER = "gathering-decision-shop-map-origin-marker"
+GATHERING_DECISION_SHOP_PAGE_LINK = "gathering-decision-shop-page-link"
 # participantLinkList.issuanceClosed (ADR-0056 decision 11).
 PARTICIPANT_LINK_ISSUANCE_CLOSED = "gathering-participant-link-issuance-closed"
 # organizerDashboard.responseTable (ADR-0056 decision 1, TDR-GTH-49).
@@ -1927,8 +1958,6 @@ class GatheringSchedulingBrowserDsl:
                     "notGoingCount": int(node.get_attribute(NOT_GOING_COUNT_ATTR)),
                     "respondedCount": int(node.get_attribute(RESPONDED_COUNT_ATTR)),
                     "currentLeader": node.get_attribute(CURRENT_LEADER_ATTR) == "true",
-                    "addedAfterVotingStarted": node.get_attribute(ADDED_AFTER_VOTING_STARTED_ATTR)
-                    == "true",
                 }
             )
         return result
@@ -2011,6 +2040,36 @@ class GatheringSchedulingBrowserDsl:
             )
             link = assert_present(self.assertions, node, SHORTLISTED_SHOP_PAGE_LINK)
             self.assertions.assertEqual(link.get_attribute("href"), shop["providerPageUrl"])
+
+    def assert_shortlisted_shop_items_show_detail_fields(self) -> None:
+        """shortlistedShopVotes.list.item.detailFields' 5 new fields (ADR-0062
+        decision 1, human decision, board D1 lists ジャンル・席・禁煙・予算・
+        徒歩約◯分 among this row's visible fields). genre/capacityTier/
+        nonSmokingStatus/dinnerBudgetTier are presence-only (no
+        data-value-state Must, same convention participantAnswer.
+        shopVoteQuestion.detailFields already uses). walkingTime carries a
+        content Must instead: visible text must include both an
+        approximation marker (mirrors candidate-search-browser-interface.
+        yaml's walkingTimeEstimateWording, adr/0025 decision 2) and the word
+        徒歩. Also confirms data-added-after-voting-started (ADR-0056
+        decision 6) no longer appears on any item -- retired the same round
+        (ADR-0062 decision 1, board D1: 「あとから入りました」は出さない).
+        """
+        nodes = wait_for_at_least_one(self.page, SHORTLISTED_SHOP_ITEM)
+        self.assertions.assertGreater(nodes.count(), 0)
+        for index in range(nodes.count()):
+            item = nodes.nth(index)
+            self.assertions.assertIsNone(
+                item.get_attribute(RETIRED_ADDED_AFTER_VOTING_STARTED_ATTR)
+            )
+            assert_present(self.assertions, item, SHORTLISTED_SHOP_GENRE)
+            assert_present(self.assertions, item, SHORTLISTED_SHOP_CAPACITY_TIER)
+            assert_present(self.assertions, item, SHORTLISTED_SHOP_NON_SMOKING)
+            assert_present(self.assertions, item, SHORTLISTED_SHOP_DINNER_BUDGET)
+            walking_time = assert_present(self.assertions, item, SHORTLISTED_SHOP_WALKING_TIME)
+            text = walking_time.inner_text().strip()
+            self.assertions.assertIn("徒歩", text)
+            self.assertions.assertRegex(text, r"約|およそ|推定|めやす|見込み|くらい|程度")
 
     def assert_no_shortlisted_shop_is_current_leader(self) -> None:
         """data-current-leader (**corrected 2026-09-12, ADR-0055 decision 6,
@@ -2296,8 +2355,7 @@ class GatheringSchedulingBrowserDsl:
         applies to gathering-delete-confirm-dialog (this file's own
         precedent). Independent audit (audit-gathering-redesign-steps.md
         Major 2) found gathering-finalize-confirm-dialog -- a new DOM
-        shape this round introduced (gathering-finalize-confirm-changes-
-        row/-row-before/-row-after) -- had never once been scanned while
+        shape this round introduced -- had never once been scanned while
         open, including by TDR-GTH-53 itself, the one scenario that opens
         it directly. Placed here rather than only in TDR-GTH-53 so every
         caller of finalize_via_dashboard (TDR-GTH-33/34/35/36) gains the
@@ -2309,39 +2367,31 @@ class GatheringSchedulingBrowserDsl:
         self.assert_gathering_screen_has_no_forbidden_surfaces()
         self.assertions.assertEqual(self._read_gathering_phase_from_dom(), before_phase)
 
-    def assert_finalize_confirm_dialog_shows_changes_summary(self) -> None:
-        """finalizeConfirmDialog.changesTable.row (gathering-scheduling-
-        browser-interface.yaml 0.18.0 追補15, TDR-GTH-53): **replaces the
-        previous same-element "non-empty text somewhere" check**, which
-        could not tell "there are three rows" or "each row is the row it
-        claims to be" from a single blob of text (this slice's own prior
-        tester report flagged this as a gap; 0.18.0 closed it with a
-        row-level testId/attribute this suite can now correlate against,
-        the same way organizerDashboard.responseTable's row/cell test ids
-        already work). Confirms exactly three gathering-finalize-confirm-
-        changes-row elements exist, their data-change-subject values equal
-        exactly the three subjectValues (no duplicates, so set equality
-        proves full coverage), and each row contains exactly one -before
-        and one -after element with non-empty visible text.
+    def assert_finalize_confirm_dialog_shows_date_and_shop(
+        self, *, confirmed_candidate_date: str, shop_id: str, shop_name: str
+    ) -> None:
+        """finalizeConfirmDialog.confirmSummary (gathering-scheduling-
+        browser-interface.yaml 0.24.0, ADR-0062 decision 3, human decision,
+        board D3: 「日時とお店があればいい。参加者は書かなくていい」).
+        **Replaces the retired assert_finalize_confirm_dialog_shows_changes_
+        summary** (the 3-row before/after gathering-finalize-confirm-changes
+        table, ADR-0054 decision 5 / ADR-0056 decision 11): this dialog now
+        shows exactly two facts -- the candidate date about to be confirmed
+        and the shop about to be finalized -- and no participant-link-
+        issuance/participant-screen rows, no "before" state. Also confirms
+        the retired changes table itself no longer appears.
         """
-        changes = assert_present(self.assertions, self.page, FINALIZE_CHANGES_TABLE)
-        rows = changes.locator(f'[data-testid="{FINALIZE_CHANGES_ROW}"]')
-        expect(rows).to_have_count(3)
-        subjects = [
-            rows.nth(index).get_attribute(CHANGE_SUBJECT_ATTR) for index in range(rows.count())
-        ]
+        date_node = assert_present(self.assertions, self.page, FINALIZE_CONFIRM_DATE)
         self.assertions.assertEqual(
-            len(subjects), len(set(subjects)), f"duplicate subject: {subjects}"
+            date_node.get_attribute(GATHERING_CONFIRMED_CANDIDATE_DATE_ATTR),
+            confirmed_candidate_date,
         )
-        self.assertions.assertEqual(set(subjects), set(FINALIZE_CHANGES_SUBJECT_VALUES))
-        for index in range(rows.count()):
-            row = rows.nth(index)
-            before = row.locator(f'[data-testid="{FINALIZE_CHANGES_ROW_BEFORE}"]')
-            after = row.locator(f'[data-testid="{FINALIZE_CHANGES_ROW_AFTER}"]')
-            expect(before).to_have_count(1)
-            expect(after).to_have_count(1)
-            self.assertions.assertNotEqual(before.inner_text().strip(), "")
-            self.assertions.assertNotEqual(after.inner_text().strip(), "")
+        shop_node = assert_present(self.assertions, self.page, FINALIZE_CONFIRM_SHOP)
+        self.assertions.assertEqual(shop_node.get_attribute(SHOP_ID_ATTR), shop_id)
+        self.assertions.assertEqual(shop_node.get_attribute(SHOP_NAME_ATTR), shop_name)
+        self.assertions.assertEqual(
+            self.page.locator(f'[data-testid="{FINALIZE_CHANGES_TABLE}"]').count(), 0
+        )
 
     def confirm_finalize(self) -> None:
         """shortlistedShopVotes.finalizeConfirm.requiredOutcome (ADR-0054
@@ -2380,6 +2430,13 @@ class GatheringSchedulingBrowserDsl:
         recopy remains reachable (P4, exercised separately by TDR-GTH-36).
         Mirrors shortlistedShopVotes.finalizeConfirm.requiredOutcome's own
         exact enumeration of what becomes absent on a successful confirm.
+
+        **Extended 2026-09-17 (ADR-0062 decision 4, human decision, board D4:
+        「決まった店と集まる場所だけ」)**: shortlistedShopVotes.presenceRule
+        itself is now FINALIZED-absent, not merely its finalizeSelect control
+        -- gathering-shortlisted-shop-list/-item (the former "vote record"
+        panel, TDR-GTH-66) are added here alongside finalizeSelect so every
+        existing caller (TDR-GTH-33/35) gains this stronger check for free.
         """
         assert_all_absent(
             self.assertions,
@@ -2389,6 +2446,8 @@ class GatheringSchedulingBrowserDsl:
                 ADD_CANDIDATE_DATE_OPEN,
                 CANDIDATE_DATE_REMOVE,
                 SHORTLIST_OPEN,
+                SHORTLISTED_SHOP_LIST,
+                SHORTLISTED_SHOP_ITEM,
                 FINALIZE_SHOP_SELECT,
                 FINALIZE_OPEN,
                 FINALIZE_CONFIRM_DIALOG,
@@ -3013,6 +3072,13 @@ class GatheringSchedulingBrowserDsl:
         for index in range(nodes.count()):
             question = nodes.nth(index)
             shop_id = question.get_attribute(SHOP_ID_ATTR)
+            # data-added-after-voting-started retired 2026-09-17 (ADR-0062
+            # decision 1, board D1) from this participant-facing element too
+            # -- mirrors assert_shortlisted_shop_items_show_detail_fields'
+            # own organizer-side check of the same retirement.
+            self.assertions.assertIsNone(
+                question.get_attribute(RETIRED_ADDED_AFTER_VOTING_STARTED_ATTR)
+            )
             assert_present(self.assertions, question, SHOP_VOTE_QUESTION_WALKING_TIME)
             assert_present(self.assertions, question, SHOP_VOTE_QUESTION_CAPACITY_TIER)
             assert_present(self.assertions, question, SHOP_VOTE_QUESTION_NON_SMOKING)
@@ -3162,6 +3228,58 @@ class GatheringSchedulingBrowserDsl:
         self.assertions.assertEqual(map_node.get_attribute("data-overlay-ring-count"), "0")
         assert_present(self.assertions, self.page, PARTICIPANT_DECISION_MAP_MARKER)
         assert_present(self.assertions, self.page, PARTICIPANT_DECISION_ORIGIN_MARKER)
+
+    # Organizer's own finalized decision (TDR-GTH-65/66, ADR-0062 decision 4)
+    # -- mirrors participantAnswer.finalizedView.decision's own shape above,
+    # newly opened to the organizer's own finalizedSummary.decisionBanner. --
+
+    def _read_decision_banner(self) -> dict[str, object]:
+        node = assert_present(self.assertions, self.page, GATHERING_DECISION_BANNER)
+        return {
+            "confirmedCandidateDate": node.get_attribute(GATHERING_CONFIRMED_CANDIDATE_DATE_ATTR),
+            "finalizedShopId": node.get_attribute(FINALIZED_SHOP_ID_ATTR),
+            "finalizedShopName": node.get_attribute(FINALIZED_SHOP_NAME_ATTR),
+        }
+
+    def assert_organizer_decision_shows_decided_shop(
+        self,
+        *,
+        confirmed_candidate_date: str,
+        shop_id: str,
+        shop_name: str,
+        provider_page_url: str,
+    ) -> None:
+        """finalizedSummary.decisionBanner (TDR-GTH-65/66, ADR-0062 decision
+        4): data-finalized-shop-name equals the Gathering.shortlistedShops
+        entry's own name matching finalizedShopId exactly -- the same array
+        shortlistedShopVotes.list.item already read while SELECTING_SHOP.
+        The marker/page-link mirror participantAnswer.finalizedView.
+        decision's own precedent (adr/0056 decision 10).
+        """
+        banner = self._read_decision_banner()
+        self.assertions.assertEqual(banner["confirmedCandidateDate"], confirmed_candidate_date)
+        self.assertions.assertEqual(banner["finalizedShopId"], shop_id)
+        self.assertions.assertEqual(banner["finalizedShopName"], shop_name)
+        marker = assert_present(self.assertions, self.page, GATHERING_DECISION_SHOP_MAP_MARKER)
+        self.assertions.assertEqual(marker.get_attribute(SHOP_ID_ATTR), shop_id)
+        link = assert_present(self.assertions, self.page, GATHERING_DECISION_SHOP_PAGE_LINK)
+        self.assertions.assertEqual(link.get_attribute("href"), provider_page_url)
+
+    def assert_organizer_decision_map_shows_shop_and_origin_only(self) -> None:
+        """gathering-decision-shop-map's own scope (ADR-0062 decision 4,
+        TDR-GTH-65): exactly the decided shop's own pin and the organizer's
+        own search origin -- no route line or walking-radius ring. Same
+        three-attribute overlay-count shape
+        assert_participant_decision_map_shows_shop_and_origin_only already
+        establishes for the participant side (adr/0056 decision 10),
+        applied to the organizer's own finalized map for the first time.
+        """
+        map_node = assert_present(self.assertions, self.page, GATHERING_DECISION_SHOP_MAP)
+        self.assertions.assertEqual(map_node.get_attribute("data-overlay-marker-count"), "2")
+        self.assertions.assertEqual(map_node.get_attribute("data-overlay-line-count"), "0")
+        self.assertions.assertEqual(map_node.get_attribute("data-overlay-ring-count"), "0")
+        assert_present(self.assertions, self.page, GATHERING_DECISION_SHOP_MAP_MARKER)
+        assert_present(self.assertions, self.page, GATHERING_DECISION_SHOP_MAP_ORIGIN_MARKER)
 
     def assert_participant_decision_has_no_shop_breakdown(self) -> None:
         """TDR-GTH-34's simplified Then ("店ごとの回答の一覧は示されない",

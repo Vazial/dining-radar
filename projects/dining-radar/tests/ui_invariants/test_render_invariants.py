@@ -1899,11 +1899,23 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
 
     def test_b_gathering_dashboard_finalize_confirmation_is_keyboard_operable(self) -> None:
         """ADR-0054 decision 5 / ADR-0056 decision 11 (2026-09-12): finalize
-        is now a 4-part open/confirm-dialog(with a 3-row changes table)/
-        confirm/cancel flow, the same shape deleteGathering already uses --
-        FR-035's gate must cover these newly-declared operational controls
-        (gathering-finalize-open/-confirm/-cancel) the same way it already
-        covers gathering-delete-open/-confirm/-cancel.
+        is now a 4-part open/confirm-dialog/confirm/cancel flow, the same
+        shape deleteGathering already uses -- FR-035's gate must cover these
+        newly-declared operational controls (gathering-finalize-open/-confirm/
+        -cancel) the same way it already covers gathering-delete-open/
+        -confirm/-cancel.
+
+        **Updated 2026-09-17 (ADR-0062 decision 3, human decision, board D3:
+        「日時とお店があればいい。参加者は書かなくていい」)**: the dialog's
+        own content check now reads gathering-finalize-confirm-date/-shop
+        (confirmSummary, this decision's replacement structure) instead of
+        the retired 3-row gathering-finalize-confirm-changes table, and cross
+        -checks both against this gathering's own confirmed candidate date/
+        shortlisted shop id -- also confirms the retired table itself no
+        longer appears. Also checks gathering-shortlisted-shop-page-link
+        (board D1's "店のページを見る" column) is keyboard-reachable with a
+        real href, since detailFields' own providerPageLink is a plain
+        anchor outside the declared-purpose 44px/keyboard sweep below.
         """
         self._sign_in_as_organizer()
         gathering_id = self._create_gathering_via_ui("確定フローの確認会")
@@ -1912,9 +1924,18 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         expect(by_test_id(self.page, "gathering-phase-indicator")).to_have_attribute(
             "data-gathering-phase", "SELECTING_SHOP"
         )
-        self._seed_one_shortlisted_shop(gathering_id)
+        shop_id = self._seed_one_shortlisted_shop(gathering_id)
         self.page.reload()
         expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+        gathering_response = self.context.request.get(
+            f"{self.dsl.base_url}/gatherings/{gathering_id}"
+        )
+        self.assertEqual(gathering_response.status, 200, gathering_response.text())
+        confirmed_date_iso = gathering_response.json()["candidateDates"][0]["startAt"]
+
+        page_link = by_test_id(self.page, "gathering-shortlisted-shop-page-link").first
+        self._assert_tabbable(page_link, "gathering-shortlisted-shop-page-link")
+        self.assertTrue(page_link.get_attribute("href"))
 
         radio = by_test_id(self.page, "gathering-finalize-shop-select")
         self._assert_tabbable(radio, "gathering-finalize-shop-select")
@@ -1929,7 +1950,15 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         self._assert_tabbable(finalize_open, "gathering-finalize-open")
         finalize_open.press("Enter")
         expect(by_test_id(self.page, "gathering-finalize-confirm-dialog")).to_be_attached()
-        expect(by_test_id(self.page, "gathering-finalize-confirm-changes")).to_be_visible()
+        confirm_date = by_test_id(self.page, "gathering-finalize-confirm-date")
+        expect(confirm_date).to_be_visible()
+        self.assertEqual(
+            confirm_date.get_attribute("data-confirmed-candidate-date"), confirmed_date_iso
+        )
+        confirm_shop = by_test_id(self.page, "gathering-finalize-confirm-shop")
+        expect(confirm_shop).to_be_visible()
+        self.assertEqual(confirm_shop.get_attribute("data-shop-id"), shop_id)
+        expect(by_test_id(self.page, "gathering-finalize-confirm-changes")).to_have_count(0)
 
         finalize_cancel = by_test_id(self.page, "gathering-finalize-cancel")
         self._assert_tabbable(finalize_cancel, "gathering-finalize-cancel")
@@ -1969,6 +1998,95 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
             expect(by_test_id(self.page, "gathering-finalize-confirm-dialog")).to_be_attached()
             self._assert_all_declared_gathering_controls_meet_44px(
                 self.page, f"finalize-confirm dialog open at {label}"
+            )
+
+    def test_b_gathering_dashboard_finalized_decision_screen_recopy_remains_keyboard_operable(
+        self,
+    ) -> None:
+        """ADR-0062 decision 4 (2026-09-17, board D4: 「決まった店と集まる場所
+        だけ」): once FINALIZED, shortlistedShopVotes (list/item/finalizeSelect/
+        finalizeOpen) itself becomes absent -- but participantLinkList's own
+        recopy control is one of the few this contract keeps reachable post-
+        finalize (P4, TDR-GTH-36), and gathering-decision-shop-page-link
+        (decisionBanner's own new provider-page link, mirroring gathering-
+        shortlisted-shop-page-link's own precedent) is newly opened to the
+        organizer for the first time. No existing render invariant in this
+        file had examined any control *inside* the FINALIZED screen itself --
+        the earlier keyboard-operable test above only passes through this
+        phase transition at its very last assertion and ends there.
+        """
+        self._sign_in_as_organizer()
+        gathering_id = self._create_gathering_via_ui("確定後キーボード確認会")
+        by_test_id(self.page, "gathering-candidate-date").click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        by_test_id(self.page, "gathering-participant-link-copy").click()
+        self._seed_one_shortlisted_shop(gathering_id)
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+        by_test_id(self.page, "gathering-finalize-shop-select").click()
+        by_test_id(self.page, "gathering-finalize-open").click()
+        by_test_id(self.page, "gathering-finalize-confirm").click()
+        expect(by_test_id(self.page, "gathering-phase-indicator")).to_have_attribute(
+            "data-gathering-phase", "FINALIZED"
+        )
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_have_count(0)
+        expect(by_test_id(self.page, "gathering-decision-banner")).to_be_visible()
+
+        decision_link = by_test_id(self.page, "gathering-decision-shop-page-link")
+        self._assert_tabbable(decision_link, "gathering-decision-shop-page-link")
+        self.assertTrue(decision_link.get_attribute("href"))
+
+        recopy = by_test_id(self.page, "gathering-participant-link-recopy").first
+        self._assert_tabbable(recopy, "gathering-participant-link-recopy")
+        recopy.press("Enter")
+        # Activation-does-not-error only (mirrors this file's own
+        # test_b_gathering_dashboard_remove_candidate_date_is_keyboard_
+        # operable precedent) -- the dashboard itself must still be intact.
+        expect(by_test_id(self.page, "gathering-phase-indicator")).to_be_visible()
+
+    def test_e_gathering_dashboard_finalized_decision_screen_meets_44px_minimum_target(
+        self,
+    ) -> None:
+        """ADR-0062 decision 4: the FINALIZED-phase organizerDashboard render
+        (decisionBanner plus the still-present recopy control) is a screen
+        state this file's own 44px sweep had never reached before -- the
+        same kind of gap FR-035 names for newly-declared controls, applied
+        here to a newly-reachable *screen state*.
+
+        **Known limitation (tester note, ADR-0062 未決事項2)**: this sweep
+        only measures controls visible in whatever this screen's default
+        render state is. ADR-0062 deliberately left the PC tab-switch
+        ("回答"/"回答リンク") and the mobile disclosure-row toggle without a
+        fixed testId/purpose (見送った代替案: a new disclosure-toggle
+        purpose) -- this file cannot click open a control the contract does
+        not name without guessing at the implementation, so it cannot
+        reliably force a collapsed panel open before measuring it. The
+        shared 44px helper's own "no control was actually measured" guard
+        (``_assert_all_declared_gathering_controls_meet_44px``) still fires
+        if a fully-collapsed implementation left nothing visible at all;
+        ADR-0062's own 未決事項2 already names this exact measurement
+        (opened-then-measured tab/row content) as orchestrator's own
+        follow-up once an implementation exists to inspect by hand.
+        """
+        self._sign_in_as_organizer()
+        for width, height, label in GATHERING_CONTROL_SIZE_VIEWPORTS:
+            self.page.set_viewport_size({"width": width, "height": height})
+            gathering_id = self._create_gathering_via_ui(f"確定後サイズ確認会{label}")
+            by_test_id(self.page, "gathering-candidate-date").click()
+            by_test_id(self.page, "gathering-confirm-date-select").click()
+            by_test_id(self.page, "gathering-participant-link-copy").click()
+            self._seed_one_shortlisted_shop(gathering_id)
+            self.page.reload()
+            expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+            by_test_id(self.page, "gathering-finalize-shop-select").click()
+            by_test_id(self.page, "gathering-finalize-open").click()
+            by_test_id(self.page, "gathering-finalize-confirm").click()
+            expect(by_test_id(self.page, "gathering-phase-indicator")).to_have_attribute(
+                "data-gathering-phase", "FINALIZED"
+            )
+            expect(by_test_id(self.page, "gathering-decision-banner")).to_be_visible()
+            self._assert_all_declared_gathering_controls_meet_44px(
+                self.page, f"FINALIZED decision screen at {label}"
             )
 
     def test_gathering_dashboard_response_table_reflects_one_row_per_participant_link(

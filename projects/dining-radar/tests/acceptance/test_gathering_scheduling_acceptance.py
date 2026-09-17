@@ -1096,6 +1096,17 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         same section's own contract description names as having been "a
         designer decision, not an oversight" -- ADR-0055 decision 5 finds
         that explanation itself was in error).
+
+        **Extended 2026-09-17 (ADR-0062 decision 1, human decision, board D1
+        lists ジャンル・席・禁煙・予算・徒歩約◯分 among this same row's
+        visible fields)**: this view's own detailFields grow 5 more entries
+        (genre/capacityTier/nonSmokingStatus/dinnerBudgetTier/walkingTime's
+        own 「徒歩」-worded text) -- checked here, on the same screen this
+        scenario already opens, rather than as a new scenario, since board
+        D1 is the same human decision this test's own map/shop-details check
+        already exists to verify. Also confirms data-added-after-voting-
+        started (ADR-0056 decision 6) is retired from this same element the
+        same round (board D1: 「あとから入りました」は出さない).
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
@@ -1105,6 +1116,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.organizer_shortlists_shops_via_api([shop_a, shop_b])
         self.steps.organizer_opens_the_dashboard()
         self.steps.shortlisted_shop_list_shows_map_and_shop_details()
+        self.steps.shortlisted_shop_items_show_detail_fields()
         self.steps.screen_has_no_forbidden_controls_or_disclosures()
 
     def test_tdr_gth_39_participant_sees_map_and_shop_details_while_voting(self) -> None:
@@ -1498,6 +1510,15 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         にも削除と対称な確認の一段を置く」）。開く→キャンセル→開き直す→確定、
         の順で通し、キャンセルが確定を呼ばず選択状態を保つこと
         （finalizeCancel.requiredOutcome）も合わせて確かめる。
+
+        **書き換え済み（2026-09-17、ADR-0062決定3、人間裁定「日時とお店が
+        あればいい。参加者は書かなくていい」、contracts/gathering-scheduling.
+        feature TDR-GTH-53改）**: 3行の変化前後表（changesTable）を検査して
+        いた finalize_confirm_dialog_shows_changes_summary を、日時・お店の
+        2要素だけを検査する finalize_confirm_dialog_shows_date_and_shop へ
+        置き換えた——確定の確認は日時とお店の2つだけであることを、期待値
+        （確定済み候補日のISO・確定しようとしている店のshopId/name）と
+        突き合わせて確かめる。
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
@@ -1505,11 +1526,19 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.organizer_has_a_selecting_shop_gathering("会53", [thursday])
         shop_a = self.steps.open_shop_ids_for_the_confirmed_date()[0]
         self.steps.organizer_shortlists_shops_via_api([shop_a])
+        confirmed_date_iso = self.dsl.gathering["candidateDates"][0]["startAt"]
+        shop_a_name = next(
+            shop["name"]
+            for shop in self.dsl.gathering["shortlistedShops"]
+            if shop["shopId"] == shop_a
+        )
         self.steps.organizer_opens_the_dashboard()
         self.steps.organizer_selects_a_shop_for_finalize(shop_a)
         self.steps.organizer_opens_finalize_confirmation()
         self.steps.gathering_phase_is("SELECTING_SHOP")
-        self.steps.finalize_confirm_dialog_shows_changes_summary()
+        self.steps.finalize_confirm_dialog_shows_date_and_shop(
+            confirmed_candidate_date=confirmed_date_iso, shop_id=shop_a, shop_name=shop_a_name
+        )
         self.steps.organizer_cancels_finalize_confirmation()
         self.steps.gathering_phase_is("SELECTING_SHOP")
         self.steps.organizer_opens_finalize_confirmation()
@@ -1579,3 +1608,63 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.organizer_revokes_the_link_at(2)
         self.steps.participant_opens_the_link(link_a)
         self.steps.shop_vote_tally_total_active_participant_count_is(shop_a, 2)
+
+    def test_tdr_gth_65_organizer_sees_the_decided_shops_location_after_finalize(self) -> None:
+        """新規（2026-09-17、ADR-0062決定4、人間裁定「地図は画面いっぱい、店を
+        選び中と同じ骨組み」、TDR-GTH-52の幹事版）。API変更は不要
+        （Gathering.shortlistedShopsは既にname/location/walkingTimeMinutes/
+        providerPageUrlを持つ）——足りなかったのはブラウザ契約の観測面
+        （finalizedSummary.decisionBanner自身のmap/providerPageLink）だけ。
+        """
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会65", [thursday])
+        shop_a = self.steps.open_shop_ids_for_the_confirmed_date()[0]
+        self.steps.organizer_shortlists_shops_via_api([shop_a])
+        confirmed_date_iso = self.dsl.gathering["candidateDates"][0]["startAt"]
+        shop_a_data = next(
+            shop for shop in self.dsl.gathering["shortlistedShops"] if shop["shopId"] == shop_a
+        )
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.organizer_selects_a_shop_for_finalize(shop_a)
+        self.steps.organizer_finalizes_via_dashboard()
+        self.steps.organizer_decision_shows_decided_shop(
+            confirmed_candidate_date=confirmed_date_iso,
+            shop_id=shop_a,
+            shop_name=shop_a_data["name"],
+            provider_page_url=shop_a_data["providerPageUrl"],
+        )
+        self.steps.organizer_decision_map_shows_shop_and_origin_only()
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+
+    def test_tdr_gth_66_organizer_sees_only_the_decided_shop_after_finalize(self) -> None:
+        """新規（2026-09-17、ADR-0062決定4、人間裁定「決まった店と集まる場所
+        だけ」、TDR-GTH-34の幹事版）。確定前に投票にかけていた他の店
+        （shop_b、確定でも投票でも一度も選ばれない）を残したまま確定し、
+        確定後は決まった店（shop_a）の名前・場所だけが示され、
+        gathering-shortlisted-shop-list/-item（旧「票の記録」パネル）が
+        丸ごと不在になることを確かめる——finalized_controls_are_absent
+        （ADR-0062決定4でこのリストの absence を追加済み）を再利用する。
+        """
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会66", [thursday])
+        shop_a, shop_b = self.steps.open_shop_ids_for_the_confirmed_date()[:2]
+        self.steps.organizer_shortlists_shops_via_api([shop_a, shop_b])
+        confirmed_date_iso = self.dsl.gathering["candidateDates"][0]["startAt"]
+        shop_a_data = next(
+            shop for shop in self.dsl.gathering["shortlistedShops"] if shop["shopId"] == shop_a
+        )
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.organizer_selects_a_shop_for_finalize(shop_a)
+        self.steps.organizer_finalizes_via_dashboard()
+        self.steps.organizer_decision_shows_decided_shop(
+            confirmed_candidate_date=confirmed_date_iso,
+            shop_id=shop_a,
+            shop_name=shop_a_data["name"],
+            provider_page_url=shop_a_data["providerPageUrl"],
+        )
+        self.steps.finalized_controls_are_absent()
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()

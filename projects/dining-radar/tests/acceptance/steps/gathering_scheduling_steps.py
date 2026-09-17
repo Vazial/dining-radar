@@ -464,8 +464,14 @@ class GatheringSchedulingSteps:
     def organizer_opens_finalize_confirmation(self) -> None:
         self.dsl.open_finalize_confirmation()
 
-    def finalize_confirm_dialog_shows_changes_summary(self) -> None:
-        self.dsl.assert_finalize_confirm_dialog_shows_changes_summary()
+    def finalize_confirm_dialog_shows_date_and_shop(
+        self, *, confirmed_candidate_date: str, shop_id: str, shop_name: str
+    ) -> None:
+        self.dsl.assert_finalize_confirm_dialog_shows_date_and_shop(
+            confirmed_candidate_date=confirmed_candidate_date,
+            shop_id=shop_id,
+            shop_name=shop_name,
+        )
 
     def organizer_confirms_finalize(self) -> None:
         self.dsl.confirm_finalize()
@@ -506,6 +512,9 @@ class GatheringSchedulingSteps:
 
     def shortlisted_shop_list_shows_map_and_shop_details(self) -> None:
         self.dsl.assert_shortlisted_shop_list_shows_map_and_shop_details()
+
+    def shortlisted_shop_items_show_detail_fields(self) -> None:
+        self.dsl.assert_shortlisted_shop_items_show_detail_fields()
 
     def rejected_as_invalid_shop_selection(self, response: object) -> None:
         self.dsl.assert_rejected_as_invalid_shop_selection(response)  # type: ignore[arg-type]
@@ -604,6 +613,24 @@ class GatheringSchedulingSteps:
 
     def participant_decision_map_shows_shop_and_origin_only(self) -> None:
         self.dsl.assert_participant_decision_map_shows_shop_and_origin_only()
+
+    def organizer_decision_shows_decided_shop(
+        self,
+        *,
+        confirmed_candidate_date: str,
+        shop_id: str,
+        shop_name: str,
+        provider_page_url: str,
+    ) -> None:
+        self.dsl.assert_organizer_decision_shows_decided_shop(
+            confirmed_candidate_date=confirmed_candidate_date,
+            shop_id=shop_id,
+            shop_name=shop_name,
+            provider_page_url=provider_page_url,
+        )
+
+    def organizer_decision_map_shows_shop_and_origin_only(self) -> None:
+        self.dsl.assert_organizer_decision_map_shows_shop_and_origin_only()
 
     def participant_view_via_api(self, link: dict[str, str]) -> dict:
         return self.dsl.fetch_participant_view_via_api(link)
