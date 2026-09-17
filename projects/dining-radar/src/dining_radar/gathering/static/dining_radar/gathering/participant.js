@@ -270,6 +270,38 @@
  *   non-null, restoring TDR-GTH-34's own "他の参加者の回答や投票、店ごとの
  *   回答の一覧は示されない" as a literal DOM absence again, not merely a
  *   suppressed set of buttons.
+ *
+ * **2026-09-18 coordinator report -- two corrections to the round directly
+ * above**:
+ * - **dayList's own presentation now matches the approved board exactly**
+ *   (P-08/ADR-0013: an approved board fixes a screen's shape even where the
+ *   contract's own prose leaves it open) -- the 2026-09-17 entry's own
+ *   "rendered as a horizontally scrollable strip... without a separate
+ *   open/close toggle" design is retired. renderDayListPanel (wide,
+ *   c2r/D1-PcDay: a persistent left sidebar) and renderDayListSheet (narrow,
+ *   c2/C2-a-SpDay's top-right 「日の一覧」button + c2/C2-a-SpList・c2r/D1-
+ *   SpList's bottom sheet) now build the exact two board shapes, chosen
+ *   once per render by matchMedia (isWideDayListLayout, the same "no live-
+ *   resize switch" precedent candidate.js's isTwoColumnLayout already
+ *   established) -- never both at once, so gathering-participant-day-list/
+ *   -item's own cardinality never doubles. Both shapes share one row
+ *   renderer (renderDayListRow) drawing the board's own 3 columns (「日｜
+ *   ○△×の数｜あなた」), a leader badge, and the left-edge line, computed
+ *   from the same leaders map computeScheduleQuestionLeaders already
+ *   provides render() (no API change). The sheet keeps
+ *   gathering-participant-day-list attached to the DOM regardless of
+ *   whether it is visually open (dayList.presenceRule: "Present exactly
+ *   when ParticipantView.decision is null" -- not "present exactly when
+ *   the sheet is open") -- only a wrapping modifier class governs visual
+ *   state. Opening moves focus into the sheet; Esc closes it and returns
+ *   focus to the toggle button; Tab cycles within it while open (identical
+ *   keyboard shape to gathering.js's own issue dialog, ADR-0061 decision
+ *   1's precedent).
+ * - **respondents' own order no longer depends on the database's
+ *   unspecified default row order**: services.schedule_response_respondents
+ *   now explicitly orders by the answering participant link's own
+ *   issued_at/id (adr/0048's 発行順 basis) -- a Python-side fix, this file
+ *   itself only ever displays whatever order the response already carries.
  */
 (function () {
   "use strict";
@@ -301,6 +333,21 @@
     // ParticipantView.scheduleQuestions (e.g. a stale value from a
     // gathering whose candidate dates changed).
     currentCandidateDateId: null,
+    // **2026-09-18 coordinator report**: dayList's own presentation must
+    // match the approved board exactly (P-08/ADR-0013: an approved board
+    // fixes the screen's shape even where the contract's own prose leaves
+    // it open) -- c2r/D1-PcDay (wide: a persistent left panel, no open/
+    // close) and c2/C2-a-SpDay + C2-a-SpList / c2r/D1-SpList (narrow: a
+    // 「日の一覧」button, top right of the header, opens a bottom sheet).
+    // Only meaningful in the narrow shape (renderDayListSheet below) --
+    // always false in the wide shape, which never toggles.
+    dayListSheetOpen: false,
+    // Explicit open/close focus management for the sheet above -- distinct
+    // from the generic restoreFocusFromDescriptor below, which can only
+    // restore focus to an element that still exists after a rebuild (same
+    // shape as gathering.js's own pendingIssueDialogFocus, ADR-0061
+    // decision 1).
+    pendingDayListSheetFocus: null,
   };
 
   // request-sequencer:start -- Stale-response guard (this file's module
@@ -828,7 +875,51 @@
   // value.
   function navigateToScheduleQuestion(candidateDateId) {
     state.currentCandidateDateId = candidateDateId;
+    // Selecting a day from the narrow-layout sheet closes it (a presentation
+    // choice, board's own C2-a-SpList: pressing a row goes to that day) --
+    // a no-op in the wide layout, which never opens a sheet at all.
+    if (state.dayListSheetOpen) {
+      state.dayListSheetOpen = false;
+      state.pendingDayListSheetFocus = "close";
+    }
     render();
+  }
+
+  // 「日の一覧」(narrow layout only, board's C2-a-SpDay/c2r/D1-SpList): opens
+  // the bottom sheet. Calls no public operation.
+  function openDayListSheet() {
+    state.dayListSheetOpen = true;
+    state.pendingDayListSheetFocus = "open";
+    render();
+  }
+
+  // The sheet's own 「閉じる」/「×」 or Esc: calls no public operation, does
+  // not change any data-your-response value or state.currentCandidateDateId.
+  function closeDayListSheet() {
+    state.dayListSheetOpen = false;
+    state.pendingDayListSheetFocus = "close";
+    render();
+  }
+
+  // Minimal Tab-cycling focus trap while the narrow-layout day-list sheet is
+  // open -- identical shape to gathering.js's own trapTabWithinDialog (no
+  // shared module system exists in this codebase).
+  function trapTabWithinDayListSheet(event, sheet) {
+    var focusable = Array.prototype.slice.call(
+      sheet.querySelectorAll("button:not([disabled]), [tabindex]:not([tabindex='-1'])")
+    );
+    if (focusable.length === 0) {
+      return;
+    }
+    var first = focusable[0];
+    var last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
   }
 
   // Resolves state.currentCandidateDateId to a concrete, currently-present
@@ -908,10 +999,21 @@
     );
   }
 
-  function renderHeader(answered, total) {
+  /**
+   * @param dayListToggle the narrow-layout 「日の一覧」button (board's C2-a-
+   *   SpDay: top right of the header, opens the bottom sheet) -- `null` in
+   *   the wide layout, which shows the day list as a persistent side panel
+   *   instead and never needs a toggle (renderDayListPanel/renderDayList
+   *   Sheet below, chosen once per render by isWideDayListLayout).
+   */
+  function renderHeader(answered, total, dayListToggle) {
+    var countAndToggle = [el("div", { class: "gth-count" }, ["日程 " + answered + " / " + total])];
+    if (dayListToggle) {
+      countAndToggle.push(dayListToggle);
+    }
     var titleRow = el("div", { class: "gth-hd-row" }, [
       el("div", { class: "gth-title" }, [state.view.gatheringTitle]),
-      el("div", { class: "gth-count" }, ["日程 " + answered + " / " + total]),
+      el("div", { class: "gth-hd-row-end" }, countAndToggle),
     ]);
     var progressPercent = total > 0 ? Math.round((answered / total) * 100) : 0;
     var progressBar = el("div", { class: "gth-progress" }, [
@@ -1206,49 +1308,187 @@
     return el("div", { class: "gth-daynav-row" }, [previousButton, skipButton]);
   }
 
+  // isWideDayListLayout is read once per render (identical convention to
+  // candidate.js's own isTwoColumnLayout: window.matchMedia read once at
+  // render time, no live-resize mode switch -- adr/0032 decision 3's own
+  // precedent, reused here since this codebase has already settled that
+  // question). 64rem is the same boundary candidate.js/gathering.js's own
+  // primary-nav render-mode split already uses (developer discretion, not
+  // fixed by any contract).
+  var DAY_LIST_WIDE_LAYOUT_QUERY = "(min-width: 64rem)";
+
+  function dayListHeading(total, answered) {
+    // Once every candidate date has a non-null data-your-response, this
+    // same heading carries the "12件すべて答えました" completion role the
+    // retired answerLater confirmation used to (this contract requires no
+    // separate completion element -- see this file's module docstring
+    // history).
+    return total > 0 && answered === total ? total + "件すべて答えました" : "日の一覧";
+  }
+
   /**
-   * dayList (ADR-0061 decision 3, board's 「日の一覧」): always renders
-   * every candidate date, current one marked, each jumping directly there
-   * on activation. Once every candidate date has a non-null
-   * data-your-response, this same list also carries the "12件すべて答え
-   * ました" completion role the retired answerLater confirmation used to
-   * (this contract requires no separate completion element -- see this
-   * file's module docstring history).
+   * dayList (ADR-0061 decision 3, board's 「日｜○△×の数｜あなた」 three-
+   * column row, c2r/D1-PcDay・D1-SpList): one gathering-participant-day-item
+   * per candidate date, shared verbatim by both layout shapes below (the
+   * only difference between them is the shell each row sits inside, not
+   * the row itself) -- the current day highlighted, a leading candidate
+   * date's own leader badge and left-edge line (mirrors gathering.js's
+   * gathering-candidate-date/data-current-leader precedent, computed here
+   * from the same scheduleQuestions array, no API change).
    */
-  function renderDayList(order, total, answered) {
-    var heading =
-      total > 0 && answered === total
-        ? total + "件すべて答えました"
-        : "日の一覧";
-    var items = order.map(function (question) {
-      var isCurrent = question.candidateDateId === state.currentCandidateDateId;
-      var yourResponse = question.yourResponse === null ? "UNANSWERED" : question.yourResponse;
-      var item = el(
-        "button",
-        {
-          type: "button",
-          "data-testid": "gathering-participant-day-item",
-          "data-gathering-control-purpose": "gathering-participant-day-navigate",
-          "data-candidate-date-id": question.candidateDateId,
-          "data-your-response": yourResponse,
-          class: "gth-day-item" + (isCurrent ? " gth-day-item--current" : ""),
-        },
-        [
-          el("span", { class: "gth-day-item-date" }, [formatGatheringDateTime(question.startAt)]),
-          el("span", { class: "gth-day-item-response" }, [
-            question.yourResponse === null ? "未回答" : RESPONSE_LABELS[question.yourResponse],
-          ]),
-        ]
-      );
-      item.addEventListener("click", function () {
-        navigateToScheduleQuestion(question.candidateDateId);
-      });
-      return item;
+  function renderDayListRow(question, leaders) {
+    var isCurrent = question.candidateDateId === state.currentCandidateDateId;
+    var isLeader = Boolean(leaders && leaders[question.candidateDateId]);
+    var yourResponse = question.yourResponse === null ? "UNANSWERED" : question.yourResponse;
+    var dateChildren = [];
+    if (isLeader) {
+      dateChildren.push(el("span", { class: "gth-day-leader-badge" }, ["有力"]));
+    }
+    dateChildren.push(formatGatheringDateTime(question.startAt));
+    var row = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "gathering-participant-day-item",
+        "data-gathering-control-purpose": "gathering-participant-day-navigate",
+        "data-candidate-date-id": question.candidateDateId,
+        "data-your-response": yourResponse,
+        "data-current-leader": isLeader ? "true" : "false",
+        class:
+          "gth-day-row" +
+          (isCurrent ? " gth-day-row--current" : "") +
+          (isLeader ? " gth-day-row--leader" : ""),
+      },
+      [
+        el("span", { class: "gth-day-col gth-day-col-date" }, dateChildren),
+        el("span", { class: "gth-day-col gth-day-col-counts" }, [
+          "○" +
+            question.tally.goingCount +
+            " △" +
+            question.tally.maybeCount +
+            " ×" +
+            question.tally.notGoingCount,
+        ]),
+        el("span", { class: "gth-day-col gth-day-col-you" }, [
+          question.yourResponse === null ? "未回答" : RESPONSE_LABELS[question.yourResponse],
+        ]),
+      ]
+    );
+    row.addEventListener("click", function () {
+      navigateToScheduleQuestion(question.candidateDateId);
     });
-    return el("div", { "data-testid": "gathering-participant-day-list", class: "gth-day-list" }, [
-      el("div", { class: "gth-day-list-heading" }, [heading]),
-      el("div", { class: "gth-day-list-items" }, items),
+    return row;
+  }
+
+  // The shared 3-column header labels ("日｜○△×の数｜あなた") both shapes
+  // below show above their own row list -- board's own column heading, not
+  // fixed by this contract (no test id, purely descriptive).
+  function renderDayListColumnLabels() {
+    return el("div", { class: "gth-day-panel-header" }, [
+      el("span", {}, ["日"]),
+      el("span", {}, ["○△×の数"]),
+      el("span", {}, ["あなた"]),
     ]);
+  }
+
+  /**
+   * Wide layout (board's c2r/D1-PcDay): a persistent left panel, no open/
+   * close affordance at all -- gathering-participant-day-list is simply
+   * always on screen alongside the current question card.
+   */
+  function renderDayListPanel(order, leaders, heading) {
+    var list = el(
+      "div",
+      { "data-testid": "gathering-participant-day-list", class: "gth-day-list" },
+      order.map(function (question) {
+        return renderDayListRow(question, leaders);
+      })
+    );
+    return el("aside", { class: "gth-day-panel" }, [
+      el("div", { class: "gth-day-panel-heading" }, [heading]),
+      renderDayListColumnLabels(),
+      list,
+    ]);
+  }
+
+  /**
+   * Narrow layout (board's c2/C2-a-SpDay top-right 「日の一覧」button +
+   * c2/C2-a-SpList・c2r/D1-SpList bottom sheet): gathering-participant-day-
+   * list stays attached to the DOM at all times (dayList.presenceRule:
+   * "Present exactly when ParticipantView.decision is null" -- unaffected
+   * by whether the sheet is visually open), only the sheet's own open
+   * modifier class (participant_answer.html's .gth-day-sheet--open) governs
+   * whether it is actually visible/interactable; toggling it never removes
+   * or rebuilds the list itself, only this wrapping shell.
+   *
+   * @returns {toggleButton, sheet} -- the caller places toggleButton in the
+   *   header (top right) and sheet as a sibling of .gth-app.
+   */
+  function renderDayListSheet(order, leaders, heading) {
+    var list = el(
+      "div",
+      { "data-testid": "gathering-participant-day-list", class: "gth-day-list" },
+      order.map(function (question) {
+        return renderDayListRow(question, leaders);
+      })
+    );
+    var toggleButton = el(
+      "button",
+      { type: "button", class: "gth-day-sheet-open-btn" },
+      ["日の一覧"]
+    );
+    toggleButton.addEventListener("click", openDayListSheet);
+
+    var closeButton = el(
+      "button",
+      { type: "button", class: "gth-day-sheet-close", "aria-label": "閉じる" },
+      ["×"]
+    );
+    closeButton.addEventListener("click", closeDayListSheet);
+
+    var sheet = el(
+      "div",
+      {
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-label": "日の一覧",
+        tabindex: "-1",
+        class: "gth-day-sheet" + (state.dayListSheetOpen ? " gth-day-sheet--open" : ""),
+      },
+      [
+        el("div", { class: "gth-day-sheet-head" }, [
+          el("span", { class: "gth-day-sheet-title" }, [heading]),
+          closeButton,
+        ]),
+        renderDayListColumnLabels(),
+        list,
+      ]
+    );
+    // シートは開いたらフォーカスを中へ、Esc で閉じてボタンへ戻す (identical
+    // keyboard shape to gathering.js's own issue dialog, ADR-0061 decision
+    // 1's own precedent): Esc closes; Tab/Shift+Tab cycle within the sheet
+    // only while it is open.
+    sheet.addEventListener("keydown", function (event) {
+      if (!state.dayListSheetOpen) {
+        return;
+      }
+      if (event.key === "Escape" || event.key === "Esc") {
+        event.preventDefault();
+        closeDayListSheet();
+        return;
+      }
+      if (event.key === "Tab") {
+        trapTabWithinDayListSheet(event, sheet);
+      }
+    });
+    var scrim = el("div", { class: "gth-day-sheet-scrim" }, []);
+    scrim.addEventListener("click", closeDayListSheet);
+    var wrap = el(
+      "div",
+      { class: "gth-day-sheet-wrap" + (state.dayListSheetOpen ? " gth-day-sheet-wrap--open" : "") },
+      [scrim, sheet]
+    );
+    return { toggleButton: toggleButton, sheet: wrap };
   }
 
   /**
@@ -1675,6 +1915,15 @@
     var children = [];
     var shopVoteMapPending = null;
     var decisionMapPending = null;
+    // dayList's own two board-fixed shapes (2026-09-18 coordinator report):
+    // dayListSidebarPending (wide, c2r/D1-PcDay) sits beside .gth-app;
+    // dayListSheetPending (narrow, c2/C2-a-SpDay+SpList) sits as a sibling
+    // after it. Exactly one of the two is ever set (isWideDayListLayout
+    // below chooses once per render, never both) -- see renderDayListPanel/
+    // renderDayListSheet's own docstrings for why each shape's own
+    // dayList/day-item cardinality stays exactly one set regardless.
+    var dayListSidebarPending = null;
+    var dayListSheetPending = null;
     if (state.view) {
       if (state.view.decision) {
         // finalizedView (adr/0042): replaces scheduleQuestion/progress/
@@ -1723,10 +1972,25 @@
         });
         var currentQuestion = currentIndex !== -1 ? questions[currentIndex] : null;
 
-        children.push(renderHeader(answered, total));
+        // isWideDayListLayout: read once per render (see
+        // DAY_LIST_WIDE_LAYOUT_QUERY's own comment for why a live-resize
+        // switch is not needed) -- chooses exactly one of dayList's two
+        // board-fixed shapes; never both at once.
+        var isWideDayListLayout =
+          window.matchMedia && window.matchMedia(DAY_LIST_WIDE_LAYOUT_QUERY).matches;
+        var heading = dayListHeading(total, answered);
+        var dayListToggle = null;
+        if (isWideDayListLayout) {
+          dayListSidebarPending = renderDayListPanel(questions, leaders, heading);
+        } else {
+          var dayListSheetParts = renderDayListSheet(questions, leaders, heading);
+          dayListToggle = dayListSheetParts.toggleButton;
+          dayListSheetPending = dayListSheetParts.sheet;
+        }
+
+        children.push(renderHeader(answered, total, dayListToggle));
 
         var body = [];
-        body.push(renderDayList(questions, total, answered));
         if (currentQuestion) {
           body.push(renderCurrentQuestionCard(currentQuestion, leaders));
           body.push(renderDayNav(questions, currentIndex));
@@ -1743,7 +2007,24 @@
     if (state.errorCode) {
       children.push(renderError());
     }
-    root.appendChild(el("div", { class: "gth-app" }, children));
+    var appEl = el("div", { class: "gth-app" }, children);
+    if (dayListSidebarPending) {
+      // Wide layout (c2r/D1-PcDay): the day panel sits beside .gth-app as a
+      // persistent sidebar, never overlapping it.
+      root.appendChild(
+        el("div", { class: "gth-layout gth-layout--wide-day-list" }, [dayListSidebarPending, appEl])
+      );
+    } else {
+      root.appendChild(appEl);
+      if (dayListSheetPending) {
+        // Narrow layout (c2/C2-a-SpDay+SpList): the sheet (scrim + dialog)
+        // is a sibling of .gth-app, not a descendant of any of its rows --
+        // its own fixed positioning is what makes it "重なる別の面" rather
+        // than a layout participant, mirroring this file's own retired
+        // answerLater overlay precedent.
+        root.appendChild(dayListSheetPending);
+      }
+    }
 
     // The map containers above must already be attached to the live DOM
     // before Leaflet initializes them (see initializeShopVoteMap's own
@@ -1764,6 +2045,25 @@
     }
 
     restoreFocusFromDescriptor(root, focusDescriptor);
+
+    // Explicit open/close focus management for the narrow-layout day-list
+    // sheet -- distinct from the generic restoreFocusFromDescriptor above,
+    // which can only restore focus to an element that still exists after
+    // this rebuild (identical shape to gathering.js's own
+    // pendingIssueDialogFocus, ADR-0061 decision 1).
+    if (state.pendingDayListSheetFocus === "open") {
+      var sheetNode = root.querySelector(".gth-day-sheet");
+      if (sheetNode) {
+        sheetNode.focus({ preventScroll: true });
+      }
+      state.pendingDayListSheetFocus = null;
+    } else if (state.pendingDayListSheetFocus === "close") {
+      var sheetOpenButtonNode = root.querySelector(".gth-day-sheet-open-btn");
+      if (sheetOpenButtonNode) {
+        sheetOpenButtonNode.focus({ preventScroll: true });
+      }
+      state.pendingDayListSheetFocus = null;
+    }
   }
 
   loadView();
