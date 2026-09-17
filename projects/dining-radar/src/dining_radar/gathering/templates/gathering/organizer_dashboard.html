@@ -24,7 +24,7 @@
       Form.calendar's day-cell surface is now backed by a developer-authored
       component with no vendored stylesheet.
     {% endcomment %}
-    <link rel="stylesheet" href="{% static 'dining_radar/gathering/organizer.css' %}?v=20260916-primary-nav-redesign">
+    <link rel="stylesheet" href="{% static 'dining_radar/gathering/organizer.css' %}?v=20260917-adr0060-holiday-review">
 {% endblock %}
 
 {% block content %}
@@ -36,6 +36,15 @@
     </header>
     <main>
       <div hidden>{% csrf_token %}</div>
+      {% comment %}
+        ADR-0060 decision 1/2/4: this product's own bundled Japan public
+        holiday data (dining_radar.gathering.holidays), embedded so
+        gathering.js's addCandidateDateForm.calendar day-cell disabling reads
+        the exact same dataset the server's CANDIDATE_DATE_NOT_A_BUSINESS_DAY
+        rejection enforces -- json_script escapes safely and needs no manual
+        quoting.
+      {% endcomment %}
+      {{ holiday_dates|json_script:"gathering-holiday-dates" }}
       {% comment %}
         Per contracts/gathering-scheduling-browser-interface.yaml's
         renderModel, every required test id is built by gathering.js once
@@ -55,5 +64,5 @@
       (ADR-0054 decision 3 / ADR-0056 decision 3)**: the previously-vendored
       calendar library is retired.
     {% endcomment %}
-    <script src="{% static 'dining_radar/gathering/gathering.js' %}?v=20260916-primary-nav-redesign"></script>
+    <script src="{% static 'dining_radar/gathering/gathering.js' %}?v=20260917-adr0060-holiday-review"></script>
 {% endblock %}

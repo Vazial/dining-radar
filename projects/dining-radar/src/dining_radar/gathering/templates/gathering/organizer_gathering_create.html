@@ -9,7 +9,7 @@
       organizer.css change. Shared with organizer_gathering_list.html and
       organizer_dashboard.html (2026-09-04 visual-language pass).
     {% endcomment %}
-    <link rel="stylesheet" href="{% static 'dining_radar/gathering/organizer.css' %}?v=20260916-primary-nav-redesign">
+    <link rel="stylesheet" href="{% static 'dining_radar/gathering/organizer.css' %}?v=20260917-adr0060-holiday-review">
 {% endblock %}
 
 {% block content %}
@@ -21,6 +21,15 @@
     </header>
     <main>
       <div hidden>{% csrf_token %}</div>
+      {% comment %}
+        ADR-0060 decision 1/2/4: this product's own bundled Japan public
+        holiday data (dining_radar.gathering.holidays), embedded so
+        gathering_create.js's own calendar day-cell disabling reads the
+        exact same dataset the server's CANDIDATE_DATE_NOT_A_BUSINESS_DAY
+        rejection enforces -- json_script escapes safely and needs no manual
+        quoting.
+      {% endcomment %}
+      {{ holiday_dates|json_script:"gathering-holiday-dates" }}
       {% comment %}
         Per contracts/gathering-scheduling-browser-interface.yaml's
         organizerGatheringCreate (adr/0038), every required test id is
@@ -41,5 +50,5 @@
       vendored script/stylesheet of its own (see gathering_create.js's own
       buildCandidateDateCalendar).
     {% endcomment %}
-    <script src="{% static 'dining_radar/gathering/gathering_create.js' %}?v=20260916-primary-nav-redesign"></script>
+    <script src="{% static 'dining_radar/gathering/gathering_create.js' %}?v=20260917-adr0060-holiday-review"></script>
 {% endblock %}

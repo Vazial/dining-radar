@@ -133,7 +133,8 @@
   padding: 0 0.75rem;
   font-size: 0.8125rem;
 }
-.gth-btn-block {
+.gth-btn-block,
+.gathering-btn-block {
   width: 100%;
   min-height: 3rem;
   font-size: 0.9375rem;
@@ -348,6 +349,116 @@
   margin-top: 1.5rem;
   padding-top: 1.25rem;
   border-top: 1px solid #dfe4de;
+}
+
+/* ADR-0060 decision 5: organizerGatheringCreate redrawn as a single column
+   (name -> calendar -> summary -> "つくる"), replacing the retired
+   two-control .gathering-create-actions row above (kept for any other
+   screen still referencing it -- this screen no longer builds it). */
+.gathering-create-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 1rem 0;
+  padding-top: 1rem;
+  border-top: 1px solid #dfe4de;
+}
+.gathering-create-summary {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #17201b;
+}
+.gathering-create-summary-count {
+  color: #14614a;
+}
+
+/* ADR-0060 decision 5: gathering-create-review-dialog. A fixed-position
+   overlay (M3 board, party2/b2-q4r3/N1-*) -- the exact scroll/backdrop
+   treatment is an implementation choice this contract does not fix. */
+.gathering-review-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  max-width: 32rem;
+  margin: 4vh auto;
+  max-height: 92vh;
+  border-radius: 0.875rem;
+  border: 1px solid #dfe4de;
+  box-shadow: 0 1rem 2.5rem rgba(23, 32, 27, 0.25);
+  overflow: hidden;
+}
+.gathering-review-dialog:focus-visible,
+.gathering-review-dialog:focus {
+  outline: none;
+}
+.gathering-review-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #dfe4de;
+}
+.gathering-review-month {
+  font-weight: 700;
+  font-size: 0.9375rem;
+  color: #17201b;
+}
+.gathering-review-dots {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0;
+}
+.gathering-review-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: #dfe4de;
+}
+.gathering-review-dot--current {
+  background: #14614a;
+}
+.gathering-review-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.gathering-review-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 2.875rem;
+  padding: 0 0.5rem 0 1rem;
+  border-bottom: 1px solid #edf0eb;
+}
+.gathering-review-item-date {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #17201b;
+}
+.gathering-review-empty {
+  padding: 1rem;
+  color: #77827a;
+  font-size: 0.8125rem;
+}
+.gathering-review-footer {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0.625rem;
+  padding: 0.875rem 1rem;
+  border-top: 1px solid #dfe4de;
+}
+.gathering-review-footer .gathering-btn-primary {
+  flex: 1 1 auto;
 }
 
 /* --- organizerDashboard --------------------------------------------------- */
@@ -590,6 +701,10 @@
   border-color: #14614a;
   background: #f7fbf8;
 }
+/* ADR-0060 decision 7: the most-likely-to-win candidate date(s). */
+.gth-date--leader {
+  box-shadow: inset 3px 0 0 #b98900;
+}
 .gth-date-top {
   display: flex;
   align-items: center;
@@ -761,6 +876,7 @@
   color: #4b6e86;
 }
 .gth-cal-day {
+  position: relative;
   box-sizing: border-box;
   height: 2.875rem;
   background: #fff;
@@ -786,6 +902,21 @@
 .gth-cal-day--disabled.gth-cal-day--weekend {
   background: #f4f6f3;
   color: #cbd2c9;
+}
+/* ADR-0060 decision 2: "祝" mark, independent of weekend-ness -- a weekday
+   holiday keeps the plain white background a weekend cell does not have. */
+.gth-cal-day--holiday {
+  color: #8a3b2c;
+}
+.gth-cal-day--disabled.gth-cal-day--holiday {
+  color: #cbb3ac;
+}
+.gth-cal-day-holiday-badge {
+  position: absolute;
+  margin-top: 1.25rem;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  line-height: 1;
 }
 .gth-cal-day--today {
   color: #a7b0a8;
@@ -1270,6 +1401,50 @@
 }
 .gth-response-row-empty {
   font-size: 0.75rem;
+  color: #a7b0a8;
+}
+
+/* --- responseTable.header/leaderSummary (ADR-0060 decision 7) -----------
+   header/headerCell make the table's own column structure (日付順)
+   machine-observable; the leader highlight itself is read from the
+   corresponding gathering-candidate-date's own data-current-leader
+   (architect design judgment, no duplicated value -- see this file's own
+   JS comment). */
+.gth-response-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  padding: 0 0.6rem;
+}
+.gth-response-header-cell {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #77827a;
+  padding: 0.1rem 0.5rem;
+}
+.gth-response-header-cell--leader {
+  color: #b98900;
+}
+.gth-response-leader-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid #f0dfa8;
+  background: #fbf6e6;
+  border-radius: 0.5rem;
+  font-size: 0.8125rem;
+}
+.gth-response-leader-summary-label {
+  font-weight: 700;
+  color: #8a6d00;
+}
+.gth-response-leader-summary-item {
+  font-weight: 600;
+  color: #17201b;
+}
+.gth-response-leader-summary-empty {
   color: #a7b0a8;
 }
 

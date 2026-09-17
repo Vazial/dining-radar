@@ -33,7 +33,7 @@ from dining_radar.suggestions import acceptance_state
 from dining_radar.suggestions.errors import CandidateSourceUnavailableError
 from dining_radar.suggestions.hotpepper_source import fetch_real_candidates
 
-from . import tokens
+from . import holidays, tokens
 from .models import (
     CandidateDate,
     Gathering,
@@ -97,6 +97,22 @@ class CandidateDateNotInFutureError(Exception):
     raised for the whole request/batch even when only one entry violates
     this (no partial success, mirroring ``DuplicateCandidateDateError``'s own
     whole-request rejection).
+    """
+
+
+class CandidateDateNotABusinessDayError(Exception):
+    """``CANDIDATE_DATE_NOT_A_BUSINESS_DAY`` (ADR-0060 decision 4): a candidate date's own
+    calendar day is a Saturday, a Sunday, or a Japan public holiday per this product's own
+    bundled holiday data (``dining_radar.gathering.holidays``).
+
+    Raised by both ``create_gathering`` and ``add_candidate_dates``, checked after
+    ``CandidateDateNotInFutureError`` and before ``DuplicateCandidateDateError`` -- the same
+    whole-request/whole-batch rejection discipline those two errors already established (no
+    partial success). Weekday-ness and holiday-ness are checked independently (ADR-0060 decision
+    1/2: a day may be a weekday holiday, not a weekend, or a non-holiday weekend) but both map to
+    this single code -- the server contract, like ``CandidateDateNotInFutureError``'s own
+    "today or past" grouping, does not distinguish the two reasons; only the client-side
+    ``disabledState``/``data-holiday`` surface does.
     """
 
 
@@ -195,6 +211,24 @@ def _reject_dates_not_in_future(start_ats: Sequence[datetime]) -> None:
             raise CandidateDateNotInFutureError
 
 
+def _reject_dates_not_business_days(start_ats: Sequence[datetime]) -> None:
+    """Raise ``CandidateDateNotABusinessDayError`` if any date's own calendar day is a
+    Saturday, a Sunday, or a Japan public holiday (ADR-0060 decision 1/2/4, 2026-09-16 human
+    decision: 平日ランチの会には土日・祝日は不要).
+
+    Checked after ``_reject_dates_not_in_future`` (a today-or-past date is reported as
+    ``CANDIDATE_DATE_NOT_IN_FUTURE`` even when it also happens to be a weekend/holiday) and
+    before the duplicate check, applied identically by ``create_gathering`` and
+    ``add_candidate_dates``. Uses the same server-local calendar day
+    ``_reject_dates_not_in_future`` already uses (``timezone.localtime``), so a candidate date's
+    weekend/holiday-ness is judged against the same calendar day its future-ness is.
+    """
+    for start_at in start_ats:
+        day = timezone.localtime(start_at).date()
+        if not holidays.is_business_day(day):
+            raise CandidateDateNotABusinessDayError
+
+
 def create_gathering(
     organizer: AbstractBaseUser, title: str, candidate_date_start_ats: Sequence[datetime]
 ) -> Gathering:
@@ -202,7 +236,10 @@ def create_gathering(
 
     Raises ``CandidateDateNotInFutureError`` (adr/0049 decision 3) if any
     entry's own calendar day is today or earlier, checked before the
-    duplicate check below. Raises ``DuplicateCandidateDateError`` (adr/0038)
+    duplicate check below. Raises ``CandidateDateNotABusinessDayError``
+    (ADR-0060 decision 4) if any entry's own calendar day is a weekend or a
+    Japan public holiday, checked after the future check and before the
+    duplicate check. Raises ``DuplicateCandidateDateError`` (adr/0038)
     if ``candidate_date_start_ats`` itself contains two entries sharing the
     exact same instant -- checked before any row is written, so a rejected
     request never creates a partial gathering. Aware-datetime equality
@@ -210,6 +247,7 @@ def create_gathering(
     instant, matching ``startAt``'s own "exact same date-time" wording.
     """
     _reject_dates_not_in_future(candidate_date_start_ats)
+    _reject_dates_not_business_days(candidate_date_start_ats)
     if len(set(candidate_date_start_ats)) != len(candidate_date_start_ats):
         raise DuplicateCandidateDateError
     with transaction.atomic():
@@ -261,15 +299,19 @@ def add_candidate_dates(
     Replaces the retired singular ``add_candidate_date``. Raises
     ``CandidateDateNotInFutureError`` (adr/0049 decision 3) if any entry's
     own calendar day is today or earlier. Raises
-    ``DuplicateCandidateDateError`` if any entry's ``start_at`` duplicates a
-    candidate date already persisted on this gathering, or another entry
-    within the same batch -- the whole batch is rejected either way, with no
-    partial success (checked before any row is written).
+    ``CandidateDateNotABusinessDayError`` (ADR-0060 decision 4) if any
+    entry's own calendar day is a weekend or a Japan public holiday, checked
+    after the future check. Raises ``DuplicateCandidateDateError`` if any
+    entry's ``start_at`` duplicates a candidate date already persisted on
+    this gathering, or another entry within the same batch -- the whole
+    batch is rejected either way, with no partial success (checked before
+    any row is written).
     """
     gathering = _get_owned_gathering(organizer, gathering_id)
     if gathering.phase != GatheringPhase.SCHEDULING:
         raise GatheringNotInSchedulingPhaseError
     _reject_dates_not_in_future(start_ats)
+    _reject_dates_not_business_days(start_ats)
     if len(set(start_ats)) != len(start_ats):
         raise DuplicateCandidateDateError
     existing = set(gathering.candidate_dates.values_list("start_at", flat=True))
@@ -430,20 +472,19 @@ class CandidateDateTally:
 
 
 def candidate_dates_with_tallies(gathering: Gathering) -> list[CandidateDateTally]:
-    """``Gathering.candidateDates``, ordered goingCount descending, ties broken by
-    ``startAt`` ascending (adr/0048).
+    """``Gathering.candidateDates``, ordered ``startAt`` ascending (開催日の早い順).
 
-    This previously relied on Python's ``list.sort`` being stable
-    (including under ``reverse=True``) plus ``Gathering.candidate_dates``
-    already being ordered by ``created_at`` ascending
-    (``CandidateDate.Meta.ordering``) to keep tied members in creation
-    order. That was found in production to be non-deterministic in
-    practice: every candidate date submitted in the same ``createGathering``
-    call can share one identical ``auto_now_add`` value at this database's
-    timestamp resolution, so there was nothing stable for the stable sort to
-    preserve. The sort key below is explicit instead -- ``(-going_count,
-    start_at)`` -- and no longer depends on the queryset's own iteration
-    order at all.
+    **Changed 2026-09-16 (ADR-0060 decision 6, human decision: 候補日の並びを
+    日付順へ)**: previously ordered ``goingCount`` descending, ties broken by
+    ``startAt`` ascending (adr/0048, fixing a 2026-09-06 production defect
+    where the tie-break was undocumented and non-deterministic). This round
+    replaces ``goingCount`` as the primary key with ``startAt`` itself. No
+    tie-break is needed for this key -- within a given gathering, ``startAt``
+    is always unique among currently-present candidate dates
+    (``DUPLICATE_CANDIDATE_DATE`` rejects any addition that would duplicate
+    an existing candidate date's ``startAt``), so two elements sharing this
+    order key can never occur -- unlike the retired ``goingCount`` key,
+    which ties (and, worse, a non-deterministic tie-break) in production.
     """
     candidate_dates = list(gathering.candidate_dates.all())
     counts: dict[uuid.UUID, Counter] = defaultdict(Counter)
@@ -462,7 +503,7 @@ def candidate_dates_with_tallies(gathering: Gathering) -> list[CandidateDateTall
         )
         for candidate_date in candidate_dates
     ]
-    tallies.sort(key=lambda tally: (-tally.going_count, tally.candidate_date.start_at))
+    tallies.sort(key=lambda tally: tally.candidate_date.start_at)
     return tallies
 
 
@@ -1013,6 +1054,24 @@ def participant_schedule_status(
         participant_link=link, candidate_date=candidate_date
     ).first()
     return None if response is None else response.status
+
+
+def bundled_holiday_isos() -> list[str]:
+    """Every Japan public holiday date this product bundles (ADR-0060 decision 2),
+    ascending, as ``YYYY-MM-DD`` strings.
+
+    Consumed by ``dining_radar.gathering.views`` to embed into
+    ``organizerGatheringCreate``/``organizerDashboard``'s own rendered HTML
+    (via Django's ``json_script`` template filter), so this screen's calendar
+    ``data-holiday``/``disabledState`` client-side behavior reads the exact
+    same dataset the ``CANDIDATE_DATE_NOT_A_BUSINESS_DAY`` server-side
+    rejection above enforces (ADR-0060: "同じデータを使う") -- a thin
+    passthrough kept here, not called directly from ``views``, so this
+    module stays the sole place that imports ``dining_radar.gathering
+    .holidays`` (this module's own header comment: every business rule lives
+    here, not in the view layer).
+    """
+    return holidays.all_holiday_isos()
 
 
 # --- test-support-api.yaml seams (acceptance-only; guarded by callers) -----

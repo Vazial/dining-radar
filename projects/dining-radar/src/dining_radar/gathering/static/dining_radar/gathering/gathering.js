@@ -120,6 +120,11 @@
     addCandidateDateSelectedIsos: {},
     addCandidateDateDuplicateError: false,
     addCandidateDateNotInFutureError: false,
+    // ADR-0060 decision 4: a weekend/Japan-public-holiday date rejected by
+    // CANDIDATE_DATE_NOT_A_BUSINESS_DAY -- calendar disabling below already
+    // prevents most such attempts client-side, but the server remains the
+    // authoritative check (e.g. a stale-embedded-holiday-data edge case).
+    addCandidateDateNotABusinessDayError: false,
     headerIssuedLinkUrl: null,
     recopiedLinkUrls: {},
     // adr/0042: client-side pending radio selection for
@@ -265,6 +270,40 @@
     return dayIso + "T12:00:00Z";
   }
 
+  // --- holiday-data BEGIN (identical copy in gathering_create.js; keep both
+  // in sync) ---
+  // ADR-0060 decisions 1/2/4: this screen's own calendar must disable the
+  // exact same weekend/holiday days the server's own
+  // CANDIDATE_DATE_NOT_A_BUSINESS_DAY rejection enforces (TDR-GTH-57/58).
+  // Weekday-ness needs no data at all (a plain Date computation below), but
+  // holiday-ness does -- rather than re-implementing this product's own
+  // Japan-public-holiday rules a second time in JavaScript (risking drift
+  // from dining_radar.gathering.holidays, the one place those rules are
+  // allowed to live), this reads the exact same bundled dataset back from
+  // this page's own rendered HTML, where the server embedded it via
+  // Django's json_script filter (see this screen's own template).
+  function readHolidayIsoSet() {
+    var node = document.getElementById("gathering-holiday-dates");
+    if (!node) {
+      return {};
+    }
+    var set = {};
+    try {
+      JSON.parse(node.textContent || "[]").forEach(function (iso) {
+        set[iso] = true;
+      });
+    } catch (error) {
+      // Malformed/missing embedded data: every day renders as a non-holiday
+      // client-side -- the server's own rejection remains the authoritative
+      // enforcement regardless (disabledState here is a UX affordance only,
+      // the same convention this calendar's "明日以降のみ" rule already
+      // follows).
+    }
+    return set;
+  }
+  var HOLIDAY_ISO_SET = readHolidayIsoSet();
+  // --- holiday-data END ---
+
   // --- self-made calendar (adr/0054 decision 3 / adr/0056 decision 3) -----
   // Replaces the vendored flatpickr library 2026-09-13 -- see this file's
   // module docstring. Adopts, near-verbatim, the "案B｜表" grid/drag/
@@ -321,8 +360,18 @@
       date.setDate(date.getDate() + amount);
       return isoOfDate(date);
     }
+    // ADR-0060 decisions 1/2: weekend-ness needs no data (computed from the
+    // cell's own Date); holiday-ness reads HOLIDAY_ISO_SET (module-level,
+    // see holiday-data BEGIN/END above).
+    function isWeekendIso(iso) {
+      var day = dateOfIso(iso).getDay();
+      return day === 0 || day === 6;
+    }
+    function isHolidayIso(iso) {
+      return Boolean(HOLIDAY_ISO_SET[iso]);
+    }
     function selectable(iso) {
-      return iso > todayIso;
+      return iso > todayIso && !isWeekendIso(iso) && !isHolidayIso(iso);
     }
     function isInDragRange(iso) {
       var lo = drag.startIso < drag.endIso ? drag.startIso : drag.endIso;
@@ -493,12 +542,16 @@
     function buildDayCell(iso) {
       var enabled = selectable(iso);
       var date = dateOfIso(iso);
-      var isWeekend = date.getDay() === 0 || date.getDay() === 6;
+      var isWeekend = isWeekendIso(iso);
+      var isHoliday = isHolidayIso(iso);
       var isToday = iso === todayIso;
       var isSelected = effectiveSelected(iso);
       var classNames = ["gth-cal-day"];
       if (isWeekend) {
         classNames.push("gth-cal-day--weekend");
+      }
+      if (isHoliday) {
+        classNames.push("gth-cal-day--holiday");
       }
       if (!enabled) {
         classNames.push("gth-cal-day--disabled");
@@ -513,6 +566,8 @@
         "data-testid": options.dayTestId,
         "data-date": iso,
         "data-selected": isSelected ? "true" : "false",
+        // ADR-0060 decision 2: always present, independent of weekend-ness.
+        "data-holiday": isHoliday ? "true" : "false",
         class: classNames.join(" "),
       };
       if (enabled) {
@@ -522,7 +577,13 @@
       } else {
         attrs["aria-disabled"] = "true";
       }
-      var cell = el("div", attrs, [String(date.getDate())]);
+      var dayChildren = [String(date.getDate())];
+      if (isHoliday) {
+        dayChildren.push(
+          el("span", { class: "gth-cal-day-holiday-badge", "aria-hidden": "true" }, ["祝"])
+        );
+      }
+      var cell = el("div", attrs, dayChildren);
       if (enabled) {
         cell.addEventListener("keydown", function (event) {
           if (event.key === "Enter" || event.key === " ") {
@@ -630,42 +691,49 @@
       container.appendChild(el("div", { class: "gth-cal-scroll" }, [grid]));
       wireGrid(grid);
 
-      var pickedRows = sortedSelectedIsos().map(function (iso) {
-        var removeButton = el(
-          "button",
-          {
-            type: "button",
-            "data-testid": options.removeSelectedTestId,
-            "data-gathering-control-purpose": options.removeSelectedPurpose,
-            "data-date": iso,
-            "aria-label": formatDayLabel(iso) + " を外す",
-            class: "gth-cal-picked-remove",
-          },
-          ["×"]
-        );
-        removeButton.addEventListener("click", function () {
-          removeSelected(iso);
-        });
-        return el("div", { class: "gth-cal-picked-row" }, [
-          el("span", { class: "gth-cal-picked-date" }, [
-            formatDayLabel(iso) + " ",
-            el("span", { class: "gth-cal-picked-time" }, ["12:00"]),
-          ]),
-          removeButton,
-        ]);
-      });
-      container.appendChild(
-        el(
-          "div",
-          { class: "gth-cal-picked" },
-          [
-            el("div", { class: "gth-cal-picked-head" }, [
-              el("span", {}, ["えらんだ日 ", el("b", {}, [String(sortedSelectedIsos().length)]), "日"]),
-              el("span", { class: "gth-cal-picked-note" }, ["どれも 12:00 から"]),
+      // ADR-0060 decision 5 note: addCandidateDateForm.calendar (this file's
+      // own call site below) is unaffected by that decision and never passes
+      // hidePickedList -- this guard exists only so this function's body
+      // stays a verbatim-shape duplicate of gathering_create.js's own copy,
+      // whose call site does pass it.
+      if (!options.hidePickedList) {
+        var pickedRows = sortedSelectedIsos().map(function (iso) {
+          var removeButton = el(
+            "button",
+            {
+              type: "button",
+              "data-testid": options.removeSelectedTestId,
+              "data-gathering-control-purpose": options.removeSelectedPurpose,
+              "data-date": iso,
+              "aria-label": formatDayLabel(iso) + " を外す",
+              class: "gth-cal-picked-remove",
+            },
+            ["×"]
+          );
+          removeButton.addEventListener("click", function () {
+            removeSelected(iso);
+          });
+          return el("div", { class: "gth-cal-picked-row" }, [
+            el("span", { class: "gth-cal-picked-date" }, [
+              formatDayLabel(iso) + " ",
+              el("span", { class: "gth-cal-picked-time" }, ["12:00"]),
             ]),
-          ].concat(pickedRows)
-        )
-      );
+            removeButton,
+          ]);
+        });
+        container.appendChild(
+          el(
+            "div",
+            { class: "gth-cal-picked" },
+            [
+              el("div", { class: "gth-cal-picked-head" }, [
+                el("span", {}, ["えらんだ日 ", el("b", {}, [String(sortedSelectedIsos().length)]), "日"]),
+                el("span", { class: "gth-cal-picked-note" }, ["どれも 12:00 から"]),
+              ]),
+            ].concat(pickedRows)
+          )
+        );
+      }
     }
 
     renderLocal();
@@ -826,6 +894,7 @@
     state.addCandidateDateSelectedIsos = {};
     state.addCandidateDateDuplicateError = false;
     state.addCandidateDateNotInFutureError = false;
+    state.addCandidateDateNotABusinessDayError = false;
     render();
   }
 
@@ -848,6 +917,7 @@
         state.addCandidateDateSelectedIsos = {};
         state.addCandidateDateDuplicateError = false;
         state.addCandidateDateNotInFutureError = false;
+        state.addCandidateDateNotABusinessDayError = false;
         render();
       } else if (
         result.status === 409 &&
@@ -856,14 +926,31 @@
       ) {
         state.addCandidateDateDuplicateError = true;
         state.addCandidateDateNotInFutureError = false;
+        state.addCandidateDateNotABusinessDayError = false;
         render();
       } else if (
-        result.status === 409 &&
+        // 2026-09-16 fix (found while implementing ADR-0060): the server
+        // answers CANDIDATE_DATE_NOT_IN_FUTURE with 400, not 409 -- this
+        // branch's own `result.status === 409` guard had never matched in
+        // production, leaving this error message unreachable.
+        result.status === 400 &&
         result.body &&
         result.body.code === "CANDIDATE_DATE_NOT_IN_FUTURE"
       ) {
         state.addCandidateDateNotInFutureError = true;
         state.addCandidateDateDuplicateError = false;
+        state.addCandidateDateNotABusinessDayError = false;
+        render();
+      } else if (
+        // ADR-0060 decision 4 (2026-09-16): CANDIDATE_DATE_NOT_A_BUSINESS_DAY,
+        // same 400 status as CANDIDATE_DATE_NOT_IN_FUTURE above.
+        result.status === 400 &&
+        result.body &&
+        result.body.code === "CANDIDATE_DATE_NOT_A_BUSINESS_DAY"
+      ) {
+        state.addCandidateDateNotABusinessDayError = true;
+        state.addCandidateDateDuplicateError = false;
+        state.addCandidateDateNotInFutureError = false;
         render();
       }
     });
@@ -920,6 +1007,41 @@
     });
     return leaders;
   }
+
+  // --- current-leader-cascade BEGIN (identical shape copy in participant.js's
+  // own computeScheduleQuestionLeaders; keep both in sync) ---
+  // ADR-0060 decision 7 (2026-09-16, human decision: "○が多い日を優先。
+  // 同票なら△が多いほう。それでも同票ならすべてつける"): a two-level
+  // cascade, distinct from computeCurrentLeaderShopIds above's own single
+  // summed score -- goingCount alone decides first; maybeCount is consulted
+  // only to break a goingCount tie, never combined with it. A candidate date
+  // with zero total responses is always excluded (same 0-response exclusion
+  // as computeCurrentLeaderShopIds).
+  function computeCandidateDateLeaders(candidateDates) {
+    var responded = candidateDates.filter(function (candidateDate) {
+      return candidateDate.goingCount + candidateDate.maybeCount + candidateDate.notGoingCount > 0;
+    });
+    if (responded.length === 0) {
+      return {};
+    }
+    var maxGoing = responded.reduce(function (max, candidateDate) {
+      return candidateDate.goingCount > max ? candidateDate.goingCount : max;
+    }, -Infinity);
+    var tiedOnGoing = responded.filter(function (candidateDate) {
+      return candidateDate.goingCount === maxGoing;
+    });
+    var maxMaybe = tiedOnGoing.reduce(function (max, candidateDate) {
+      return candidateDate.maybeCount > max ? candidateDate.maybeCount : max;
+    }, -Infinity);
+    var leaders = {};
+    tiedOnGoing.forEach(function (candidateDate) {
+      if (candidateDate.maybeCount === maxMaybe) {
+        leaders[candidateDate.id] = true;
+      }
+    });
+    return leaders;
+  }
+  // --- current-leader-cascade END ---
 
   function openFinalizeGathering() {
     if (!state.finalizeSelectedShopId) {
@@ -1082,9 +1204,10 @@
     );
   }
 
-  function renderCandidateDate(candidateDate) {
+  function renderCandidateDate(candidateDate, leaders) {
     var isTentative = state.tentativeSelectedId === candidateDate.id;
     var isSchedulingPhase = state.gathering.phase === "SCHEDULING";
+    var isLeader = Boolean(leaders[candidateDate.id]);
     var attrs = {
       "data-testid": "gathering-candidate-date",
       "data-candidate-date-id": candidateDate.id,
@@ -1093,7 +1216,14 @@
       "data-not-going-count": candidateDate.notGoingCount,
       "data-confirmed": candidateDate.isConfirmed ? "true" : "false",
       "data-tentative-selected": isTentative ? "true" : "false",
-      class: "gth-date" + (isSchedulingPhase ? " gth-date--pickable" : ""),
+      // ADR-0060 decision 7: computed client-side (computeCandidateDateLeaders
+      // above) from goingCount/maybeCount/notGoingCount, already present on
+      // every CandidateDate -- no API change needed.
+      "data-current-leader": isLeader ? "true" : "false",
+      class:
+        "gth-date" +
+        (isSchedulingPhase ? " gth-date--pickable" : "") +
+        (isLeader ? " gth-date--leader" : ""),
     };
     if (isSchedulingPhase) {
       attrs["data-gathering-control-purpose"] = "gathering-candidate-date-tentative-select";
@@ -1206,6 +1336,9 @@
     }
     if (state.addCandidateDateNotInFutureError) {
       children.push(el("p", { class: "gth-error" }, ["明日以降の日付を選んでください。"]));
+    }
+    if (state.addCandidateDateNotABusinessDayError) {
+      children.push(el("p", { class: "gth-error" }, ["土日・祝日は候補日として登録できません。"]));
     }
     return el(
       "div",
@@ -1665,11 +1798,58 @@
   // populated the field (this file's own module docstring records the
   // coordination point), so an absent value renders as an all-empty row
   // rather than throwing.
-  function renderResponseTable() {
+  function renderResponseTable(leaders) {
     var candidateDateStartAtById = {};
     state.gathering.candidateDates.forEach(function (candidateDate) {
       candidateDateStartAtById[candidateDate.id] = candidateDate.startAt;
     });
+    // ADR-0060 decision 7 (2026-09-16): header/headerCell make "column" a
+    // real, orderable DOM concept for the first time -- DOM order equals
+    // candidateDateList.orderingInvariant's own order (startAt ascending,
+    // decision 6), which state.gathering.candidateDates already carries
+    // (services.candidate_dates_with_tallies now sorts by startAt). The
+    // header cell itself carries no data-current-leader -- callers read
+    // that fact from the corresponding gathering-candidate-date element
+    // instead (architect design judgment, avoids a second source of truth).
+    var headerCells = state.gathering.candidateDates.map(function (candidateDate) {
+      return el("span", {
+        "data-testid": "gathering-response-table-header-cell",
+        "data-candidate-date-id": candidateDate.id,
+        class: "gth-response-header-cell" + (leaders[candidateDate.id] ? " gth-response-header-cell--leader" : ""),
+      }, [formatGatheringDate(candidateDate.startAt)]);
+    });
+    var header = el(
+      "div",
+      { "data-testid": "gathering-response-table-header", class: "gth-response-header" },
+      headerCells
+    );
+    // ADR-0060 decision 7: one instance per CandidateDate currently carrying
+    // data-current-leader="true" -- zero when no one has responded yet,
+    // more than one when tied.
+    var leaderSummaryItems = state.gathering.candidateDates
+      .filter(function (candidateDate) {
+        return Boolean(leaders[candidateDate.id]);
+      })
+      .map(function (candidateDate) {
+        return el("span", {
+          "data-testid": "gathering-response-table-leader-summary",
+          "data-candidate-date-id": candidateDate.id,
+          class: "gth-response-leader-summary-item",
+        }, [
+          formatGatheringDate(candidateDate.startAt) + " 行ける " + candidateDate.goingCount + "/" +
+            state.gathering.activeParticipantLinkCount,
+        ]);
+      });
+    var leaderSummaryChildren = [el("span", { class: "gth-response-leader-summary-label" }, ["有力"])].concat(
+      leaderSummaryItems.length > 0
+        ? leaderSummaryItems
+        : [el("span", { class: "gth-response-leader-summary-empty" }, ["まだありません"])]
+    );
+    var leaderSummary = el(
+      "div",
+      { class: "gth-response-leader-summary" },
+      leaderSummaryChildren
+    );
     var rows = state.participantLinks.map(function (link) {
       var responses = link.scheduleResponses || [];
       var cells = responses.map(function (entry) {
@@ -1706,13 +1886,15 @@
         ]
       );
     });
-    return el(
-      "div",
-      { class: "gth-pane" },
-      [el("div", { class: "gth-pane-head" }, ["誰が・どの日に答えたか"])].concat([
-        el("div", { "data-testid": "gathering-response-table", class: "gth-response-table" }, rows),
-      ])
-    );
+    return el("div", { class: "gth-pane" }, [
+      el("div", { class: "gth-pane-head" }, ["誰が・どの日に答えたか"]),
+      leaderSummary,
+      el(
+        "div",
+        { "data-testid": "gathering-response-table", class: "gth-response-table" },
+        [header].concat(rows)
+      ),
+    ]);
   }
 
   // --- focus-restore-across-rerender BEGIN (identical copy in
@@ -1827,7 +2009,10 @@
       el("div", { class: "gth-stats-row" }, [renderResponseSummary(), renderUnansweredSummary()]),
     ]);
 
-    var candidateDateListChildren = state.gathering.candidateDates.map(renderCandidateDate);
+    var candidateDateLeaders = computeCandidateDateLeaders(state.gathering.candidateDates);
+    var candidateDateListChildren = state.gathering.candidateDates.map(function (candidateDate) {
+      return renderCandidateDate(candidateDate, candidateDateLeaders);
+    });
     if (phase === "SCHEDULING") {
       candidateDateListChildren = candidateDateListChildren.concat([renderAddCandidateDateOpen()]);
     }
@@ -1868,7 +2053,7 @@
 
     // ADR-0056 decision 1: always present, alongside (not replacing) the
     // per-candidate-date tally above and the link-management list below.
-    sections.push(renderResponseTable());
+    sections.push(renderResponseTable(candidateDateLeaders));
 
     var linkPaneHeadChildren = [el("div", { class: "gth-pane-head" }, ["発行済みリンク"])];
     if (phase !== "FINALIZED") {

@@ -59,6 +59,27 @@
     selectedIsos: {},
     duplicateError: false,
     notInFutureError: false,
+    // ADR-0060 decision 4: a weekend/Japan-public-holiday date rejected by
+    // CANDIDATE_DATE_NOT_A_BUSINESS_DAY -- calendar disabling below already
+    // prevents most such attempts client-side, but the server remains the
+    // authoritative check.
+    notABusinessDayError: false,
+    // ADR-0060 decision 5: whether gathering-create-review-dialog is
+    // currently revealed (client-side only -- opening it calls no public
+    // operation).
+    reviewOpen: false,
+    // "YYYY-MM" -- which month of currently-selected days this dialog's own,
+    // independent month paging is currently displaying (initial position:
+    // the earliest month containing a currently-selected day).
+    reviewViewMonthKey: null,
+    // Set to "open"/"close" by openReview()/closeReview() below, consumed
+    // once by render() to move keyboard focus into/out of the dialog on the
+    // exact render that makes it present/absent -- distinct from the
+    // generic focus-restore-across-rerender mechanism below, which only
+    // ever restores focus to an element that still exists after a rebuild
+    // (on first open there is nothing inside the dialog yet to restore to;
+    // on close, the dialog's own controls are the ones being removed).
+    pendingReviewFocus: null,
   };
 
   // The self-made calendar instance backing organizerGatheringCreate.
@@ -121,6 +142,40 @@
     return dayIso + "T12:00:00Z";
   }
 
+  // --- holiday-data BEGIN (identical copy in gathering.js; keep both in
+  // sync) ---
+  // ADR-0060 decisions 1/2/4: this screen's own calendar must disable the
+  // exact same weekend/holiday days the server's own
+  // CANDIDATE_DATE_NOT_A_BUSINESS_DAY rejection enforces (TDR-GTH-57/58).
+  // Weekday-ness needs no data at all (a plain Date computation below), but
+  // holiday-ness does -- rather than re-implementing this product's own
+  // Japan-public-holiday rules a second time in JavaScript (risking drift
+  // from dining_radar.gathering.holidays, the one place those rules are
+  // allowed to live), this reads the exact same bundled dataset back from
+  // this page's own rendered HTML, where the server embedded it via
+  // Django's json_script filter (see this screen's own template).
+  function readHolidayIsoSet() {
+    var node = document.getElementById("gathering-holiday-dates");
+    if (!node) {
+      return {};
+    }
+    var set = {};
+    try {
+      JSON.parse(node.textContent || "[]").forEach(function (iso) {
+        set[iso] = true;
+      });
+    } catch (error) {
+      // Malformed/missing embedded data: every day renders as a non-holiday
+      // client-side -- the server's own rejection remains the authoritative
+      // enforcement regardless (disabledState here is a UX affordance only,
+      // the same convention this calendar's "明日以降のみ" rule already
+      // follows).
+    }
+    return set;
+  }
+  var HOLIDAY_ISO_SET = readHolidayIsoSet();
+  // --- holiday-data END ---
+
   // --- self-made calendar (adr/0054 decision 3 / adr/0056 decision 3) -----
   // Verbatim shape duplicate of gathering.js's own copy -- see this file's
   // module docstring for why no shared module exists, and gathering.js's
@@ -156,8 +211,18 @@
       date.setDate(date.getDate() + amount);
       return isoOfDate(date);
     }
+    // ADR-0060 decisions 1/2: weekend-ness needs no data (computed from the
+    // cell's own Date); holiday-ness reads HOLIDAY_ISO_SET (module-level,
+    // see holiday-data BEGIN/END above).
+    function isWeekendIso(iso) {
+      var day = dateOfIso(iso).getDay();
+      return day === 0 || day === 6;
+    }
+    function isHolidayIso(iso) {
+      return Boolean(HOLIDAY_ISO_SET[iso]);
+    }
     function selectable(iso) {
-      return iso > todayIso;
+      return iso > todayIso && !isWeekendIso(iso) && !isHolidayIso(iso);
     }
     function isInDragRange(iso) {
       var lo = drag.startIso < drag.endIso ? drag.startIso : drag.endIso;
@@ -333,12 +398,16 @@
     function buildDayCell(iso) {
       var enabled = selectable(iso);
       var date = dateOfIso(iso);
-      var isWeekend = date.getDay() === 0 || date.getDay() === 6;
+      var isWeekend = isWeekendIso(iso);
+      var isHoliday = isHolidayIso(iso);
       var isToday = iso === todayIso;
       var isSelected = effectiveSelected(iso);
       var classNames = ["gth-cal-day"];
       if (isWeekend) {
         classNames.push("gth-cal-day--weekend");
+      }
+      if (isHoliday) {
+        classNames.push("gth-cal-day--holiday");
       }
       if (!enabled) {
         classNames.push("gth-cal-day--disabled");
@@ -353,6 +422,8 @@
         "data-testid": options.dayTestId,
         "data-date": iso,
         "data-selected": isSelected ? "true" : "false",
+        // ADR-0060 decision 2: always present, independent of weekend-ness.
+        "data-holiday": isHoliday ? "true" : "false",
         class: classNames.join(" "),
       };
       if (enabled) {
@@ -362,7 +433,13 @@
       } else {
         attrs["aria-disabled"] = "true";
       }
-      var cell = el("div", attrs, [String(date.getDate())]);
+      var dayChildren = [String(date.getDate())];
+      if (isHoliday) {
+        dayChildren.push(
+          el("span", { class: "gth-cal-day-holiday-badge", "aria-hidden": "true" }, ["祝"])
+        );
+      }
+      var cell = el("div", attrs, dayChildren);
       if (enabled) {
         cell.addEventListener("keydown", function (event) {
           if (event.key === "Enter" || event.key === " ") {
@@ -471,42 +548,51 @@
       container.appendChild(el("div", { class: "gth-cal-scroll" }, [grid]));
       wireGrid(grid);
 
-      var pickedRows = sortedSelectedIsos().map(function (iso) {
-        var removeButton = el(
-          "button",
-          {
-            type: "button",
-            "data-testid": options.removeSelectedTestId,
-            "data-gathering-control-purpose": options.removeSelectedPurpose,
-            "data-date": iso,
-            "aria-label": formatDayLabel(iso) + " を外す",
-            class: "gth-cal-picked-remove",
-          },
-          ["×"]
-        );
-        removeButton.addEventListener("click", function () {
-          removeSelected(iso);
-        });
-        return el("div", { class: "gth-cal-picked-row" }, [
-          el("span", { class: "gth-cal-picked-date" }, [
-            formatDayLabel(iso) + " ",
-            el("span", { class: "gth-cal-picked-time" }, ["12:00"]),
-          ]),
-          removeButton,
-        ]);
-      });
-      container.appendChild(
-        el(
-          "div",
-          { class: "gth-cal-picked" },
-          [
-            el("div", { class: "gth-cal-picked-head" }, [
-              el("span", {}, ["えらんだ日 ", el("b", {}, [String(sortedSelectedIsos().length)]), "日"]),
-              el("span", { class: "gth-cal-picked-note" }, ["どれも 12:00 から"]),
+      // ADR-0060 decision 5: organizerGatheringCreate's own calendar no
+      // longer builds this picked-day sidebar at all -- that list moved
+      // entirely into gathering-create-review-dialog, which pages it by
+      // month independently of this calendar's own month
+      // (options.hidePickedList, set by this screen's own call site only;
+      // gathering.js's addCandidateDateForm.calendar is unaffected and
+      // still passes no such option).
+      if (!options.hidePickedList) {
+        var pickedRows = sortedSelectedIsos().map(function (iso) {
+          var removeButton = el(
+            "button",
+            {
+              type: "button",
+              "data-testid": options.removeSelectedTestId,
+              "data-gathering-control-purpose": options.removeSelectedPurpose,
+              "data-date": iso,
+              "aria-label": formatDayLabel(iso) + " を外す",
+              class: "gth-cal-picked-remove",
+            },
+            ["×"]
+          );
+          removeButton.addEventListener("click", function () {
+            removeSelected(iso);
+          });
+          return el("div", { class: "gth-cal-picked-row" }, [
+            el("span", { class: "gth-cal-picked-date" }, [
+              formatDayLabel(iso) + " ",
+              el("span", { class: "gth-cal-picked-time" }, ["12:00"]),
             ]),
-          ].concat(pickedRows)
-        )
-      );
+            removeButton,
+          ]);
+        });
+        container.appendChild(
+          el(
+            "div",
+            { class: "gth-cal-picked" },
+            [
+              el("div", { class: "gth-cal-picked-head" }, [
+                el("span", {}, ["えらんだ日 ", el("b", {}, [String(sortedSelectedIsos().length)]), "日"]),
+                el("span", { class: "gth-cal-picked-note" }, ["どれも 12:00 から"]),
+              ]),
+            ].concat(pickedRows)
+          )
+        );
+      }
     }
 
     renderLocal();
@@ -520,24 +606,99 @@
     };
   }
 
-  // browserControlSurface.organizerGatheringCreate.submit.disabledState:
-  // disabled while the name is empty, or fewer than 1 calendar day currently
-  // has data-selected="true" (ADR-0035 decision 1's ">=1 candidate date"
-  // requirement, mirrored client-side -- the API itself remains the
-  // authoritative enforcement).
-  function canSubmit() {
+  // browserControlSurface.organizerGatheringCreate.review.open.disabledState
+  // (ADR-0060 decision 5, moved 2026-09-16 from the retired single-
+  // activation gathering-create-submit): disabled while the name is empty,
+  // or fewer than 1 calendar day currently has data-selected="true"
+  // (ADR-0035 decision 1's ">=1 candidate date" requirement, mirrored
+  // client-side -- the API itself remains the authoritative enforcement).
+  function canOpenReview() {
     return Boolean(state.title) && Object.keys(state.selectedIsos).length > 0;
   }
 
-  function refreshSubmitDisabled() {
-    var submitButton = root.querySelector('[data-testid="gathering-create-submit"]');
-    if (submitButton) {
-      submitButton.disabled = !canSubmit();
+  function totalSelectedCount() {
+    return Object.keys(state.selectedIsos).length;
+  }
+
+  function monthKeyOfIso(iso) {
+    return iso.slice(0, 7); // "YYYY-MM"
+  }
+
+  // The distinct months among currently-selected days, ascending -- every
+  // month in this list has at least one selected day by construction, which
+  // is exactly what review.dialog.monthNavigation.requiredOutcome needs
+  // ("a month with no selected day is skipped entirely, never shown").
+  function sortedSelectedMonthKeys() {
+    var seen = {};
+    Object.keys(state.selectedIsos).forEach(function (iso) {
+      seen[monthKeyOfIso(iso)] = true;
+    });
+    return Object.keys(seen).sort();
+  }
+
+  function formatMonthKeyLabel(monthKey) {
+    var parts = monthKey.split("-");
+    return parts[0] + "年 " + Number(parts[1]) + "月";
+  }
+
+  function formatSelectedDayLabel(iso) {
+    var parts = iso.split("-").map(Number);
+    var date = new Date(parts[0], parts[1] - 1, parts[2]);
+    var WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
+    return (date.getMonth() + 1) + "/" + date.getDate() + "（" + WEEKDAY_LABELS[date.getDay()] + "）";
+  }
+
+  function openReview() {
+    if (!canOpenReview()) {
+      return;
+    }
+    state.reviewOpen = true;
+    state.duplicateError = false;
+    state.notInFutureError = false;
+    state.notABusinessDayError = false;
+    // review.dialog.description: "Initial position is the earliest month
+    // containing a currently-selected day."
+    state.reviewViewMonthKey = sortedSelectedMonthKeys()[0] || null;
+    state.pendingReviewFocus = "open";
+    render();
+  }
+
+  function closeReview() {
+    // review.dialog.cancel.requiredOutcome: makes the dialog absent, calls
+    // no public operation, and changes neither the selected days nor the
+    // name input's value.
+    state.reviewOpen = false;
+    state.pendingReviewFocus = "close";
+    render();
+  }
+
+  function stepReviewMonth(amount) {
+    var keys = sortedSelectedMonthKeys();
+    var currentIndex = keys.indexOf(state.reviewViewMonthKey);
+    var nextIndex = currentIndex + amount;
+    if (nextIndex >= 0 && nextIndex < keys.length) {
+      state.reviewViewMonthKey = keys[nextIndex];
+      render();
     }
   }
 
-  function submit() {
-    if (!canSubmit()) {
+  function removeSelectedInReview(iso) {
+    delete state.selectedIsos[iso];
+    var keys = sortedSelectedMonthKeys();
+    if (keys.indexOf(state.reviewViewMonthKey) === -1) {
+      // review.dialog.item.requiredOutcome: this contract does not fix this
+      // dialog's behavior when the instance removed was the last one in the
+      // currently-displayed month -- falling back to the earliest month
+      // that still has a selected day (or `null` once none remain at all,
+      // which confirm.disabledState below already gates on) is one
+      // reasonable choice among the several the contract leaves open.
+      state.reviewViewMonthKey = keys[0] || null;
+    }
+    render();
+  }
+
+  function confirmCreate() {
+    if (totalSelectedCount() < 1) {
       return;
     }
     var candidateDates = Object.keys(state.selectedIsos)
@@ -548,34 +709,70 @@
     requestJson("POST", "/gatherings", { title: state.title, candidateDates: candidateDates }).then(
       function (result) {
         if (result.status === 201) {
-          // organizerGatheringCreate.submit.requiredOutcome (fixed
-          // 2026-09-12, ADR-0054 decision 2): the newly created gathering's
-          // own dashboard, so the organizer proceeds directly to issuing
-          // participant links.
+          // review.dialog.confirm.requiredOutcome (ADR-0060 decision 5,
+          // carrying forward the fixed 2026-09-12/ADR-0054 decision 2
+          // destination): the newly created gathering's own dashboard, so
+          // the organizer proceeds directly to issuing participant links.
           window.location.href = "/gatherings/" + result.body.id + "/";
         } else if (
           result.status === 409 &&
           result.body &&
           result.body.code === "DUPLICATE_CANDIDATE_DATE"
         ) {
-          // adr/0038/adr/0051: the screen remains, the name and every
-          // calendar day's data-selected intact -- state.title/
-          // state.selectedIsos are untouched, so the re-render below
-          // reproduces every value exactly.
+          // review.dialog.confirm.requiredOutcome: the dialog remains
+          // present, every selected day/removeSelected instance unchanged,
+          // the name input's value intact -- state.title/state.selectedIsos
+          // are untouched, so the re-render below reproduces every value
+          // exactly.
           state.duplicateError = true;
           state.notInFutureError = false;
+          state.notABusinessDayError = false;
           render();
         } else if (
-          result.status === 409 &&
+          result.status === 400 &&
           result.body &&
           result.body.code === "CANDIDATE_DATE_NOT_IN_FUTURE"
         ) {
           state.notInFutureError = true;
           state.duplicateError = false;
+          state.notABusinessDayError = false;
+          render();
+        } else if (
+          // ADR-0060 decision 4 (2026-09-16): CANDIDATE_DATE_NOT_A_BUSINESS_DAY,
+          // same 400 status as CANDIDATE_DATE_NOT_IN_FUTURE above.
+          result.status === 400 &&
+          result.body &&
+          result.body.code === "CANDIDATE_DATE_NOT_A_BUSINESS_DAY"
+        ) {
+          state.notABusinessDayError = true;
+          state.duplicateError = false;
+          state.notInFutureError = false;
           render();
         }
       }
     );
+  }
+
+  // Minimal Tab-cycling focus trap while gathering-create-review-dialog is
+  // present -- keeps keyboard focus from silently leaving the dialog onto
+  // background controls (the outer calendar, the screen-level cancel
+  // button) while it is open.
+  function trapTabWithinDialog(event, dialog) {
+    var focusable = Array.prototype.slice.call(
+      dialog.querySelectorAll("button:not([disabled]), [tabindex]:not([tabindex='-1'])")
+    );
+    if (focusable.length === 0) {
+      return;
+    }
+    var first = focusable[0];
+    var last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
   }
 
   function cancel() {
@@ -671,6 +868,183 @@
   }
   // --- focus-restore-across-rerender END ---
 
+  function refreshReviewOpenAndSummary() {
+    var openButton = root.querySelector('[data-testid="gathering-create-review-open"]');
+    if (openButton) {
+      openButton.disabled = !canOpenReview();
+    }
+    var summaryCountNode = root.querySelector(".gathering-create-summary-count");
+    if (summaryCountNode) {
+      summaryCountNode.textContent = String(totalSelectedCount());
+    }
+  }
+
+  // ADR-0060 decision 5: the review dialog. `null` while
+  // state.reviewOpen is false (review.dialog.presenceRule).
+  function renderReviewDialog() {
+    if (!state.reviewOpen) {
+      return null;
+    }
+    var monthKeys = sortedSelectedMonthKeys();
+    var currentKey = state.reviewViewMonthKey;
+    var currentIndex = monthKeys.indexOf(currentKey);
+    var itemIsos = Object.keys(state.selectedIsos)
+      .filter(function (iso) {
+        return monthKeyOfIso(iso) === currentKey;
+      })
+      .sort();
+
+    var items = itemIsos.map(function (iso) {
+      var removeButton = el(
+        "button",
+        {
+          type: "button",
+          "data-testid": "gathering-create-candidate-date-remove-selected",
+          "data-gathering-control-purpose": "gathering-create-candidate-date-remove-selected",
+          "data-date": iso,
+          "aria-label": formatSelectedDayLabel(iso) + " を外す",
+          class: "gth-cal-picked-remove",
+        },
+        ["×"]
+      );
+      removeButton.addEventListener("click", function () {
+        removeSelectedInReview(iso);
+      });
+      return el("div", { class: "gathering-review-item" }, [
+        el("span", { class: "gathering-review-item-date" }, [formatSelectedDayLabel(iso)]),
+        removeButton,
+      ]);
+    });
+
+    var prevButton = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "gathering-create-review-month-previous",
+        "data-gathering-control-purpose": "gathering-create-review-month-navigate",
+        "aria-label": "前の月",
+        disabled: currentIndex <= 0,
+        class: "gth-cal-nav gth-cal-nav--prev",
+      },
+      ["‹"]
+    );
+    prevButton.addEventListener("click", function () {
+      stepReviewMonth(-1);
+    });
+    var nextButton = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "gathering-create-review-month-next",
+        "data-gathering-control-purpose": "gathering-create-review-month-navigate",
+        "aria-label": "次の月",
+        disabled: currentIndex === -1 || currentIndex >= monthKeys.length - 1,
+        class: "gth-cal-nav gth-cal-nav--next",
+      },
+      ["›"]
+    );
+    nextButton.addEventListener("click", function () {
+      stepReviewMonth(1);
+    });
+    // review.dialog.monthNavigation.requiredOutcome: "this contract does not
+    // fix how this dialog indicates the current position among the months
+    // with selected days (e.g. dots)" -- a rendering detail, not a Must.
+    var dots = monthKeys.map(function (key, index) {
+      return el(
+        "span",
+        {
+          class: "gathering-review-dot" + (index === currentIndex ? " gathering-review-dot--current" : ""),
+          "aria-hidden": "true",
+        },
+        []
+      );
+    });
+
+    var totalCount = totalSelectedCount();
+    var confirmButton = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "gathering-create-submit",
+        "data-gathering-control-purpose": "gathering-create-submit",
+        disabled: totalCount < 1,
+        class: "gathering-btn gathering-btn-primary",
+      },
+      ["この" + totalCount + "件でつくる"]
+    );
+    confirmButton.addEventListener("click", confirmCreate);
+
+    var cancelReviewButton = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "gathering-create-review-cancel",
+        "data-gathering-control-purpose": "gathering-create-review-cancel",
+        class: "gathering-btn",
+      },
+      ["やめる"]
+    );
+    cancelReviewButton.addEventListener("click", closeReview);
+
+    var errorNodes = [];
+    if (state.duplicateError) {
+      errorNodes.push(
+        el("p", { class: "gathering-create-error" }, ["同じ日時の候補日は既に追加されています。"])
+      );
+    }
+    if (state.notInFutureError) {
+      errorNodes.push(el("p", { class: "gathering-create-error" }, ["明日以降の日付を選んでください。"]));
+    }
+    if (state.notABusinessDayError) {
+      errorNodes.push(
+        el("p", { class: "gathering-create-error" }, ["土日・祝日は候補日として登録できません。"])
+      );
+    }
+
+    var dialog = el(
+      "div",
+      {
+        "data-testid": "gathering-create-review-dialog",
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-label": "候補日の確認",
+        tabindex: "-1",
+        class: "gathering-review-dialog",
+      },
+      [
+        el("div", { class: "gathering-review-head" }, [
+          prevButton,
+          el("div", { class: "gathering-review-month" }, [currentKey ? formatMonthKeyLabel(currentKey) : ""]),
+          nextButton,
+        ]),
+        el("div", { class: "gathering-review-dots" }, dots),
+        el(
+          "div",
+          { class: "gathering-review-list" },
+          items.length > 0 ? items : [el("p", { class: "gathering-review-empty" }, ["候補日 0件"])]
+        ),
+      ]
+        .concat(errorNodes)
+        .concat([el("div", { class: "gathering-review-footer" }, [confirmButton, cancelReviewButton])])
+    );
+
+    // モーダルは開いたらフォーカスを中へ、Esc で閉じる、閉じたら開いたボタン
+    // へ戻す (keyboard operability): Esc closes without affecting selections;
+    // Tab/Shift+Tab cycle within the dialog only while it is present.
+    dialog.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" || event.key === "Esc") {
+        event.preventDefault();
+        closeReview();
+        return;
+      }
+      if (event.key === "Tab") {
+        trapTabWithinDialog(event, dialog);
+      }
+    });
+
+    return dialog;
+  }
+
   function render() {
     var focusDescriptor = captureFocusDescriptor(root, document.activeElement);
     // destroy-before-recreate: this calendar's own window-level
@@ -696,22 +1070,13 @@
     );
     nameInput.addEventListener("input", function () {
       state.title = nameInput.value;
-      refreshSubmitDisabled();
+      refreshReviewOpenAndSummary();
     });
 
-    var submitButton = el(
-      "button",
-      {
-        type: "button",
-        "data-testid": "gathering-create-submit",
-        "data-gathering-control-purpose": "gathering-create-submit",
-        disabled: !canSubmit(),
-        "class": "gathering-btn gathering-btn-primary",
-      },
-      ["会をつくる"]
-    );
-    submitButton.addEventListener("click", submit);
-
+    // ADR-0060 decision 5: this calendar no longer builds its own picked-day
+    // sidebar list (hidePickedList) -- that list moved entirely into
+    // gathering-create-review-dialog above, with its own month paging
+    // independent of this outer calendar's own month.
     var calendar = buildCandidateDateCalendar({
       calendarTestId: "gathering-create-candidate-date-calendar",
       dayTestId: "gathering-create-candidate-date-day",
@@ -719,10 +1084,9 @@
       monthPrevTestId: "gathering-create-candidate-date-month-previous",
       monthNextTestId: "gathering-create-candidate-date-month-next",
       monthNavPurpose: "gathering-create-candidate-date-month-navigate",
-      removeSelectedTestId: "gathering-create-candidate-date-remove-selected",
-      removeSelectedPurpose: "gathering-create-candidate-date-remove-selected",
+      hidePickedList: true,
       selectedIsos: state.selectedIsos,
-      onChange: refreshSubmitDisabled,
+      onChange: refreshReviewOpenAndSummary,
     });
     activeCalendar = calendar;
 
@@ -738,21 +1102,65 @@
     );
     cancelButton.addEventListener("click", cancel);
 
+    // ADR-0060 decision 9 (non-binding wording example): "候補日 N件" --
+    // this contract does not fix this wording, only the underlying
+    // selected-day count it is drawn from.
+    var summary = el("div", { class: "gathering-create-summary" }, [
+      "候補日 ",
+      el("b", { class: "gathering-create-summary-count" }, [String(totalSelectedCount())]),
+      " 件",
+    ]);
+
+    // ADR-0060 decision 5: this control now only opens
+    // gathering-create-review-dialog -- createGathering itself is called by
+    // that dialog's own confirm (gathering-create-submit, moved inside).
+    var reviewOpenButton = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "gathering-create-review-open",
+        "data-gathering-control-purpose": "gathering-create-review-open",
+        disabled: !canOpenReview(),
+        "class": "gathering-btn gathering-btn-primary gathering-btn-block",
+      },
+      ["会をつくる"]
+    );
+    reviewOpenButton.addEventListener("click", openReview);
+
     var children = [
       el("label", { "class": "gathering-field" }, ["会の名前", nameInput]),
       el("label", { "class": "gathering-field-label" }, ["候補日（複数選択できます）"]),
       calendar.container,
+      el("div", { "class": "gathering-create-summary-row" }, [summary, cancelButton]),
+      reviewOpenButton,
     ];
-    if (state.duplicateError) {
-      children.push(el("p", { "class": "gathering-create-error" }, ["同じ日時の候補日は既に追加されています。"]));
-    }
-    if (state.notInFutureError) {
-      children.push(el("p", { "class": "gathering-create-error" }, ["明日以降の日付を選んでください。"]));
-    }
-    children.push(el("div", { "class": "gathering-create-actions" }, [submitButton, cancelButton]));
 
     root.appendChild(el("div", { "class": "gathering-create-form" }, children));
+
+    var dialog = renderReviewDialog();
+    if (dialog) {
+      root.appendChild(dialog);
+    }
+
     restoreFocusFromDescriptor(root, focusDescriptor);
+
+    // Explicit open/close focus management -- distinct from the generic
+    // restoreFocusFromDescriptor above, which can only restore focus to an
+    // element that still exists after this rebuild (see state.
+    // pendingReviewFocus's own comment at its declaration for why).
+    if (state.pendingReviewFocus === "open") {
+      var dialogNode = root.querySelector('[data-testid="gathering-create-review-dialog"]');
+      if (dialogNode) {
+        dialogNode.focus({ preventScroll: true });
+      }
+      state.pendingReviewFocus = null;
+    } else if (state.pendingReviewFocus === "close") {
+      var openButtonNode = root.querySelector('[data-testid="gathering-create-review-open"]');
+      if (openButtonNode) {
+        openButtonNode.focus({ preventScroll: true });
+      }
+      state.pendingReviewFocus = null;
+    }
   }
 
   // contracts/candidate-search-browser-interface.yaml's gatheringEntry

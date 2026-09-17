@@ -895,10 +895,48 @@
     });
   }
 
-  function renderTally(question) {
+  // --- current-leader-cascade BEGIN (identical shape copy in gathering.js's
+  // own computeCandidateDateLeaders; keep both in sync) ---
+  // ADR-0060 decision 8 (2026-09-16, human decision: 参加者の画面にも有力の
+  // 印を出す): the exact same two-level cascade
+  // (candidateDateList.candidateDate's own data-current-leader,
+  // gathering.js's computeCandidateDateLeaders) computed here from this
+  // participant's own ParticipantView.scheduleQuestions array, which already
+  // carries every candidate date's goingCount/maybeCount/notGoingCount --
+  // no API change needed (mirrors data-added-after-voting-started's own
+  // organizer/participant mirroring precedent, ADR-0056 decision 6).
+  function computeScheduleQuestionLeaders(scheduleQuestions) {
+    var responded = scheduleQuestions.filter(function (question) {
+      var tally = question.tally;
+      return tally.goingCount + tally.maybeCount + tally.notGoingCount > 0;
+    });
+    if (responded.length === 0) {
+      return {};
+    }
+    var maxGoing = responded.reduce(function (max, question) {
+      return question.tally.goingCount > max ? question.tally.goingCount : max;
+    }, -Infinity);
+    var tiedOnGoing = responded.filter(function (question) {
+      return question.tally.goingCount === maxGoing;
+    });
+    var maxMaybe = tiedOnGoing.reduce(function (max, question) {
+      return question.tally.maybeCount > max ? question.tally.maybeCount : max;
+    }, -Infinity);
+    var leaders = {};
+    tiedOnGoing.forEach(function (question) {
+      if (question.tally.maybeCount === maxMaybe) {
+        leaders[question.candidateDateId] = true;
+      }
+    });
+    return leaders;
+  }
+  // --- current-leader-cascade END ---
+
+  function renderTally(question, leaders) {
     if (!question.tally) {
       return null;
     }
+    var isLeader = Boolean(leaders && leaders[question.candidateDateId]);
     return el(
       "div",
       {
@@ -906,7 +944,8 @@
         "data-going-count": question.tally.goingCount,
         "data-maybe-count": question.tally.maybeCount,
         "data-not-going-count": question.tally.notGoingCount,
-        class: "gth-tally",
+        "data-current-leader": isLeader ? "true" : "false",
+        class: "gth-tally" + (isLeader ? " gth-tally--leader" : ""),
       },
       [
         el("span", {}, ["行ける ", el("b", {}, [String(question.tally.goingCount)])]),
@@ -922,7 +961,7 @@
    * (compact) so the answer stays changeable -- see this file's module
    * docstring for why that departs from the mockup's own drawing.
    */
-  function renderDoneQuestionCard(question) {
+  function renderDoneQuestionCard(question, leaders) {
     var yourResponse = question.yourResponse;
     var children = [
       el("div", { class: "gth-done-top" }, [
@@ -930,7 +969,7 @@
         el("div", { class: "gth-done-badge" }, [RESPONSE_LABELS[yourResponse]]),
       ]),
     ];
-    var tally = renderTally(question);
+    var tally = renderTally(question, leaders);
     if (tally) {
       children.push(tally);
     }
@@ -962,12 +1001,12 @@
    * decide on a candidate date; gathering-scheduling-api.yaml v0.12.0 no
    * longer sends ParticipantScheduleQuestion.openShopCount at all).
    */
-  function renderOpenQuestionCard(question) {
+  function renderOpenQuestionCard(question, leaders) {
     var children = [
       el("div", { class: "gth-open-label" }, ["この日、行けそう？"]),
       el("div", { class: "gth-open-date" }, [formatGatheringDateTime(question.startAt)]),
     ];
-    var tally = renderTally(question);
+    var tally = renderTally(question, leaders);
     if (tally) {
       // peekResults.requiredOutcome (adr/0050 decision 1): this one open
       // question's own tally stays hidden until the participant explicitly
@@ -1604,15 +1643,19 @@
         // (orderingInvariant) -- no firstUnansweredIndex split, no folded
         // "next" panel. Each entry is classified independently (done vs
         // open) by its own yourResponse, not by position -- this order is
-        // goingCount-descending (adr/0048), so an answered date and an
-        // unanswered date can appear in either relative order; counting
-        // "answered" must scan every entry rather than assume answered
-        // entries are a contiguous prefix.
+        // startAt-ascending (開催日の早い順, ADR-0060 decision 6, superseding
+        // the retired goingCount-descending order adr/0048 fixed a tie-break
+        // for), so an answered date and an unanswered date can appear in
+        // either relative order; counting "answered" must scan every entry
+        // rather than assume answered entries are a contiguous prefix.
         var questions = state.view.scheduleQuestions;
         var total = questions.length;
         var answered = questions.filter(function (question) {
           return question.yourResponse !== null;
         }).length;
+        // ADR-0060 decision 8: computed once per render from this same
+        // array's own goingCount/maybeCount/notGoingCount (no API change).
+        var leaders = computeScheduleQuestionLeaders(questions);
 
         children.push(renderHeader(answered, total));
 
@@ -1623,9 +1666,9 @@
         body.push(renderPeekResultsButton());
         questions.forEach(function (question) {
           if (question.yourResponse !== null) {
-            body.push(renderDoneQuestionCard(question));
+            body.push(renderDoneQuestionCard(question, leaders));
           } else {
-            body.push(renderOpenQuestionCard(question));
+            body.push(renderOpenQuestionCard(question, leaders));
           }
         });
         var shopVoteSection = renderShopVoteSection(true);
