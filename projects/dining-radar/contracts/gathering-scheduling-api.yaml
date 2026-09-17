@@ -492,10 +492,23 @@
 #   訂正せず残していたものだった。ADR-0057が「会から店が0件になることはありません」という
 #   不変条件を明示的に再確認したのを機に、この一文を是正する——`SetShortlistedShopsRequest`・
 #   `shortlistedShops`自体のスキーマ・制約はいずれも変更しない（説明文のみの是正）。
+#
+# 2026-09-16 追補13 (architect、ADR-0060。実機フィードバック第2便・束B（会を作る・日を決める、
+#   2026-09-16人間裁定）。version 0.15.0 -> 0.16.0):
+# - **新規エラーコード`CANDIDATE_DATE_NOT_A_BUSINESS_DAY`を追加した**（決定4、決定1・2）:
+#   `createGathering`・`addCandidateDates`のいずれかの`candidateDates`エントリのstartAtの日付
+#   （時刻を除く）が土曜・日曜、またはこの製品が新しく内部に持つ日本の祝日データ（同梱・年1回以上
+#   更新、外部サービスは呼ばない）が祝日と認識する日である場合、バッチ全体を拒否する
+#   （`CANDIDATE_DATE_NOT_IN_FUTURE`と同じ全体拒否の流儀、部分成功なし）。`ADR-0035`決定6が定める
+#   「その日に開いている店」判定（`regularHoliday`の曜日照合）はこの決定の対象外であり無変更。
+# - **`Gathering.candidateDates`・`ParticipantView.scheduleQuestions`の並びの説明を書き換えた**
+#   （決定6、人間裁定「候補日の並びを日付順へ」）: `goingCount`降順・`startAt`昇順タイブレーク
+#   （adr/0048）から、`startAt`昇順単独へ変える——同一会内で`startAt`は常に一意（重複防止）なので
+#   タイブレークは要らない。
 openapi: 3.0.3
 info:
   title: Dining Radar Gathering Scheduling API
-  version: 0.15.0
+  version: 0.16.0
   description: >-
     Lets an authenticated organizer list their gatherings, create a gathering
     with candidate dates, add further candidate dates in a batch while
@@ -691,7 +704,15 @@ paths:
         request with CANDIDATE_DATE_NOT_IN_FUTURE if any `candidateDates`
         entry's `startAt` date (time excluded) is today or earlier -- only
         tomorrow or later is accepted (adr/0049 decision 3, 2026-09-08 human
-        decision, applied identically to addCandidateDates below).
+        decision, applied identically to addCandidateDates below). Rejects
+        the request with CANDIDATE_DATE_NOT_A_BUSINESS_DAY if any
+        `candidateDates` entry's `startAt` date is a Saturday, a Sunday, or
+        a Japan public holiday per this product's own bundled holiday data
+        (added 2026-09-16, ADR-0060 decision 1/2/4, 2026-09-16 human
+        decision: 平日ランチの会には土日・祝日は不要 -- this product never
+        queries an external holiday service; see CandidateDateInput.startAt
+        below for how the bundled data itself is maintained, applied
+        identically to addCandidateDates below).
       security:
         - organizerSession: []
       parameters:
@@ -711,10 +732,12 @@ paths:
                 $ref: '#/components/schemas/Gathering'
         '400':
           description: >-
-            Either general request validation failed (REQUEST_REJECTED) or
-            one or more `candidateDates` entries is today or in the past
-            (CANDIDATE_DATE_NOT_IN_FUTURE, adr/0049 decision 3); the `code`
-            field distinguishes the two.
+            Either general request validation failed (REQUEST_REJECTED), one
+            or more `candidateDates` entries is today or in the past
+            (CANDIDATE_DATE_NOT_IN_FUTURE, adr/0049 decision 3), or one or
+            more `candidateDates` entries falls on a weekend or a Japan
+            public holiday (CANDIDATE_DATE_NOT_A_BUSINESS_DAY, ADR-0060
+            decision 4); the `code` field distinguishes the three.
           content:
             application/json:
               schema:
@@ -728,6 +751,10 @@ paths:
                   value:
                     code: CANDIDATE_DATE_NOT_IN_FUTURE
                     message: Candidate dates must be tomorrow or later.
+                dateNotABusinessDay:
+                  value:
+                    code: CANDIDATE_DATE_NOT_A_BUSINESS_DAY
+                    message: Candidate dates must be weekdays that are not public holidays.
         '401':
           $ref: '#/components/responses/AuthenticationRequired'
         '409':
@@ -849,8 +876,12 @@ paths:
         needing to work out which ones failed). Rejects the entire batch with
         CANDIDATE_DATE_NOT_IN_FUTURE if any entry's `startAt` date (time
         excluded) is today or earlier -- only tomorrow or later is accepted,
-        the same check createGathering applies (adr/0049 decision 3). This
-        operation does not accept, and this contract does not otherwise
+        the same check createGathering applies (adr/0049 decision 3). Rejects
+        the entire batch with CANDIDATE_DATE_NOT_A_BUSINESS_DAY if any
+        entry's `startAt` date is a Saturday, a Sunday, or a Japan public
+        holiday per this product's own bundled holiday data, the same check
+        createGathering applies (added 2026-09-16, ADR-0060 decision 1/2/4).
+        This operation does not accept, and this contract does not otherwise
         persist, an end time for a candidate date -- the calendar UI's
         12:00-13:00 default display is a UI-only input aid, not a value this
         API receives or a gathering-record field (adr/0049 decision 3: no
@@ -875,10 +906,12 @@ paths:
                 $ref: '#/components/schemas/Gathering'
         '400':
           description: >-
-            Either general request validation failed (REQUEST_REJECTED) or
-            one or more `candidateDates` entries is today or in the past
-            (CANDIDATE_DATE_NOT_IN_FUTURE, adr/0049 decision 3); the `code`
-            field distinguishes the two.
+            Either general request validation failed (REQUEST_REJECTED), one
+            or more `candidateDates` entries is today or in the past
+            (CANDIDATE_DATE_NOT_IN_FUTURE, adr/0049 decision 3), or one or
+            more `candidateDates` entries falls on a weekend or a Japan
+            public holiday (CANDIDATE_DATE_NOT_A_BUSINESS_DAY, ADR-0060
+            decision 4); the `code` field distinguishes the three.
           content:
             application/json:
               schema:
@@ -892,6 +925,10 @@ paths:
                   value:
                     code: CANDIDATE_DATE_NOT_IN_FUTURE
                     message: Candidate dates must be tomorrow or later.
+                dateNotABusinessDay:
+                  value:
+                    code: CANDIDATE_DATE_NOT_A_BUSINESS_DAY
+                    message: Candidate dates must be weekdays that are not public holidays.
         '401':
           $ref: '#/components/responses/AuthenticationRequired'
         '404':
@@ -1988,7 +2025,24 @@ components:
             "today" is evaluated in, is an implementation choice this
             contract does not fix, matching this contract's other
             unspecified time boundaries such as link-expiry and rate-limit
-            thresholds).
+            thresholds). **Must also be a weekday that is not a Japan public
+            holiday** -- a Saturday, a Sunday, or a date this product's own
+            bundled Japan public holiday data recognizes as a holiday is
+            rejected with CANDIDATE_DATE_NOT_A_BUSINESS_DAY by both
+            operations (added 2026-09-16, ADR-0060 decision 1/2/4, human
+            decision: 平日ランチの会には土日・祝日は不要). The holiday data
+            itself is bundled with this product and maintained by a human at
+            least once a year -- this product never calls an external
+            holiday service at request time (product-brief.md's existing
+            no-external-lookup-of-private-information posture, extended to
+            holidays); a date beyond the bundled data's covered range is
+            treated as not a holiday (an accepted, safer-by-default
+            limitation, not an error -- this contract does not otherwise cap
+            how far in the future a candidate date may be). ADR-0035
+            decision 6's separate "which shops are open on this date"
+            matching (regularHoliday text matching) is unrelated to and
+            unchanged by this holiday data -- that heuristic still does not
+            consider public holidays.
     CreateGatheringRequest:
       type: object
       additionalProperties: false
@@ -2349,18 +2403,23 @@ components:
           items:
             $ref: '#/components/schemas/CandidateDate'
           description: >-
-            Ordered by goingCount descending (product-brief.md §2: "行ける
-            人が多い順"), ties broken by `startAt` ascending (早い日が先,
-            adr/0048). This schema previously left ties as "an
-            implementation-chosen stable order"; that was found in
-            production to be non-deterministic in practice -- `created_at`,
-            the field the implementation actually used, is set by
+            Ordered by `startAt` ascending (開催日の早い順). **Changed
+            2026-09-16 (ADR-0060 decision 6, human decision: 候補日の並びを
+            日付順へ)**: this field was previously ordered by goingCount
+            descending (product-brief.md §2's original "行ける人が多い順"),
+            ties broken by `startAt` ascending (adr/0048, itself a 2026-09-06
+            fix for a production defect where ties were non-deterministic --
+            `created_at`, the field an earlier implementation used, is set by
             `auto_now_add` and can be identical for every candidate date
-            submitted in the same createGathering call, at this database's
-            timestamp resolution. Since 2026-09-12 (removeCandidateDate,
-            ADR-0056 decision 2), this array may also shrink after creation
-            -- removing a candidate date deletes it and every schedule
-            response recorded against it.
+            submitted in the same createGathering call). This round replaces
+            goingCount as the primary key with startAt itself; no tie-break
+            is needed, because startAt is always unique among a gathering's
+            currently-present candidate dates (DUPLICATE_CANDIDATE_DATE
+            rejects any addition that would duplicate an existing one).
+            Since 2026-09-12 (removeCandidateDate, ADR-0056 decision 2),
+            this array may also shrink after creation -- removing a
+            candidate date deletes it and every schedule response recorded
+            against it.
         totalIssuedParticipantLinks:
           type: integer
           minimum: 0
@@ -3011,16 +3070,19 @@ components:
           items:
             $ref: '#/components/schemas/ParticipantScheduleQuestion'
           description: >-
-            Same set and order as Gathering.candidateDates -- goingCount
-            descending, ties broken by startAt ascending (adr/0048). This
-            order was previously left undocumented on this field; the
-            browser-interface contract's one-question-at-a-time rendering
-            (gathering-scheduling-browser-interface.yaml's scheduleQuestion)
-            depends on it being deterministic to reliably reach a specific
+            Same set and order as Gathering.candidateDates -- startAt
+            ascending (開催日の早い順), unique and therefore requiring no
+            tie-break (**changed 2026-09-16, ADR-0060 decision 6**; this
+            field was previously ordered by goingCount descending, ties
+            broken by startAt ascending, adr/0048). The browser-interface
+            contract's one-question-at-a-time rendering (gathering-
+            scheduling-browser-interface.yaml's scheduleQuestion) depends on
+            this order being deterministic to reliably reach a specific
             candidate date's question across repeated loads of the same
-            unchanged gathering. Since 2026-09-12 (removeCandidateDate,
-            ADR-0056 decision 2), this array may also shrink if the
-            organizer removes a candidate date while SCHEDULING.
+            unchanged gathering -- unchanged by this round's switch of the
+            primary key. Since 2026-09-12 (removeCandidateDate, ADR-0056
+            decision 2), this array may also shrink if the organizer removes
+            a candidate date while SCHEDULING.
         confirmedCandidateDate:
           type: string
           format: date-time
@@ -3165,7 +3227,7 @@ components:
              GATHERING_NOT_IN_SCHEDULING_PHASE,
              GATHERING_NOT_IN_SELECTING_SHOP_PHASE, SHOP_VOTING_NOT_STARTED,
              INVALID_SHOP_SELECTION, DUPLICATE_CANDIDATE_DATE,
-             CANDIDATE_DATE_NOT_IN_FUTURE,
+             CANDIDATE_DATE_NOT_IN_FUTURE, CANDIDATE_DATE_NOT_A_BUSINESS_DAY,
              PARTICIPANT_LINK_NOT_FOUND, PARTICIPANT_LINK_ALREADY_ANSWERED,
              PARTICIPANT_LINK_REVOKED, LINK_NOT_FOUND, LINK_EXPIRED,
              LINK_REVOKED, LINK_RATE_LIMITED, GATHERING_FINALIZED]
