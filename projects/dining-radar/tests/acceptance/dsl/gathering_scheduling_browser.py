@@ -338,6 +338,14 @@ GATHERING_DELETE_CANCEL = "gathering-delete-cancel"
 CANDIDATE_GATHERING_ENTRY = "candidate-gathering-entry"
 CANDIDATE_GATHERING_ENTRY_BADGE = "candidate-gathering-entry-badge"
 IN_PROGRESS_GATHERING_COUNT_ATTR = "data-in-progress-gathering-count"
+# ADR-0059 decision 2 (2026-09-16): candidate-gathering-entry is now
+# exclusive to renderModes.twoColumnLayout (it previously rendered
+# viewport-independently, ADR-0054 decision 1) -- duplicated from
+# candidate_search_browser.py's own DESKTOP_TWO_COLUMN_VIEWPORT rather than
+# imported (this pair of DSL files' established precedent, see this
+# section's own header comment above), chosen deliberately far from any
+# plausible breakpoint for the same reason that file states.
+CANDIDATE_SEARCH_DESKTOP_TWO_COLUMN_VIEWPORT = {"width": 1440, "height": 900}
 
 # participantAnswer test ids / attributes
 PARTICIPANT_HEADER = "gathering-participant-header"
@@ -486,6 +494,20 @@ GATHERING_VALUE_ENTRY_CONTROL_TEST_IDS = {
 GATHERING_VALUE_ENTRY_INPUT_TYPES = {"text", "date", "time", "datetime-local", "number"}
 GATHERING_FORBIDDEN_PURPOSES = {"manual-ordering", "secondary-condition"}
 GATHERING_FORBIDDEN_TEST_IDS = ["candidate-origin-marker", "candidate-map", "private-search-origin"]
+# gathering-scheduling-browser-interface.yaml's own unavailableControls.
+# crossFileSharedNavigation note (ADR-0059, 2026-09-16): candidate-search-
+# browser-interface.yaml's gatheringEntry elements (menuToggle/menuPanel's
+# two destinations on desktop, mobileBar's three children on mobile) are
+# now unconditionally present on this file's own three organizer-facing
+# screens too, but they declare *that* contract's own
+# data-candidate-control-purpose attribute -- "neither" this file's own
+# allGatheringScreenFormControlsMustDeclarePurpose scan "nor" its
+# allowedPurposes registration applies to them (contract's own wording).
+# assert_gathering_screen_has_no_forbidden_surfaces below skips any control
+# carrying this attribute, mirroring that explicit carve-out -- candidate_
+# search_browser.py's own ALLOWED_CONTROL_PURPOSES/allCandidateScreen...
+# scan is the one place these elements' purposes are actually checked.
+CANDIDATE_SEARCH_CONTROL_PURPOSE_ATTR = "data-candidate-control-purpose"
 GATHERING_FORM_CONTROL_SELECTOR = ", ".join(
     [
         "select",
@@ -1829,6 +1851,12 @@ class GatheringSchedulingBrowserDsl:
         assert_no_content(self.assertions, response, "NORMAL_WITH_WEIGHTED_SAMPLING state set")
 
     def open_lunch_candidate_screen(self) -> None:
+        """ADR-0059 decision 2: pins the desktop viewport before navigating,
+        since candidate-gathering-entry (this method's own settle point) is
+        no longer present under every render mode -- see
+        CANDIDATE_SEARCH_DESKTOP_TWO_COLUMN_VIEWPORT above.
+        """
+        self.page.set_viewport_size(CANDIDATE_SEARCH_DESKTOP_TWO_COLUMN_VIEWPORT)
         self.page.goto(f"{self.base_url}/")
         wait_for_at_least_one(self.page, CANDIDATE_GATHERING_ENTRY)
 
@@ -3630,6 +3658,10 @@ class GatheringSchedulingBrowserDsl:
         controls = self.page.locator(GATHERING_FORM_CONTROL_SELECTOR)
         for index in range(controls.count()):
             control = controls.nth(index)
+            if control.get_attribute(CANDIDATE_SEARCH_CONTROL_PURPOSE_ATTR) is not None:
+                # crossFileSharedNavigation (ADR-0059) -- see this module's
+                # own CANDIDATE_SEARCH_CONTROL_PURPOSE_ATTR comment above.
+                continue
             test_id = control.get_attribute("data-testid")
             tag_name = control.evaluate("element => element.tagName.toLowerCase()")
             if tag_name == "input":
