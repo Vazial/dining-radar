@@ -541,6 +541,28 @@
   color: #4b564e;
 }
 
+/* --- gathering-participant-link-issue-dialog (ADR-0061 decision 1): the
+   small window that opens once "リンクを発行" issues a new link. Shares
+   .gth-confirm-dialog's own visual container (position: absolute, anchored
+   to its own .gth-issue wrapper), the same open-then-act shape
+   delete/finalize already established above. */
+.gth-issue {
+  position: relative;
+}
+.gth-issue .gth-confirm-dialog {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 0.5rem);
+  z-index: 5;
+  width: max(20rem, 100%);
+}
+.gth-issue-dialog {
+  border-top: 3px solid #14614a;
+}
+.gth-issue-dialog-url {
+  word-break: break-all;
+}
+
 /* --- gathering-finalize-confirm-changes (ADR-0056 decision 11): a factual
    3-row before/after table, not persuasive prose (ADR-0055 decision 3's
    "no persuasive prose in production screens" principle). */

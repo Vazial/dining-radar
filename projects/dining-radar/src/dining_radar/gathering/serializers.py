@@ -276,7 +276,11 @@ def serialize_open_shop_preview(
     }
 
 
-def serialize_schedule_question(link: ParticipantLink, tally: services.CandidateDateTally) -> dict:
+def serialize_schedule_question(
+    link: ParticipantLink,
+    tally: services.CandidateDateTally,
+    respondents: Sequence[tuple[str | None, str]] = (),
+) -> dict:
     """``ParticipantScheduleQuestion``.
 
     No longer carries ``openShopCount`` -- removed 2026-09-12 (ADR-0055
@@ -285,6 +289,24 @@ def serialize_schedule_question(link: ParticipantLink, tally: services.Candidate
     volume). The organizer-facing equivalent,
     ``CandidateDateOpenShopPreview.openShopCount``
     (``serialize_open_shop_preview`` above), is unchanged by this removal.
+
+    ``respondents`` (``ScheduleRespondent`` entries, ADR-0061 decision 2,
+    2026-09-17 human decision: 束C レイアウト案F2「空いた所にだれが何と答え
+    たかを名前つきで並べる」) is one ``(displayName, status)`` pair per
+    participant link that has answered this candidate date, including this
+    viewer's own entry when this viewer has answered -- callers pass the
+    entry for this specific candidate date out of
+    ``services.schedule_response_respondents``'s whole-gathering mapping
+    (one query for the whole gathering, not one per candidate date). Always
+    present as an array (possibly empty), regardless of whether
+    ``yourResponse`` is null for this same candidate date -- the same
+    "always visible regardless of this viewer's own answer" gating ``tally``
+    already carries (adr/0050 decision 2), extended here from counts to
+    per-participant identity. This schema exposes no identifier for a
+    respondent beyond their self-reported name -- never a linkId or token
+    (the same minimum-disclosure judgment
+    ``ParticipantShopVoteOption.addedAfterVotingStarted`` already applies to
+    a signed-link participant).
     """
     candidate_date = tally.candidate_date
     your_response = services.participant_schedule_status(link, candidate_date)
@@ -301,6 +323,10 @@ def serialize_schedule_question(link: ParticipantLink, tally: services.Candidate
             "maybeCount": tally.maybe_count,
             "notGoingCount": tally.not_going_count,
         },
+        "respondents": [
+            {"displayName": display_name, "response": status}
+            for display_name, status in respondents
+        ],
     }
 
 
@@ -374,6 +400,10 @@ def serialize_participant_view(link: ParticipantLink) -> dict:
         if gathering.phase == GatheringPhase.FINALIZED
         else None
     )
+    # ADR-0061 decision 2: one query for the whole gathering, reused for
+    # every tally below (the same discipline population_source/shop_lookup
+    # above already follow) rather than one query per candidate date.
+    respondents_by_candidate_date_id = services.schedule_response_respondents(gathering)
     return {
         "gatheringTitle": gathering.title,
         "phase": gathering.phase,
@@ -384,7 +414,14 @@ def serialize_participant_view(link: ParticipantLink) -> dict:
         # in every phase (ADR-0056 未決事項4 -- whether to gate this by phase
         # is left open, so this contract does not gate it).
         "totalActiveParticipantCount": gathering.active_participant_link_count,
-        "scheduleQuestions": [serialize_schedule_question(link, tally) for tally in tallies],
+        "scheduleQuestions": [
+            serialize_schedule_question(
+                link,
+                tally,
+                respondents_by_candidate_date_id.get(tally.candidate_date.id, []),
+            )
+            for tally in tallies
+        ],
         "confirmedCandidateDate": (
             gathering.confirmed_candidate_date.start_at.isoformat()
             if gathering.confirmed_candidate_date_id

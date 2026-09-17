@@ -537,6 +537,36 @@ def participant_link_schedule_responses(
     return mapping
 
 
+def schedule_response_respondents(
+    gathering: Gathering,
+) -> dict[uuid.UUID, list[tuple[str | None, str]]]:
+    """``ParticipantScheduleQuestion.respondents`` for every candidate date on this
+    gathering at once (ADR-0061 decision 2, 2026-09-17 human decision).
+
+    Maps each ``CandidateDate.id`` to the list of ``(displayName, status)``
+    pairs recorded against it -- one entry per participant link that has
+    answered that candidate date, including a viewer's own entry when that
+    viewer has answered (this function does not know or care which link is
+    the caller's own; ``serialize_schedule_question`` reads this same list
+    for every candidate date regardless of viewer). This is the peer-facing
+    mirror of ``participant_link_schedule_responses`` above (ADR-0056
+    decision 1, which the organizer's own ``responseTable`` already reads) --
+    that function groups by participant link, this one groups by candidate
+    date instead, since ``respondents`` is a per-candidate-date array. One
+    query for the whole gathering, not one per candidate date, the same
+    "resolve once per request, reuse per tally" discipline this module's
+    other whole-gathering lookups (``candidate_dates_with_tallies``,
+    ``participant_link_schedule_responses``) already follow.
+    """
+    responses = ScheduleResponse.objects.filter(candidate_date__gathering=gathering).values_list(
+        "candidate_date_id", "participant_link__display_name", "status"
+    )
+    mapping: dict[uuid.UUID, list[tuple[str | None, str]]] = defaultdict(list)
+    for candidate_date_id, display_name, status in responses:
+        mapping[candidate_date_id].append((display_name, status))
+    return mapping
+
+
 def response_summary(gathering: Gathering) -> tuple[int, int]:
     """``(respondedParticipantCount, anonymousRespondedParticipantCount)``.
 

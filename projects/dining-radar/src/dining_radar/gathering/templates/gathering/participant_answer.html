@@ -108,22 +108,7 @@
         flex-direction: column;
         gap: 0.5625rem;
       }
-      .gth-card--done { background: #fafbf9; border-color: #e7ebe6; padding: 0.625rem 0.8rem; gap: 0.375rem; }
       .gth-card--open { border-style: dashed; border-color: #a7b0a8; background: #fafbf9; }
-
-      .gth-done-top { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
-      .gth-done-date { font-size: 0.8125rem; font-weight: 700; color: #4b564e; }
-      .gth-done-badge {
-        align-self: flex-start;
-        font-size: 0.6875rem;
-        font-weight: 700;
-        color: #14614a;
-        background: #e3eee7;
-        border-radius: 999px;
-        padding: 0.125rem 0.625rem;
-      }
-      .gth-done-hint { font-size: 0.625rem; color: #a7b0a8; }
-      .gth-done-options { display: flex; gap: 0.375rem; flex-wrap: wrap; }
 
       .gth-tally { display: flex; gap: 0.75rem; font-size: 0.72rem; color: #4b564e; }
       .gth-tally b { font-weight: 700; color: #17201b; }
@@ -136,18 +121,26 @@
 
       .gth-open-label { font-size: 0.75rem; font-weight: 500; color: #77827a; }
       .gth-open-date { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.01em; }
-      /* peekResults.requiredOutcome (adr/0050 decision 1): the one open
-         question's own tally stays hidden until
-         gathering-participant-peek-results is activated -- every *done*
-         question's own gth-tally (rendered outside this wrapper) is
-         unaffected and always visible. No explanatory mask text here
-         (FR-034, ADR-0055 decision 1/3: the retired "ほかの人の回答も
-         見えています" prose is deleted, not replaced). */
-      .gth-open-tally-wrap { display: none; }
-      .gth-open-tally-wrap--revealed { display: flex; flex-direction: column; gap: 0.5625rem; }
+      /* Non-binding confirmation text (renderCurrentQuestionCard's own
+         board note 「◯/◯は「行ける」にしました」) -- ADR-0061 decision 3. */
+      .gth-open-confirmed { font-size: 0.75rem; color: #14614a; font-weight: 600; }
       .gth-open-options { display: flex; flex-direction: column; gap: 0.5rem; }
 
-      /* Response option buttons -- shared, compact variant for done cards */
+      /* respondentList (ADR-0061 decision 2, 2026-09-17 human decision:
+         束C レイアウト案F2「空いた所にだれが何と答えたかを名前つきで並べ
+         る」) -- one name+answer pair per respondent, under the tally bar. */
+      .gth-respondent-list { display: flex; flex-direction: column; gap: 0.25rem; }
+      .gth-respondent-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.75rem;
+        color: #4b564e;
+      }
+      .gth-respondent-response { font-weight: 700; color: #14614a; }
+      .gth-respondent-name { color: #4b564e; }
+
+      /* Response option buttons */
       /* 52->56px (2026-09-08 human report, repeated: "余白が気になります
          ね、ボタンが小さいのも相まってデザインが悪く見える"; Answer.dc.html
          board's own delta table, "選択肢のボタン 52 -> 56px"). */
@@ -168,101 +161,51 @@
       .gth-opt--compact { min-height: 2.75rem; flex: 1 1 0; font-size: 0.72rem; }
       .gth-opt--on { background: #14614a; border-color: #14614a; color: #fff; font-weight: 700; }
 
-      .gth-next {
-        background: #eaf0ea;
-        border-radius: 0.625rem;
-        padding: 0.625rem 0.8rem;
-        display: flex;
-        flex-direction: column;
-        gap: 0.3125rem;
-      }
-      .gth-next-heading { font-size: 0.65rem; font-weight: 500; color: #77827a; letter-spacing: 0.03em; }
-      .gth-next-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; font-size: 0.75rem; }
-      .gth-next-muted { color: #77827a; }
-
-      /* 2026-09-13 (ADR-0055 decision 3, FR-034): 結果をのぞく／あとで答える
-         no longer share a row (the old .gth-foot/.gth-foot-btn pair) --
-         結果をのぞく renders at the very top of the scrollable body,
-         あとで答える at the very bottom, each a standalone, full-width
-         control (44->48px minimum tap target retained from the
-         Answer.dc.html board's own delta table). */
-      .gth-peek-btn,
-      .gth-answer-later-btn {
-        width: 100%;
-        min-height: 3rem;
+      /* daySkip/dayPrevious (ADR-0061 decision 3, board's 「とばす」/「前の
+         日」, bottom right/left). 44px floor retained. */
+      .gth-daynav-row { display: flex; justify-content: space-between; gap: 0.5rem; }
+      .gth-daynav-btn {
+        min-height: 2.75rem;
         box-sizing: border-box;
         border: 1px solid #c6cfc6;
         border-radius: 0.625rem;
         background: #fff;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.84375rem;
+        padding: 0 1rem;
+        font-size: 0.8125rem;
         font-weight: 500;
+        color: #4b564e;
       }
-      .gth-peek-btn { color: #14614a; }
-      .gth-answer-later-btn { color: #77827a; }
+      .gth-daynav-btn:disabled { color: #c6cfc6; border-color: #e7ebe6; cursor: not-allowed; }
 
-      /* 2026-09-13 integration fix: 結果をのぞく (peekResults) is a
-         read-only "view" toggle -- it saves nothing and never changes any
-         other participant-facing state (peekResults.requiredOutcome,
-         gathering-scheduling-browser-interface.yaml). The b2-schedule/
-         States.dc.html board draws it as a persistent, always-reachable
-         mode indicator (its "①結果をのぞくを押した面" keeps the same
-         control, now highlighted, in the header row of the *next* screen
-         too) -- unlike every other control on this screen (schedule
-         response options, shop-vote options, the name control), which the
-         answerLater confirmation's own scrim is meant to block while open.
-         Giving it a stacking order above .gth-overlay (z-index 40) is this
-         file's own way of keeping that one safe, non-destructive control
-         reachable regardless of whichever overlay happens to be open --
-         real production bug (this round's integration pass): the
-         answerLater confirmation's full-viewport scrim silently blocked
-         even this read-only control, with no way to reach it again short
-         of dismissing the scrim first. */
-      .gth-peek-btn { position: relative; z-index: 41; }
-
-      /* gathering-participant-answer-later-confirmation (ADR-0055 decision
-         3, 第2束裁定 "確認は重なる別の面"): a fixed-position scrim+panel
-         overlapping the rest of the screen, not a row inserted into the
-         existing layout. Dismissed by activating the scrim itself. */
-      .gth-overlay {
-        position: fixed;
-        inset: 0;
-        background: rgb(23 32 27 / 45%);
-        display: flex;
-        align-items: flex-end;
-        justify-content: center;
-        padding: 1rem;
-        z-index: 40;
-      }
-      .gth-overlay-panel {
+      /* dayList (ADR-0061 decision 3, board's 「日の一覧」) -- always
+         present while ParticipantView.decision is null (this contract does
+         not fix bottom-sheet-on-narrow vs. always-visible-on-wide
+         presentation; rendered as a horizontally scrollable strip here so
+         it stays reachable at every width without a separate open/close
+         toggle this contract defines no control for). Also carries the
+         "自分の答えの一覧"/"12件すべて答えました" completion role the
+         retired answerLater confirmation used to. */
+      .gth-day-list { display: flex; flex-direction: column; gap: 0.375rem; }
+      .gth-day-list-heading { font-size: 0.7rem; font-weight: 700; color: #4b564e; }
+      .gth-day-list-items { display: flex; gap: 0.375rem; overflow-x: auto; padding-bottom: 0.125rem; }
+      .gth-day-item {
+        flex: 0 0 auto;
+        min-height: 2.75rem;
+        box-sizing: border-box;
+        border: 1px solid #dfe4de;
+        border-radius: 0.5rem;
         background: #fff;
-        border-radius: 0.875rem 0.875rem 0 0;
-        padding: 1rem;
-        width: min(100%, 26rem);
-        max-height: 70vh;
-        overflow-y: auto;
+        padding: 0.25rem 0.6rem;
         display: flex;
         flex-direction: column;
-        gap: 0.375rem;
+        align-items: flex-start;
+        justify-content: center;
+        font-size: 0.6875rem;
+        color: #4b564e;
       }
-      .gth-overlay-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 0.5rem;
-        min-height: 2.75rem;
-        padding: 0 0.25rem;
-        border-bottom: 1px solid #eef1ed;
-        font-size: 0.8125rem;
-      }
-      .gth-overlay-empty {
-        padding: 0.75rem 0;
-        color: #77827a;
-        font-size: 0.8125rem;
-        text-align: center;
-      }
+      .gth-day-item--current { border-color: #14614a; border-width: 1.5px; }
+      .gth-day-item-date { font-weight: 600; }
+      .gth-day-item-response { color: #77827a; }
 
       [data-testid="gathering-participant-link-error"] {
         margin: 0.75rem 1rem;
@@ -463,6 +406,6 @@
     {% comment %}
       Cache-busting query string on participant.js (FR-025).
     {% endcomment %}
-    <script src="{% static 'dining_radar/gathering/participant.js' %}?v=20260917-adr0060-holiday-review"></script>
+    <script src="{% static 'dining_radar/gathering/participant.js' %}?v=20260917-adr0061-answer-flow"></script>
   </body>
 </html>

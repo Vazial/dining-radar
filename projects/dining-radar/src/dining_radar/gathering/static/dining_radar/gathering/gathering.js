@@ -127,6 +127,21 @@
     addCandidateDateNotABusinessDayError: false,
     headerIssuedLinkUrl: null,
     recopiedLinkUrls: {},
+    // ADR-0061 decision 1 (2026-09-17, human decision: 「発行で小窓が開き、
+    // そこでコピー」): whether gathering-participant-link-issue-dialog is
+    // currently revealed (client-side only -- opening/closing it calls no
+    // public operation; the issue itself does, see copyParticipantLink).
+    issueDialogOpen: false,
+    // Whether the dialog's own "リンクをコピー" has been activated since
+    // this dialog was last opened -- drives its non-binding "✓ コピーしま
+    // した" label swap (this contract does not fix that visible text).
+    issueDialogCopied: false,
+    // Explicit open/close focus management for the dialog above -- distinct
+    // from the generic restoreFocusFromDescriptor below, which can only
+    // restore focus to an element that still exists after a rebuild (see
+    // gathering_create.js's own pendingReviewFocus precedent, ADR-0060
+    // decision 5).
+    pendingIssueDialogFocus: null,
     // adr/0042: client-side pending radio selection for
     // shortlistedShopVotes.list.item.finalizeSelect, before
     // gathering-finalize-open is activated.
@@ -805,13 +820,21 @@
   }
 
   function copyParticipantLink() {
-    // Real-browser measurement (2026-08-31): a *second* activation of this
-    // same control was passing contracts/gathering-scheduling-browser-
-    // interface.yaml's own "data-issued-link-url becomes non-empty"
-    // acceptance check *immediately*, before this activation's own request
-    // had even reached the server. Clearing the tracked value synchronously
-    // here, before the async request even starts, makes every activation
-    // transition through an observable absent-or-empty -> non-empty edge.
+    // **Changed 2026-09-17 (ADR-0061 decision 1, human decision: 「発行で
+    // 小窓が開き、そこでコピー」)**: this activation no longer writes to the
+    // clipboard itself -- it only issues one new link and reveals
+    // gathering-participant-link-issue-dialog, carrying the returned URL as
+    // that dialog's own data-issued-link-url. The clipboard-write Must
+    // ADR-0058 established for this activation moves to the dialog's own
+    // copyIssuedLinkFromDialog below (not removed, only reassigned).
+    //
+    // Real-browser measurement (2026-08-31, still applicable): a *second*
+    // activation of this same control was passing this contract's own
+    // "data-issued-link-url becomes non-empty" acceptance check
+    // *immediately*, before this activation's own request had even reached
+    // the server. Clearing the tracked value synchronously here, before the
+    // async request even starts, makes every activation transition through
+    // an observable absent-or-empty -> non-empty edge.
     state.headerIssuedLinkUrl = null;
     render();
     requestJson("POST", gatheringUrl() + "/participant-links", { count: 1 }).then(function (result) {
@@ -820,13 +843,37 @@
       }
       var issued = result.body.issuedLinks[0];
       state.headerIssuedLinkUrl = issued.url;
-      if (window.navigator && window.navigator.clipboard) {
-        window.navigator.clipboard.writeText(issued.url).catch(function () {});
-      }
+      state.issueDialogOpen = true;
+      state.issueDialogCopied = false;
+      state.pendingIssueDialogFocus = "open";
       state.gathering.totalIssuedParticipantLinks = result.body.totalIssuedParticipantLinks;
       state.gathering.activeParticipantLinkCount = result.body.activeParticipantLinkCount;
       loadParticipantLinksOnly();
     });
+  }
+
+  // gathering-participant-link-issue-dialog-copy ("リンクをコピー", ADR-0061
+  // decision 1): **this is where the Must ADR-0058 established for
+  // copyParticipantLink's own activation now lives** -- reassigned, not
+  // retracted. Same silent-failure handling ADR-0058 established (FR-034:
+  // no explanatory prose in shipped screens either way).
+  function copyIssuedLinkFromDialog() {
+    if (window.navigator && window.navigator.clipboard) {
+      window.navigator.clipboard.writeText(state.headerIssuedLinkUrl).catch(function () {});
+    }
+    state.issueDialogCopied = true;
+    render();
+  }
+
+  // gathering-participant-link-issue-dialog-close ("閉じる"/"×", ADR-0061
+  // decision 1): calls no public operation, does not affect
+  // data-issued-link-url or the issued-link counters -- only makes the
+  // dialog absent.
+  function closeIssueDialog() {
+    state.issueDialogOpen = false;
+    state.issueDialogCopied = false;
+    state.pendingIssueDialogFocus = "close";
+    render();
   }
 
   function recopyParticipantLink(linkId) {
@@ -1707,6 +1754,116 @@
     );
   }
 
+  // Minimal Tab-cycling focus trap while gathering-participant-link-issue-
+  // dialog is present -- keeps keyboard focus from silently leaving the
+  // dialog onto background controls while it is open (identical shape to
+  // gathering_create.js's own trapTabWithinDialog for gathering-create-
+  // review-dialog, ADR-0060 decision 5 -- no shared module system exists in
+  // this codebase, the same reason el()/csrfToken()/requestJson() are
+  // already duplicated per-file).
+  function trapTabWithinDialog(event, dialog) {
+    var focusable = Array.prototype.slice.call(
+      dialog.querySelectorAll("button:not([disabled]), [tabindex]:not([tabindex='-1'])")
+    );
+    if (focusable.length === 0) {
+      return;
+    }
+    var first = focusable[0];
+    var last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  // gathering-participant-link-issue-dialog (ADR-0061 decision 1): the
+  // small window that opens once copyParticipantLink issues a new link. `null`
+  // while state.issueDialogOpen is false (issueDialog.presenceRule).
+  function renderIssueDialog() {
+    if (!state.issueDialogOpen) {
+      return null;
+    }
+    var copyButton = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "gathering-participant-link-issue-dialog-copy",
+        "data-gathering-control-purpose": "gathering-participant-link-issue-dialog-copy",
+        class: "gth-btn gth-btn-primary gth-btn-block",
+      },
+      // dialogCopy.requiredOutcome: this contract does not fix the visible
+      // text a successful write may show -- the same non-binding wording
+      // latitude this file's own "N件" precedent (ADR-0060 decision 9)
+      // already takes.
+      [state.issueDialogCopied ? "✓ コピーしました" : "リンクをコピー"]
+    );
+    copyButton.addEventListener("click", copyIssuedLinkFromDialog);
+
+    var closeButton = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "gathering-participant-link-issue-dialog-close",
+        "data-gathering-control-purpose": "gathering-participant-link-issue-dialog-close",
+        class: "gth-btn",
+      },
+      ["閉じる"]
+    );
+    closeButton.addEventListener("click", closeIssueDialog);
+
+    var dialog = el(
+      "div",
+      {
+        "data-testid": "gathering-participant-link-issue-dialog",
+        "data-issued-link-url": state.headerIssuedLinkUrl || undefined,
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-label": "発行したリンク",
+        tabindex: "-1",
+        class: "gth-confirm-dialog gth-issue-dialog",
+      },
+      [
+        el("p", { class: "gth-confirm-dialog-text gth-issue-dialog-url" }, [
+          truncateIssuedLinkUrlForDisplay(state.headerIssuedLinkUrl),
+        ]),
+        el("div", { class: "gth-inline-form-row" }, [copyButton, closeButton]),
+      ]
+    );
+
+    // モーダルは開いたらフォーカスを中へ、Esc で閉じる、閉じたら発行ボタンへ
+    // 戻す (identical keyboard shape to gathering-create-review-dialog,
+    // ADR-0060 decision 5): Esc closes without writing to the clipboard;
+    // Tab/Shift+Tab cycle within the dialog only while it is present.
+    dialog.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" || event.key === "Esc") {
+        event.preventDefault();
+        closeIssueDialog();
+        return;
+      }
+      if (event.key === "Tab") {
+        trapTabWithinDialog(event, dialog);
+      }
+    });
+
+    return dialog;
+  }
+
+  // This contract does not fix the visible text shown for "a URL の一部"
+  // (issueDialog's own board note) -- a short, non-binding truncation so
+  // the dialog does not have to lay out a full, potentially long URL.
+  function truncateIssuedLinkUrlForDisplay(url) {
+    if (!url) {
+      return "";
+    }
+    if (url.length <= 46) {
+      return url;
+    }
+    return url.slice(0, 26) + "…" + url.slice(-16);
+  }
+
   function renderParticipantLinkCopy() {
     var button = el(
       "button",
@@ -1714,13 +1871,22 @@
         type: "button",
         "data-testid": "gathering-participant-link-copy",
         "data-gathering-control-purpose": "gathering-participant-link-copy",
-        "data-issued-link-url": state.headerIssuedLinkUrl || undefined,
         class: "gth-btn gth-btn-primary",
       },
-      ["回答リンクをコピー"]
+      // **Changed 2026-09-17 (ADR-0061 decision 1)**: this contract does not
+      // fix the visible text either, but "リンクを発行" reads accurately now
+      // that this activation only issues a link and opens the dialog below,
+      // rather than copying to the clipboard itself.
+      ["リンクを発行"]
     );
     button.addEventListener("click", copyParticipantLink);
-    return button;
+
+    var children = [button];
+    var dialog = renderIssueDialog();
+    if (dialog) {
+      children.push(dialog);
+    }
+    return el("div", { class: "gth-issue" }, children);
   }
 
   function renderParticipantLinkItem(link) {
@@ -2086,6 +2252,29 @@
       );
     }
     restoreFocusFromDescriptor(root, focusDescriptor);
+
+    // Explicit open/close focus management for gathering-participant-link-
+    // issue-dialog -- distinct from the generic restoreFocusFromDescriptor
+    // above, which can only restore focus to an element that still exists
+    // after this rebuild (identical shape to gathering_create.js's own
+    // pendingReviewFocus, ADR-0060 decision 5).
+    if (state.pendingIssueDialogFocus === "open") {
+      var issueDialogNode = root.querySelector(
+        '[data-testid="gathering-participant-link-issue-dialog"]'
+      );
+      if (issueDialogNode) {
+        issueDialogNode.focus({ preventScroll: true });
+      }
+      state.pendingIssueDialogFocus = null;
+    } else if (state.pendingIssueDialogFocus === "close") {
+      var issueOpenButtonNode = root.querySelector(
+        '[data-testid="gathering-participant-link-copy"]'
+      );
+      if (issueOpenButtonNode) {
+        issueOpenButtonNode.focus({ preventScroll: true });
+      }
+      state.pendingIssueDialogFocus = null;
+    }
   }
 
   // contracts/candidate-search-browser-interface.yaml's gatheringEntry

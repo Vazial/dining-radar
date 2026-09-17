@@ -1085,6 +1085,110 @@ class ParticipantLinkScheduleResponsesServiceTests(TestCase):
         )
 
 
+class ScheduleResponseRespondentsServiceTests(TestCase):
+    """``ParticipantScheduleQuestion.respondents`` (ADR-0061 decision 2,
+    2026-09-17 human decision). The peer-facing mirror of
+    ``ParticipantLinkScheduleResponsesServiceTests`` above -- grouped by
+    candidate date instead of by participant link."""
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="svc-organizer-respondents")
+        self.gathering = services.create_gathering(
+            self.user,
+            "会",
+            [_next_business_datetime(1), _next_business_datetime(2)],
+        )
+        self.first_date, self.second_date = self.gathering.candidate_dates.all()
+
+    def test_maps_a_candidate_date_to_every_respondent_including_display_name(self):
+        _gathering, links = services.issue_participant_links(self.user, self.gathering.id, 1)
+        link = links[0]
+        link.display_name = "あおい"
+        link.save(update_fields=["display_name"])
+        ScheduleResponse.objects.create(
+            participant_link=link,
+            candidate_date=self.first_date,
+            status=ScheduleResponseStatus.GOING,
+        )
+
+        mapping = services.schedule_response_respondents(self.gathering)
+
+        self.assertEqual(mapping[self.first_date.id], [("あおい", ScheduleResponseStatus.GOING)])
+
+    def test_a_respondent_with_no_display_name_is_included_as_none(self):
+        """Null displayName ("名無し") is a real entry, not omitted."""
+        _gathering, links = services.issue_participant_links(self.user, self.gathering.id, 1)
+        link = links[0]
+        ScheduleResponse.objects.create(
+            participant_link=link,
+            candidate_date=self.first_date,
+            status=ScheduleResponseStatus.MAYBE,
+        )
+
+        mapping = services.schedule_response_respondents(self.gathering)
+
+        self.assertEqual(mapping[self.first_date.id], [(None, ScheduleResponseStatus.MAYBE)])
+
+    def test_a_candidate_date_never_answered_is_absent_from_the_mapping(self):
+        _gathering, links = services.issue_participant_links(self.user, self.gathering.id, 1)
+        link = links[0]
+        ScheduleResponse.objects.create(
+            participant_link=link,
+            candidate_date=self.first_date,
+            status=ScheduleResponseStatus.GOING,
+        )
+
+        mapping = services.schedule_response_respondents(self.gathering)
+
+        self.assertNotIn(self.second_date.id, mapping)
+
+    def test_does_not_mix_respondents_across_different_candidate_dates(self):
+        _gathering, links = services.issue_participant_links(self.user, self.gathering.id, 2)
+        first_link, second_link = links
+        first_link.display_name = "そら"
+        first_link.save(update_fields=["display_name"])
+        ScheduleResponse.objects.create(
+            participant_link=first_link,
+            candidate_date=self.first_date,
+            status=ScheduleResponseStatus.GOING,
+        )
+        ScheduleResponse.objects.create(
+            participant_link=second_link,
+            candidate_date=self.second_date,
+            status=ScheduleResponseStatus.NOT_GOING,
+        )
+
+        mapping = services.schedule_response_respondents(self.gathering)
+
+        self.assertEqual(mapping[self.first_date.id], [("そら", ScheduleResponseStatus.GOING)])
+        self.assertEqual(mapping[self.second_date.id], [(None, ScheduleResponseStatus.NOT_GOING)])
+
+    def test_every_respondent_for_a_candidate_date_is_included_the_viewers_own_entry_too(self):
+        """ADR-0061 decision 2: "including this viewer's own entry if this
+        viewer has answered" -- this function does not exclude any link, so
+        a caller reusing this same mapping for that link's own view sees its
+        own entry alongside every other respondent's."""
+        _gathering, links = services.issue_participant_links(self.user, self.gathering.id, 2)
+        first_link, second_link = links
+        ScheduleResponse.objects.create(
+            participant_link=first_link,
+            candidate_date=self.first_date,
+            status=ScheduleResponseStatus.GOING,
+        )
+        ScheduleResponse.objects.create(
+            participant_link=second_link,
+            candidate_date=self.first_date,
+            status=ScheduleResponseStatus.MAYBE,
+        )
+
+        mapping = services.schedule_response_respondents(self.gathering)
+
+        self.assertEqual(
+            sorted(mapping[self.first_date.id], key=lambda pair: pair[1]),
+            [(None, ScheduleResponseStatus.GOING), (None, ScheduleResponseStatus.MAYBE)],
+        )
+
+
 # --- services: gathering list / in-progress count (adr/0038) ----------------
 
 
@@ -4080,8 +4184,10 @@ class ParticipantViewApiTests(GatheringOrganizerTestCase):
         question = body["scheduleQuestions"][0]
         self.assertEqual(
             set(question),
-            {"candidateDateId", "startAt", "yourResponse", "tally"},
+            # ADR-0061 decision 2 (2026-09-17): respondents added.
+            {"candidateDateId", "startAt", "yourResponse", "tally", "respondents"},
         )
+        self.assertEqual(question["respondents"], [])
 
     def test_expired_link_is_a_safe_410_link_expired(self):
         Client().post(
@@ -4192,6 +4298,136 @@ class ParticipantViewApiTests(GatheringOrganizerTestCase):
         self.assertIn("tally", question)
         self.assertIsNotNone(question["tally"])
         self.assertIsNone(question["yourResponse"])
+
+    def test_respondents_is_always_an_array_even_when_empty(self):
+        """ADR-0061 decision 2: always present as an array (possibly empty),
+        regardless of whether yourResponse is null for this same candidate
+        date."""
+        response = self.participant_client.get(
+            reverse("gathering:participant-view", kwargs={"token": self.token})
+        )
+
+        question = response.json()["scheduleQuestions"][0]
+        self.assertEqual(question["respondents"], [])
+
+    def test_respondents_includes_a_named_answer(self):
+        self.participant_client.put(
+            reverse("gathering:participant-display-name", kwargs={"token": self.token}),
+            data=json.dumps({"displayName": "あおい"}),
+            content_type="application/json",
+        )
+        self.participant_client.put(
+            reverse(
+                "gathering:schedule-response",
+                kwargs={"token": self.token, "candidate_date_id": self.candidate_date_id},
+            ),
+            data=json.dumps({"status": "GOING"}),
+            content_type="application/json",
+        )
+
+        response = self.participant_client.get(
+            reverse("gathering:participant-view", kwargs={"token": self.token})
+        )
+
+        question = next(
+            q
+            for q in response.json()["scheduleQuestions"]
+            if q["candidateDateId"] == self.candidate_date_id
+        )
+        self.assertEqual(question["respondents"], [{"displayName": "あおい", "response": "GOING"}])
+
+    def test_respondents_includes_an_unnamed_answer_as_a_null_display_name(self):
+        self.participant_client.put(
+            reverse(
+                "gathering:schedule-response",
+                kwargs={"token": self.token, "candidate_date_id": self.candidate_date_id},
+            ),
+            data=json.dumps({"status": "MAYBE"}),
+            content_type="application/json",
+        )
+
+        response = self.participant_client.get(
+            reverse("gathering:participant-view", kwargs={"token": self.token})
+        )
+
+        question = next(
+            q
+            for q in response.json()["scheduleQuestions"]
+            if q["candidateDateId"] == self.candidate_date_id
+        )
+        self.assertEqual(question["respondents"], [{"displayName": None, "response": "MAYBE"}])
+
+    def test_respondents_excludes_candidate_dates_this_participant_never_answered(self):
+        other_date_id = next(
+            cd["id"]
+            for cd in self.client.get(
+                reverse("gathering:gathering-detail", kwargs={"gathering_id": self.gathering_id})
+            ).json()["candidateDates"]
+            if cd["id"] != self.candidate_date_id
+        )
+        self.participant_client.put(
+            reverse(
+                "gathering:schedule-response",
+                kwargs={"token": self.token, "candidate_date_id": self.candidate_date_id},
+            ),
+            data=json.dumps({"status": "GOING"}),
+            content_type="application/json",
+        )
+
+        response = self.participant_client.get(
+            reverse("gathering:participant-view", kwargs={"token": self.token})
+        )
+
+        other_question = next(
+            q for q in response.json()["scheduleQuestions"] if q["candidateDateId"] == other_date_id
+        )
+        self.assertEqual(other_question["respondents"], [])
+
+    def test_respondents_includes_the_viewers_own_entry_and_every_other_participant(self):
+        issue_response = self.post_json(
+            reverse("gathering:participant-links", kwargs={"gathering_id": self.gathering_id}),
+            {"count": 1},
+        )
+        other_token = issue_response.json()["issuedLinks"][0]["token"]
+        other_client = Client()
+        other_client.put(
+            reverse("gathering:participant-display-name", kwargs={"token": other_token}),
+            data=json.dumps({"displayName": "そら"}),
+            content_type="application/json",
+        )
+        other_client.put(
+            reverse(
+                "gathering:schedule-response",
+                kwargs={"token": other_token, "candidate_date_id": self.candidate_date_id},
+            ),
+            data=json.dumps({"status": "NOT_GOING"}),
+            content_type="application/json",
+        )
+        self.participant_client.put(
+            reverse(
+                "gathering:schedule-response",
+                kwargs={"token": self.token, "candidate_date_id": self.candidate_date_id},
+            ),
+            data=json.dumps({"status": "GOING"}),
+            content_type="application/json",
+        )
+
+        response = self.participant_client.get(
+            reverse("gathering:participant-view", kwargs={"token": self.token})
+        )
+
+        question = next(
+            q
+            for q in response.json()["scheduleQuestions"]
+            if q["candidateDateId"] == self.candidate_date_id
+        )
+        self.assertCountEqual(
+            question["respondents"],
+            [
+                {"displayName": None, "response": "GOING"},
+                {"displayName": "そら", "response": "NOT_GOING"},
+            ],
+        )
 
     def test_schedule_response_can_be_changed(self):
         self.participant_client.put(
@@ -5253,7 +5489,17 @@ class RecopyParticipantLinkClipboardSourceTests(SimpleTestCase):
     sibling, ``copyParticipantLink`` ("コピー"), did write to the clipboard.
     Source-level, mirroring this file's other JS-adjacent conventions (a
     Django-test-client reproduction cannot observe ``navigator.clipboard``
-    at all -- see ``DateTimeLocalConversionSourceTests`` above)."""
+    at all -- see ``DateTimeLocalConversionSourceTests`` above).
+
+    **Updated 2026-09-17 (ADR-0061 decision 1)**: ``copyParticipantLink``
+    ("リンクを発行") no longer writes to the clipboard itself -- it only
+    issues the link and opens ``gathering-participant-link-issue-dialog``.
+    The clipboard-write Must ADR-0058 established for that activation moves
+    to the dialog's own ``copyIssuedLinkFromDialog`` ("リンクをコピー",
+    ``gathering-participant-link-issue-dialog-copy``) -- this class's own
+    comparison below is updated to that new function name; the underlying
+    guard/write/swallow shape it compares against ``recopyParticipantLink``
+    is unchanged."""
 
     def test_recopy_participant_link_writes_the_recopied_url_to_the_clipboard(self):
         source = GATHERING_JS.read_text(encoding="utf-8")
@@ -5267,24 +5513,36 @@ class RecopyParticipantLinkClipboardSourceTests(SimpleTestCase):
         # other tracked attribute is disturbed by this fix.
         self.assertIn("state.recopiedLinkUrls[linkId] = result.body.url;", function_body)
 
-    def test_copy_and_recopy_write_to_the_clipboard_the_same_way(self):
-        """Guards against the two diverging again: both must gate on
-        ``navigator.clipboard``'s presence and swallow a rejected write the
-        same way (``copyParticipantLink`` was already doing this)."""
+    def test_copy_participant_link_no_longer_writes_to_the_clipboard_itself(self):
+        """ADR-0061 decision 1: this activation only issues the link and
+        opens the dialog -- the write moved to copyIssuedLinkFromDialog
+        below."""
         source = GATHERING_JS.read_text(encoding="utf-8")
         copy_start = source.index("function copyParticipantLink() {")
-        copy_end = source.index("function recopyParticipantLink(linkId) {", copy_start)
+        copy_end = source.index("function copyIssuedLinkFromDialog() {", copy_start)
         copy_body = source[copy_start:copy_end]
+
+        self.assertNotIn("navigator.clipboard", copy_body)
+        self.assertIn("state.issueDialogOpen = true;", copy_body)
+
+    def test_dialog_copy_and_recopy_write_to_the_clipboard_the_same_way(self):
+        """Guards against the two diverging again: both must gate on
+        ``navigator.clipboard``'s presence and swallow a rejected write the
+        same way."""
+        source = GATHERING_JS.read_text(encoding="utf-8")
+        dialog_copy_start = source.index("function copyIssuedLinkFromDialog() {")
+        dialog_copy_end = source.index("function closeIssueDialog() {", dialog_copy_start)
+        dialog_copy_body = source[dialog_copy_start:dialog_copy_end]
         recopy_start = source.index("function recopyParticipantLink(linkId) {")
         recopy_end = source.index("function revokeParticipantLink(linkId) {", recopy_start)
         recopy_body = source[recopy_start:recopy_end]
 
         clipboard_guard = "if (window.navigator && window.navigator.clipboard) {"
-        self.assertIn(clipboard_guard, copy_body)
+        self.assertIn(clipboard_guard, dialog_copy_body)
         self.assertIn(clipboard_guard, recopy_body)
-        self.assertIn(".writeText(", copy_body)
+        self.assertIn(".writeText(", dialog_copy_body)
         self.assertIn(".writeText(", recopy_body)
-        self.assertIn(".catch(function () {});", copy_body)
+        self.assertIn(".catch(function () {});", dialog_copy_body)
         self.assertIn(".catch(function () {});", recopy_body)
 
 
