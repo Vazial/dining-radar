@@ -803,30 +803,49 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         self.assertEqual(info.value.status, 200)
         expect(by_test_id(self.page, "candidate-proposal-content")).to_be_attached()
 
+    def _account_disclosure_toggle(self) -> tuple[Locator, str]:
+        """Render-mode-correct account entry point: mobile's
+        candidate-primary-nav-account, else desktop's candidate-primary-nav-menu-toggle."""
+        mobile_account = by_test_id(self.page, "candidate-primary-nav-account")
+        if mobile_account.count() > 0:
+            return mobile_account, "mapPrimaryTouchLayout"
+        return by_test_id(self.page, "candidate-primary-nav-menu-toggle"), "twoColumnLayout"
+
     def test_c_account_menu_toggle_and_password_change_link_are_keyboard_operable(self) -> None:
-        self._sign_in_with_candidates()
-        toggle = by_test_id(self.page, "auth-account-menu-toggle")
-        self._assert_tabbable(toggle, "auth-account-menu-toggle")
-        details = self.page.locator("details.candidate-account-menu")
-        self.assertFalse(details.evaluate("el => el.open"), "menu must start closed")
+        """Opens the render-mode-correct account entry point at each width before
+        measuring what it discloses."""
+        for width, height, label in (NARROW_VIEWPORTS[0], TWO_COLUMN_VIEWPORTS[1]):
+            with self.subTest(viewport=label):
+                self.page.set_viewport_size({"width": width, "height": height})
+                self._sign_in_with_candidates()
+                toggle, mode = self._account_disclosure_toggle()
+                self._assert_tabbable(toggle, f"account disclosure toggle ({mode}, {label})")
+                # Present but hidden while closed, not absent.
+                expect(by_test_id(self.page, "auth-password-change-open")).to_be_hidden()
 
-        toggle.press("Enter")
-        self.assertTrue(details.evaluate("el => el.open"), "Enter did not open the account menu")
-
-        password_change = by_test_id(self.page, "auth-password-change-open")
-        self._assert_tabbable(password_change, "auth-password-change-open")
-        expected_path = reverse("authentication:password_change")
-        password_change.press("Enter")
-        expect(self.page).to_have_url(f"{self.dsl.base_url}{expected_path}")
+                toggle.press("Enter")
+                password_change = by_test_id(self.page, "auth-password-change-open")
+                expect(password_change).to_be_visible()
+                self._assert_tabbable(
+                    password_change, f"auth-password-change-open ({mode}, {label})"
+                )
+                expected_path = reverse("authentication:password_change")
+                password_change.press("Enter")
+                expect(self.page).to_have_url(f"{self.dsl.base_url}{expected_path}")
 
     def test_c_sign_out_is_keyboard_operable(self) -> None:
-        self._sign_in_with_candidates()
-        toggle = by_test_id(self.page, "auth-account-menu-toggle")
-        toggle.click()
-        sign_out = by_test_id(self.page, "auth-sign-out")
-        self._assert_tabbable(sign_out, "auth-sign-out")
-        sign_out.press("Enter")
-        expect(by_test_id(self.page, "auth-sign-in-form")).to_be_attached()
+        """Opens the render-mode-correct account entry point at each width
+        before reaching sign-out."""
+        for width, height, label in (NARROW_VIEWPORTS[0], TWO_COLUMN_VIEWPORTS[1]):
+            with self.subTest(viewport=label):
+                self.page.set_viewport_size({"width": width, "height": height})
+                self._sign_in_with_candidates()
+                toggle, mode = self._account_disclosure_toggle()
+                toggle.click()
+                sign_out = by_test_id(self.page, "auth-sign-out")
+                self._assert_tabbable(sign_out, f"auth-sign-out ({mode}, {label})")
+                sign_out.press("Enter")
+                expect(by_test_id(self.page, "auth-sign-in-form")).to_be_attached()
 
     # (d) Internal enum values are never exposed as visible text ----------
 
@@ -1001,11 +1020,13 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
             by_test_id(self.page, "candidate-filter-open").click()
             expect(by_test_id(self.page, "candidate-filter-panel")).to_have_count(0)
 
-            # Account menu: toggle, sign-out, password-change-open.
-            by_test_id(self.page, "auth-account-menu-toggle").click()
+            # Account menu: toggle, sign-out, password-change-open. Does not
+            # re-click the toggle to close it -- the disclosed sheet covers
+            # its own trigger, and the next iteration re-navigates anyway.
+            account_toggle, _account_mode = self._account_disclosure_toggle()
+            account_toggle.click()
             expect(by_test_id(self.page, "auth-sign-out")).to_be_visible()
             self._assert_all_declared_controls_meet_44px(f"account menu open at {label}")
-            by_test_id(self.page, "auth-account-menu-toggle").click()
 
     # (f) renderModes selects the correct mode at each tested width --------
 
@@ -1086,9 +1107,11 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         """
         now = datetime.now(UTC)
         days_ahead = (0 - now.weekday()) % 7 or 7
-        return (now + timedelta(days=days_ahead)).replace(
-            hour=12, minute=0, second=0, microsecond=0
-        ).isoformat()
+        return (
+            (now + timedelta(days=days_ahead))
+            .replace(hour=12, minute=0, second=0, microsecond=0)
+            .isoformat()
+        )
 
     def _create_selecting_shop_gathering_via_api(
         self, title: str, candidate_date_iso: str | None = None
@@ -1279,7 +1302,11 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         toggle.press("Enter")
         panel = by_test_id(self.page, "candidate-primary-nav-menu-panel")
         expect(panel).to_be_visible()
-        for test_id in ("candidate-primary-nav-menu-search", "candidate-primary-nav-menu-gathering"):
+        menu_panel_test_ids = (
+            "candidate-primary-nav-menu-search",
+            "candidate-primary-nav-menu-gathering",
+        )
+        for test_id in menu_panel_test_ids:
             with self.subTest(check="menu-panel", test_id=test_id):
                 _assert_44px_and_tabbable(
                     by_test_id(self.page, test_id), f"{test_id} ({desktop_label})"
