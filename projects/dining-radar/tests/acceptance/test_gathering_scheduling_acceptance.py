@@ -1,4 +1,4 @@
-"""JS-capable browser/API L4 runner for TDR-GTH-01 through TDR-GTH-56.
+"""JS-capable browser/API L4 runner for TDR-GTH-01 through TDR-GTH-63.
 
 gathering-scheduling-browser-interface.yaml's own profiles.localAcceptance
 marks only TDR-GTH-13 (token guessing is API-level fuzzing, not a browser
@@ -54,6 +54,24 @@ test_tdr_gth_09_participant_sees_no_open_shop_count_or_shop_details below.
 TDR-GTH-56 (ADR-0056 decision 9, gathering-scheduling-browser-interface.yaml
 0.15.0 追補12) adds the shop-vote bar's total-active-participant-count
 denominator, sized against the whole group rather than respondents so far.
+
+TDR-GTH-07/43/57..63 (ADR-0060, 2026-09-16, gathering-scheduling-browser-
+interface.yaml 0.22.0 / gathering-scheduling-api.yaml v0.16.0): candidate
+dates are ordered by startAt ascending (開催日の早い順), replacing adr/0048's
+goingCount-descending rule (TDR-GTH-07 rewritten, TDR-GTH-43's own assertion
+is unchanged but now checks the primary rule, not a tie-break); a Saturday,
+Sunday, or Japan public holiday can no longer be a candidate date, enforced
+by createGathering/addCandidateDates with the new CANDIDATE_DATE_NOT_A_
+BUSINESS_DAY code (TDR-GTH-57/58); and gathering-candidate-date/
+scheduleQuestion.tally gain a data-current-leader attribute computed by a
+two-level goingCount-then-maybeCount cascade, mirrored unchanged to the
+participant side (TDR-GTH-59..63). organizerGatheringCreate's own "つくる"
+is now open-then-confirm (gathering-create-review-open/-dialog/-cancel,
+ADR-0060 decision 5) -- create_prepared_gathering_via_browser and
+test_tdr_gth_23 below are rewritten to match; gathering-create-submit and
+gathering-create-candidate-date-remove-selected keep their existing test
+ids/purposes, only their DOM home and requirement (remove-selected is now
+scoped to the dialog's own currently-displayed month) changed.
 """
 
 from __future__ import annotations
@@ -67,7 +85,9 @@ from tests.acceptance.dsl.gathering_scheduling_browser import (
     OPEN_SHOP_COUNT_BY_WEEKDAY,
     GatheringSchedulingBrowserDsl,
     days_from_now_iso,
+    next_fixed_public_holiday_on_weekday_iso,
     next_weekday_iso,
+    two_business_days_in_the_month_after_iso,
 )
 from tests.acceptance.steps.gathering_scheduling_steps import GatheringSchedulingSteps
 
@@ -219,12 +239,23 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.participant_header_shows_gathering_phase("SELECTING_SHOP")
 
     def test_tdr_gth_07_organizer_sees_two_distinct_denominators(self) -> None:
+        """**Rewritten 2026-09-16 (ADR-0060 decision 6, human decision: 候補日
+        は日付順)**: candidate_date_a is given the *later* startAt and
+        candidate_date_b the *earlier* one (reversed from this test's own
+        pre-ADR-0060 shape, where candidate_date_a's larger goingCount used
+        to place it first) -- deliberately proving the list's order now
+        tracks startAt, not goingCount: candidate_date_a still accumulates
+        strictly more responses than candidate_date_b below, so a list still
+        ordered by goingCount descending would show candidate_date_a first,
+        while the date-ordered list this scenario now asserts shows it
+        second.
+        """
         self._sign_in()
-        self.steps.organizer_has_a_scheduling_gathering(
-            "会7", [days_from_now_iso(3), days_from_now_iso(10)]
-        )
-        candidate_date_a = self.dsl.candidate_date_id_at(0)
-        candidate_date_b = self.dsl.candidate_date_id_at(1)
+        earlier_iso = days_from_now_iso(3)
+        later_iso = days_from_now_iso(10)
+        self.steps.organizer_has_a_scheduling_gathering("会7", [earlier_iso, later_iso])
+        candidate_date_b = self.dsl.candidate_date_id_at(0)  # earlier_iso
+        candidate_date_a = self.dsl.candidate_date_id_at(1)  # later_iso, more responses below
         link_one = self.steps.a_participant_link_is_issued()
         self.steps.participant_opens_the_link(link_one)
         self.steps.participant_answers_the_candidate_date(candidate_date_a, "GOING")
@@ -237,7 +268,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.unanswered_summary_is(total_issued=3, revoked=0, active_issued=3, unanswered=1)
         self.steps.candidate_date_tally_is(candidate_date_a, going=1, maybe=1, not_going=0)
         self.steps.candidate_date_tally_is(candidate_date_b, going=0, maybe=1, not_going=0)
-        self.steps.candidate_dates_are_ordered_by_going_count_descending()
+        self.steps.candidate_date_order_matches_start_at_order([earlier_iso, later_iso])
 
     def test_tdr_gth_08_organizer_previews_open_shops_for_a_tentative_date(self) -> None:
         """**Rewritten 2026-09-09 (adr/0049 decision 2, 2026-09-08 human
@@ -560,10 +591,16 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.gathering_create_screen_is_shown()
 
     def test_tdr_gth_23_cannot_create_a_gathering_without_a_candidate_date(self) -> None:
+        """**Rewritten 2026-09-16 (ADR-0060 decision 5)**: the name-empty/
+        0-candidate-date disabled state moved from gathering-create-submit
+        (now inside the review dialog) to gathering-create-review-open --
+        this scenario's own Given/When never reaches the dialog at all, so
+        it must check review-open's own disabledState now, not submit's.
+        """
         self._sign_in()
         self.steps.organizer_opens_the_gathering_create_screen()
         self.steps.organizer_fills_the_gathering_name("会23")
-        self.steps.gathering_create_submit_is_disabled()
+        self.steps.gathering_create_review_open_is_disabled()
         attempt_create_without_dates = (
             self.steps.organizer_attempts_to_create_gathering_via_api_with_no_candidate_dates
         )
@@ -619,6 +656,45 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         )
         self.steps.create_is_rejected_because_date_not_in_future(response)
         self.steps.no_gathering_exists_with_title(title)
+
+    def test_gth_create_review_dialog_pages_by_month_and_lets_the_organizer_remove_a_day(
+        self,
+    ) -> None:
+        """review.dialog.item / monthNavigation (ADR-0060 decision 5). No
+        dedicated TDR-GTH-5x/6x scenario names this control -- the same
+        no-scenario-of-its-own precedent this file's own answerLater/
+        peekResults test and TDR-GTH-43's ordering check already establish
+        for contract Musts. Three selected days: one alone in the earliest
+        month, two sharing a later month -- deliberately removing one of the
+        *two* (not the last remaining day in its month), because this
+        contract does not fix this dialog's behavior when a removal empties
+        the currently-displayed month entirely (item.requiredOutcome's own
+        note), so this test only exercises the one removal outcome the
+        contract does fix.
+        """
+        self._sign_in()
+        earlier_iso = days_from_now_iso(3)
+        mid_a_iso, mid_b_iso = two_business_days_in_the_month_after_iso(earlier_iso)
+        self.steps.organizer_opens_the_gathering_create_screen()
+        self.steps.organizer_fills_the_gathering_name("会レビュー")
+        self.steps.organizer_selects_gathering_create_candidate_dates(
+            [earlier_iso, mid_a_iso, mid_b_iso]
+        )
+        self.steps.organizer_opens_the_gathering_create_review_dialog()
+        self.assertEqual(self.steps.review_dialog_selected_days(), {earlier_iso[:10]})
+        self.steps.organizer_pages_the_review_dialog_month(forward=True)
+        self.assertEqual(
+            self.steps.review_dialog_selected_days(), {mid_a_iso[:10], mid_b_iso[:10]}
+        )
+        self.steps.organizer_removes_the_selected_day_from_the_review_dialog(mid_b_iso)
+        self.assertEqual(self.steps.review_dialog_selected_days(), {mid_a_iso[:10]})
+        self.steps.organizer_pages_the_review_dialog_month(forward=False)
+        self.assertEqual(self.steps.review_dialog_selected_days(), {earlier_iso[:10]})
+        payload = self.steps.organizer_confirms_the_review_dialog([earlier_iso, mid_a_iso])
+        self.assertEqual(
+            {date["startAt"][:10] for date in payload["candidateDates"]},
+            {earlier_iso[:10], mid_a_iso[:10]},
+        )
 
     def test_tdr_gth_25_candidate_screen_links_to_the_gathering_list_with_a_count(self) -> None:
         self._sign_in()
@@ -1579,3 +1655,135 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.organizer_revokes_the_link_at(2)
         self.steps.participant_opens_the_link(link_a)
         self.steps.shop_vote_tally_total_active_participant_count_is(shop_a, 2)
+
+    # TDR-GTH-57/58 (new, ADR-0060 decision 1/2/4, 2026-09-16 human decision:
+    # 平日ランチの会には土日・祝日は不要). Both bypass organizerGatheringCreate's
+    # calendar the same way TDR-GTH-47 does -- a weekend/holiday day cell
+    # carries the native disabled state and can never itself be clicked, so
+    # the server-side rejection is exercised directly (the contract's own
+    # "authoritative enforcement" framing for CANDIDATE_DATE_NOT_A_BUSINESS_DAY,
+    # ADR-0060 decision 4). next_weekday_iso(5)/next_fixed_public_holiday_on_
+    # weekday_iso compute a real Saturday/holiday date from actual calendar
+    # time -- no server-clock faking, the same technique TDR-GTH-47 already
+    # uses for "today".
+
+    def test_tdr_gth_57_a_weekend_date_cannot_be_a_candidate_date(self) -> None:
+        self._sign_in()
+        self.steps.organizer_opens_the_gathering_create_screen()
+        title = "会57"
+        saturday_iso = next_weekday_iso(5)
+        response = (
+            self.steps.organizer_attempts_to_create_gathering_via_api_with_a_weekend_candidate_date(
+                title, saturday_iso
+            )
+        )
+        self.steps.create_is_rejected_because_date_is_not_a_business_day(response)
+        self.steps.no_gathering_exists_with_title(title)
+
+    def test_tdr_gth_58_a_public_holiday_date_cannot_be_a_candidate_date(self) -> None:
+        self._sign_in()
+        self.steps.organizer_opens_the_gathering_create_screen()
+        title = "会58"
+        holiday_iso = next_fixed_public_holiday_on_weekday_iso()
+        response = (
+            self.steps.organizer_attempts_to_create_gathering_via_api_with_a_holiday_candidate_date(
+                title, holiday_iso
+            )
+        )
+        self.steps.create_is_rejected_because_date_is_not_a_business_day(response)
+        self.steps.no_gathering_exists_with_title(title)
+
+    # TDR-GTH-59..62 (new, ADR-0060 decision 7, 2026-09-16 human decision:
+    # "○が多い日を優先。同票なら△が多いほう。それでも同票ならすべてつける").
+    # candidateDateList.candidateDate's data-current-leader -- TDR-GTH-54/55's
+    # own shop-side precedent, applied to candidate dates with the two-level
+    # goingCount-then-maybeCount cascade ADR-0060 decision 7 defines (distinct
+    # from the shop side's single summed value).
+
+    def test_tdr_gth_59_no_candidate_date_leads_before_any_answer_is_given(self) -> None:
+        self._sign_in()
+        self.steps.organizer_has_a_scheduling_gathering(
+            "会59", [days_from_now_iso(3), days_from_now_iso(10)]
+        )
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.candidate_date_current_leaders_are(set())
+
+    def test_tdr_gth_60_the_candidate_date_with_the_most_going_answers_leads(self) -> None:
+        self._sign_in()
+        self.steps.organizer_has_a_scheduling_gathering(
+            "会60", [days_from_now_iso(3), days_from_now_iso(10)]
+        )
+        leading_date = self.dsl.candidate_date_id_at(0)
+        behind_date = self.dsl.candidate_date_id_at(1)
+        link_one = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_one)
+        self.steps.participant_answers_the_candidate_date(leading_date, "GOING")
+        self.steps.participant_answers_the_candidate_date(behind_date, "GOING")
+        link_two = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_two)
+        self.steps.participant_answers_the_candidate_date(leading_date, "GOING")
+        self.steps.participant_answers_the_candidate_date(behind_date, "MAYBE")
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.candidate_date_current_leaders_are({leading_date})
+
+    def test_tdr_gth_61_a_going_tie_is_broken_by_the_maybe_count(self) -> None:
+        """TDR-GTH-61: leading_date and behind_date both collect goingCount=1
+        (an intentional tie, not incidental), so only maybeCount -- an
+        additional MAYBE answer on leading_date alone -- can distinguish them.
+        """
+        self._sign_in()
+        self.steps.organizer_has_a_scheduling_gathering(
+            "会61", [days_from_now_iso(3), days_from_now_iso(10)]
+        )
+        leading_date = self.dsl.candidate_date_id_at(0)
+        behind_date = self.dsl.candidate_date_id_at(1)
+        link_one = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_one)
+        self.steps.participant_answers_the_candidate_date(leading_date, "GOING")
+        self.steps.participant_answers_the_candidate_date(behind_date, "GOING")
+        link_two = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_two)
+        self.steps.participant_answers_the_candidate_date(leading_date, "MAYBE")
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.candidate_date_current_leaders_are({leading_date})
+
+    def test_tdr_gth_62_a_tie_on_both_going_and_maybe_marks_every_tied_date_as_leading(
+        self,
+    ) -> None:
+        self._sign_in()
+        self.steps.organizer_has_a_scheduling_gathering(
+            "会62", [days_from_now_iso(3), days_from_now_iso(10)]
+        )
+        tied_a = self.dsl.candidate_date_id_at(0)
+        tied_b = self.dsl.candidate_date_id_at(1)
+        link_one = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_one)
+        self.steps.participant_answers_the_candidate_date(tied_a, "GOING")
+        self.steps.participant_answers_the_candidate_date(tied_b, "GOING")
+        link_two = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_two)
+        self.steps.participant_answers_the_candidate_date(tied_a, "MAYBE")
+        self.steps.participant_answers_the_candidate_date(tied_b, "MAYBE")
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.candidate_date_current_leaders_are({tied_a, tied_b})
+
+    def test_tdr_gth_63_participant_also_sees_the_leading_candidate_date(self) -> None:
+        """TDR-GTH-63 (new, ADR-0060 decision 8): scheduleQuestion.tally's
+        data-current-leader mirrors the organizer-facing value exactly, for a
+        participant who has not answered either candidate date yet (TDR-GTH-12
+        precedent: the participant sees others' answers before their own).
+        """
+        self._sign_in()
+        self.steps.organizer_has_a_scheduling_gathering(
+            "会63", [days_from_now_iso(3), days_from_now_iso(10)]
+        )
+        leading_date = self.dsl.candidate_date_id_at(0)
+        behind_date = self.dsl.candidate_date_id_at(1)
+        link_one = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_one)
+        self.steps.participant_answers_the_candidate_date(leading_date, "GOING")
+        self.steps.participant_answers_the_candidate_date(behind_date, "MAYBE")
+        link_two = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_two)
+        self.steps.schedule_question_current_leader_is(leading_date, True)
+        self.steps.schedule_question_current_leader_is(behind_date, False)

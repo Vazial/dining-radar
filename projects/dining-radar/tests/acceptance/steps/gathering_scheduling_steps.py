@@ -84,6 +84,25 @@ class GatheringSchedulingSteps:
     def organizer_fills_the_gathering_name(self, title: str) -> None:
         self.dsl.fill_gathering_create_name(title)
 
+    def organizer_selects_gathering_create_candidate_dates(self, isos: list[str]) -> None:
+        self.dsl.select_gathering_create_candidate_date_days(isos)
+
+    def organizer_opens_the_gathering_create_review_dialog(self) -> None:
+        self.dsl.open_gathering_create_review_dialog()
+
+    def review_dialog_selected_days(self) -> set[str]:
+        return self.dsl.gathering_create_review_dialog_selected_days()
+
+    def organizer_removes_the_selected_day_from_the_review_dialog(self, iso: str) -> None:
+        self.dsl.remove_selected_gathering_create_review_item(iso)
+
+    def organizer_pages_the_review_dialog_month(self, *, forward: bool) -> None:
+        self.dsl.advance_gathering_create_review_month(forward=forward)
+
+    def organizer_confirms_the_review_dialog(self, created_date_isos: list[str]) -> dict:
+        self.dsl.confirm_gathering_create_review_dialog_via_browser()
+        return self.dsl.await_and_read_back_created_gathering(created_date_isos)
+
     def organizer_attempts_to_create_gathering_via_api_with_no_candidate_dates(
         self, title: str
     ) -> object:
@@ -214,6 +233,23 @@ class GatheringSchedulingSteps:
     def create_is_rejected_because_date_not_in_future(self, response: object) -> None:
         self.dsl.assert_create_rejected_because_date_not_in_future(response)  # type: ignore[arg-type]
 
+    def organizer_attempts_to_create_gathering_via_api_with_a_weekend_candidate_date(
+        self, title: str, weekend_iso: str
+    ) -> object:
+        return self.dsl.attempt_create_gathering_via_api_with_a_weekend_candidate_date(
+            title, weekend_iso
+        )
+
+    def organizer_attempts_to_create_gathering_via_api_with_a_holiday_candidate_date(
+        self, title: str, holiday_iso: str
+    ) -> object:
+        return self.dsl.attempt_create_gathering_via_api_with_a_holiday_candidate_date(
+            title, holiday_iso
+        )
+
+    def create_is_rejected_because_date_is_not_a_business_day(self, response: object) -> None:
+        self.dsl.assert_create_rejected_because_not_a_business_day(response)  # type: ignore[arg-type]
+
     def gathering_list_matches(self, expected: list[dict[str, object]]) -> None:
         self.dsl.assert_gathering_list_matches(expected)
 
@@ -226,8 +262,8 @@ class GatheringSchedulingSteps:
     def gathering_create_screen_is_shown(self) -> None:
         self.dsl.assert_gathering_create_screen_is_shown()
 
-    def gathering_create_submit_is_disabled(self) -> None:
-        self.dsl.assert_gathering_create_submit_is_disabled()
+    def gathering_create_review_open_is_disabled(self) -> None:
+        self.dsl.assert_gathering_create_review_open_is_disabled()
 
     def create_is_rejected_for_missing_candidate_dates(self, response: object) -> None:
         self.dsl.assert_create_rejected_because_no_candidate_dates(response)  # type: ignore[arg-type]
@@ -269,9 +305,6 @@ class GatheringSchedulingSteps:
 
     def participant_header_shows_gathering_phase(self, phase: str) -> None:
         self.dsl.assert_participant_header_phase(phase)
-
-    def candidate_dates_are_ordered_by_going_count_descending(self) -> None:
-        self.dsl.assert_candidate_date_list_is_ordered_by_going_count_descending()
 
     def candidate_date_order_snapshot(self) -> list[str]:
         return self.dsl.capture_candidate_date_order()
@@ -336,12 +369,20 @@ class GatheringSchedulingSteps:
             candidate_date_id, going=going, maybe=maybe, not_going=not_going
         )
 
+    def candidate_date_current_leaders_are(self, expected_leader_ids: set[str]) -> None:
+        self.dsl.assert_candidate_date_current_leaders(expected_leader_ids)
+
     def schedule_question_tally_is(
         self, candidate_date_id: str, *, going: int, maybe: int, not_going: int
     ) -> None:
         self.dsl.assert_schedule_question_tally(
             candidate_date_id, going=going, maybe=maybe, not_going=not_going
         )
+
+    def schedule_question_current_leader_is(
+        self, candidate_date_id: str, expected: bool
+    ) -> None:
+        self.dsl.assert_schedule_question_current_leader(candidate_date_id, expected)
 
     def access_is_denied_without_disclosure(self, response: object) -> None:
         self.dsl.assert_access_denied_without_disclosure(response)  # type: ignore[arg-type]
