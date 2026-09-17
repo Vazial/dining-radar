@@ -46,6 +46,16 @@
       {% endcomment %}
       {{ holiday_dates|json_script:"gathering-holiday-dates" }}
       {% comment %}
+        ADR-0062 decision 4: the organizer's own configured search origin,
+        for finalizedSummary.decisionBanner.map's own origin marker --
+        embedded the same way holiday_dates above is (this value has no
+        home on gathering-scheduling-api.yaml's own Gathering schema,
+        services.finalized_gathering_search_origin's own docstring explains
+        why). `None` (until FINALIZED, or if unresolvable) renders as JSON
+        `null`, which gathering.js reads defensively.
+      {% endcomment %}
+      {{ search_origin|json_script:"gathering-search-origin" }}
+      {% comment %}
         Per contracts/gathering-scheduling-browser-interface.yaml's
         renderModel, every required test id is built by gathering.js once
         the JS-executing render completes -- this template only supplies the

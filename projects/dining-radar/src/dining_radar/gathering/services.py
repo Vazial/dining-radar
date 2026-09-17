@@ -968,16 +968,11 @@ class ParticipantShopVoteOption:
     not_going_count: int
     responded_participant_count: int
     your_vote: str | None
-    # ``ParticipantShopVoteOption.addedAfterVotingStarted`` (ADR-0056 decision
-    # 6, 2026-09-13 addendum 9): true exactly when this shop's own `added_at`
-    # is strictly later than `Gathering.votingStartedAt` -- the identical
-    # computation the organizer-facing `data-added-after-voting-started`
-    # attribute performs, so both surfaces say "あとから入りました" for the
-    # same shop at the same time. Computed once here (never null -- this
-    # dataclass is only ever built once voting has started, so
-    # `votingStartedAt` is always non-null) rather than exposing `added_at`/
-    # `voting_started_at` themselves to the participant-facing schema.
-    added_after_voting_started: bool
+    # ``added_after_voting_started`` (ADR-0056 decision 6, 2026-09-13
+    # addendum 9) was retired 2026-09-17 (ADR-0062 decision 1, human
+    # decision, board D1: 「あとから入りました」は出さない) -- neither this
+    # screen nor the organizer-facing shortlist reads the signal any longer,
+    # so this dataclass no longer computes or carries it.
 
 
 def participant_shop_vote_options(
@@ -997,7 +992,6 @@ def participant_shop_vote_options(
         for tally in shortlisted_shops_with_tallies(link.gathering, shop_lookup, origin)
     }
     submission = ShopVoteSubmission.objects.filter(participant_link=link).first()
-    voting_started_at = link.gathering.voting_started_at
     options = []
     for shop in shortlisted_shops_nearest_first(link.gathering, shop_lookup, origin):
         tally = tallies_by_shop_id[shop.shop_id]
@@ -1013,7 +1007,6 @@ def participant_shop_vote_options(
                 not_going_count=tally.not_going_count,
                 responded_participant_count=tally.responded_participant_count,
                 your_vote=your_vote,
-                added_after_voting_started=shop.added_at > voting_started_at,
             )
         )
     return options
@@ -1119,6 +1112,52 @@ def bundled_holiday_isos() -> list[str]:
     here, not in the view layer).
     """
     return holidays.all_holiday_isos()
+
+
+def finalized_gathering_search_origin(
+    organizer: AbstractBaseUser, gathering_id: object
+) -> dict[str, float] | None:
+    """The organizer's own configured search origin, for
+    ``organizerDashboard.finalizedSummary.decisionBanner.map.originMarker``
+    only (ADR-0062 decision 4).
+
+    ``gathering-scheduling-api.yaml``'s own ``Gathering`` schema carries no
+    search-origin field (``additionalProperties: false``, unchanged by
+    ADR-0062's own diff -- the only API change that round made was
+    retiring ``ParticipantShopVoteOption.addedAfterVotingStarted``), so this
+    value cannot be added to that JSON response without a contract edit this
+    slice is not authorized to make. Instead it is embedded directly into
+    ``organizer_dashboard.html``'s server-rendered shell via Django's
+    ``json_script`` filter, the same way ``bundled_holiday_isos`` above
+    already is -- a plain template-context value, read once by
+    ``gathering.js`` at load, never round-tripped through the public API.
+
+    Resolved through the exact same seam every other shortlisted-shop
+    computation already uses (``resolve_population_source``, which honors
+    the acceptance profile's own population override before falling back to
+    one real provider fetch), so the pin this draws matches whatever origin
+    the rest of this same gathering's shop data was computed against.
+
+    Returns ``None`` -- decisionBanner's own map simply omits the origin
+    marker in that case, rather than the whole page shell failing to
+    render -- whenever any of the following holds: this organizer does not
+    own (or this id does not name) a gathering, that gathering is not yet
+    FINALIZED (the map this value feeds is only ever shown once it is,
+    ``finalizedSummary.presenceRule``), or the provider population itself is
+    currently unavailable (``resolve_population_source``'s own ``None``
+    return, already absorbing ``CandidateSourceUnavailableError``).
+    """
+    try:
+        gathering = get_gathering(organizer, gathering_id)
+    except GatheringNotFoundError:
+        return None
+    if gathering.finalized_shop_id is None:
+        return None
+    source = resolve_population_source()
+    if source is None:
+        return None
+    _candidates, origin = source
+    return {"latitude": origin.latitude, "longitude": origin.longitude}
 
 
 # --- test-support-api.yaml seams (acceptance-only; guarded by callers) -----

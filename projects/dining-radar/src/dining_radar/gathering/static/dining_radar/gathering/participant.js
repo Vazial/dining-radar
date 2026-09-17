@@ -198,14 +198,14 @@
  *   progress. Omitted entirely if the API has not yet started returning
  *   this field (this round's API work ships from a different developer in
  *   parallel).
- * - **"あとから入りました" (ADR-0056 decision 6) is a separate mark from
- *   "did I answer this shop"**: data-added-after-voting-started (mirrored
- *   verbatim from ParticipantShopVoteOption.addedAfterVotingStarted) drives
- *   only a small badge next to the shop name; a card's own border
- *   highlight (gth-vote-row--answered) is driven only by data-your-vote
- *   being non-"UNANSWERED" -- human ruling: "印は2つに分ける。札は『あとから
- *   入ったか』だけ、カードの縁は『自分が答えたか』だけ。1つの印に2つの意味を
- *   持たせない。"
+ * - **"あとから入りました" (ADR-0056 decision 6) is retired 2026-09-17
+ *   (ADR-0062 decision 1, human decision, board D1)**: data-added-after-
+ *   voting-started and its small badge are removed from this element --
+ *   the human, looking at the real-machine board for the organizer-facing
+ *   equivalent row, judged the badge unnecessary on both screens. A card's
+ *   own border highlight (gth-vote-row--answered) is unaffected -- it is
+ *   driven only by data-your-vote being non-"UNANSWERED", never by the
+ *   retired signal.
  * - **finalizedView shows exactly 5 things, in this order** (いつ／どの店／
  *   どこにあるか／徒歩の目安／店のページへの線, ADR-0056 decision 10):
  *   data-your-schedule-response and its "あなたの日程への回答" row are
@@ -1137,8 +1137,10 @@
   // gathering.js's computeCandidateDateLeaders) computed here from this
   // participant's own ParticipantView.scheduleQuestions array, which already
   // carries every candidate date's goingCount/maybeCount/notGoingCount --
-  // no API change needed (mirrors data-added-after-voting-started's own
-  // organizer/participant mirroring precedent, ADR-0056 decision 6).
+  // no API change needed (mirrors the same organizer/participant mirroring
+  // precedent the now-retired 「あとから入りました」badge once established,
+  // ADR-0056 decision 6, before its own 2026-09-17 retirement, ADR-0062
+  // decision 1).
   function computeScheduleQuestionLeaders(scheduleQuestions) {
     var responded = scheduleQuestions.filter(function (question) {
       var tally = question.tally;
@@ -1605,24 +1607,23 @@
    */
   function renderShopVoteQuestion(question, showVoteOptions, totalActiveParticipantCount) {
     var yourVoteValue = question.yourVote === null ? "UNANSWERED" : question.yourVote;
-    var addedAfterVotingStarted = !!question.addedAfterVotingStarted;
     var detailRow = el(
       "div",
       { class: "gth-shop-detail-row" },
       renderShopVoteDetailFields(question)
     );
-    // ADR-0056 decision 6, human ruling: "印は2つに分ける。札は『あとから
-    // 入ったか』だけ、カードの縁は『自分が答えたか』だけ。1つの印に2つの
-    // 意味を持たせない。" The badge below reads only
-    // addedAfterVotingStarted; the card's own border highlight
-    // (gth-vote-row--answered below) reads only whether this participant
-    // has answered (data-your-vote !== "UNANSWERED") -- neither derives
-    // from, or substitutes for, the other.
+    // **「あとから入りました」badge retired 2026-09-17 (ADR-0062 decision 1,
+    // human decision, board D1)**: this element's own badge and its backing
+    // data attribute (added 2026-09-13, ADR-0056 decision 6) are removed --
+    // the human, looking at the real-machine board for the organizer-facing
+    // equivalent row, judged the badge unnecessary on both screens; the
+    // underlying API field that fed it is retired the same round
+    // (gathering-scheduling-api.yaml's own ADR-0062 diff). The card's own
+    // border highlight (gth-vote-row--answered below) is unaffected -- it
+    // reads only whether this participant has answered (data-your-vote
+    // !== "UNANSWERED"), never derived from the retired signal.
     var nameRow = el("div", { class: "gth-vote-name-row" }, [
       el("span", { class: "gth-vote-name" }, [question.name]),
-      addedAfterVotingStarted
-        ? el("span", { class: "gth-vote-added-badge" }, ["あとから入りました"])
-        : null,
     ]);
     var children = [nameRow, detailRow];
     if (showVoteOptions) {
@@ -1643,7 +1644,6 @@
         "data-testid": "gathering-shop-vote-question",
         "data-shop-id": question.shopId,
         "data-your-vote": yourVoteValue,
-        "data-added-after-voting-started": addedAfterVotingStarted ? "true" : "false",
         class: "gth-vote-row" + (yourVoteValue !== "UNANSWERED" ? " gth-vote-row--answered" : ""),
       },
       children

@@ -541,6 +541,48 @@
   color: #4b564e;
 }
 
+/* --- gathering-finalize-confirm-dialog, centered small window (ADR-0062
+   decision 3, board D3): unlike .gth-delete/.gth-issue above (anchored
+   under their own opening button), this dialog is a viewport-centered
+   modal on wide layouts and rises from the bottom on narrow ones -- board
+   D3's own PC/mobile split. .gth-modal-backdrop is this dialog's own dim
+   scrim (a plain, purposeless `<div>`, outside forbiddenFormControlCategories'
+   scan, the same precedent gathering-create-review-dialog's own scrim
+   already establishes). */
+.gth-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(23, 32, 27, 0.38);
+  z-index: 29;
+}
+.gth-confirm-dialog--modal {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 30;
+  width: min(28rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+}
+@media (max-width: 47.9375rem) {
+  .gth-confirm-dialog--modal {
+    left: 0;
+    top: auto;
+    bottom: 0;
+    transform: none;
+    width: 100%;
+    max-width: none;
+    border-radius: 1.125rem 1.125rem 0 0;
+  }
+}
+.gth-confirm-dialog-title {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: #17201b;
+}
+
 /* --- gathering-participant-link-issue-dialog (ADR-0061 decision 1): the
    small window that opens once "リンクを発行" issues a new link. Shares
    .gth-confirm-dialog's own visual container (position: absolute, anchored
@@ -563,41 +605,35 @@
   word-break: break-all;
 }
 
-/* --- gathering-finalize-confirm-changes (ADR-0056 decision 11): a factual
-   3-row before/after table, not persuasive prose (ADR-0055 decision 3's
-   "no persuasive prose in production screens" principle). */
-.gth-changes-table {
+/* --- gathering-finalize-confirm-dialog's own confirmSummary (ADR-0062
+   decision 3, board D3): two rows (日時・お店), replacing the retired
+   3-row before/after gathering-finalize-confirm-changes table (ADR-0056
+   decision 11) -- board D3-a's own 96px-label-column layout. */
+.gth-confirm-summary {
   display: flex;
   flex-direction: column;
   border: 1px solid #dfe4de;
   border-radius: 0.5rem;
   overflow: hidden;
 }
-.gth-changes-row {
+.gth-confirm-summary-row {
   display: grid;
-  grid-template-columns: minmax(0, 5.5rem) minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center;
-  gap: 0.375rem;
+  grid-template-columns: minmax(0, 5.5rem) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.625rem;
   padding: 0.5rem 0.625rem;
   border-top: 1px solid #edf0eb;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
 }
-.gth-changes-row:first-child {
+.gth-confirm-summary-row:first-child {
   border-top: 0;
 }
-.gth-changes-label {
-  font-weight: 700;
-  color: #17201b;
-}
-.gth-changes-before {
+.gth-confirm-summary-label {
   color: #77827a;
 }
-.gth-changes-arrow {
-  color: #a7b0a8;
-}
-.gth-changes-after {
-  font-weight: 600;
-  color: #14614a;
+.gth-confirm-summary-value {
+  font-weight: 700;
+  color: #17201b;
   overflow-wrap: anywhere;
 }
 
@@ -1135,7 +1171,7 @@
   border-radius: 0.75rem;
   padding: 0.9rem 1rem;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 1rem;
   flex-wrap: wrap;
 }
@@ -1149,9 +1185,17 @@
   padding: 0.2rem 0.75rem;
   white-space: nowrap;
 }
+/* ADR-0062 decision 4 (board D4): decisionBanner's own map/page-link --
+   same "地図いっぱい" spirit as shortlistedShopVotes' own gth-shop-stage
+   above, sized generously within this still-flex (not full-bleed) panel
+   rather than repeating that same absolute-position stage here (this
+   contract fixes neither layout, board D4's own PC/mobile split is left an
+   orchestrator-measured follow-up per ADR-0062's own 未決事項2). */
 .gth-decision-body {
+  flex: 1 1 20rem;
   display: flex;
   flex-wrap: wrap;
+  align-items: flex-start;
   gap: 0.5rem 1.5rem;
 }
 .gth-decision-row {
@@ -1171,14 +1215,89 @@
 
 /* --- shop map + detail fields + three-tier tallies (adr/0044/0045/0046) -- */
 
+/* ADR-0062 decision 1 (board D1): 「地図いっぱい・一覧を浮かせる」 -- this
+   pane drops its usual padding (gth-pane--flush) so gth-shop-stage's own
+   map can run edge-to-edge; gth-shop-panel floats over its top-left
+   corner. */
+.gth-pane--flush {
+  padding: 0;
+  overflow: hidden;
+}
+.gth-shop-stage {
+  position: relative;
+  min-height: 26rem;
+  height: 32rem;
+}
 .gth-shop-map {
-  width: 100%;
-  height: 12.5rem;
+  position: absolute;
+  inset: 0;
   box-sizing: border-box;
-  border: 1px solid #dfe4de;
-  border-radius: 0.625rem;
+  border: 0;
+  border-radius: 0;
   overflow: hidden;
   background: #eaf0ea;
+}
+.gth-shop-panel {
+  position: absolute;
+  left: 1rem;
+  top: 1rem;
+  bottom: 1rem;
+  width: min(28rem, calc(100% - 2rem));
+  background: #fff;
+  border-radius: 0.875rem;
+  box-shadow: 0 0.375rem 1.25rem rgba(23, 32, 27, 0.18);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 2;
+}
+.gth-shop-panel .gth-pane-head {
+  padding: 0.625rem 0.75rem 0.5rem;
+}
+.gth-shop-panel .gth-shop-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 0.625rem 0.625rem;
+  gap: 0.5rem;
+}
+/* Board D2 (ADR-0062 decision 2): the bottom-of-screen action bar every
+   confirm-selection flow on this pane shares -- geometry only, the
+   disabledState Must itself is unchanged (finalizeOpen's own `disabled`
+   attribute above). */
+.gth-bottom-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  box-sizing: border-box;
+  background: #fff;
+  border-top: 1px solid #d9e0d8;
+  box-shadow: 0 -0.25rem 0.75rem rgba(23, 32, 27, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1rem;
+  padding: 0.625rem 1.25rem;
+  z-index: 3;
+}
+.gth-bottom-bar-status {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #17201b;
+  margin-right: auto;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 47.9375rem) {
+  .gth-shop-panel {
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    max-height: 65%;
+    border-radius: 1.125rem 1.125rem 0 0;
+  }
 }
 
 .gathering-open-shop-map-marker-icon,
@@ -1210,6 +1329,21 @@
   background: #b4531c;
   border: 2px solid #fff;
   box-shadow: 0 0 0 1px #b4531c;
+}
+
+/* gathering-decision-shop-map (ADR-0062 decision 4): the same visual
+   language as gth-shop-map above, sized for a two-point (shop + meeting
+   point) map rather than this pane's own multi-shop overview. */
+.gth-decision-map {
+  width: 100%;
+  min-width: 16rem;
+  height: 14rem;
+  box-sizing: border-box;
+  border: 1px solid #dfe4de;
+  border-radius: 0.625rem;
+  overflow: hidden;
+  background: #eaf0ea;
+  flex: 1 1 100%;
 }
 
 .gth-shop-detail-row {
@@ -1334,14 +1468,19 @@
   background: #f7fbf8;
   box-shadow: inset 3px 0 0 #14614a;
 }
-.gth-shop-added-after-badge {
+/* ADR-0062 decision 1 (board D1's own "いちばん人気" tag): replaces the
+   now-retired .gth-shop-added-after-badge (「あとから入りました」, ADR-0056
+   decision 6, removed 2026-09-17) -- same visual slot next to the shop
+   name, different meaning (driven by the same data-current-leader this
+   list's own leader highlight above already reads, never a new attribute). */
+.gth-shop-leader-badge {
   display: inline-flex;
   align-items: center;
   height: 1.25rem;
   padding: 0 0.5rem;
   border-radius: 999px;
-  background: #eaf0ea;
-  color: #14614a;
+  background: #14614a;
+  color: #fff;
   font-size: 0.625rem;
   font-weight: 700;
   white-space: nowrap;
