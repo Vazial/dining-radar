@@ -557,9 +557,26 @@ def schedule_response_respondents(
     "resolve once per request, reuse per tally" discipline this module's
     other whole-gathering lookups (``candidate_dates_with_tallies``,
     ``participant_link_schedule_responses``) already follow.
+
+    **Ordered deterministically** (2026-09-18 coordinator report, closing a
+    real intermittent-failure class adr/0048 already named for this exact
+    shape: reading a related field without an explicit ``order_by`` leaves
+    row order to the database's own unspecified default, which can differ
+    between reads of the same data) -- by the answering participant link's
+    own ``issued_at`` ascending, ties broken by ``id`` ascending (adr/0048,
+    the identical 発行順 basis ``ParticipantLink.Meta.ordering`` and
+    ``list_participant_links``/``participant_link_schedule_responses``
+    already use). ADR-0061 decision 2 itself does not fix this array's
+    order (``ScheduleRespondent``'s own contract description: "a test
+    correlates an entry by its own displayName/response values"); this
+    ordering is this function's own deterministic choice, reusing an
+    already-established basis rather than introducing a new one, not a
+    contract requirement.
     """
-    responses = ScheduleResponse.objects.filter(candidate_date__gathering=gathering).values_list(
-        "candidate_date_id", "participant_link__display_name", "status"
+    responses = (
+        ScheduleResponse.objects.filter(candidate_date__gathering=gathering)
+        .order_by("participant_link__issued_at", "participant_link_id")
+        .values_list("candidate_date_id", "participant_link__display_name", "status")
     )
     mapping: dict[uuid.UUID, list[tuple[str | None, str]]] = defaultdict(list)
     for candidate_date_id, display_name, status in responses:

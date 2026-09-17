@@ -1188,6 +1188,92 @@ class ScheduleResponseRespondentsServiceTests(TestCase):
             [(None, ScheduleResponseStatus.GOING), (None, ScheduleResponseStatus.MAYBE)],
         )
 
+    def test_respondents_are_ordered_by_participant_link_issuance_not_response_order(self):
+        """2026-09-18 coordinator report: reading a related field without an
+        explicit ``order_by`` leaves row order to the database's own
+        unspecified default, which can differ between reads of the same
+        data (adr/0048's own named intermittent-failure class). Two links
+        answer in the *reverse* of their own issuance order -- the
+        mapping's order must still follow issuance order (発行順), not
+        response-insertion order.
+
+        The issued_at gap between the two links is forced explicitly
+        (rather than left to two separate real-clock ``issue_participant_
+        links`` calls) so this test cannot itself flake on the exact
+        real-clock tie this file's own ``test_respondents_tie_on_issued_at_
+        is_broken_by_participant_link_id_ascending`` below deliberately
+        forces the opposite way -- two calls issued back-to-back can land
+        on the same timestamp at this database's resolution, which would
+        make the *unforced* version of this test depend on unrelated
+        (effectively random) ``id`` ordering instead of the issuance order
+        it means to prove.
+        """
+        _gathering, links = services.issue_participant_links(self.user, self.gathering.id, 2)
+        earlier_link, later_link = links
+        ParticipantLink.objects.filter(pk=later_link.pk).update(
+            issued_at=earlier_link.issued_at + timedelta(seconds=1)
+        )
+        earlier_link.refresh_from_db()
+        later_link.refresh_from_db()
+        self.assertLess(earlier_link.issued_at, later_link.issued_at)
+        # Answered in reverse-of-issuance order.
+        ScheduleResponse.objects.create(
+            participant_link=later_link,
+            candidate_date=self.first_date,
+            status=ScheduleResponseStatus.NOT_GOING,
+        )
+        ScheduleResponse.objects.create(
+            participant_link=earlier_link,
+            candidate_date=self.first_date,
+            status=ScheduleResponseStatus.GOING,
+        )
+
+        mapping = services.schedule_response_respondents(self.gathering)
+
+        self.assertEqual(
+            mapping[self.first_date.id],
+            [
+                (None, ScheduleResponseStatus.GOING),
+                (None, ScheduleResponseStatus.NOT_GOING),
+            ],
+        )
+
+    def test_respondents_tie_on_issued_at_is_broken_by_participant_link_id_ascending(self):
+        """adr/0048: a single issueParticipantLinks call with count > 1 can
+        give every link it creates one identical ``issued_at`` value at this
+        database's timestamp resolution -- forced explicitly here (the same
+        technique ``test_ties_are_broken_by_id_ascending`` above already
+        uses for ``list_participant_links``) rather than left to the
+        database's own clock resolution to reproduce on its own."""
+        _gathering, links = services.issue_participant_links(self.user, self.gathering.id, 3)
+        ParticipantLink.objects.filter(pk__in=[link.pk for link in links]).update(
+            issued_at=links[0].issued_at
+        )
+        tied_links = list(ParticipantLink.objects.filter(pk__in=[link.pk for link in links]))
+        self.assertEqual(len({link.issued_at for link in tied_links}), 1)
+        expected_order = sorted(tied_links, key=lambda link: link.id)
+        status_by_id = {
+            expected_order[0].id: ScheduleResponseStatus.GOING,
+            expected_order[1].id: ScheduleResponseStatus.MAYBE,
+            expected_order[2].id: ScheduleResponseStatus.NOT_GOING,
+        }
+        # Recorded in an order that does not match expected_order, so a test
+        # that passed only by accident (insertion order == id order) would
+        # be caught.
+        for link in links:
+            ScheduleResponse.objects.create(
+                participant_link=link,
+                candidate_date=self.first_date,
+                status=status_by_id[link.id],
+            )
+
+        mapping = services.schedule_response_respondents(self.gathering)
+
+        self.assertEqual(
+            mapping[self.first_date.id],
+            [(None, status_by_id[link.id]) for link in expected_order],
+        )
+
 
 # --- services: gathering list / in-progress count (adr/0038) ----------------
 
@@ -4426,6 +4512,70 @@ class ParticipantViewApiTests(GatheringOrganizerTestCase):
             [
                 {"displayName": None, "response": "GOING"},
                 {"displayName": "そら", "response": "NOT_GOING"},
+            ],
+        )
+
+    def test_respondents_are_ordered_by_participant_link_issuance_end_to_end(self):
+        """2026-09-18 coordinator report: respondents must not depend on the
+        database's own unspecified default row order (adr/0048's named
+        intermittent-failure class) -- services.schedule_response_respondents
+        orders by 発行順 (issued_at, then id). ``self.token`` (setUp) is
+        issued before ``other_token`` here, and answers *after* it, proving
+        the order tracks issuance, not response-submission order.
+
+        The issued_at gap is forced explicitly (the same technique
+        ``ScheduleResponseRespondentsServiceTests`` above uses) rather than
+        left to the real clock between setUp's own issuance and this test's
+        -- the two can otherwise tie at this database's timestamp
+        resolution, which would make this test depend on unrelated
+        (effectively random) ``id`` ordering instead of the issuance order
+        it means to prove end-to-end.
+        """
+        issue_response = self.post_json(
+            reverse("gathering:participant-links", kwargs={"gathering_id": self.gathering_id}),
+            {"count": 1},
+        )
+        other_token = issue_response.json()["issuedLinks"][0]["token"]
+        self_link = ParticipantLink.objects.get(token=self.token)
+        other_link = ParticipantLink.objects.get(token=other_token)
+        ParticipantLink.objects.filter(pk=other_link.pk).update(
+            issued_at=self_link.issued_at + timedelta(seconds=1)
+        )
+        other_client = Client()
+        other_client.put(
+            reverse(
+                "gathering:schedule-response",
+                kwargs={"token": other_token, "candidate_date_id": self.candidate_date_id},
+            ),
+            data=json.dumps({"status": "NOT_GOING"}),
+            content_type="application/json",
+        )
+        # self.token's own link was issued in setUp, before other_token --
+        # answering it *after* other_token proves order follows issuance,
+        # not the order these two PUTs were sent in.
+        self.participant_client.put(
+            reverse(
+                "gathering:schedule-response",
+                kwargs={"token": self.token, "candidate_date_id": self.candidate_date_id},
+            ),
+            data=json.dumps({"status": "GOING"}),
+            content_type="application/json",
+        )
+
+        response = self.participant_client.get(
+            reverse("gathering:participant-view", kwargs={"token": self.token})
+        )
+
+        question = next(
+            q
+            for q in response.json()["scheduleQuestions"]
+            if q["candidateDateId"] == self.candidate_date_id
+        )
+        self.assertEqual(
+            question["respondents"],
+            [
+                {"displayName": None, "response": "GOING"},
+                {"displayName": None, "response": "NOT_GOING"},
             ],
         )
 

@@ -36,6 +36,21 @@
         box-shadow: 0 0.25rem 1.25rem rgb(23 49 36 / 6%);
       }
 
+      /* dayList's wide shape (c2r/D1-PcDay, 2026-09-18 coordinator report):
+         a persistent left panel beside .gth-app, not a narrower single
+         column -- the same 64rem boundary
+         DAY_LIST_WIDE_LAYOUT_QUERY/isTwoColumnLayout already use elsewhere
+         in this codebase (candidate.js/gathering.js's own primary nav). */
+      @media (min-width: 64rem) {
+        .app-shell { width: min(100% - 4rem, 64rem); }
+      }
+      .gth-layout--wide-day-list {
+        display: flex;
+        align-items: flex-start;
+        gap: 1rem;
+      }
+      .gth-layout--wide-day-list .gth-app { flex: 1 1 auto; min-width: 0; }
+
       /* Header: title + 日程 n/N counter, progress bar, name control.
          min-height raised 52->56px (2026-09-08 human report, repeated:
          "余白が気になりますね、ボタンが小さいのも相まってデザインが悪く
@@ -51,6 +66,7 @@
         background: #fff;
       }
       .gth-title { font-size: 0.9375rem; font-weight: 700; }
+      .gth-hd-row-end { display: flex; align-items: center; gap: 0.5rem; }
       .gth-count { font-size: 0.75rem; font-weight: 700; color: #14614a; }
       .gth-progress { height: 4px; background: #eff2ed; display: flex; }
       .gth-progress i { display: block; height: 4px; background: #14614a; }
@@ -177,35 +193,124 @@
       }
       .gth-daynav-btn:disabled { color: #c6cfc6; border-color: #e7ebe6; cursor: not-allowed; }
 
-      /* dayList (ADR-0061 decision 3, board's 「日の一覧」) -- always
-         present while ParticipantView.decision is null (this contract does
-         not fix bottom-sheet-on-narrow vs. always-visible-on-wide
-         presentation; rendered as a horizontally scrollable strip here so
-         it stays reachable at every width without a separate open/close
-         toggle this contract defines no control for). Also carries the
-         "自分の答えの一覧"/"12件すべて答えました" completion role the
-         retired answerLater confirmation used to. */
-      .gth-day-list { display: flex; flex-direction: column; gap: 0.375rem; }
-      .gth-day-list-heading { font-size: 0.7rem; font-weight: 700; color: #4b564e; }
-      .gth-day-list-items { display: flex; gap: 0.375rem; overflow-x: auto; padding-bottom: 0.125rem; }
-      .gth-day-item {
-        flex: 0 0 auto;
+      /* dayList (ADR-0061 decision 3, redrawn 2026-09-18 per coordinator
+         report to match the approved board exactly -- P-08/ADR-0013: an
+         approved board fixes the screen's shape even where the contract's
+         own prose leaves it open): c2r/D1-PcDay (wide, persistent left
+         panel) and c2/C2-a-SpDay+SpList / c2r/D1-SpList (narrow, 「日の
+         一覧」button opens a bottom sheet), both sharing the identical
+         3-column row (「日｜○△×の数｜あなた」) below. */
+      .gth-day-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 0.85fr);
+        align-items: center;
+        gap: 0.375rem;
+        width: 100%;
         min-height: 2.75rem;
         box-sizing: border-box;
         border: 1px solid #dfe4de;
+        border-left: 3px solid transparent;
         border-radius: 0.5rem;
         background: #fff;
-        padding: 0.25rem 0.6rem;
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        justify-content: center;
+        padding: 0.375rem 0.6rem;
         font-size: 0.6875rem;
         color: #4b564e;
+        text-align: left;
       }
-      .gth-day-item--current { border-color: #14614a; border-width: 1.5px; }
-      .gth-day-item-date { font-weight: 600; }
-      .gth-day-item-response { color: #77827a; }
+      .gth-day-row--current { border-color: #14614a; background: #f2f8f4; }
+      .gth-day-row--leader { border-left-color: #8a6d00; }
+      .gth-day-leader-badge {
+        display: inline-block;
+        font-size: 0.5625rem;
+        font-weight: 700;
+        color: #8a6d00;
+        background: #fbf1d6;
+        border-radius: 999px;
+        padding: 0 0.4rem;
+        margin-right: 0.3rem;
+      }
+      .gth-day-col-date { font-weight: 600; }
+      .gth-day-col-counts { color: #77827a; }
+      .gth-day-col-you { color: #14614a; font-weight: 600; }
+
+      /* Column labels + list body shared by both shapes below. */
+      .gth-day-panel-header {
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 0.85fr);
+        font-size: 0.625rem;
+        color: #77827a;
+        padding: 0 0.6rem;
+      }
+      .gth-day-list { display: flex; flex-direction: column; gap: 0.375rem; }
+
+      /* Wide shape (c2r/D1-PcDay): a persistent sidebar, no open/close. */
+      .gth-day-panel {
+        flex: 0 0 17rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        background: #fff;
+        border: 1px solid #dfe4de;
+        border-radius: 0.75rem;
+        padding: 0.75rem;
+        position: sticky;
+        top: 1rem;
+      }
+      .gth-day-panel-heading { font-size: 0.75rem; font-weight: 700; color: #4b564e; }
+
+      /* Narrow shape (c2/C2-a-SpDay top-right button + c2/C2-a-SpList・
+         c2r/D1-SpList bottom sheet). gathering-participant-day-list stays
+         attached inside .gth-day-sheet at all times (dayList.presenceRule)
+         -- only the wrap's own open modifier class governs whether the
+         sheet is actually visible/interactable. */
+      .gth-day-sheet-open-btn {
+        min-height: 2.75rem;
+        padding: 0 0.75rem;
+        border: 1px solid #c6cfc6;
+        border-radius: 0.5rem;
+        background: #fff;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #14614a;
+      }
+      .gth-day-sheet-wrap { display: none; }
+      .gth-day-sheet-wrap--open { display: block; }
+      .gth-day-sheet-scrim {
+        position: fixed;
+        inset: 0;
+        background: rgb(23 32 27 / 45%);
+        z-index: 39;
+      }
+      .gth-day-sheet {
+        position: fixed;
+        inset: auto 0 0 0;
+        max-height: 70vh;
+        box-sizing: border-box;
+        background: #fff;
+        border-radius: 0.875rem 0.875rem 0 0;
+        box-shadow: 0 -0.25rem 1.5rem rgb(23 32 27 / 18%);
+        padding: 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        overflow-y: auto;
+        z-index: 40;
+      }
+      .gth-day-sheet-head { display: flex; align-items: center; justify-content: space-between; }
+      .gth-day-sheet-title { font-size: 0.8125rem; font-weight: 700; }
+      .gth-day-sheet-close {
+        min-height: 2.75rem;
+        min-width: 2.75rem;
+        border: 0;
+        background: transparent;
+        font-size: 1.25rem;
+        color: #4b564e;
+        cursor: pointer;
+      }
+
+      /* At wide widths the narrow shape is never built at all (isWideDayList
+         Layout picks one shape per render, participant.js's own module
+         docstring) -- no media-query override is needed here to hide it. */
 
       [data-testid="gathering-participant-link-error"] {
         margin: 0.75rem 1rem;
