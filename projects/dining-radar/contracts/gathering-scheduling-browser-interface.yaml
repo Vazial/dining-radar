@@ -785,11 +785,25 @@
 # - `allowedPurposes`へ2件を追加した: gathering-decision-answers-open,
 #   gathering-decision-links-open（allowedPurposesNoteAdr0062Addendum参照）。
 #
+# 2026-09-19 追補23 (architect、ADR-0060決定7の追補。orchestratorが2026-09-19に、幹事の
+#   回答表の「有力」バッジ（responseTable.leaderSummary）が、日が決まった後
+#   （SELECTING_SHOP・FINALIZED）にも出続け、日程を決めるための補助であるはずのこの行を
+#   見て判断することが無い局面で表示され続けると確認し、presenceRuleをSCHEDULING局面だけへ
+#   狭めると決めた——新しい業務判断ではなく、決定7の運用範囲を明確にする技術的判断。
+#   contractVersionを0.24.1から0.24.2へ上げる):
+# - `responseTable.leaderSummary`へ`presenceRule`を新設した（これまでresponseTable自身の
+#   presenceRuleを継承するのみで、この要素自身のpresenceRuleは無かった）: phaseがSCHEDULING
+#   の間だけ出現し、SELECTING_SHOP・FINALIZEDでは、いずれかの候補日が
+#   data-current-leader="true"を持っていても出現しない。responseTable自身
+#   （table/header/row/cell）のpresenceRuleは変えない——表そのものは3局面ともDOM上に存在し
+#   続ける（変わらない）。candidateDateList.candidateDate・scheduleQuestion.tallyそれぞれの
+#   data-current-leaderはこの追補の対象外で無変更。
+#
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.24.1'
+contractVersion: '0.24.2'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -2879,7 +2893,10 @@ browserControlSurface:
       presenceRule: >-
         Present whenever organizerDashboard.participantLinkList is present
         (i.e. unconditionally, all three phases, mirroring that list's own
-        presence).
+        presence) -- this governs the table/header/row/cell structure
+        below, which stays unconditional. **Changed 2026-09-19 (追補23)**:
+        leaderSummary below no longer shares this unconditional rule -- see
+        its own narrower presenceRule there.
       table:
         testId: gathering-response-table
         header:
@@ -2953,6 +2970,21 @@ browserControlSurface:
       leaderSummary:
         testId: gathering-response-table-leader-summary
         purpose: gathering-response-table-leader-summary
+        presenceRule: >-
+          Added 2026-09-19 (追補23, ADR-0060 decision 7の追補、human decision:
+          最有力の候補日を強調するのは日程を決めるための補助であり、日が
+          決まった後はこの行を見て判断することが無い). Present only while
+          phase is SCHEDULING; absent once phase is SELECTING_SHOP or
+          FINALIZED, regardless of whether any candidate date still carries
+          data-current-leader="true" on its own gathering-candidate-date
+          element -- narrower than responseTable's own presenceRule above,
+          which keeps the table/header/row/cell structure present across
+          all three phases unchanged. Does not change
+          candidateDateList.candidateDate's own data-current-leader
+          (candidateDateList above) or participantAnswer.scheduleQuestion.
+          tally's own data-current-leader (below) -- both remain exactly
+          as ADR-0060 decisions 7/8 fixed them, unaffected by this
+          decision.
         description: >-
           Added 2026-09-16 (ADR-0060 decision 7, human decision: 表の上に
           「有力 ◯/◯（◯）」を出す). This element declares no activatable
@@ -2974,7 +3006,12 @@ browserControlSurface:
           gathering-unanswered-summary's data-active-issued-links for the
           total). This contract does not fix this badge's exact wording
           (ADR-0060 decision 9, the "N件" convention) or visual position,
-          only which candidate date(s) it names.
+          only which candidate date(s) it names. (追補23) This element's
+          cardinality/requirement above are evaluated only while
+          presenceRule above holds (phase is SCHEDULING) -- once phase is
+          SELECTING_SHOP or FINALIZED this element has zero instances
+          regardless of any candidate date's own data-current-leader
+          value.
       scope: >-
         This table carries schedule responses only (ADR-0056 decision 1's
         own scope limit) -- it does not carry shop votes. Whether a future
