@@ -19,6 +19,7 @@ from playwright.sync_api import Locator, Page, expect
 
 from tests.acceptance.dsl.authentication_browser import AuthenticationBrowserDsl
 from tests.acceptance.dsl.browser_mechanics import HttpBrowser, assert_no_content
+from tests.acceptance.dsl.business_days import resolve_business_day_iso
 from tests.acceptance.dsl.js_browser_mechanics import (
     CapturedApiResponse,
     assert_absent,
@@ -651,20 +652,53 @@ class CandidateSearchBrowserDsl:
         mirroring gathering_scheduling_browser.py's identical helper for the
         sibling TDR-GTH-44/45 scenarios). Omitted, this keeps the prior
         arbitrary "+3 days" default TDR-CS-17/18 do not depend on.
+
+        **2026-09-18 tester task**: neither this method's own "+3 days"
+        default nor next_weekday_iso below know whether the date they picked
+        is a weekend or Japan public holiday -- gathering-scheduling-api.yaml
+        rejects either with 400 CANDIDATE_DATE_NOT_A_BUSINESS_DAY (ADR-0060).
+        Rather than reimplementing that same holiday calendar locally here
+        (business_days.py's own docstring explains why not), this create call
+        is retried against the actual product response: on a rejection for
+        exactly that reason, it advances a week (holding the caller's chosen
+        weekday fixed, matching every caller's own weekday-population-count
+        dependency, gathering_scheduling_browser.py's identical
+        next_weekday_iso/step_days=7 precedent) and creates again -- the
+        eventual accepted create call *is* this Given's real state, not a
+        throwaway probe.
         """
-        start_at = (
-            datetime.fromisoformat(candidate_date_iso)
+        seed_iso = (
+            candidate_date_iso
             if candidate_date_iso is not None
-            else (datetime.now(UTC) + timedelta(days=3)).replace(
-                hour=12, minute=0, second=0, microsecond=0
+            else (datetime.now(UTC) + timedelta(days=3))
+            .replace(hour=12, minute=0, second=0, microsecond=0)
+            .isoformat()
+        )
+        accepted_response: CapturedApiResponse | None = None
+
+        def _attempt_create(iso: str) -> bool:
+            nonlocal accepted_response
+            response = self._gathering_api(
+                "POST",
+                "/gatherings",
+                {"title": title, "candidateDates": [{"startAt": iso}]},
+                csrf=True,
             )
-        )
-        create_response = self._gathering_api(
-            "POST",
-            "/gatherings",
-            {"title": title, "candidateDates": [{"startAt": start_at.isoformat()}]},
-            csrf=True,
-        )
+            if response.status == 201:
+                accepted_response = response
+                return True
+            if response.status == 400 and response.payload.get("code") == (
+                "CANDIDATE_DATE_NOT_A_BUSINESS_DAY"
+            ):
+                return False
+            self.assertions.fail(
+                f"createGathering for {iso} got an unexpected {response.status} "
+                f"response: {response.body}"
+            )
+            raise AssertionError("unreachable")  # self.assertions.fail always raises
+
+        resolve_business_day_iso(seed_iso, _attempt_create, step_days=7)
+        create_response = require(accepted_response, "createGathering never returned 201")
         self.assertions.assertEqual(create_response.status, 201, create_response.body)
         gathering = create_response.payload
         candidate_date_id = gathering["candidateDates"][0]["id"]

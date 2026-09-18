@@ -39,6 +39,7 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from tests.acceptance.dsl.authentication_browser import AuthenticationBrowserDsl
 from tests.acceptance.dsl.browser_mechanics import HttpBrowser, assert_no_content
+from tests.acceptance.dsl.business_days import resolve_business_day_iso
 from tests.acceptance.dsl.js_browser_mechanics import (
     CapturedApiResponse,
     assert_absent,
@@ -545,24 +546,22 @@ OPEN_SHOP_COUNT_BY_WEEKDAY = {0: 5, 1: 5, 2: 4, 3: 6, 4: 6, 5: 6, 6: 5}
 # ADR-0060 (decision 1/2/4, TDR-GTH-57/58): CandidateDateInput.startAt must
 # now be a weekday that is not a Japan public holiday, enforced by both
 # createGathering and addCandidateDates. This suite's own Given-state
-# construction below (next_weekday_iso/days_from_now_iso, used by dozens of
-# TDR-GTH-01..56 scenarios unrelated to this ADR) must not accidentally pick
-# a real weekend/holiday date, or those scenarios would start failing purely
-# from whichever real calendar date the suite happens to run on -- concretely
-# checked against 2026-09-17 (this round's own drafting date): 2026-09-21 is
-# 敬老の日 (a Happy-Monday holiday) and 2026-09-23 is 秋分の日 (the autumn
-# equinox), so next_weekday_iso(0)/next_weekday_iso(2) called that day would
-# already have landed on a real holiday without this fix. Real calendar time
-# only, the same no-server-clock-faking technique next_weekday_iso already
-# used (ADR-0060 未決事項1's own testing note: 土日・祝日は実時刻から計算
-# する). This is a defensive best-effort approximation of the same real
-# Japan public holiday calendar the product's own bundled data tracks -- it
-# deliberately omits the substitute-holiday (振替休日) and national-holiday-
-# sandwich (国民の休日) rules, both rare (at most a few days/year), because
-# this helper only needs to avoid *accidental* collisions in unrelated
-# scenarios, not to verify the product's own holiday data (see
-# next_fixed_public_holiday_on_weekday_iso below for the one place this suite
-# *does* need an exact, independently-verifiable holiday date, TDR-GTH-58).
+# construction (GatheringSchedulingBrowserDsl.next_weekday_iso/
+# days_from_now_iso/two_business_days_in_the_month_after_iso below, used by
+# dozens of TDR-GTH-01..56 scenarios unrelated to this ADR) must not
+# accidentally pick a real weekend/holiday date, or those scenarios would
+# start failing purely from whichever real calendar date the suite happens to
+# run on. **2026-09-18 tester task (orchestrator instruction)**: rather than
+# reimplementing an approximation of Japan's public-holiday calendar inside
+# test code to avoid that collision (this file's own prior approach, which
+# risked silently drifting from whatever the product's bundled holiday data
+# actually enforces), these three methods now resolve a candidate date by
+# asking the product itself, through business_days.resolve_business_day_iso
+# (createGathering's own observable 400 CANDIDATE_DATE_NOT_A_BUSINESS_DAY
+# response) -- see that module's own docstring. They are instance methods
+# (not free functions) because resolving requires a real, signed-in-organizer
+# round trip; every call site already has ``self.dsl``/``self`` available at
+# the point it previously called the free function.
 _FIXED_HOLIDAYS_MD = [
     (1, 1),  # 元日
     (2, 11),  # 建国記念の日
@@ -575,138 +574,20 @@ _FIXED_HOLIDAYS_MD = [
     (11, 3),  # 文化の日
     (11, 23),  # 勤労感謝の日
 ]
-_WEEKDAY_HOLIDAY_MAX_SKIPS = 6  # bounded: a holiday-table defect fails loudly, not forever.
-
-
-def _nth_weekday_of_month(year: int, month: int, weekday: int, n: int) -> date:
-    first = date(year, month, 1)
-    offset = (weekday - first.weekday()) % 7
-    return first + timedelta(days=offset + 7 * (n - 1))
-
-
-def _shunbun_day(year: int) -> int:
-    """春分の日 (spring equinox), the standard 1980-2099 approximation formula."""
-    return int(20.8431 + 0.242194 * (year - 1980)) - int((year - 1980) / 4)
-
-
-def _shuubun_day(year: int) -> int:
-    """秋分の日 (autumn equinox), the standard 1980-2099 approximation formula."""
-    return int(23.2488 + 0.242194 * (year - 1980)) - int((year - 1980) / 4)
-
-
-def _japan_public_holidays_for_year(year: int) -> set[date]:
-    holidays = {date(year, month, day) for (month, day) in _FIXED_HOLIDAYS_MD}
-    holidays.add(_nth_weekday_of_month(year, 1, 0, 2))  # 成人の日 (Happy Monday)
-    holidays.add(_nth_weekday_of_month(year, 7, 0, 3))  # 海の日
-    holidays.add(_nth_weekday_of_month(year, 9, 0, 3))  # 敬老の日
-    holidays.add(_nth_weekday_of_month(year, 10, 0, 2))  # スポーツの日
-    holidays.add(date(year, 3, _shunbun_day(year)))  # 春分の日
-    holidays.add(date(year, 9, _shuubun_day(year)))  # 秋分の日
-    return holidays
-
-
-def _is_japan_public_holiday(day: date) -> bool:
-    return day in _japan_public_holidays_for_year(day.year)
-
-
-def next_weekday_iso(weekday: int, hour: int = 12) -> str:
-    """The next future occurrence (never "today") of ``weekday`` as an RFC3339 string,
-    for CandidateDateInput.startAt. For a weekday value 0-4 (Monday-Friday), also
-    skips forward a full week at a time past any occurrence that is a Japan public
-    holiday (ADR-0060) -- adding 7 days preserves the same day-of-week, so callers
-    keying OPEN_SHOP_COUNT_BY_WEEKDAY by this weekday are unaffected. Weekend values
-    (5=Saturday, 6=Sunday) are returned unadjusted -- TDR-GTH-57 deliberately needs
-    an actual weekend date, holiday status is irrelevant to that rejection.
-    """
-    now = datetime.now(UTC)
-    days_ahead = (weekday - now.weekday()) % 7 or 7
-    target = (now + timedelta(days=days_ahead)).replace(
-        hour=hour, minute=0, second=0, microsecond=0
-    )
-    if weekday < 5:
-        for _ in range(_WEEKDAY_HOLIDAY_MAX_SKIPS):
-            if not _is_japan_public_holiday(target.date()):
-                break
-            target = target + timedelta(days=7)
-        else:
-            raise AssertionError(
-                f"no holiday-free occurrence of weekday {weekday} found within "
-                f"{_WEEKDAY_HOLIDAY_MAX_SKIPS} weeks"
-            )
-    return target.isoformat()
-
-
-def days_from_now_iso(days: int, hour: int = 12) -> str:
-    """``days`` calendar days from now for ``days <= 0`` (TDR-GTH-47 needs an exact
-    "today", unadjusted, to test CANDIDATE_DATE_NOT_IN_FUTURE regardless of which
-    real weekday "today" happens to be). For ``days >= 1``, counts only business
-    days (weekdays that are not a Japan public holiday, ADR-0060) starting the day
-    after now, so the returned date is always a valid CandidateDateInput.startAt --
-    the same 2026-09-21/2026-09-23 concrete collision next_weekday_iso's own
-    docstring above describes would otherwise hit most of this suite's existing
-    days_from_now_iso(3)/(10)-shaped Given state. Two different ``days`` values
-    still always produce differently-ordered dates (larger ``days`` is always
-    later), which is all this suite's own before/after-style assertions need --
-    exact calendar-day counts are not otherwise relied upon.
-    """
-    if days <= 0:
-        target = (datetime.now(UTC) + timedelta(days=days)).replace(
-            hour=hour, minute=0, second=0, microsecond=0
-        )
-        return target.isoformat()
-    cursor = datetime.now(UTC)
-    counted = 0
-    while counted < days:
-        cursor = cursor + timedelta(days=1)
-        if cursor.weekday() < 5 and not _is_japan_public_holiday(cursor.date()):
-            counted += 1
-    return cursor.replace(hour=hour, minute=0, second=0, microsecond=0).isoformat()
-
-
-def two_business_days_in_the_month_after_iso(reference_iso: str, hour: int = 12) -> tuple[str, str]:
-    """Two business days (weekday, not a Japan public holiday, ADR-0060)
-    sharing one calendar month strictly after ``reference_iso``'s own month --
-    used by this suite's own review-dialog month-paging Must test
-    (test_gth_create_review_dialog_pages_by_month_and_lets_the_organizer_
-    remove_a_day) to guarantee two selected days land on the *same* dialog
-    page while a third, earlier-month day lands on a different one --
-    deterministic regardless of how many business days happen to separate
-    two arbitrary day-count offsets, which could occasionally straddle a
-    month boundary by coincidence.
-    """
-    reference = datetime.fromisoformat(reference_iso)
-    if reference.month == 12:
-        first_of_target_month = reference.replace(
-            year=reference.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0
-        )
-    else:
-        first_of_target_month = reference.replace(
-            month=reference.month + 1, day=1, hour=0, minute=0, second=0, microsecond=0
-        )
-    found: list[str] = []
-    cursor = first_of_target_month
-    while len(found) < 2:
-        if cursor.month != first_of_target_month.month:
-            raise AssertionError(
-                f"could not find 2 business days within {first_of_target_month:%Y-%m}"
-            )
-        if cursor.weekday() < 5 and not _is_japan_public_holiday(cursor.date()):
-            found.append(cursor.replace(hour=hour, minute=0, second=0, microsecond=0).isoformat())
-        cursor = cursor + timedelta(days=1)
-    return found[0], found[1]
 
 
 def next_fixed_public_holiday_on_weekday_iso(hour: int = 12) -> str:
     """次に来る、平日に当たる固定祝日 (TDR-GTH-58's Given: 「祝日にあたる平日の
     日付」). Restricted to this file's own _FIXED_HOLIDAYS_MD table (deliberately
-    excludes the movable Happy-Monday/equinox holidays _is_japan_public_holiday
-    above also tracks) -- this scenario only needs one concrete, independently-
-    verifiable holiday date, and a fixed calendar date (元日など) is trivially
-    correct for any year without relying on the same approximation formula the
-    defensive collision-avoidance above uses. Real calendar time only, never a
-    faked server clock -- if a fixed holiday itself falls on a weekend, it is
-    skipped (TDR-GTH-57 already covers weekends; this scenario is specifically
-    about a holiday that is *also* a weekday).
+    excludes the movable Happy-Monday/equinox holidays) -- this scenario only
+    needs one concrete, independently-verifiable holiday date, and a fixed
+    calendar date (元日など) is trivially correct for any year. Unlike
+    next_weekday_iso/days_from_now_iso below, this one *deliberately* returns
+    an actual holiday, unresolved -- it is TDR-GTH-58's own rejection subject,
+    not Given-state this suite needs to avoid colliding with. Real calendar
+    time only, never a faked server clock -- if a fixed holiday itself falls
+    on a weekend, it is skipped (TDR-GTH-57 already covers weekends; this
+    scenario is specifically about a holiday that is *also* a weekday).
     """
     today = datetime.now(UTC).date()
     year = today.year
@@ -851,6 +732,133 @@ class GatheringSchedulingBrowserDsl:
     def candidate_date_id_at(self, index: int) -> str:
         iso = self._created_candidate_date_isos[index]
         return self._candidate_date_id_by_start_at[iso]
+
+    # Business-day candidate-date resolution (ADR-0060, business_days module's
+    # own docstring) -- every TDR-GTH Given-state builder needing "some future
+    # weekday" or "N days from now" candidate date goes through these three
+    # methods, never a locally reimplemented holiday calendar. -------------
+
+    def _probe_candidate_date_is_a_business_day(self, iso: str) -> bool:
+        """Asks gathering-scheduling-api.yaml itself whether ``iso`` would be
+        accepted as a CandidateDateInput.startAt, by actually creating a
+        throwaway single-candidate-date gathering and immediately, permanently
+        deleting it again (deleteGathering, adr/0050 decision 4) -- leaving no
+        state behind for the real scenario under test to trip over. Any
+        response other than 201 (accepted) or the documented 400
+        CANDIDATE_DATE_NOT_A_BUSINESS_DAY (rejected) is a genuine, unrelated
+        problem and fails immediately rather than being mistaken for "try the
+        next day".
+        """
+        probe_title = f"__business-day-probe-{secrets.token_hex(8)}"
+        response = self._api(
+            "POST",
+            "/gatherings",
+            {"title": probe_title, "candidateDates": [{"startAt": iso}]},
+            csrf=True,
+        )
+        if response.status == 201:
+            cleanup = self._api(
+                "DELETE", f"/gatherings/{response.payload['id']}", None, csrf=True
+            )
+            self.assertions.assertEqual(
+                cleanup.status, 204, f"business-day probe cleanup: {cleanup.body}"
+            )
+            return True
+        if response.status == 400 and response.payload.get("code") == (
+            "CANDIDATE_DATE_NOT_A_BUSINESS_DAY"
+        ):
+            return False
+        self.assertions.fail(
+            f"business-day probe for {iso} got an unexpected "
+            f"{response.status} response: {response.body}"
+        )
+        raise AssertionError("unreachable")  # self.assertions.fail always raises
+
+    def next_weekday_iso(self, weekday: int, hour: int = 12) -> str:
+        """The next future occurrence (never "today") of ``weekday`` (Python's
+        date.weekday(): Monday=0 ... Sunday=6) as an RFC3339 string, resolved
+        to one gathering-scheduling-api.yaml will actually accept. For a
+        weekday value 0-4 (Monday-Friday), advances a full week at a time past
+        any occurrence the product itself rejects (step_days=7 preserves the
+        same day-of-week, so callers keying OPEN_SHOP_COUNT_BY_WEEKDAY by this
+        weekday are unaffected). Weekend values (5=Saturday, 6=Sunday) are
+        returned unresolved -- TDR-GTH-57 deliberately needs an actual weekend
+        date; it is that scenario's own rejection subject, not Given-state
+        this suite needs to avoid colliding with.
+        """
+        now = datetime.now(UTC)
+        days_ahead = (weekday - now.weekday()) % 7 or 7
+        seed = (now + timedelta(days=days_ahead)).replace(
+            hour=hour, minute=0, second=0, microsecond=0
+        )
+        if weekday >= 5:
+            return seed.isoformat()
+        return resolve_business_day_iso(
+            seed.isoformat(), self._probe_candidate_date_is_a_business_day, step_days=7
+        )
+
+    def days_from_now_iso(self, days: int, hour: int = 12) -> str:
+        """``days`` calendar days from now for ``days <= 0`` (TDR-GTH-47 needs
+        an exact "today", unresolved, to test CANDIDATE_DATE_NOT_IN_FUTURE
+        regardless of which real weekday "today" happens to be -- it is that
+        scenario's own rejection subject). For ``days >= 1``, resolved to one
+        gathering-scheduling-api.yaml will actually accept, advancing one
+        calendar day at a time past any the product itself rejects -- a
+        1-day advance only ever moves a date later, so it cannot invert the
+        relative order between two different ``days`` values this suite's own
+        before/after-style assertions rely on (a real inversion would require
+        every one of ``business_days.MAX_BUSINESS_DAY_ADVANCES`` consecutive
+        days to be rejected, which fails loudly on its own).
+        """
+        seed = (datetime.now(UTC) + timedelta(days=days)).replace(
+            hour=hour, minute=0, second=0, microsecond=0
+        )
+        if days <= 0:
+            return seed.isoformat()
+        return resolve_business_day_iso(
+            seed.isoformat(), self._probe_candidate_date_is_a_business_day, step_days=1
+        )
+
+    def two_business_days_in_the_month_after_iso(
+        self, reference_iso: str, hour: int = 12
+    ) -> tuple[str, str]:
+        """Two business days sharing one calendar month strictly after
+        ``reference_iso``'s own month -- used by this suite's own
+        review-dialog month-paging Must test
+        (test_gth_create_review_dialog_pages_by_month_and_lets_the_organizer_
+        remove_a_day) to guarantee two selected days land on the *same*
+        dialog page while a third, earlier-month day lands on a different
+        one. Walks the target month day by day, asking
+        _probe_candidate_date_is_a_business_day the same way the two methods
+        above do (never a locally reimplemented holiday calendar) until 2
+        accepted days are found; bounded to that one month so a defect that
+        rejected an entire month fails loudly instead of spilling into the
+        next.
+        """
+        reference = datetime.fromisoformat(reference_iso)
+        if reference.month == 12:
+            first_of_target_month = reference.replace(
+                year=reference.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0
+            )
+        else:
+            first_of_target_month = reference.replace(
+                month=reference.month + 1, day=1, hour=0, minute=0, second=0, microsecond=0
+            )
+        found: list[str] = []
+        cursor = first_of_target_month
+        while len(found) < 2:
+            if cursor.month != first_of_target_month.month:
+                raise AssertionError(
+                    f"could not find 2 accepted business days within "
+                    f"{first_of_target_month:%Y-%m}"
+                )
+            candidate_iso = cursor.replace(
+                hour=hour, minute=0, second=0, microsecond=0
+            ).isoformat()
+            if self._probe_candidate_date_is_a_business_day(candidate_iso):
+                found.append(candidate_iso)
+            cursor = cursor + timedelta(days=1)
+        return found[0], found[1]
 
     # createGathering ---------------------------------------------------
 
@@ -2266,8 +2274,8 @@ class GatheringSchedulingBrowserDsl:
         never promised). Picks the lexicographically smallest candidate for
         determinism across runs.
         """
-        open_ids = self._probe_open_shop_ids_on(next_weekday_iso(open_weekday))
-        closed_ids = self._probe_open_shop_ids_on(next_weekday_iso(closed_weekday))
+        open_ids = self._probe_open_shop_ids_on(self.next_weekday_iso(open_weekday))
+        closed_ids = self._probe_open_shop_ids_on(self.next_weekday_iso(closed_weekday))
         candidates = open_ids - closed_ids
         self.assertions.assertGreaterEqual(
             len(candidates),
