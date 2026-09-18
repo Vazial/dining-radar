@@ -63,7 +63,7 @@ from __future__ import annotations
 
 import os
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
 from django.urls import reverse
@@ -78,6 +78,7 @@ from tests.acceptance.dsl.js_browser_mechanics import (
     is_candidate_proposal_response,
     wait_for_at_least_one,
 )
+from tests.support.business_days import next_business_weekday_iso, nth_business_day
 
 ORGANIZER_ACCOUNT_REF = "ui-invariants-organizer"
 ORGANIZER_IDENTIFIER = "synthetic-ui-invariants-organizer"
@@ -1097,21 +1098,24 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
     def _next_monday_iso(self) -> str:
         """Date-stable weekday pin for _create_selecting_shop_gathering_via_
         api below -- mirrors tests/acceptance/dsl/candidate_search_browser.
-        py's own next_weekday_iso(0) exactly (Monday, OPEN_SHOP_COUNT_BY_
+        py's own next_weekday_iso(0) intent (Monday, OPEN_SHOP_COUNT_BY_
         WEEKDAY[0] == 5 under GATHERING_OPEN_SHOP_WEEKDAY_MATCH, already
-        relied on at L4 for the identical determinism reason), reproduced
-        here rather than imported since this file does not otherwise import
-        assertion-adjacent helpers from that sibling DSL module (only
-        CandidateSearchBrowserDsl's own reviewed Given-seam methods, per
-        this file's own module docstring).
+        relied on at L4 for the identical determinism reason).
+
+        **Fixed (ADR-0060 decision 4, 2026-09-18)**: the former body picked
+        the next Monday by calendar weekday alone, with no check against
+        ``CANDIDATE_DATE_NOT_A_BUSINESS_DAY`` (holidays.is_business_day) --
+        a "happy Monday" national holiday (成人の日/海の日/敬老の日/スポーツ
+        の日) makes that Monday not a business day, and this suite's own
+        gathering-create call would then be rejected with 400 depending on
+        what day it happens to run (e.g. 2026-09-21, 敬老の日). Delegates to
+        ``tests.support.business_days.next_business_weekday_iso`` (this
+        project's one shared "N-th business day"/"next business weekday"
+        fixture-date builder, also used by tests/test_candidate_search.py
+        and tests/test_gathering.py) instead of re-deriving the same
+        business-day check locally a third time.
         """
-        now = datetime.now(UTC)
-        days_ahead = (0 - now.weekday()) % 7 or 7
-        return (
-            (now + timedelta(days=days_ahead))
-            .replace(hour=12, minute=0, second=0, microsecond=0)
-            .isoformat()
-        )
+        return next_business_weekday_iso(0)
 
     def _create_selecting_shop_gathering_via_api(
         self, title: str, candidate_date_iso: str | None = None
@@ -1146,14 +1150,24 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         failed once the date rolled to 2026-09-17). ``candidate_date_iso``
         lets a caller pin a date-stable weekday instead (mirrors
         tests/acceptance/dsl/candidate_search_browser.py's own
-        next_weekday_iso-based callers); the "+3 days" default is kept only
-        for a caller that does not care.
+        next_weekday_iso-based callers); a business-day-only default is kept
+        only for a caller that does not care.
+
+        **Fixed (ADR-0060 decision 4, 2026-09-18)**: the former "+3 days"
+        default (no weekday pinned) had the same
+        ``CANDIDATE_DATE_NOT_A_BUSINESS_DAY`` exposure ``_next_monday_iso``
+        above did -- unexercised by this file's own two current callers
+        (both pass ``candidate_date_iso``), but still a candidate-date
+        construction site that would fail depending on what day this suite
+        runs, so it is routed through the same shared
+        ``nth_business_day`` this module's other business-day fixture
+        builders use rather than left as a live latent flake.
         """
         token = csrf_token(self.page)
         start_at = (
             datetime.fromisoformat(candidate_date_iso)
             if candidate_date_iso is not None
-            else (datetime.now(UTC) + timedelta(days=3))
+            else datetime.combine(nth_business_day(3), datetime.min.time())
         ).strftime("%Y-%m-%dT12:00:00Z")
         create_response = self.context.request.post(
             f"{self.dsl.base_url}/gatherings",
