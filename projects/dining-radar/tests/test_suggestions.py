@@ -1,4 +1,6 @@
+import os
 import random
+from unittest import mock
 from unittest.mock import MagicMock
 
 from django.core.cache import cache
@@ -12,7 +14,10 @@ from dining_radar.recommendation.pipeline import (
 )
 from dining_radar.suggestions import acceptance_state
 from dining_radar.suggestions.errors import CandidateSourceUnavailableError
-from dining_radar.suggestions.hotpepper_source import fetch_real_candidates
+from dining_radar.suggestions.hotpepper_source import (
+    configured_search_origin,
+    fetch_real_candidates,
+)
 from dining_radar.suggestions.rate_limit import ProposalThrottle
 from dining_radar.suggestions.service import propose_candidates
 
@@ -156,6 +161,29 @@ class HotpepperSourceTests(SimpleTestCase):
     def test_missing_configuration_raises_candidate_source_unavailable(self):
         with self.assertRaises(CandidateSourceUnavailableError):
             fetch_real_candidates()
+
+    def test_configured_search_origin_is_none_when_configuration_is_missing(self):
+        self.assertIsNone(configured_search_origin())
+
+    def test_configured_search_origin_reads_the_configured_coordinates_without_a_provider_request(
+        self,
+    ):
+        """A caller that only needs the configured origin (never a shop
+        search) must not pay for a real Hot Pepper request just to read it
+        -- ``fetch_shops`` must never be called."""
+        env = {
+            "HOTPEPPER_API_KEY": "synthetic-key",
+            "HOTPEPPER_SEARCH_LATITUDE": "35.6812",
+            "HOTPEPPER_SEARCH_LONGITUDE": "139.7671",
+        }
+        with (
+            mock.patch.dict(os.environ, env),
+            mock.patch("dining_radar.suggestions.hotpepper_source.fetch_shops") as fetch_shops_mock,
+        ):
+            origin = configured_search_origin()
+
+        fetch_shops_mock.assert_not_called()
+        self.assertEqual(origin, Origin(latitude=35.6812, longitude=139.7671))
 
 
 class _FakeRequest:

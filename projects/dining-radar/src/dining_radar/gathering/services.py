@@ -31,7 +31,10 @@ from dining_radar.recommendation.pipeline import (
 )
 from dining_radar.suggestions import acceptance_state
 from dining_radar.suggestions.errors import CandidateSourceUnavailableError
-from dining_radar.suggestions.hotpepper_source import fetch_real_candidates
+from dining_radar.suggestions.hotpepper_source import (
+    configured_search_origin,
+    fetch_real_candidates,
+)
 
 from . import holidays, tokens
 from .models import (
@@ -1122,16 +1125,18 @@ def organizer_search_origin(
     ``finalizedSummary.decisionBanner.map``'s origin marker -- drawn only on
     this page's own map, never sent to an external routing service.
     Unconditional on this gathering's phase. ``None`` if it does not
-    resolve for this organizer, or the provider population is unavailable.
+    resolve for this organizer, or the origin itself is unconfigured.
     """
     try:
         get_gathering(organizer, gathering_id)
     except GatheringNotFoundError:
         return None
-    source = resolve_population_source()
-    if source is None:
+    if acceptance_state.active_mode() is not None:
+        origin = acceptance_state.active_search_origin()
+    else:
+        origin = configured_search_origin()
+    if origin is None:
         return None
-    _candidates, origin = source
     return {"latitude": origin.latitude, "longitude": origin.longitude}
 
 

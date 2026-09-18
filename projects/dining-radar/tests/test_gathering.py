@@ -39,7 +39,6 @@ from dining_radar.gathering.models import (
 )
 from dining_radar.recommendation.pipeline import NormalizedCandidate, Origin
 from dining_radar.suggestions import acceptance_state
-from dining_radar.suggestions.errors import CandidateSourceUnavailableError
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 GATHERING_JS = (
@@ -1904,14 +1903,38 @@ class OrganizerSearchOriginServiceTests(GatheringSelectingShopServiceTestCase):
     def test_none_for_an_unresolvable_gathering_id(self):
         self.assertIsNone(services.organizer_search_origin(self.user, uuid.uuid4()))
 
-    def test_none_when_the_provider_population_is_unavailable(self):
+    def test_none_when_the_search_origin_is_unconfigured(self):
+        """Outside the acceptance profile, with no ``HOTPEPPER_SEARCH_
+        LATITUDE``/``_LONGITUDE`` configured (this test's own environment,
+        matching ``HotpepperSourceTests``'s identical precedent in
+        ``test_suggestions.py``)."""
         acceptance_state.reset_mode()
 
-        with mock.patch(
-            "dining_radar.gathering.services.fetch_real_candidates",
-            side_effect=CandidateSourceUnavailableError("unavailable"),
+        self.assertIsNone(services.organizer_search_origin(self.user, self.gathering.id))
+
+    def test_no_provider_fetch_when_reading_the_origin_outside_acceptance_mode(self):
+        """Real-machine-class regression guard (the same latency defect PR
+        #196 fixed for ``serialize_participant_view``): this value is a
+        configured coordinate, not a search result -- reading it must never
+        trigger a real Hot Pepper search."""
+        acceptance_state.reset_mode()
+        env = {
+            "HOTPEPPER_API_KEY": "synthetic-key",
+            "HOTPEPPER_SEARCH_LATITUDE": "35.6812",
+            "HOTPEPPER_SEARCH_LONGITUDE": "139.7671",
+        }
+        with (
+            mock.patch.dict(os.environ, env),
+            mock.patch(
+                "dining_radar.gathering.services.fetch_real_candidates"
+            ) as fetch_real_candidates_mock,
+            mock.patch("dining_radar.suggestions.hotpepper_source.fetch_shops") as fetch_shops_mock,
         ):
-            self.assertIsNone(services.organizer_search_origin(self.user, self.gathering.id))
+            result = services.organizer_search_origin(self.user, self.gathering.id)
+
+        fetch_real_candidates_mock.assert_not_called()
+        fetch_shops_mock.assert_not_called()
+        self.assertEqual(result, {"latitude": 35.6812, "longitude": 139.7671})
 
 
 class SetShopVotesServiceTests(GatheringSelectingShopServiceTestCase):
@@ -5229,6 +5252,30 @@ class OrganizerDashboardSearchOriginPageTests(GatheringSelectingShopApiTestCase)
 
         self.assertIsInstance(origin, dict)
         self.assertEqual(set(origin), {"latitude", "longitude"})
+
+    def test_no_provider_fetch_when_opening_the_dashboard_outside_acceptance_mode(self):
+        """Real-machine-class regression guard (the same latency defect PR
+        #196 fixed for ``serialize_participant_view``): opening this page
+        must never trigger a real Hot Pepper search just to draw the
+        decision map's origin pin."""
+        acceptance_state.reset_mode()
+        env = {
+            "HOTPEPPER_API_KEY": "synthetic-key",
+            "HOTPEPPER_SEARCH_LATITUDE": "35.6812",
+            "HOTPEPPER_SEARCH_LONGITUDE": "139.7671",
+        }
+        with (
+            mock.patch.dict(os.environ, env),
+            mock.patch(
+                "dining_radar.gathering.services.fetch_real_candidates"
+            ) as fetch_real_candidates_mock,
+            mock.patch("dining_radar.suggestions.hotpepper_source.fetch_shops") as fetch_shops_mock,
+        ):
+            origin = self._embedded_search_origin(self.gathering_id)
+
+        fetch_real_candidates_mock.assert_not_called()
+        fetch_shops_mock.assert_not_called()
+        self.assertEqual(origin, {"latitude": 35.6812, "longitude": 139.7671})
 
     def test_the_configured_origin_remains_embedded_once_finalized(self):
         self.put_shortlisted_shops([self.open_shop_ids[0]])
