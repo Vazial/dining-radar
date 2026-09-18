@@ -1117,66 +1117,16 @@ def bundled_holiday_isos() -> list[str]:
 def organizer_search_origin(
     organizer: AbstractBaseUser, gathering_id: object
 ) -> dict[str, float] | None:
-    """The organizer's own configured search origin, for
-    ``organizerDashboard.finalizedSummary.decisionBanner.map.originMarker``
-    (ADR-0062 decision 4).
-
-    ``gathering-scheduling-api.yaml``'s own ``Gathering`` schema carries no
-    search-origin field (``additionalProperties: false``, unchanged by
-    ADR-0062's own diff -- the only API change that round made was
-    retiring ``ParticipantShopVoteOption.addedAfterVotingStarted``), so this
-    value cannot be added to that JSON response without a contract edit this
-    slice is not authorized to make. Instead it is embedded directly into
-    ``organizer_dashboard.html``'s server-rendered shell via Django's
-    ``json_script`` filter, the same way ``bundled_holiday_isos`` above
-    already is -- a plain template-context value, read once by
-    ``gathering.js`` at load, never round-tripped through the public API.
-
-    **Gated on ``votingStartedAt`` non-null, not on ``finalizedShopId``
-    non-null (fixed 2026-09-18, real-acceptance-run finding)**: an earlier
-    revision of this function gated on ``finalized_shop_id is not None``,
-    reasoning that decisionBanner's own map is only ever rendered once
-    FINALIZED (true) and so the *value* was only ever needed then (false --
-    this is the bug this comment fixes). This screen is a single-page app:
-    render() rebuilds the DOM in place from ``state.gathering`` on every
-    poll/mutation response, and the organizer routinely opens this dashboard
-    while still SELECTING_SHOP, then finalizes *within that same page load*
-    (gathering.js's ``finalize_via_dashboard``/``confirmFinalizeGathering``)
-    without ever re-requesting this HTML shell. Gating on
-    ``finalized_shop_id`` therefore embedded ``null`` for exactly the
-    realistic path a real organizer follows -- gathering.js faithfully
-    read that embedded ``null`` and correctly omitted the origin marker
-    (drawing only the decided shop's own pin), which is what the acceptance
-    run actually observed (``data-overlay-marker-count="1"``, no
-    ``gathering-decision-shop-map-origin-marker`` in the DOM) even though
-    the finalize step it exercised succeeded. The organizer's configured
-    search origin does not depend on this gathering's phase at all (the
-    same value already backs ``shortlistedShopVotes.item``'s own
-    ``walkingTimeMinutes`` computation throughout SELECTING_SHOP) -- gating
-    on ``votingStartedAt`` non-null instead (the same condition
-    ``serialize_gathering``/``serialize_participant_view`` already use
-    before calling ``resolve_population_source`` at all) makes this value
-    available starting no later than the first successful
-    ``setShortlistedShops`` call, which the organizer can only reach by
-    navigating away to the lunch-candidate screen and back (adr/0049
-    decision 1) -- a real HTML page (re)load that re-runs this function --
-    strictly before the finalize control this value's map depends on ever
-    becomes reachable in the DOM.
-
-    Returns ``None`` -- decisionBanner's own map simply omits the origin
-    marker in that case, rather than the whole page shell failing to
-    render -- whenever any of the following holds: this organizer does not
-    own (or this id does not name) a gathering, that gathering's
-    ``votingStartedAt`` is still null (SCHEDULING, or SELECTING_SHOP before
-    the first shortlist), or the provider population itself is currently
-    unavailable (``resolve_population_source``'s own ``None`` return,
-    already absorbing ``CandidateSourceUnavailableError``).
+    """This organizer's own configured search origin, embedded into
+    ``organizer_dashboard.html`` (ADR-0062 decision 4) for
+    ``finalizedSummary.decisionBanner.map``'s origin marker -- drawn only on
+    this page's own map, never sent to an external routing service.
+    Unconditional on this gathering's phase. ``None`` if it does not
+    resolve for this organizer, or the provider population is unavailable.
     """
     try:
-        gathering = get_gathering(organizer, gathering_id)
+        get_gathering(organizer, gathering_id)
     except GatheringNotFoundError:
-        return None
-    if gathering.voting_started_at is None:
         return None
     source = resolve_population_source()
     if source is None:

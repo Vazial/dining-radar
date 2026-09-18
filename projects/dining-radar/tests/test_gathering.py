@@ -1873,32 +1873,14 @@ class OrganizerSearchOriginServiceTests(GatheringSelectingShopServiceTestCase):
     ``organizer_dashboard.html`` for ``finalizedSummary.decisionBanner.map``'s
     own origin marker -- not a ``gathering-scheduling-api.yaml`` field (that
     schema's own ``additionalProperties: false`` is unchanged by ADR-0062's
-    own diff).
+    own diff). Unconditional on this gathering's own phase --
+    ``test_the_configured_origin_is_present_before_any_shop_is_shortlisted``
+    below is the regression case: ADR-0062 moved shop selection into this
+    same dashboard page (map + floating panel), so the organizer can shortlist
+    shops -- setting ``votingStartedAt`` -- without ever leaving or reloading
+    the page this value is embedded into."""
 
-    **Gated on ``votingStartedAt``, not ``finalizedShopId`` (2026-09-18 fix,
-    real-acceptance-run finding)**: an earlier revision gated on
-    ``finalized_shop_id is not None``, which meant an organizer who opens
-    this dashboard while still SELECTING_SHOP and finalizes within that same
-    page load (gathering.js's own in-place render(), no HTML reload) always
-    read back the value this function computed *before* finalizing -- always
-    ``None``. ``test_the_configured_origin_once_shortlisted_but_not_yet_
-    finalized`` below reproduces exactly the state that same-page flow is
-    in at the moment the HTML shell is actually requested, and is the test
-    that would have caught the bug (``gathering-decision-shop-map-origin-
-    marker`` never present, ``data-overlay-marker-count="1"`` instead of
-    ``"2"``, in the acceptance run that found it)."""
-
-    def test_none_before_voting_has_started(self):
-        self.assertIsNone(services.organizer_search_origin(self.user, self.gathering.id))
-
-    def test_the_configured_origin_once_shortlisted_but_not_yet_finalized(self):
-        """The realistic same-page-load state: the organizer has just made
-        this dashboard's shortlistedShopVotes/finalize controls reachable
-        (votingStartedAt non-null) but has not yet clicked through to
-        finalize -- the exact moment this HTML shell is requested in the
-        real flow gathering.js's own finalize_via_dashboard/
-        confirmFinalizeGathering never triggers a fresh page load for."""
-        services.set_shortlisted_shops(self.user, self.gathering.id, [self.open_shop_ids[0]])
+    def test_the_configured_origin_is_present_before_any_shop_is_shortlisted(self):
         _shop_lookup, origin = self.shop_lookup_and_origin()
 
         result = services.organizer_search_origin(self.user, self.gathering.id)
@@ -1915,7 +1897,6 @@ class OrganizerSearchOriginServiceTests(GatheringSelectingShopServiceTestCase):
         self.assertEqual(result, {"latitude": origin.latitude, "longitude": origin.longitude})
 
     def test_none_for_a_gathering_this_organizer_does_not_own(self):
-        services.set_shortlisted_shops(self.user, self.gathering.id, [self.open_shop_ids[0]])
         other_user = get_user_model().objects.create_user(username="svc-shortlist-other")
 
         self.assertIsNone(services.organizer_search_origin(other_user, self.gathering.id))
@@ -1924,7 +1905,6 @@ class OrganizerSearchOriginServiceTests(GatheringSelectingShopServiceTestCase):
         self.assertIsNone(services.organizer_search_origin(self.user, uuid.uuid4()))
 
     def test_none_when_the_provider_population_is_unavailable(self):
-        services.set_shortlisted_shops(self.user, self.gathering.id, [self.open_shop_ids[0]])
         acceptance_state.reset_mode()
 
         with mock.patch(
@@ -5220,15 +5200,14 @@ class OrganizerDashboardSearchOriginPageTests(GatheringSelectingShopApiTestCase)
     ``json_script`` embedding (ADR-0062 decision 4) -- the HTTP-level
     counterpart of ``OrganizerSearchOriginServiceTests`` above.
 
-    **``test_the_configured_origin_is_embedded_once_shortlisted_even_before_
-    finalizing`` is the regression test for the 2026-09-18 real-acceptance-
-    run finding**: this dashboard is a single-page app that finalizes via an
-    in-place AJAX render, never a fresh HTML request, so the *only* HTML
-    request that can ever observe this embedded value is the one the
-    organizer's browser already made *before* finalizing -- gating the
-    embedded value on FINALIZED itself (the earlier, buggy revision) meant
-    the origin marker could never appear in the one page load real browsers
-    actually use."""
+    **``test_the_configured_origin_is_embedded_when_the_dashboard_is_opened_
+    on_an_unvoted_gathering`` is the regression test**: ADR-0062 moved shop
+    selection into this same dashboard page (map + floating panel), so the
+    organizer can shortlist shops -- setting ``votingStartedAt`` -- entirely
+    within the one page load this value is embedded into, never a fresh
+    request. Gating the embedded value on any phase-derived condition
+    (this or ``FINALIZED``) therefore risks embedding ``null`` on the one
+    request a real browser makes."""
 
     def _embedded_search_origin(self, gathering_id) -> object:
         response = self.client.get(
@@ -5243,12 +5222,9 @@ class OrganizerDashboardSearchOriginPageTests(GatheringSelectingShopApiTestCase)
         self.assertIsNotNone(match, "gathering-search-origin json_script not found")
         return json.loads(match.group(1))
 
-    def test_null_before_voting_has_started(self):
-        self.assertIsNone(self._embedded_search_origin(self.gathering_id))
-
-    def test_the_configured_origin_is_embedded_once_shortlisted_even_before_finalizing(self):
-        self.put_shortlisted_shops([self.open_shop_ids[0]])
-
+    def test_the_configured_origin_is_embedded_when_the_dashboard_is_opened_on_an_unvoted_gathering(
+        self,
+    ):
         origin = self._embedded_search_origin(self.gathering_id)
 
         self.assertIsInstance(origin, dict)
@@ -5264,7 +5240,6 @@ class OrganizerDashboardSearchOriginPageTests(GatheringSelectingShopApiTestCase)
         self.assertEqual(set(origin), {"latitude", "longitude"})
 
     def test_null_for_a_gathering_this_organizer_does_not_own(self):
-        self.put_shortlisted_shops([self.open_shop_ids[0]])
         other_client = Client()
         other_client.force_login(self.other_user)
 

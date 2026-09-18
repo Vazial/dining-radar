@@ -99,13 +99,9 @@
   // finalizedSummary.decisionBanner.map's own origin marker only -- read
   // once at load from the same json_script embedding holiday_dates above
   // already uses (organizer_dashboard.html/services.organizer_search_origin
-  // own docstring explain why this value is not instead carried on the
-  // public JSON gathering response, and why it is present starting as soon
-  // as shortlist voting has started rather than only once FINALIZED -- this
-  // screen never reloads the HTML shell across an in-place finalize, 2026-
-  // 09-18 real-acceptance-run fix). `null` (before voting has started, or
-  // if the provider population is currently unavailable) simply omits the
-  // origin marker below rather than failing anything.
+  // own docstring explain why). `null` (unresolvable, or the provider
+  // population is currently unavailable) simply omits the origin marker
+  // below rather than failing anything.
   var organizerSearchOriginNode = document.getElementById("gathering-search-origin");
   var organizerSearchOrigin = organizerSearchOriginNode
     ? JSON.parse(organizerSearchOriginNode.textContent)

@@ -787,17 +787,9 @@ def organizer_dashboard(request, gathering_id):
     ``holiday_dates`` (ADR-0060 decision 1/2) is embedded the same way
     ``organizer_gathering_create`` above embeds it, for this screen's own
     ``addCandidateDateForm.calendar``. ``search_origin`` (ADR-0062 decision
-    4) is embedded the same way, for ``finalizedSummary.decisionBanner.map``'s
-    own origin marker -- present as soon as this gathering's shortlist
-    voting has started (``None`` before that, or if this gathering cannot
-    be resolved for this organizer at all). **Not** gated on FINALIZED
-    itself, even though that map is only ever rendered once FINALIZED --
-    this screen never reloads the HTML shell across a same-page finalize
-    (gathering.js's own render() rebuilds in place), so gating this value on
-    FINALIZED would embed ``null`` for the realistic path an organizer who
-    opens this dashboard once and finalizes within that same load follows;
-    ``services.organizer_search_origin``'s own docstring explains this
-    finding in full.
+    4) is embedded the same way for ``finalizedSummary.decisionBanner.map``'s
+    own origin marker -- see ``services.organizer_search_origin`` for why
+    this is unconditional rather than gated on this gathering's phase.
     """
     return render(
         request,
