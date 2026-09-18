@@ -428,7 +428,9 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
 
     def test_tdr_gth_13_guessing_a_token_is_denied_without_disclosure(self) -> None:
         self._sign_in()
-        self.steps.organizer_has_a_scheduling_gathering("秘密の会13", [self.dsl.days_from_now_iso(3)])
+        self.steps.organizer_has_a_scheduling_gathering(
+            "秘密の会13", [self.dsl.days_from_now_iso(3)]
+        )
         self.steps.a_participant_link_is_issued()
         response = self.steps.someone_guesses_a_token_and_requests_the_participant_view()
         self.steps.access_is_denied_without_disclosure(response)
@@ -541,7 +543,10 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
     def test_tdr_gth_21_organizer_opens_a_gathering_from_the_list(self) -> None:
         self._sign_in()
         gathering_a, gathering_b = self.steps.organizer_has_multiple_scheduling_gatherings(
-            [("会21a", [self.dsl.days_from_now_iso(3)]), ("会21b", [self.dsl.days_from_now_iso(10)])]
+            [
+                ("会21a", [self.dsl.days_from_now_iso(3)]),
+                ("会21b", [self.dsl.days_from_now_iso(10)]),
+            ]
         )
         confirmed_date_iso = gathering_b["candidateDates"][0]["startAt"]
         confirmed_date_id = gathering_b["candidateDates"][0]["id"]
@@ -680,9 +685,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.organizer_opens_the_gathering_create_review_dialog()
         self.assertEqual(self.steps.review_dialog_selected_days(), {earlier_iso[:10]})
         self.steps.organizer_pages_the_review_dialog_month(forward=True)
-        self.assertEqual(
-            self.steps.review_dialog_selected_days(), {mid_a_iso[:10], mid_b_iso[:10]}
-        )
+        self.assertEqual(self.steps.review_dialog_selected_days(), {mid_a_iso[:10], mid_b_iso[:10]})
         self.steps.organizer_removes_the_selected_day_from_the_review_dialog(mid_b_iso)
         self.assertEqual(self.steps.review_dialog_selected_days(), {mid_a_iso[:10]})
         self.steps.organizer_pages_the_review_dialog_month(forward=False)
@@ -697,7 +700,10 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self._sign_in()
         self.steps.lunch_candidate_screen_is_available()
         self.steps.organizer_has_multiple_scheduling_gatherings(
-            [("会25a", [self.dsl.days_from_now_iso(3)]), ("会25b", [self.dsl.days_from_now_iso(10)])]
+            [
+                ("会25a", [self.dsl.days_from_now_iso(3)]),
+                ("会25b", [self.dsl.days_from_now_iso(10)]),
+            ]
         )
         self.steps.organizer_opens_the_lunch_candidate_screen()
         self.steps.in_progress_gathering_count_badge_shows(2)
@@ -788,7 +794,9 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        monday = self.dsl.next_weekday_iso(0)  # OPEN_SHOP_COUNT_BY_WEEKDAY[0] == 5 (1 closed: Monday)
+        monday = self.dsl.next_weekday_iso(
+            0
+        )  # OPEN_SHOP_COUNT_BY_WEEKDAY[0] == 5 (1 closed: Monday)
         wednesday = self.dsl.next_weekday_iso(2)  # OPEN_SHOP_COUNT_BY_WEEKDAY[2] == 4 (2 closed)
         closed_shop_id = self.steps.shop_id_closed_only_on(2, 0)  # closed on Wed, open on Mon
         self.steps.organizer_has_a_scheduling_gathering("会27", [monday, wednesday])

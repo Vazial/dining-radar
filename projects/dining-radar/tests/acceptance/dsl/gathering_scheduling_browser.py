@@ -757,9 +757,7 @@ class GatheringSchedulingBrowserDsl:
             csrf=True,
         )
         if response.status == 201:
-            cleanup = self._api(
-                "DELETE", f"/gatherings/{response.payload['id']}", None, csrf=True
-            )
+            cleanup = self._api("DELETE", f"/gatherings/{response.payload['id']}", None, csrf=True)
             self.assertions.assertEqual(
                 cleanup.status, 204, f"business-day probe cleanup: {cleanup.body}"
             )
@@ -849,12 +847,9 @@ class GatheringSchedulingBrowserDsl:
         while len(found) < 2:
             if cursor.month != first_of_target_month.month:
                 raise AssertionError(
-                    f"could not find 2 accepted business days within "
-                    f"{first_of_target_month:%Y-%m}"
+                    f"could not find 2 accepted business days within {first_of_target_month:%Y-%m}"
                 )
-            candidate_iso = cursor.replace(
-                hour=hour, minute=0, second=0, microsecond=0
-            ).isoformat()
+            candidate_iso = cursor.replace(hour=hour, minute=0, second=0, microsecond=0).isoformat()
             if self._probe_candidate_date_is_a_business_day(candidate_iso):
                 found.append(candidate_iso)
             cursor = cursor + timedelta(days=1)

@@ -379,9 +379,7 @@ class GatheringSchedulingSteps:
             candidate_date_id, going=going, maybe=maybe, not_going=not_going
         )
 
-    def schedule_question_current_leader_is(
-        self, candidate_date_id: str, expected: bool
-    ) -> None:
+    def schedule_question_current_leader_is(self, candidate_date_id: str, expected: bool) -> None:
         self.dsl.assert_schedule_question_current_leader(candidate_date_id, expected)
 
     def access_is_denied_without_disclosure(self, response: object) -> None:
