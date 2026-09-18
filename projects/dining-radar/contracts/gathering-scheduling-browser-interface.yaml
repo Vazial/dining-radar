@@ -735,11 +735,29 @@
 # - 候補日の個数を表す言葉づかい（「N件」）はこの契約が元々固定していなかった可視文言の範囲に留まり、
 #   非拘束の注記として要所へ添えた（決定9）。
 #
+# 2026-09-18 追補21 (architect、ADR-0061 追補。developerの実装（participant.js
+#   renderDayListSheet）がADR-0020決定4のタップ対象・キーボード到達性の要求を満たすために
+#   dayList（追補20新設）をスマホ幅でシートとして開く・閉じるボタンへ
+#   data-testid/data-gathering-control-purposeを付けたが、この契約がそのpurposeを一度も
+#   登録していなかったと判明した（allowedPurposesと突き合わせる受け入れ検査が、スマホ幅の
+#   参加者画面を走査すると落ちる状態にあった）。新しい業務判断ではなく、追補20自身が起草時に
+#   閉じ忘れた抜けの是正——allowedPurposesNoteAdr0061が決定6で同種の抜け（gathering-create-
+#   review-*）を一度閉じたのと同じ扱い。contractVersionを0.23.0から0.23.1へ上げる（束Dが0.24.0を使うため、抜けの是正はpatchで刻む）):
+# - **dayList配下に開く・閉じるボタンを新設した**: `dayList.sheetOpen`
+#   （testId: gathering-participant-day-list-open、同名purpose）・`dayList.sheetClose`
+#   （testId: gathering-participant-day-list-close、同名purpose）。dayList自身の
+#   description（「スマホは下から出るシート、PCは左に常設」）がもともと固定していた提示形態の
+#   差を、presenceRuleで観測面へ持ち込む——シートとして提示される側でだけ出現し、常設の一覧側
+#   では出現しない。画面幅の具体的な数値はここでも固定しない
+#   （candidate-search-browser-interface.yamlのmenuToggle/menuPanelと同じ書き方）。
+# - `allowedPurposes`へ2件を追加した: gathering-participant-day-list-open,
+#   gathering-participant-day-list-close（allowedPurposesNoteAdr0061Addendum参照）。
+#
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.23.0'
+contractVersion: '0.23.1'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -1091,7 +1109,8 @@ unavailableControls:
      gathering-participant-answer-skip, gathering-participant-answer-previous,
      gathering-participant-day-navigate,
      gathering-participant-link-issue-dialog-copy,
-     gathering-participant-link-issue-dialog-close]
+     gathering-participant-link-issue-dialog-close,
+     gathering-participant-day-list-open, gathering-participant-day-list-close]
   allowedPurposesNote2026_09_12: >-
     Eight purposes added, one removed (this file's own 2026-09-12 revision,
     ADR-0054/ADR-0055/ADR-0056, contracts/REVISION-PLAN.md 2節). Added:
@@ -1178,6 +1197,17 @@ unavailableControls:
     drafting gap this round happens to touch this same list to fix
     (architect technical judgment, no new human decision, decision 6),
     not a new business decision.
+  allowedPurposesNoteAdr0061Addendum: >-
+    Two purposes added (ADR-0061 追補, 2026-09-18, closing a drafting gap
+    this contract's own dayList (ADR-0061 decision 3) left open --
+    developer's ADR-0020 decision 4 keyboard-reachability/44px audit
+    surfaced it while implementing dayList's own narrow-width bottom-sheet
+    presentation). Added: gathering-participant-day-list-open/-close
+    (dayList.sheetOpen/sheetClose below, the control that discloses/hides
+    dayList when it presents as a bottom sheet). Not a new business
+    decision -- the same architect-technical-judgment gap-closing
+    allowedPurposesNoteAdr0061 above already performed once for
+    gathering-create-review-open/-cancel/-month-navigate.
   forbiddenPurposes:
     - manual-ordering
     - secondary-condition
@@ -3295,6 +3325,47 @@ browserControlSurface:
           reachable one (scheduleQuestion.cardinality above's one-at-a-time
           requirement). Calls no public operation. Does not change any
           data-your-response value.
+      sheetOpen:
+        description: >-
+          Added 2026-09-18 (ADR-0061 追補, developer's ADR-0020 decision 4
+          keyboard-reachability/44px audit surfaced this gap while
+          implementing dayList's own narrow-width bottom-sheet
+          presentation, named in dayList.description above -- this
+          contract had never named a control to disclose that sheet).
+          Opens dayList as a bottom sheet.
+        testId: gathering-participant-day-list-open
+        purpose: gathering-participant-day-list-open
+        presenceRule: >-
+          Present only on whichever render mode presents dayList as a
+          bottom sheet (dayList.description above's narrow-width case) --
+          absent on the render mode where dayList is an always-present
+          panel (that mode's dayList needs no separate control to reach
+          it). Also gated by the same ParticipantView.decision-is-null
+          condition dayList.presenceRule above uses (this control cannot
+          exist while dayList itself is absent).
+        requiredOutcome: >-
+          Activating it discloses dayList as a bottom sheet (any
+          implementation-chosen mechanism; this contract does not fix
+          modal/drawer/bottom-sheet shape, mirroring candidate-search-
+          browser-interface.yaml's menuToggle/menuPanel precedent). Calls
+          no public operation. Does not change any data-your-response
+          value.
+      sheetClose:
+        description: >-
+          Added 2026-09-18 (ADR-0061 追補, same origin as sheetOpen
+          above). Closes the bottom sheet sheetOpen discloses.
+        testId: gathering-participant-day-list-close
+        purpose: gathering-participant-day-list-close
+        presenceRule: >-
+          Present only while the bottom sheet sheetOpen discloses is
+          currently open -- the same render mode sheetOpen above is
+          present on. This contract does not fix whether activating a
+          dayList.item (above) while the sheet is open also closes it --
+          that remains an implementation choice.
+        requiredOutcome: >-
+          Activating it hides the bottom sheet sheetOpen discloses. Calls
+          no public operation. Does not change any data-your-response
+          value.
     shopVoteMap:
       description: >-
         Added 2026-09-05 (adr/0044/adr/0045, TDR-GTH-39/41, Vote.dc.html's
