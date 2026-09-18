@@ -39,6 +39,12 @@ from dining_radar.gathering.models import (
 )
 from dining_radar.recommendation.pipeline import NormalizedCandidate, Origin
 from dining_radar.suggestions import acceptance_state
+from tests.support.business_days import (
+    next_business_weekday_iso,
+    nth_business_datetime,
+    nth_business_day,
+    nth_business_day_iso,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 GATHERING_JS = (
@@ -92,49 +98,32 @@ def _days_from_now_iso(days: int, *, hour: int = 12, minute: int = 0) -> str:
     regardless of when it actually runs. ``days`` must be at least 1 for the
     result to be accepted by that rule.
 
-    **Reworked 2026-09-16 (ADR-0060 decision 4:
-    CANDIDATE_DATE_NOT_A_BUSINESS_DAY)** from a raw calendar-day offset to
-    "the ``days``-th business day" -- every call site in this file only ever
-    needed a valid, distinct, future date, never a specific calendar-day
-    arithmetic relationship to ``days`` itself. Counting forward by business
-    days only (skipping the exact same weekend/Japan-public-holiday dates
-    the new rejection excludes) is strictly increasing in ``days`` (so two
-    different ``days`` arguments can never collide on the same date, unlike
-    a raw weekend-crossing offset could), and keeps every existing call site
-    both future and a business day without editing any of them individually.
+    **2026-09-16 (ADR-0060 decision 4: CANDIDATE_DATE_NOT_A_BUSINESS_DAY)**:
+    counts forward by business days only, not a raw calendar-day offset --
+    see ``tests.support.business_days`` (this module's own function, this
+    file's thin wrapper around it) for the full rationale.
+
+    **2026-09-18**: this file's own business-day-counting body moved to
+    ``tests.support.business_days.nth_business_day_iso`` -- the same shared
+    helper ``tests/test_candidate_search.py`` and
+    ``tests/ui_invariants/test_render_invariants.py`` now use, so the
+    counting rule lives in exactly one place. This wrapper is kept (rather
+    than rewriting this file's ~90 existing ``_days_from_now_iso(...)``/
+    ``_next_business_datetime(...)``/``_next_weekday_iso(...)`` call sites)
+    purely so none of them need to change.
     """
-    current = timezone.localtime(timezone.now()).date()
-    remaining = days
-    while remaining > 0:
-        current += timedelta(days=1)
-        if holidays.is_business_day(current):
-            remaining -= 1
-    return f"{current.isoformat()}T{hour:02d}:{minute:02d}:00+09:00"
+    return nth_business_day_iso(days, hour=hour, minute=minute)
 
 
 def _next_business_datetime(n: int = 1) -> datetime:
     """The ``n``-th business day (Mon-Fri, non-Japan-public-holiday) from now,
     as an aware ``datetime`` at local noon.
 
-    Replaces this file's own former direct ``timezone.now() + timedelta(days=N)``
-    call sites feeding ``services.create_gathering``/``services
-    .add_candidate_dates`` directly (2026-09-16, ADR-0060 decision 4) --
-    those call sites never needed a specific calendar-day arithmetic
-    relationship to ``N``, only a valid, distinct, future date; counting
-    forward by business days only (the same technique ``_days_from_now_iso``
-    above uses) keeps two different ``n`` arguments from ever colliding on
-    the same date, which a raw weekend-crossing calendar offset could
-    otherwise do (e.g. "+1 day" landing on a Saturday and "+2 days" landing
-    on the same following Monday once both are pushed off the weekend).
+    See ``_days_from_now_iso`` above's 2026-09-18 note: thin wrapper around
+    ``tests.support.business_days.nth_business_datetime``, kept under this
+    file's own established name so its existing call sites are unchanged.
     """
-    current = timezone.localtime(timezone.now()).date()
-    remaining = n
-    while remaining > 0:
-        current += timedelta(days=1)
-        if holidays.is_business_day(current):
-            remaining -= 1
-    naive_noon = datetime(current.year, current.month, current.day, 12, 0, 0)
-    return timezone.make_aware(naive_noon)
+    return nth_business_datetime(n)
 
 
 def _next_weekday_iso(
@@ -155,13 +144,15 @@ def _next_weekday_iso(
     with a "happy Monday" national holiday (成人の日/海の日/敬老の日/
     スポーツの日); this keeps the requested weekday exact while still
     landing on a business day.
+
+    See ``_days_from_now_iso`` above's 2026-09-18 note: thin wrapper around
+    ``tests.support.business_days.next_business_weekday_iso``, kept under
+    this file's own established name so its existing call sites are
+    unchanged.
     """
-    base_date = (timezone.localtime(timezone.now()) + timedelta(days=min_days_ahead)).date()
-    delta = (weekday - base_date.weekday()) % 7
-    target_date = base_date + timedelta(days=delta)
-    while holidays.is_public_holiday(target_date):
-        target_date += timedelta(days=7)
-    return f"{target_date.isoformat()}T{hour:02d}:{minute:02d}:00+09:00"
+    return next_business_weekday_iso(
+        weekday, min_days_ahead=min_days_ahead, hour=hour, minute=minute
+    )
 
 
 def csrf_token_from(response) -> str:
@@ -5539,6 +5530,80 @@ class HolidayRangeCoversAtLeastOneYearAheadTests(SimpleTestCase):
         one_year_ahead = date.today() + timedelta(days=366)
 
         self.assertGreaterEqual(holidays.MAX_YEAR, one_year_ahead.year)
+
+
+class BusinessDayFixtureBuilderDateIndependenceTests(SimpleTestCase):
+    """``tests.support.business_days``'s own safety net.
+
+    This is the single shared "N-th business day from now"/"next business
+    weekday" fixture-date builder every date-sensitive suite in this project
+    now uses instead of a raw ``timezone.now() + timedelta(days=N)`` (this
+    file's own ``_days_from_now_iso``/``_next_business_datetime``/
+    ``_next_weekday_iso`` above are thin wrappers around it;
+    tests/test_candidate_search.py's ``GatheringModeCandidateProposalsApiTests``
+    and tests/ui_invariants/test_render_invariants.py's
+    ``_next_monday_iso``/``_create_selecting_shop_gathering_via_api`` call it
+    directly). 2026-09-18's own round found this the hard way: a bare
+    ``timezone.now() + timedelta(days=1)`` in test_candidate_search.py, run
+    on a Friday, landed on 2026-09-19 (Saturday), and a bare "next Monday"
+    calendar-weekday computation in test_render_invariants.py landed on
+    2026-09-21 (敬老の日) -- both rejected with 400
+    (``CANDIDATE_DATE_NOT_A_BUSINESS_DAY``, ADR-0060 decision 4) though
+    neither call site's own test was about that rule at all.
+
+    Rather than trust "whatever day this suite happens to run on" to keep
+    exercising that risk, this freezes ``django.utils.timezone.now`` (this
+    file's own established ``mock.patch.object`` idiom, applied to
+    ``timezone.now`` specifically since that is the one function every
+    builder above calls to find "today") to three instants a raw
+    weekend-crossing offset is especially likely to trip on: this same week
+    (2026-09-18, immediately preceding the Saturday/敬老の日/国民の休日/
+    秋分の日 run above), the New Year holiday, and Golden Week -- and asserts
+    every builder still returns a real, future, ``holidays.is_business_day``
+    date (or, for ``next_business_weekday_iso``, the specific requested
+    weekday) regardless.
+    """
+
+    def _assert_business_day_fixtures_hold(self, frozen_now):
+        with mock.patch("django.utils.timezone.now", return_value=frozen_now):
+            today = timezone.localtime(frozen_now).date()
+
+            first_business_day = nth_business_day(1)
+            third_business_day = nth_business_day(3)
+            self.assertGreater(first_business_day, today)
+            self.assertTrue(holidays.is_business_day(first_business_day))
+            self.assertGreater(third_business_day, first_business_day)
+            self.assertTrue(holidays.is_business_day(third_business_day))
+
+            first_business_day_iso = nth_business_day_iso(1)
+            self.assertTrue(
+                holidays.is_business_day(date.fromisoformat(first_business_day_iso.split("T")[0]))
+            )
+
+            first_business_datetime = nth_business_datetime(1)
+            self.assertTrue(timezone.is_aware(first_business_datetime))
+            self.assertGreater(first_business_datetime.date(), today)
+            self.assertTrue(holidays.is_business_day(first_business_datetime.date()))
+
+            monday_iso = next_business_weekday_iso(0)
+            monday_date = date.fromisoformat(monday_iso.split("T")[0])
+            self.assertEqual(monday_date.weekday(), 0)  # date.weekday(): Monday == 0
+            self.assertGreater(monday_date, today)
+            self.assertTrue(holidays.is_business_day(monday_date))
+
+    def test_holds_this_week_2026_09_18(self):
+        """The exact week this round's own two flakes occurred (see class
+        docstring): "tomorrow" from a Friday lands on a Saturday, and "next
+        Monday" lands on 敬老の日."""
+        self._assert_business_day_fixtures_hold(timezone.make_aware(datetime(2026, 9, 18, 9, 0, 0)))
+
+    def test_holds_over_the_new_years_holiday_run(self):
+        self._assert_business_day_fixtures_hold(
+            timezone.make_aware(datetime(2026, 12, 28, 9, 0, 0))
+        )
+
+    def test_holds_over_golden_week(self):
+        self._assert_business_day_fixtures_hold(timezone.make_aware(datetime(2027, 4, 28, 9, 0, 0)))
 
 
 # --- serializers: the live-projection fallback (developer discretion, FR-028) --

@@ -1434,16 +1434,35 @@
         return renderDayListRow(question, leaders);
       })
     );
+    // Neither test id below is fixed by the contract (dayList's own
+    // description: "this contract fixes neither presentation, only the
+    // elements below") -- added so ADR-0020 decision 4(c)/(e)'s keyboard-
+    // reachability/44px gates can actually name and measure this entry
+    // point, closing the same class of gap friction-log.md FR-035 named
+    // for the retired footer's own controls (a real control with no
+    // data-testid/data-gathering-control-purpose at all is invisible to
+    // both gates, not merely excluded from them).
     var toggleButton = el(
       "button",
-      { type: "button", class: "gth-day-sheet-open-btn" },
+      {
+        type: "button",
+        "data-testid": "gathering-participant-day-list-open",
+        "data-gathering-control-purpose": "gathering-participant-day-list-open",
+        class: "gth-day-sheet-open-btn",
+      },
       ["日の一覧"]
     );
     toggleButton.addEventListener("click", openDayListSheet);
 
     var closeButton = el(
       "button",
-      { type: "button", class: "gth-day-sheet-close", "aria-label": "閉じる" },
+      {
+        type: "button",
+        "data-testid": "gathering-participant-day-list-close",
+        "data-gathering-control-purpose": "gathering-participant-day-list-close",
+        class: "gth-day-sheet-close",
+        "aria-label": "閉じる",
+      },
       ["×"]
     );
     closeButton.addEventListener("click", closeDayListSheet);
