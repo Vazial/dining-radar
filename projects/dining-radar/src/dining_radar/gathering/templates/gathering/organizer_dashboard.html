@@ -50,9 +50,15 @@
         for finalizedSummary.decisionBanner.map's own origin marker --
         embedded the same way holiday_dates above is (this value has no
         home on gathering-scheduling-api.yaml's own Gathering schema,
-        services.finalized_gathering_search_origin's own docstring explains
-        why). `None` (until FINALIZED, or if unresolvable) renders as JSON
-        `null`, which gathering.js reads defensively.
+        services.organizer_search_origin's own docstring explains why).
+        Present once shortlist voting has started -- **not** gated on
+        FINALIZED itself, even though that map only renders then: this
+        screen never reloads the HTML shell across a same-page finalize,
+        so gating on FINALIZED would embed `null` for the realistic path
+        an organizer who opens this dashboard once and finalizes within
+        that same load follows (2026-09-18 real-acceptance-run fix).
+        `None` (before voting has started, or if unresolvable) renders as
+        JSON `null`, which gathering.js reads defensively.
       {% endcomment %}
       {{ search_origin|json_script:"gathering-search-origin" }}
       {% comment %}
