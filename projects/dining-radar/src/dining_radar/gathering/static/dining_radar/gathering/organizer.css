@@ -1099,15 +1099,34 @@
   flex-direction: column;
   gap: 0.5rem;
 }
+/* **Fixed 2026-09-19 (board party2/d2/D1-a-* comparison, real-machine
+   finding)**: this row is a flex item of gth-shop-list (a column flex
+   container, min-height: 0/overflow-y: auto below, the usual "scroll
+   once content overflows" pattern) -- without flex-shrink: 0, the
+   default flex-shrink: 1 let the *list* squeeze every row below its own
+   natural content height whenever five rows' combined natural height
+   exceeded the panel's own max-height, instead of leaving each row at
+   its full natural size and letting the list's own overflow-y: auto
+   scroll the remainder (this row's own detailFields line, wrapping to a
+   second line for a shop with several long field values, was the most
+   visible casualty -- its own second line rendered outside this row's
+   now-too-short box, "潰れた行に見える" the coordinator's own board
+   comparison flagged). align-items: flex-start (not the previous
+   center) keeps a row whose body wraps taller than its rank/radio
+   column from centering those two vertically past the row's own real
+   content instead of alongside its top line, matching every board frame
+   (party2/d2/D1-a-*): radio and rank sit level with the shop name's own
+   line, not centered against the row's full wrapped height. */
 .gth-shop-row {
   background: #fff;
   border: 1px solid #dfe4de;
   border-radius: 0.625rem;
   box-sizing: border-box;
   min-height: 3rem;
+  flex-shrink: 0;
   padding: 0.4rem 0.6rem;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.65rem;
 }
 .gth-shop-row--on {
@@ -1121,6 +1140,12 @@
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
+}
+.gth-shop-name-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 .gth-shop-name {
   font-weight: 700;
@@ -1256,9 +1281,19 @@
   position: absolute;
   left: 1rem;
   top: 1rem;
-  /* 1rem original gap + 4.25rem to clear gth-bottom-bar (see comment
-     above). */
-  bottom: 5.25rem;
+  /* **Fixed 2026-09-19 (board comparison finding)**: `bottom` (a second,
+     opposite offset alongside `top`) forces an absolutely-positioned box
+     to stretch to fill the gap between them regardless of its own
+     content -- for a one- or two-shop shortlist this stretched a mostly-
+     empty panel down the whole pane, unlike every board frame
+     (party2/d2/D1-a-*), whose own list panel hugs its rows and only grows
+     tall enough to need scrolling once five rows do not fit. `max-height`
+     alone (no `bottom`) keeps the same "clear gth-bottom-bar" ceiling
+     (1rem original gap + 4.25rem to clear the bar, see that rule's own
+     comment) as a cap, not a forced stretch -- gth-shop-panel .gth-shop-
+     list's own flex:1 1 auto/min-height:0/overflow-y:auto (below) still
+     scrolls once actual content exceeds this cap. */
+  max-height: calc(100% - 5.25rem);
   width: min(28rem, calc(100% - 2rem));
   background: #fff;
   border-radius: 0.875rem;
@@ -1385,10 +1420,15 @@
   flex: 1 1 100%;
 }
 
+/* **Fixed 2026-09-19 (board party2/d2/D1-a-* comparison)**: board's own
+   detail line joins its five fields with "・" (gth-shop-detail-sep
+   below), not bare whitespace -- this rule's own gap now only spaces the
+   separator from its neighbors (the separator's own text already reads
+   as punctuation, so the gap shrinks from the old space-only scheme). */
 .gth-shop-detail-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem 0.75rem;
+  gap: 0.2rem;
   align-items: center;
 }
 .gth-shop-detail {
@@ -1396,12 +1436,23 @@
   color: #4b564e;
   white-space: nowrap;
 }
+.gth-shop-detail-sep {
+  font-size: 0.6875rem;
+  color: #a7b0a8;
+}
 /* A real, clickable <a> (a genuine activatable control), raised to this
    file's own stated 44px floor for the same reason .gth-btn-small was
-   (2026-09-08 human report). */
+   (2026-09-08 human report). **Fixed 2026-09-19**: this row's own
+   right-hand column (gth-shop-row's own last child, board D1's own
+   right-aligned "店のページ" column) -- previously nested inside
+   gth-shop-detail-row instead, where it could wrap into the detail
+   line's own flow and overlap whichever field followed it. flex-shrink:
+   0 keeps it from being squeezed by gth-shop-body's own flex: 1 1 auto
+   now that both share gth-shop-row as a direct flex parent. */
 .gth-shop-link {
   display: inline-flex;
   align-items: center;
+  flex-shrink: 0;
   min-height: 2.75rem;
   padding: 0 0.75rem;
   border: 1px solid #14614a;
@@ -1416,16 +1467,57 @@
   background: #f7fbf8;
 }
 
-.gth-shop-tally-row {
+/* **Fixed 2026-09-19 (board party2/d2/D1-a-* comparison)**: replaces the
+   retired gth-shop-tally-row's word-labeled line ("行きたい 0")
+   with board's own fixed-length bar + ○/△/× counts -- the same shape
+   participant.js's own renderShopVoteBar/renderShopVoteTally draw for
+   the participant-facing vote screen, duplicated here (this file's
+   existing no-shared-module convention) with this row's own class names
+   and this row's own denominator (respondedParticipantCount, D7's
+   per-shop denominator -- board's own bar is scaled per shop, not to the
+   gathering's total active participant count the way ADR-0056 decision 9
+   scales the participant-facing bar). */
+.gth-shop-vote-row {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem 0.9rem;
-  font-size: 0.75rem;
-  color: #4b564e;
+  align-items: center;
+  gap: 0.5rem;
 }
-.gth-shop-tally-row b {
-  color: #17201b;
+.gth-shop-vote-bar {
+  display: flex;
+  flex: 1 1 6rem;
+  max-width: 9rem;
+  height: 0.5rem;
+  border-radius: 0.1875rem;
+  overflow: hidden;
+  background: #e7ebe6;
+}
+.gth-shop-vote-bar-seg {
+  display: block;
+  height: 100%;
+}
+.gth-shop-vote-bar-seg--want {
+  background: #14614a;
+}
+.gth-shop-vote-bar-seg--ok {
+  background: #e3a77f;
+}
+.gth-shop-vote-bar-seg--not {
+  background: #c6cfc6;
+}
+.gth-shop-vote-count {
+  font-size: 0.75rem;
   font-weight: 700;
+  white-space: nowrap;
+}
+.gth-shop-vote-count--want {
+  color: #14614a;
+}
+.gth-shop-vote-count--ok {
+  color: #b4531c;
+}
+.gth-shop-vote-count--not {
+  color: #a7b0a8;
+  font-weight: 500;
 }
 
 .gth-link-list {

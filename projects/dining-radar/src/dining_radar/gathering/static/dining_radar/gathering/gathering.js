@@ -1519,21 +1519,23 @@
   // its own per-shop "added after voting started" helper function are
   // removed the same round.
 
-  // ADR-0062 decision 1: the five detailFields spans board D1 lists for
-  // this row (ジャンル・徒歩・席・禁煙・予算), field-for-field the same
-  // information participant.js's own renderShopVoteDetailFields shows,
-  // with this screen's own test-id prefix. walkingTime alone carries a
-  // content Must (an approximation marker plus the word 徒歩, e.g. 「徒歩
-  // 約12分」) -- this element carries no data attribute of its own, only
-  // the visible-text constraint layered on item.attributes
-  // .walkingTimeMinutes (data-walking-time-minutes) above.
+  // **Fixed 2026-09-19 (board party2/d2/D1-a-* comparison, real-machine
+  // finding)**: board D1 shows this row's five detailFields as one line,
+  // joined by "・", each self-describing what it names ("席 標準"/"予算
+  // 低"), not five space-separated bare words -- an earlier revision
+  // rendered genre/capacityTier/dinnerBudgetTier without their own label,
+  // indistinguishable from each other at a glance. genre/nonSmokingStatus
+  // still carry no prefix (board: "和食"/"全席禁煙" alone -- the value
+  // itself already names what it is); capacityTier/dinnerBudgetTier gain
+  // "席 "/"予算 " (board's own literal wording -- not "予算感", this
+  // file's own earlier prefix). "情報なし" for an absent value matches
+  // this product's existing candidate-search-browser-interface.yaml
+  // convention (web/static/dining_radar/web/candidate.js's own fieldRow
+  // default) unchanged by this fix. testId/data attributes are unchanged
+  // -- only visible text and DOM position move (developer discretion,
+  // this contract fixes neither).
   function renderShortlistedShopDetailFields(shop) {
-    return [
-      el(
-        "span",
-        { "data-testid": "gathering-shortlisted-shop-walking-time", class: "gth-shop-detail" },
-        ["徒歩 約" + shop.walkingTimeMinutes + "分"]
-      ),
+    var fields = [
       el(
         "span",
         { "data-testid": "gathering-shortlisted-shop-genre", class: "gth-shop-detail" },
@@ -1541,8 +1543,13 @@
       ),
       el(
         "span",
+        { "data-testid": "gathering-shortlisted-shop-walking-time", class: "gth-shop-detail" },
+        ["徒歩 約" + shop.walkingTimeMinutes + "分"]
+      ),
+      el(
+        "span",
         { "data-testid": "gathering-shortlisted-shop-capacity-tier", class: "gth-shop-detail" },
-        [shop.capacityTier ? CAPACITY_TIER_LABELS[shop.capacityTier] : "情報なし"]
+        ["席 " + (shop.capacityTier ? CAPACITY_TIER_LABELS[shop.capacityTier] : "情報なし")]
       ),
       el(
         "span",
@@ -1552,20 +1559,59 @@
       el(
         "span",
         { "data-testid": "gathering-shortlisted-shop-dinner-budget", class: "gth-shop-detail" },
-        [shop.dinnerBudgetTier ? "予算感 " + BUDGET_TIER_LABELS[shop.dinnerBudgetTier] : "情報なし"]
-      ),
-      el(
-        "a",
-        {
-          "data-testid": "gathering-shortlisted-shop-page-link",
-          href: shop.providerPageUrl,
-          target: "_blank",
-          rel: "noopener noreferrer",
-          class: "gth-shop-link",
-        },
-        ["店のページを見る"]
+        ["予算 " + (shop.dinnerBudgetTier ? BUDGET_TIER_LABELS[shop.dinnerBudgetTier] : "情報なし")]
       ),
     ];
+    // "・" separators between fields only (board's own literal wording) --
+    // aria-hidden, purely visual punctuation, not read out by a screen
+    // reader between fields it already announces as separate elements.
+    var withSeparators = [];
+    fields.forEach(function (field, index) {
+      if (index > 0) {
+        withSeparators.push(
+          el("span", { class: "gth-shop-detail-sep", "aria-hidden": "true" }, ["・"])
+        );
+      }
+      withSeparators.push(field);
+    });
+    return withSeparators;
+  }
+
+  // Board D1's own vote presentation for this row: a fixed-length bar
+  // (this shop's own respondedParticipantCount as the denominator -- D7's
+  // per-shop denominator, item.attributes.respondedCount above, the same
+  // basis this row's own tallyRow text used before this fix) plus ○N/△N/
+  // ×N counts, not the "行きたい N" word-labeled line participant.js's
+  // shopVoteQuestion uses elsewhere (a deliberate difference: board D1
+  // draws this row this way, participant.js's own board draws that screen
+  // differently -- this fix does not touch participant.js).
+  function renderShortlistedShopVoteRow(shop) {
+    var total = shop.respondedParticipantCount;
+    function segment(count, modifierClass) {
+      var width = total > 0 ? Math.max(0, Math.min(100, (count / total) * 100)) : 0;
+      return el(
+        "span",
+        { class: "gth-shop-vote-bar-seg " + modifierClass, style: "width:" + width + "%" },
+        []
+      );
+    }
+    var bar = el("span", { class: "gth-shop-vote-bar" }, [
+      segment(shop.wantToGoCount, "gth-shop-vote-bar-seg--want"),
+      segment(shop.okToGoCount, "gth-shop-vote-bar-seg--ok"),
+      segment(shop.notGoingCount, "gth-shop-vote-bar-seg--not"),
+    ]);
+    return el("div", { class: "gth-shop-vote-row" }, [
+      bar,
+      el("span", { class: "gth-shop-vote-count gth-shop-vote-count--want" }, [
+        "○" + String(shop.wantToGoCount),
+      ]),
+      el("span", { class: "gth-shop-vote-count gth-shop-vote-count--ok" }, [
+        "△" + String(shop.okToGoCount),
+      ]),
+      el("span", { class: "gth-shop-vote-count gth-shop-vote-count--not" }, [
+        "×" + String(shop.notGoingCount),
+      ]),
+    ]);
   }
 
   function renderShortlistedShopItem(shop, index, leaders) {
@@ -1588,26 +1634,22 @@
     if (leaders[shop.shopId]) {
       attrs.class += " gth-shop-row--leader";
     }
-    var tallyRow = el("div", { class: "gth-shop-tally-row" }, [
-      el("span", {}, [VOTE_LABELS.WANT_TO_GO + " ", el("b", {}, [String(shop.wantToGoCount)])]),
-      el("span", {}, [VOTE_LABELS.OK_TO_GO + " ", el("b", {}, [String(shop.okToGoCount)])]),
-      el("span", {}, [VOTE_LABELS.NOT_GOING + " ", el("b", {}, [String(shop.notGoingCount)])]),
-      el("span", {}, [String(shop.respondedParticipantCount) + "人中"]),
-    ]);
     var detailRow = el(
       "div",
       { class: "gth-shop-detail-row" },
       renderShortlistedShopDetailFields(shop)
     );
-    var children = [
-      el("span", { class: "gth-shop-rank" }, [String(index + 1)]),
-      el("div", { class: "gth-shop-body" }, [
-        el("span", { class: "gth-shop-name" }, [shop.name]),
-        leaders[shop.shopId] ? el("span", { class: "gth-shop-leader-badge" }, ["いちばん人気"]) : null,
-        tallyRow,
-        detailRow,
-      ]),
-    ];
+    // **Fixed 2026-09-19**: board D1's own row order, left to right, is
+    // [finalize-select radio][numbered rank][name+badge/vote/detail
+    // body][page-link], radio/rank top-aligned with the body's own first
+    // line (gth-shop-row's own align-items: flex-start, not the previous
+    // center -- see that rule's own comment for why) -- an earlier
+    // revision pushed the radio to the row's own trailing end (after
+    // body) instead, leaving it detached from the row's visible content
+    // on both narrow and wide layouts, and buried the page link inside
+    // the wrapping detail line instead of this row's own right-hand
+    // column.
+    var children = [];
     if (state.gathering.phase === "SELECTING_SHOP") {
       var selected = state.finalizeSelectedShopId === shop.shopId;
       var radio = el(
@@ -1628,6 +1670,32 @@
       });
       children.push(radio);
     }
+    children.push(el("span", { class: "gth-shop-rank" }, [String(index + 1)]));
+    children.push(
+      el("div", { class: "gth-shop-body" }, [
+        el("div", { class: "gth-shop-name-row" }, [
+          el("span", { class: "gth-shop-name" }, [shop.name]),
+          leaders[shop.shopId]
+            ? el("span", { class: "gth-shop-leader-badge" }, ["いちばん人気"])
+            : null,
+        ]),
+        renderShortlistedShopVoteRow(shop),
+        detailRow,
+      ])
+    );
+    children.push(
+      el(
+        "a",
+        {
+          "data-testid": "gathering-shortlisted-shop-page-link",
+          href: shop.providerPageUrl,
+          target: "_blank",
+          rel: "noopener noreferrer",
+          class: "gth-shop-link",
+        },
+        ["店のページを見る"]
+      )
+    );
     return el("div", attrs, children);
   }
 
@@ -1639,7 +1707,15 @@
     if (!window.L || !container || shops.length === 0) {
       return;
     }
-    var map = window.L.map(container, { attributionControl: false });
+    // **Fixed 2026-09-19 (board comparison finding)**: Leaflet's own
+    // default zoom control sits top-left, exactly where gth-shop-panel
+    // also floats (ADR-0062 decision 1) -- covering this pane's own
+    // "店の候補" heading. Moved to top-right (an empty corner on every
+    // board frame, party2/d2/D1-a-*), the same corner this map's own
+    // attribution credit would otherwise use if it were enabled (it is
+    // not, per this file's existing attributionControl: false).
+    var map = window.L.map(container, { attributionControl: false, zoomControl: false });
+    window.L.control.zoom({ position: "topright" }).addTo(map);
     window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
     }).addTo(map);
