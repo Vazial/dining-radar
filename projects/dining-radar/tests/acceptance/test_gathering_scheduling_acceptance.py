@@ -2021,3 +2021,48 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.participant_opens_the_link(link_two)
         self.steps.schedule_question_current_leader_is(leading_date, True)
         self.steps.schedule_question_current_leader_is(behind_date, False)
+
+    def test_gth_response_table_leader_summary_is_absent_once_the_date_is_decided(
+        self,
+    ) -> None:
+        """専用シナリオの無い契約Must（ADR-0060 追補23、2026-09-19、観測面
+        0.24.2）。responseTable.leaderSummaryに専用のTDR-GTH-*シナリオは無い
+        （契約自身の注記）ので、TDR-GTH-59〜63と同じ「有力」の検査の流儀で、
+        この追補が新設したpresenceRule（SCHEDULINGの間だけ）を直接検査する
+        ——candidateDateList.candidateDate自身のdata-current-leader
+        （TDR-GTH-59〜62、この追補の対象外で無変更）は、日が決まった後も
+        そのまま残ることを併せて確かめ、「表の上の有力バッジ」だけが消える
+        ことを対比させる。
+        """
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = self.dsl.next_weekday_iso(3)
+        self.steps.organizer_has_a_scheduling_gathering("会追補23", [thursday])
+        candidate_date_id = self.dsl.candidate_date_id_at(0)
+        link = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link)
+        self.steps.participant_answers_the_candidate_date(candidate_date_id, "GOING")
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.candidate_date_current_leaders_are({candidate_date_id})
+        self.steps.response_table_leader_summary_is_present()
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+
+        # SCHEDULING -> SELECTING_SHOP (adr/0037 decision 1's public-API
+        # Given-state path, same technique TDR-GTH-34 already uses).
+        self.steps.gathering_candidate_date_is_confirmed_via_api(
+            self.dsl.gathering_id, candidate_date_id
+        )
+        self.steps.gathering_state_is_refreshed()
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.response_table_leader_summary_is_absent()
+        self.steps.candidate_date_current_leaders_are({candidate_date_id})
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+
+        # SELECTING_SHOP -> FINALIZED.
+        shop_a = self.steps.open_shop_ids_for_the_confirmed_date()[0]
+        self.steps.organizer_shortlists_shops_via_api([shop_a])
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.organizer_selects_a_shop_for_finalize(shop_a)
+        self.steps.organizer_finalizes_via_dashboard()
+        self.steps.response_table_leader_summary_is_absent()
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()

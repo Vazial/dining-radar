@@ -224,6 +224,15 @@ RESPONSE_TABLE = "gathering-response-table"
 RESPONSE_TABLE_ROW = "gathering-response-table-row"
 RESPONSE_TABLE_CELL = "gathering-response-table-cell"
 RESPONSE_STATUS_ATTR = "data-response-status"
+# responseTable.leaderSummary (ADR-0060 decision 7, 2026-09-16). **presenceRule
+# added 2026-09-19 (追補23, contract 0.24.2)**: present only while phase is
+# SCHEDULING -- absent once SELECTING_SHOP/FINALIZED regardless of any
+# candidate date's own data-current-leader value (candidateDateList.
+# candidateDate/scheduleQuestion.tally's own data-current-leader are outside
+# this addendum's scope, unchanged). responseTable itself (table/header/row/
+# cell) keeps its own unconditional presenceRule -- only this one child
+# element narrows.
+RESPONSE_TABLE_LEADER_SUMMARY = "gathering-response-table-leader-summary"
 # Calendar month-navigation / remove-selected (ADR-0054 decision 3 / ADR-0056
 # decision 3): each screen owns its own, distinct pair of test ids (the same
 # "distinct test id per screen, shared input shape" design already governing
@@ -1293,6 +1302,23 @@ class GatheringSchedulingBrowserDsl:
         """
         assert_present(self.assertions, self.page, RESPONSE_TABLE)
         self.assertions.assertEqual(self._read_response_table(), expected)
+
+    def assert_response_table_leader_summary_is_present(self) -> None:
+        """responseTable.leaderSummary.presenceRule (追補23): present while
+        phase is SCHEDULING. Checked as a DOM-attachment fact (not merely
+        visibility) -- unaffected by answersOpen/linksOpen (ADR-0062 追補22),
+        which do not exist yet before FINALIZED.
+        """
+        assert_present(self.assertions, self.page, RESPONSE_TABLE_LEADER_SUMMARY)
+
+    def assert_response_table_leader_summary_is_absent(self) -> None:
+        """responseTable.leaderSummary.presenceRule (追補23): absent once
+        phase is SELECTING_SHOP or FINALIZED, regardless of any candidate
+        date's own data-current-leader value. Checked as a DOM-attachment
+        fact (assert_absent's own to_have_count(0)) -- a real absence, not
+        merely hidden behind answersOpen/linksOpen's own disclosure.
+        """
+        assert_absent(self.assertions, self.page, RESPONSE_TABLE_LEADER_SUMMARY)
 
     # organizerDashboard.candidateDateList.removeCandidateDate (ADR-0056
     # decision 2, TDR-GTH-50/51) --------------------------------------------

@@ -765,6 +765,12 @@ class GatheringSchedulingSteps:
     def response_table_matches(self, expected: dict[str, dict[str, str]]) -> None:
         self.dsl.assert_response_table_matches(expected)
 
+    def response_table_leader_summary_is_present(self) -> None:
+        self.dsl.assert_response_table_leader_summary_is_present()
+
+    def response_table_leader_summary_is_absent(self) -> None:
+        self.dsl.assert_response_table_leader_summary_is_absent()
+
     # organizerDashboard.candidateDateList.removeCandidateDate (ADR-0056
     # decision 2, TDR-GTH-50/51) --------------------------------------------
 
