@@ -438,6 +438,32 @@ class GatheringSchedulingSteps:
     ) -> None:
         self.dsl.assert_schedule_question_respondents(candidate_date_id, expected)
 
+    # dayList.sheetOpen / sheetClose (ADR-0061 追補21) -----------------------
+
+    def participant_uses_a_narrow_viewport(self) -> None:
+        self.dsl.use_narrow_participant_viewport()
+
+    def participant_opens_the_day_list_sheet(self) -> None:
+        self.dsl.open_day_list_sheet()
+
+    def participant_closes_the_day_list_sheet(self) -> None:
+        self.dsl.close_day_list_sheet()
+
+    def day_list_is_visible(self) -> None:
+        self.dsl.assert_day_list_is_visible()
+
+    def day_list_is_not_visible(self) -> None:
+        self.dsl.assert_day_list_is_not_visible()
+
+    def day_list_sheet_open_is_present(self) -> None:
+        self.dsl.assert_day_list_sheet_open_is_present()
+
+    def day_list_sheet_close_is_not_offered(self) -> None:
+        self.dsl.assert_day_list_sheet_close_is_not_offered()
+
+    def day_list_sheet_close_is_offered(self) -> None:
+        self.dsl.assert_day_list_sheet_close_is_offered()
+
     def prior_responses_are_retained(self, before: dict[str, dict[str, object]]) -> None:
         self.dsl.assert_answer_state_unchanged(before)
 

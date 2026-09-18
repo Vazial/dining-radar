@@ -457,6 +457,47 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.participant_schedule_progress_is(total=3, answered=3)
         self.steps.screen_has_no_forbidden_controls_or_disclosures()
 
+    def test_gth_participant_day_list_sheet_is_functional_at_narrow_viewport(self) -> None:
+        """UI実装詳細（ADR-0061 追補21、2026-09-18、contractVersion 0.23.1）。
+        dayList.sheetOpen/sheetCloseに専用のTDR-GTH-*シナリオは無い（契約
+        自身の注記）ので、test_gth_participant_day_navigation_is_functional
+        と同じ「専用シナリオの無い契約Must」の扱いでここで直接検査する。
+
+        **経緯（コーディネーター報告）**: この2つのボタンはdayListがスマホ幅で
+        シートとして提示される画面にだけ現れる（sheetOpen/sheetClose.
+        presenceRule）。developerの実装（44px・キーボード到達性の
+        ADR-0020決定4監査、コミット54bf388）が先にtestId/data-gathering-
+        control-purposeを付けたが、この契約が一度もそのpurposeを登録して
+        いなかったため、assert_gathering_screen_has_no_forbidden_surfacesが
+        この画面をスマホ幅で走査すると落ちる状態だった——この受け入れ
+        テストは常にPC幅（CANDIDATE_SEARCH_DESKTOP_TWO_COLUMN_VIEWPORT等）
+        でこの画面を開いていたため、気付けなかった（ADR-0061 追補21で
+        契約側を是正、本テストがスマホ幅を初めて開く）。
+        """
+        self._sign_in()
+        self.steps.organizer_has_a_scheduling_gathering(
+            "会daylistsheet", [self.dsl.days_from_now_iso(3)]
+        )
+        link = self.steps.a_participant_link_is_issued()
+        self.steps.participant_uses_a_narrow_viewport()
+        self.steps.participant_opens_the_link(link)
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+        self.steps.day_list_sheet_open_is_present()
+
+        # sheetOpen.requiredOutcome: "Activating it discloses dayList as a
+        # bottom sheet".
+        self.steps.participant_opens_the_day_list_sheet()
+        self.steps.day_list_is_visible()
+        self.steps.day_list_sheet_close_is_offered()
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+
+        # sheetClose.requiredOutcome: "Activating it hides the bottom sheet
+        # sheetOpen discloses".
+        self.steps.participant_closes_the_day_list_sheet()
+        self.steps.day_list_is_not_visible()
+        self.steps.day_list_sheet_close_is_not_offered()
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+
     def test_tdr_gth_13_guessing_a_token_is_denied_without_disclosure(self) -> None:
         self._sign_in()
         self.steps.organizer_has_a_scheduling_gathering(

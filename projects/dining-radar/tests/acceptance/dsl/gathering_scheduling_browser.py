@@ -428,6 +428,28 @@ DAY_SKIP = "gathering-participant-answer-skip"
 DAY_PREVIOUS = "gathering-participant-answer-previous"
 DAY_LIST = "gathering-participant-day-list"
 DAY_LIST_ITEM = "gathering-participant-day-item"
+# dayList.sheetOpen/sheetClose (ADR-0061 追補21, 2026-09-18, contractVersion
+# 0.23.1): the narrow-width bottom-sheet disclosure/close pair for dayList --
+# present only on the render mode where dayList presents as a bottom sheet
+# (sheetOpen) / only while that sheet is open (sheetClose). A drafting gap
+# this contract itself names (allowedPurposesNoteAdr0061Addendum): developer
+# had already attached data-testid/data-gathering-control-purpose to both
+# for the ADR-0020 decision 4 44px/keyboard-reachability audit before this
+# contract ever registered either purpose, so the cross-cutting
+# "every control declares an allowed purpose" scan failed whenever it ran
+# against the participant screen at a narrow viewport -- this suite had only
+# ever exercised that scan at desktop width, so it never caught it.
+DAY_LIST_SHEET_OPEN = "gathering-participant-day-list-open"
+DAY_LIST_SHEET_CLOSE = "gathering-participant-day-list-close"
+# Duplicated from candidate_search_browser.py's own
+# MOBILE_MAP_PRIMARY_TOUCH_VIEWPORT rather than imported (this pair of DSL
+# files' established precedent -- see CANDIDATE_SEARCH_DESKTOP_TWO_COLUMN_
+# VIEWPORT's own comment below). dayList.sheetOpen/sheetClose's own
+# presenceRule is scoped to "whichever render mode presents dayList as a
+# bottom sheet" without fixing a breakpoint value -- this is simply *a*
+# narrow width, chosen to match the value this codebase already uses
+# elsewhere for the same "definitely narrow" purpose.
+PARTICIPANT_ANSWER_NARROW_VIEWPORT = {"width": 390, "height": 844}
 
 # unavailableControls (both namespaces; gathering-scheduling-browser-interface.yaml).
 # Mirrors candidate_search_browser.py's ALLOWED_CONTROL_PURPOSES /
@@ -509,6 +531,10 @@ GATHERING_ALLOWED_PURPOSES = {
     # own two controls.
     "gathering-participant-link-issue-dialog-copy",
     "gathering-participant-link-issue-dialog-close",
+    # dayList.sheetOpen/sheetClose (ADR-0061 追補21, 2026-09-18, contract
+    # 0.23.1) -- the narrow-width bottom-sheet disclosure/close pair.
+    "gathering-participant-day-list-open",
+    "gathering-participant-day-list-close",
 }
 # unavailableControls.valueEntryControlTestIds (ADR-0039, v0.4): native
 # input/textarea value-entry controls exempt from purpose declaration --
@@ -3034,6 +3060,66 @@ class GatheringSchedulingBrowserDsl:
         self.assertions.assertEqual(
             node.get_attribute(ANSWERED_CANDIDATE_DATES_ATTR), str(answered)
         )
+
+    # dayList.sheetOpen / sheetClose (ADR-0061 追補21, 2026-09-18) -----------
+
+    def use_narrow_participant_viewport(self) -> None:
+        """Pins the viewport to a definitely-narrow width before navigating
+        to the participant screen -- dayList.sheetOpen/sheetClose's own
+        presenceRule only ever renders on "whichever render mode presents
+        dayList as a bottom sheet", which this suite had never actually
+        reached before this method existed (coordinator report, ADR-0061
+        追補21: the acceptance suite only ever opened this screen at desktop
+        width, so the missing allowedPurposes registration this addendum
+        closes went undetected here).
+        """
+        self.page.set_viewport_size(PARTICIPANT_ANSWER_NARROW_VIEWPORT)
+
+    def open_day_list_sheet(self) -> None:
+        """dayList.sheetOpen.requiredOutcome: "Activating it discloses
+        dayList as a bottom sheet"."""
+        by_test_id(self.page, DAY_LIST_SHEET_OPEN).click()
+
+    def close_day_list_sheet(self) -> None:
+        """dayList.sheetClose.requiredOutcome: "Activating it hides the
+        bottom sheet sheetOpen discloses"."""
+        by_test_id(self.page, DAY_LIST_SHEET_CLOSE).click()
+
+    def assert_day_list_is_visible(self) -> None:
+        expect(by_test_id(self.page, DAY_LIST)).to_be_visible()
+
+    def assert_day_list_is_not_visible(self) -> None:
+        """Playwright's own not-visible (attached-but-hidden or fully
+        detached both satisfy this) -- dayList.presenceRule itself is
+        unchanged by this addendum (still "present exactly when
+        ParticipantView.decision is null"), so this checks the bottom
+        sheet's own visual disclosure, not dayList's DOM presence.
+        """
+        expect(by_test_id(self.page, DAY_LIST)).not_to_be_visible()
+
+    def assert_day_list_sheet_open_is_present(self) -> None:
+        assert_present(self.assertions, self.page, DAY_LIST_SHEET_OPEN)
+
+    def assert_day_list_sheet_close_is_not_offered(self) -> None:
+        """sheetClose.presenceRule ("Present only while the bottom sheet ...
+        is currently open"). **Checked via Playwright visibility, not DOM
+        attachment**: the real implementation nests this control inside
+        dayList's own sheet container and hides that whole container via
+        CSS rather than removing it from the DOM (confirmed directly:
+        get_by_test_id still resolves to 1 element, but is_visible() is
+        False) -- a legitimate shape this contract's own requiredOutcome
+        text leaves open ("this contract does not fix modal/drawer/bottom-
+        sheet shape"). Playwright's not_to_be_visible already treats a
+        zero-size/display:none/off-screen element as satisfying this, so it
+        does not fail on this attached-but-hidden shape the way a strict
+        DOM-count check (assert_absent) would.
+        """
+        node = by_test_id(self.page, DAY_LIST_SHEET_CLOSE)
+        if node.count() > 0:
+            expect(node.first).not_to_be_visible()
+
+    def assert_day_list_sheet_close_is_offered(self) -> None:
+        expect(by_test_id(self.page, DAY_LIST_SHEET_CLOSE)).to_be_visible()
 
     def assert_first_reachable_schedule_question_matches_start_at_order(
         self, start_at_isos: list[str]
