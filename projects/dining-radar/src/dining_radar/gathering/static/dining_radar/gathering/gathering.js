@@ -2034,24 +2034,24 @@
     if (searchOrigin) {
       boundsLatLngs.push([searchOrigin.latitude, searchOrigin.longitude]);
     }
-    // Keeps both pins clear of panel's own footprint -- measured, not
-    // guessed, since the panel's own height depends on its content.
-    var fitOptions = { padding: [24, 24] };
+    // Keeps both pins clear of panel's own footprint (PC: left side only,
+    // not its height too) plus a name-tag-width margin on the far side.
+    // maxZoom keeps two close points from zooming in past readable.
+    var fitOptions = { padding: [24, 24], maxZoom: 16 };
     if (panel) {
       var panelRect = panel.getBoundingClientRect();
       var containerRect = container.getBoundingClientRect();
       if (isDesktopDecisionLayout()) {
         fitOptions = {
-          paddingTopLeft: [
-            Math.max(24, panelRect.right - containerRect.left + 16),
-            Math.max(24, panelRect.bottom - containerRect.top + 16),
-          ],
-          paddingBottomRight: [24, 24],
+          paddingTopLeft: [Math.max(24, panelRect.right - containerRect.left + 16), 24],
+          paddingBottomRight: [160, 24],
+          maxZoom: 16,
         };
       } else {
         fitOptions = {
           paddingTopLeft: [24, 24],
           paddingBottomRight: [24, Math.max(24, containerRect.bottom - panelRect.top + 16)],
+          maxZoom: 16,
         };
       }
     }
