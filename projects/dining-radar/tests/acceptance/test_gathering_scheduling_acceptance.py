@@ -1818,6 +1818,40 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.finalized_controls_are_absent()
         self.steps.screen_has_no_forbidden_controls_or_disclosures()
 
+    def test_gth_organizer_decision_answers_and_links_entrance_is_functional(self) -> None:
+        """専用シナリオの無い契約Must（ADR-0062 追補22、2026-09-19、観測面
+        0.24.1）。organizerDashboard.finalizedSummary.answersOpen/linksOpen
+        に専用のTDR-GTH-*シナリオは無い（契約自身の注記）ので、
+        test_gth_participant_day_list_sheet_is_functional_at_narrow_viewport
+        と同じ「専用シナリオの無い契約Must」の扱いでここで直接検査する。
+
+        この契約はタブ形（board G1）と開閉行形（board G2）のどちらの提示に
+        なるかを画面幅で固定しない（no-renderModes流儀）ため、PC幅・スマホ幅
+        いずれで開いても、その場で実際にどちらの形が出ているかを
+        assert_finalized_answers_and_links_entrance_is_functional自身が
+        aria-selected/aria-expandedの実在で判定する——どちらの幅がどちらの
+        形になるかを本テストは仮定しない。
+        """
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = self.dsl.next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会追補22", [thursday])
+        shop_a = self.steps.open_shop_ids_for_the_confirmed_date()[0]
+        self.steps.organizer_shortlists_shops_via_api([shop_a])
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.organizer_selects_a_shop_for_finalize(shop_a)
+        self.steps.organizer_finalizes_via_dashboard()
+
+        self.steps.organizer_uses_a_desktop_viewport()
+        self.dsl.page.reload()
+        self.steps.finalized_answers_and_links_entrance_is_functional("PC幅")
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+
+        self.steps.organizer_uses_a_narrow_viewport()
+        self.dsl.page.reload()
+        self.steps.finalized_answers_and_links_entrance_is_functional("スマホ幅")
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+
     # TDR-GTH-64 (new, ADR-0061決定2, 2026-09-17人間裁定「束Cレイアウト案F2
     # 『空いた所にだれが何と答えたかを名前つきで並べる』」) ------------------
 

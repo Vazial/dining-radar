@@ -711,6 +711,15 @@ class GatheringSchedulingSteps:
     def organizer_decision_map_shows_shop_and_origin_only(self) -> None:
         self.dsl.assert_organizer_decision_map_shows_shop_and_origin_only()
 
+    def organizer_uses_a_desktop_viewport(self) -> None:
+        self.dsl.use_organizer_desktop_viewport()
+
+    def organizer_uses_a_narrow_viewport(self) -> None:
+        self.dsl.use_organizer_narrow_viewport()
+
+    def finalized_answers_and_links_entrance_is_functional(self, context_label: str) -> None:
+        self.dsl.assert_finalized_answers_and_links_entrance_is_functional(context_label)
+
     def participant_view_via_api(self, link: dict[str, str]) -> dict:
         return self.dsl.fetch_participant_view_via_api(link)
 

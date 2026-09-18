@@ -208,6 +208,15 @@ GATHERING_DECISION_SHOP_MAP = "gathering-decision-shop-map"
 GATHERING_DECISION_SHOP_MAP_MARKER = "gathering-decision-shop-map-marker"
 GATHERING_DECISION_SHOP_MAP_ORIGIN_MARKER = "gathering-decision-shop-map-origin-marker"
 GATHERING_DECISION_SHOP_PAGE_LINK = "gathering-decision-shop-page-link"
+# finalizedSummary.answersOpen/linksOpen (ADR-0062 追補22, 2026-09-19,
+# observation 0.24.1): the entrance to responseTable/participantLinkList
+# below once phase is FINALIZED. Present regardless of viewport in both the
+# tab-shaped (aria-selected) and disclosure-row-shaped (aria-expanded)
+# presentations this contract still does not fix by width (no-renderModes
+# convention) -- see assert_finalized_answers_and_links_entrance_is_functional
+# below for the shape-detecting check this ambiguity requires.
+GATHERING_DECISION_ANSWERS_OPEN = "gathering-decision-answers-open"
+GATHERING_DECISION_LINKS_OPEN = "gathering-decision-links-open"
 # participantLinkList.issuanceClosed (ADR-0056 decision 11).
 PARTICIPANT_LINK_ISSUANCE_CLOSED = "gathering-participant-link-issuance-closed"
 # organizerDashboard.responseTable (ADR-0056 decision 1, TDR-GTH-49).
@@ -535,6 +544,12 @@ GATHERING_ALLOWED_PURPOSES = {
     # 0.23.1) -- the narrow-width bottom-sheet disclosure/close pair.
     "gathering-participant-day-list-open",
     "gathering-participant-day-list-close",
+    # finalizedSummary.answersOpen/linksOpen (ADR-0062 追補22, 2026-09-19,
+    # contract 0.24.1) -- the entrance to responseTable/participantLinkList
+    # once phase is FINALIZED, on both the tab-shaped and disclosure-row-
+    # shaped presentations (allowedPurposesNoteAdr0062Addendum).
+    "gathering-decision-answers-open",
+    "gathering-decision-links-open",
 }
 # unavailableControls.valueEntryControlTestIds (ADR-0039, v0.4): native
 # input/textarea value-entry controls exempt from purpose declaration --
@@ -1123,6 +1138,10 @@ class GatheringSchedulingBrowserDsl:
         }
 
     def _read_participant_link_items(self) -> list[dict[str, object]]:
+        # finalizedSummary.linksOpen (ADR-0062 追補22): no-op before
+        # FINALIZED or before this addendum lands -- see
+        # recopy_participant_link_at's own identical guard above.
+        self.ensure_finalized_links_are_open()
         nodes = wait_for_at_least_one(self.page, PARTICIPANT_LINK_ITEM)
         result = []
         for index in range(nodes.count()):
@@ -1246,6 +1265,9 @@ class GatheringSchedulingBrowserDsl:
         scheduleResponses' own "unanswered dates are not included" shape,
         gathering-scheduling-api.yaml).
         """
+        # finalizedSummary.answersOpen (ADR-0062 追補22): no-op before
+        # FINALIZED or before this addendum lands.
+        self.ensure_finalized_answers_are_open()
         rows = wait_for_at_least_one(self.page, RESPONSE_TABLE_ROW)
         result: dict[str, dict[str, str]] = {}
         for row_index in range(rows.count()):
@@ -2133,6 +2155,11 @@ class GatheringSchedulingBrowserDsl:
         return [item["id"] for item in self._read_participant_link_items()]
 
     def recopy_participant_link_at(self, index: int) -> str:
+        # finalizedSummary.linksOpen (ADR-0062 追補22): once FINALIZED,
+        # participantLinkList's own visibility depends on this entrance --
+        # a no-op before FINALIZED or before this addendum lands (TDR-GTH-36
+        # exercises this exact path, recopy after finalize).
+        self.ensure_finalized_links_are_open()
         item = wait_for_at_least_one(self.page, PARTICIPANT_LINK_ITEM).nth(index)
         recopy = by_test_id(item, PARTICIPANT_LINK_RECOPY)
         expect(recopy).to_be_enabled()
@@ -3912,6 +3939,128 @@ class GatheringSchedulingBrowserDsl:
         self.assertions.assertEqual(map_node.get_attribute("data-overlay-ring-count"), "0")
         assert_present(self.assertions, self.page, GATHERING_DECISION_SHOP_MAP_MARKER)
         assert_present(self.assertions, self.page, GATHERING_DECISION_SHOP_MAP_ORIGIN_MARKER)
+
+    # finalizedSummary.answersOpen/linksOpen (ADR-0062 追補22, 2026-09-19,
+    # observation 0.24.1) -- the entrance to responseTable/participantLinkList
+    # once phase is FINALIZED. No dedicated TDR-GTH-6x scenario names this
+    # Must (the contract's own note) -- verified directly the same way
+    # dayList.sheetOpen/sheetClose above already is for a contract Must with
+    # no scenario of its own. -----------------------------------------------
+
+    def _read_disclosure_state(self, node: Locator) -> str | None:
+        """Reads whichever of aria-selected/aria-expanded this control
+        actually carries -- this contract does not fix which of the two
+        shapes (tab-shaped/board G1 vs disclosure-row-shaped/board G2) a
+        given viewport renders (no-renderModes convention), so callers
+        detect the shape from the attribute actually present rather than
+        assuming one from viewport width.
+        """
+        return node.get_attribute("aria-selected") or node.get_attribute("aria-expanded")
+
+    def ensure_finalized_answers_are_open(self) -> None:
+        """Idempotent Given-state helper for callers that only need
+        responseTable visible once FINALIZED and do not themselves care
+        about answersOpen/linksOpen's own state machine (e.g. TDR-GTH-49's
+        own response_table_matches, TDR-GTH-36's own recopy-after-finalize
+        check, once either is exercised after finalizing). Clicks
+        answersOpen only if it is not already the selected/expanded one --
+        safe regardless of which presentation is currently rendered and
+        regardless of whether it is already open. A no-op before FINALIZED
+        (answersOpen.presenceRule) or before this addendum lands.
+        """
+        control = self.page.locator(f'[data-testid="{GATHERING_DECISION_ANSWERS_OPEN}"]')
+        if control.count() == 0:
+            return
+        if self._read_disclosure_state(control.first) != "true":
+            control.first.click()
+
+    def ensure_finalized_links_are_open(self) -> None:
+        """Symmetric with ensure_finalized_answers_are_open above -- used by
+        callers that read participantLinkList once phase is FINALIZED."""
+        control = self.page.locator(f'[data-testid="{GATHERING_DECISION_LINKS_OPEN}"]')
+        if control.count() == 0:
+            return
+        if self._read_disclosure_state(control.first) != "true":
+            control.first.click()
+
+    def assert_finalized_answers_and_links_entrance_is_functional(self, context_label: str) -> None:
+        """answersOpen/linksOpen.requirement (ADR-0062 追補22): self-detects
+        which of the two shapes is currently rendered (see
+        _read_disclosure_state above) and asserts that shape's own Must.
+
+        Tab-shaped (board G1): answersOpen/linksOpen are mutually exclusive
+        (aria-selected), answersOpen starts selected -- responseTable
+        visible, participantLinkList not visible. Activating linksOpen
+        flips both tabs' aria-selected and swaps which table is visible.
+
+        Disclosure-row-shaped (board G2): both rows start aria-expanded
+        "false" -- neither table visible. Activating either row affects
+        only that row's own aria-expanded/table visibility, independently
+        of the other (opening links does not close answers, and vice
+        versa).
+        """
+        answers_open = assert_present(self.assertions, self.page, GATHERING_DECISION_ANSWERS_OPEN)
+        links_open = assert_present(self.assertions, self.page, GATHERING_DECISION_LINKS_OPEN)
+        is_tab_shaped = (
+            answers_open.get_attribute("aria-selected") is not None
+            or links_open.get_attribute("aria-selected") is not None
+        )
+        if is_tab_shaped:
+            self.assertions.assertEqual(
+                answers_open.get_attribute("aria-selected"), "true", context_label
+            )
+            self.assertions.assertEqual(
+                links_open.get_attribute("aria-selected"), "false", context_label
+            )
+            expect(by_test_id(self.page, RESPONSE_TABLE)).to_be_visible()
+            expect(by_test_id(self.page, PARTICIPANT_LINK_LIST)).not_to_be_visible()
+
+            links_open.click()
+            expect(links_open).to_have_attribute("aria-selected", "true")
+            expect(answers_open).to_have_attribute("aria-selected", "false")
+            expect(by_test_id(self.page, PARTICIPANT_LINK_LIST)).to_be_visible()
+            expect(by_test_id(self.page, RESPONSE_TABLE)).not_to_be_visible()
+        else:
+            self.assertions.assertEqual(
+                answers_open.get_attribute("aria-expanded"), "false", context_label
+            )
+            self.assertions.assertEqual(
+                links_open.get_attribute("aria-expanded"), "false", context_label
+            )
+            expect(by_test_id(self.page, RESPONSE_TABLE)).not_to_be_visible()
+            expect(by_test_id(self.page, PARTICIPANT_LINK_LIST)).not_to_be_visible()
+
+            answers_open.click()
+            expect(answers_open).to_have_attribute("aria-expanded", "true")
+            expect(by_test_id(self.page, RESPONSE_TABLE)).to_be_visible()
+            self.assertions.assertEqual(
+                links_open.get_attribute("aria-expanded"), "false", context_label
+            )
+            expect(by_test_id(self.page, PARTICIPANT_LINK_LIST)).not_to_be_visible()
+
+            links_open.click()
+            expect(links_open).to_have_attribute("aria-expanded", "true")
+            expect(by_test_id(self.page, PARTICIPANT_LINK_LIST)).to_be_visible()
+            # independent rows: opening links does not close the answers row
+            expect(answers_open).to_have_attribute("aria-expanded", "true")
+            expect(by_test_id(self.page, RESPONSE_TABLE)).to_be_visible()
+
+    def use_organizer_desktop_viewport(self) -> None:
+        """Reuses candidate_search_browser.py's own desktop-two-column width
+        (this file's existing CANDIDATE_SEARCH_DESKTOP_TWO_COLUMN_VIEWPORT
+        constant, not a newly invented breakpoint) as *a* definitely-wide
+        viewport for organizerDashboard -- this contract does not fix which
+        width selects the tab-shaped presentation.
+        """
+        self.page.set_viewport_size(CANDIDATE_SEARCH_DESKTOP_TWO_COLUMN_VIEWPORT)
+
+    def use_organizer_narrow_viewport(self) -> None:
+        """Reuses PARTICIPANT_ANSWER_NARROW_VIEWPORT (this file's existing
+        definitely-narrow constant, not a newly invented breakpoint) for
+        organizerDashboard -- this contract does not fix which width selects
+        the disclosure-row-shaped presentation.
+        """
+        self.page.set_viewport_size(PARTICIPANT_ANSWER_NARROW_VIEWPORT)
 
     def assert_participant_decision_has_no_shop_breakdown(self) -> None:
         """TDR-GTH-34's simplified Then ("店ごとの回答の一覧は示されない",
