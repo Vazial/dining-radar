@@ -1237,11 +1237,28 @@
   overflow: hidden;
   background: #eaf0ea;
 }
+/* 2026-09-19 fix (real render-invariant finding, L5): gth-bottom-bar's own
+   rendered height is a button (.gth-btn's 2.75rem floor) plus its own
+   0.625rem top/bottom padding -- 4.25rem, rounded up for the border/
+   line-height slack. gth-shop-panel's own `bottom` offset below must clear
+   that whole height, or the bar (a later sibling painted on top,
+   z-index: 3) physically covers -- and intercepts every pointer event
+   aimed at -- whatever row that overlap lands on (gathering-finalize-
+   shop-select's own row, real-machine measurement: Playwright's
+   scrollIntoView left that row's bottom edge flush with the bar, "the
+   div.gth-bottom-bar subtree intercepts pointer events"). This is
+   .gth-bottom-bar's own height, not a copy of some other rule's number --
+   kept as a plain literal per this file's existing no-custom-properties
+   convention, cross-referenced here and at .gth-bottom-bar/.gth-shop-panel
+   itself so the three stay in sync if the bar's own padding/button floor
+   ever changes. */
 .gth-shop-panel {
   position: absolute;
   left: 1rem;
   top: 1rem;
-  bottom: 1rem;
+  /* 1rem original gap + 4.25rem to clear gth-bottom-bar (see comment
+     above). */
+  bottom: 5.25rem;
   width: min(28rem, calc(100% - 2rem));
   background: #fff;
   border-radius: 0.875rem;
@@ -1264,7 +1281,9 @@
 /* Board D2 (ADR-0062 decision 2): the bottom-of-screen action bar every
    confirm-selection flow on this pane shares -- geometry only, the
    disabledState Must itself is unchanged (finalizeOpen's own `disabled`
-   attribute above). */
+   attribute above). Own rendered height: 4.25rem (see gth-shop-panel's own
+   comment above -- a .gth-btn's 2.75rem floor plus this rule's own
+   0.625rem top/bottom padding). */
 .gth-bottom-bar {
   position: absolute;
   left: 0;
@@ -1276,7 +1295,15 @@
   box-shadow: 0 -0.25rem 0.75rem rgba(23, 32, 27, 0.08);
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  /* Board D2 (party2/d2/D2-a-*) shows exactly two children here (status
+     text + the one primary button) and lays them out with
+     justify-content: space-between -- shopSelectionEntry.open ("店を絞り
+     なおす") is not one of them (moved to gth-shop-panel's own head row,
+     see renderShortlistedShopVotes' own 2026-09-19 comment: three flex
+     children here left the status text too little width, wrapping it
+     across many lines and ballooning this bar's own height well past the
+     clearance below). */
+  justify-content: space-between;
   gap: 1rem;
   padding: 0.625rem 1.25rem;
   z-index: 3;
@@ -1285,15 +1312,27 @@
   font-size: 0.8125rem;
   font-weight: 700;
   color: #17201b;
-  margin-right: auto;
   overflow-wrap: anywhere;
 }
 @media (max-width: 47.9375rem) {
+  /* Narrow layouts also have organizer_primary_nav.html's own real,
+     viewport-fixed mobile bottom bar (.primary-nav-bar, z-index: 30 --
+     above this pane's own z-index: 2/3 stack) below this pane -- board
+     D2's own request that gth-bottom-bar sit 「下部ナビのすぐ上」, not
+     underneath it. .primary-nav-bar's own rendered height: 3.25rem
+     (.primary-nav-bar-link's own min-height) plus its 1px top border,
+     rounded up to 3.5rem here for the same slack gth-bottom-bar's own
+     4.25rem above already allows. */
+  .gth-bottom-bar {
+    bottom: 3.5rem;
+  }
   .gth-shop-panel {
     left: 0;
     right: 0;
     top: auto;
-    bottom: 0;
+    /* 3.5rem to clear .primary-nav-bar + 4.25rem to clear the
+       now-elevated gth-bottom-bar (both comments above). */
+    bottom: 7.75rem;
     width: auto;
     max-height: 65%;
     border-radius: 1.125rem 1.125rem 0 0;

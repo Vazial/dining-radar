@@ -1702,10 +1702,29 @@
     );
     pendingShortlistedShopMap = { container: mapContainer, shops: shops };
 
+    // **Fixed 2026-09-19 (real render-invariant finding, L5)**: board D1/D2
+    // show exactly two children in gth-bottom-bar (status text + the one
+    // primary button) -- shopSelectionEntry.open ("店を絞りなおす") never
+    // appears there. An earlier revision added it to the bar as a third
+    // child anyway; at narrow widths the two buttons alone left the status
+    // text (no white-space:nowrap, unlike a button) only ~70px of flex
+    // space, wrapping it across 8+ lines and inflating the bar to ~290px
+    // tall -- three times this file's own reserved clearance below,
+    // reproducing the exact defect this fix closes (a shop row's own
+    // finalizeSelect radio hidden under the inflated bar). Moved into the
+    // panel's own head row instead (shopSelectionEntry.open's own
+    // presenceRule -- present throughout SELECTING_SHOP -- is unaffected,
+    // only its position on screen changes, geometry this contract does not
+    // fix).
     var panel = el("div", { class: "gth-shop-panel" }, [
-      el("div", { class: "gth-pane-head" }, [
-        "店の候補 " + shops.length + "件",
-        el("span", { class: "gth-pane-sub" }, ["回答 " + respondedCount + "人"]),
+      el("div", { class: "gth-pane-head-row" }, [
+        el("div", { class: "gth-pane-head" }, [
+          "店の候補 " + shops.length + "件",
+          el("span", { class: "gth-pane-sub" }, ["回答 " + respondedCount + "人"]),
+        ]),
+        phase === "SELECTING_SHOP"
+          ? renderShopSelectionEntry("店を絞りなおす", "gth-btn gth-btn-small")
+          : null,
       ]),
       list,
     ]);
@@ -1713,34 +1732,28 @@
     var stageChildren = [mapContainer, panel];
 
     if (phase === "SELECTING_SHOP") {
-      var actions = [renderShopSelectionEntry("店を絞りなおす", "gth-btn")];
-      if (shops.length > 0) {
-        var selectedShop = shops.filter(function (shop) {
-          return shop.shopId === state.finalizeSelectedShopId;
-        })[0];
-        actions.push(
-          el("div", { class: "gth-bottom-bar-status" }, [
-            selectedShop ? selectedShop.name + " を選んでいます" : "確定する店を選んでください",
-          ])
-        );
-        var finalizeOpen = el(
-          "button",
-          {
-            type: "button",
-            "data-testid": "gathering-finalize-open",
-            "data-gathering-control-purpose": "gathering-finalize-open",
-            disabled: !state.finalizeSelectedShopId,
-            class: "gth-btn gth-btn-primary",
-          },
-          ["この店で確定"]
-        );
-        finalizeOpen.addEventListener("click", openFinalizeGathering);
-        actions.push(finalizeOpen);
-      }
+      var selectedShop = shops.filter(function (shop) {
+        return shop.shopId === state.finalizeSelectedShopId;
+      })[0];
+      var status = el("div", { class: "gth-bottom-bar-status" }, [
+        selectedShop ? selectedShop.name + " を選んでいます" : "確定する店を選んでください",
+      ]);
+      var finalizeOpen = el(
+        "button",
+        {
+          type: "button",
+          "data-testid": "gathering-finalize-open",
+          "data-gathering-control-purpose": "gathering-finalize-open",
+          disabled: !state.finalizeSelectedShopId,
+          class: "gth-btn gth-btn-primary",
+        },
+        ["この店で確定"]
+      );
+      finalizeOpen.addEventListener("click", openFinalizeGathering);
       // Board D2 (ADR-0062 decision 2, contract-unchanged: the existing
       // disabledState above already satisfies "選ぶ前は押せない", only the
       // bottom-bar position is new): 画面の下に貼り付けた帯.
-      stageChildren.push(el("div", { class: "gth-bottom-bar" }, actions));
+      stageChildren.push(el("div", { class: "gth-bottom-bar" }, [status, finalizeOpen]));
 
       if (state.finalizeConfirmOpen) {
         // gth-modal-backdrop: a plain, purposeless scrim behind the
