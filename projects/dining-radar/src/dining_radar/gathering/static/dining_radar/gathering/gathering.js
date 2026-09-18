@@ -1693,7 +1693,9 @@
           rel: "noopener noreferrer",
           class: "gth-shop-link",
         },
-        ["店のページを見る"]
+        // Board's own shorter label -- frees width for gth-shop-body on
+        // narrow layouts (this contract does not fix this link's text).
+        ["店のページ ↗"]
       )
     );
     return el("div", attrs, children);

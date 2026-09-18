@@ -2432,6 +2432,56 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         )
         expect(by_test_id(self.page, "gathering-finalize-open")).to_have_count(0)
 
+    def test_e_gathering_dashboard_shortlisted_shop_panel_paints_above_the_map(self) -> None:
+        """Real-machine finding: gth-shop-map (position: absolute) needs its
+        own explicit z-index to establish a stacking context that contains
+        Leaflet's internal panes (up to z-index 700) -- without one, a click/
+        elementFromPoint check still passes (Leaflet's panes carry
+        pointer-events: none and are shrink-to-fit zero-size boxes, so they
+        are never the hit target either way) even though the map can paint
+        over the floating list. Checks the actual stacking levels instead.
+        """
+        self._sign_in_as_organizer()
+        gathering_id = self._create_gathering_via_ui("地図と一覧の重なりの確認会")
+        by_test_id(self.page, "gathering-candidate-date").click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        self._seed_one_shortlisted_shop(gathering_id)
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+        styles = self.page.evaluate(
+            """
+            () => {
+              const cs = (el) => el ? getComputedStyle(el) : null;
+              const shopMap = document.querySelector('.gth-shop-map');
+              const panel = document.querySelector('.gth-shop-panel');
+              return {
+                mapZIndex: cs(shopMap) ? cs(shopMap).zIndex : null,
+                mapPosition: cs(shopMap) ? cs(shopMap).position : null,
+                panelZIndex: cs(panel) ? cs(panel).zIndex : null,
+              };
+            }
+            """
+        )
+        self.assertEqual(styles["mapPosition"], "absolute")
+        self.assertNotEqual(
+            styles["mapZIndex"],
+            "auto",
+            "gth-shop-map must set an explicit z-index (not auto) so its "
+            "position: absolute establishes its own stacking context -- "
+            "otherwise Leaflet's internal panes (tile/marker/tooltip/popup "
+            "panes carry z-index up to 700) are free to compare directly "
+            "against gth-shop-panel's own z-index instead of staying "
+            "contained beneath the map as a whole",
+        )
+        self.assertLess(
+            int(styles["mapZIndex"]),
+            int(styles["panelZIndex"]),
+            "gth-shop-map's own stacking level "
+            f"({styles['mapZIndex']}) must sit below gth-shop-panel's "
+            f"({styles['panelZIndex']}) so the floating list always paints "
+            "above the map, matching every board frame (party2/d2/D1-a-*)",
+        )
+
     def test_e_gathering_dashboard_finalize_confirmation_meets_44px_minimum_target(self) -> None:
         self._sign_in_as_organizer()
         for width, height, label in GATHERING_CONTROL_SIZE_VIEWPORTS:

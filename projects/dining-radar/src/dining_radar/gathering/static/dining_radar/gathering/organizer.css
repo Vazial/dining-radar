@@ -176,17 +176,10 @@
   border-color: #14614a;
 }
 
-/* Native checkbox/radio: the first of these in this whole product
-   (base.html's own blanket `input { width:100%; min-height:2.75rem; ... }`
-   rule -- meant for text inputs -- would otherwise render a full-width,
-   deformed checkbox/radio). Sized to the same 44px tap-target minimum as
-   every button on this screen (larger than the design canvases' own 24px
-   `.cb` icon, a deliberate adaptation for an unambiguous tap target given
-   this pass may not add a wrapping <label> to grow the hit area without
-   changing DOM structure). `accent-color` tints the native control green
-   without needing a custom-drawn replacement. */
-.gth-checkbox,
-.gth-radio {
+/* Native checkbox (base.html's own blanket `input { width:100%; ... }`
+   rule would otherwise deform it): 44px tap target, accent-color tints
+   it without a custom-drawn replacement. */
+.gth-checkbox {
   width: 2.75rem;
   height: 2.75rem;
   min-width: 2.75rem;
@@ -194,6 +187,42 @@
   accent-color: #14614a;
   cursor: pointer;
   flex-shrink: 0;
+}
+/* Board draws a ~28px ring, not a 44px circle -- keep the input's own box
+   at 2.75rem (tap target) and shrink only the visible ::before ring. */
+.gth-radio {
+  appearance: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  min-width: 2.75rem;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  position: relative;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.gth-radio::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 1.75rem;
+  height: 1.75rem;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 1.5px solid #a7b0a8;
+  background: #fff;
+  box-sizing: border-box;
+}
+.gth-radio:checked::before {
+  border: 7px solid #14614a;
+}
+.gth-radio:focus-visible {
+  outline: 2px solid #14614a;
+  outline-offset: 2px;
 }
 
 .gth-error,
@@ -1253,9 +1282,13 @@
   min-height: 26rem;
   height: 32rem;
 }
+/* An explicit z-index makes this establish its own stacking context, so
+   Leaflet's own panes (up to z-index 700) stay contained beneath it
+   instead of comparing directly against gth-shop-panel's z-index. */
 .gth-shop-map {
   position: absolute;
   inset: 0;
+  z-index: 0;
   box-sizing: border-box;
   border: 0;
   border-radius: 0;
@@ -1369,8 +1402,27 @@
        now-elevated gth-bottom-bar (both comments above). */
     bottom: 7.75rem;
     width: auto;
-    max-height: 65%;
+    /* Board's own mobile frame (party2/d2/D1-a-SpShops) leaves the map's
+       upper half visible above this sheet, not just a sliver. */
+    max-height: 50%;
     border-radius: 1.125rem 1.125rem 0 0;
+    padding-top: 0.625rem;
+  }
+  /* Board's own sheet handle -- purely decorative, no testid/purpose. */
+  .gth-shop-panel::before {
+    content: "";
+    align-self: center;
+    width: 2.25rem;
+    height: 0.25rem;
+    border-radius: 999px;
+    background: #c6cfc6;
+    margin-bottom: 0.375rem;
+    flex-shrink: 0;
+  }
+  /* Narrow layouts need every spare pixel back for gth-shop-body. */
+  .gth-shop-row {
+    gap: 0.4rem;
+    padding: 0.375rem 0.5rem;
   }
 }
 
@@ -1465,6 +1517,13 @@
 }
 .gth-shop-link:hover {
   background: #f7fbf8;
+}
+@media (max-width: 47.9375rem) {
+  /* gth-shop-body needs every spare pixel at this width -- see
+     gth-shop-row's own equivalent trim above. */
+  .gth-shop-link {
+    padding: 0 0.5rem;
+  }
 }
 
 /* **Fixed 2026-09-19 (board party2/d2/D1-a-* comparison)**: replaces the
