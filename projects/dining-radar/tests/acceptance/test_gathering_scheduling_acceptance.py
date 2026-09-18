@@ -1,4 +1,4 @@
-"""JS-capable browser/API L4 runner for TDR-GTH-01 through TDR-GTH-56.
+"""JS-capable browser/API L4 runner for TDR-GTH-01 through TDR-GTH-63.
 
 gathering-scheduling-browser-interface.yaml's own profiles.localAcceptance
 marks only TDR-GTH-13 (token guessing is API-level fuzzing, not a browser
@@ -68,6 +68,24 @@ with the two controls it exercised (decision 3) and replaced by
 test_gth_participant_day_navigation_is_functional, the same "contract Must
 with no dedicated scenario" precedent, now covering daySkip/dayPrevious/
 dayList/auto-advance instead. New: TDR-GTH-64 (decision 2, respondentList).
+
+TDR-GTH-07/43/57..63 (ADR-0060, 2026-09-16, gathering-scheduling-browser-
+interface.yaml 0.22.0 / gathering-scheduling-api.yaml v0.16.0): candidate
+dates are ordered by startAt ascending (開催日の早い順), replacing adr/0048's
+goingCount-descending rule (TDR-GTH-07 rewritten, TDR-GTH-43's own assertion
+is unchanged but now checks the primary rule, not a tie-break); a Saturday,
+Sunday, or Japan public holiday can no longer be a candidate date, enforced
+by createGathering/addCandidateDates with the new CANDIDATE_DATE_NOT_A_
+BUSINESS_DAY code (TDR-GTH-57/58); and gathering-candidate-date/
+scheduleQuestion.tally gain a data-current-leader attribute computed by a
+two-level goingCount-then-maybeCount cascade, mirrored unchanged to the
+participant side (TDR-GTH-59..63). organizerGatheringCreate's own "つくる"
+is now open-then-confirm (gathering-create-review-open/-dialog/-cancel,
+ADR-0060 decision 5) -- create_prepared_gathering_via_browser and
+test_tdr_gth_23 below are rewritten to match; gathering-create-submit and
+gathering-create-candidate-date-remove-selected keep their existing test
+ids/purposes, only their DOM home and requirement (remove-selected is now
+scoped to the dialog's own currently-displayed month) changed.
 """
 
 from __future__ import annotations
@@ -80,8 +98,7 @@ from playwright.sync_api import sync_playwright
 from tests.acceptance.dsl.gathering_scheduling_browser import (
     OPEN_SHOP_COUNT_BY_WEEKDAY,
     GatheringSchedulingBrowserDsl,
-    days_from_now_iso,
-    next_weekday_iso,
+    next_fixed_public_holiday_on_weekday_iso,
 )
 from tests.acceptance.steps.gathering_scheduling_steps import GatheringSchedulingSteps
 
@@ -143,7 +160,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         self.steps.organizer_prepares_a_gathering(
-            "第7回 社内ランチ会", [days_from_now_iso(3), days_from_now_iso(10)]
+            "第7回 社内ランチ会", [self.dsl.days_from_now_iso(3), self.dsl.days_from_now_iso(10)]
         )
         self.steps.organizer_creates_the_gathering()
         self.steps.gathering_is_created_in_scheduling_phase()
@@ -161,7 +178,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         addCandidateDates now drives this same flow (a batch of one).
         """
         self._sign_in()
-        self.steps.organizer_has_a_scheduling_gathering("会2", [days_from_now_iso(3)])
+        self.steps.organizer_has_a_scheduling_gathering("会2", [self.dsl.days_from_now_iso(3)])
         self.steps.organizer_opens_the_dashboard()
         before_dates = self.steps.candidate_dates_snapshot()
         self.steps.organizer_opens_the_add_candidate_date_form()
@@ -170,7 +187,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         # while gathering-add-candidate-date-form/-input -- the very controls
         # that motivated ADR-0039 -- actually existed in the DOM.
         self.steps.screen_has_no_forbidden_controls_or_disclosures()
-        new_date_iso = days_from_now_iso(20)
+        new_date_iso = self.dsl.days_from_now_iso(20)
         response = self.steps.organizer_submits_the_add_candidate_date_form([new_date_iso])
         self.steps.new_candidate_dates_are_added_via_inline_form(
             response, before_dates, "SCHEDULING"
@@ -188,7 +205,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         clipboard assertion at all -- PR #196監査Minor, ADR-0061未決事項2).
         """
         self._sign_in()
-        self.steps.organizer_has_a_scheduling_gathering("会3", [days_from_now_iso(3)])
+        self.steps.organizer_has_a_scheduling_gathering("会3", [self.dsl.days_from_now_iso(3)])
         self.steps.organizer_opens_the_dashboard()
         first_link = self.steps.organizer_issues_and_copies_a_participant_link_via_dialog()
         second_link = self.steps.organizer_issues_a_participant_link()
@@ -202,7 +219,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
 
     def test_tdr_gth_04_participant_answers_without_a_name(self) -> None:
         self._sign_in()
-        self.steps.organizer_has_a_scheduling_gathering("会4", [days_from_now_iso(3)])
+        self.steps.organizer_has_a_scheduling_gathering("会4", [self.dsl.days_from_now_iso(3)])
         link = self.steps.a_participant_link_is_issued()
         self.steps.participant_opens_the_link(link)
         self.steps.participant_answers_the_first_candidate_date("GOING")
@@ -212,7 +229,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
 
     def test_tdr_gth_05_participant_attaches_a_name_later(self) -> None:
         self._sign_in()
-        self.steps.organizer_has_a_scheduling_gathering("会5", [days_from_now_iso(3)])
+        self.steps.organizer_has_a_scheduling_gathering("会5", [self.dsl.days_from_now_iso(3)])
         link, candidate_date_id = self.steps.a_participant_has_already_answered_one_candidate_date(
             "GOING"
         )
@@ -227,7 +244,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
     def test_tdr_gth_06_participant_can_always_change_the_answer(self) -> None:
         self._sign_in()
         self.steps.organizer_has_a_scheduling_gathering(
-            "会6", [days_from_now_iso(3), days_from_now_iso(10)]
+            "会6", [self.dsl.days_from_now_iso(3), self.dsl.days_from_now_iso(10)]
         )
         candidate_date_id = self.dsl.candidate_date_id_at(0)
         link = self.steps.a_participant_link_is_issued()
@@ -245,12 +262,23 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.participant_header_shows_gathering_phase("SELECTING_SHOP")
 
     def test_tdr_gth_07_organizer_sees_two_distinct_denominators(self) -> None:
+        """**Rewritten 2026-09-16 (ADR-0060 decision 6, human decision: 候補日
+        は日付順)**: candidate_date_a is given the *later* startAt and
+        candidate_date_b the *earlier* one (reversed from this test's own
+        pre-ADR-0060 shape, where candidate_date_a's larger goingCount used
+        to place it first) -- deliberately proving the list's order now
+        tracks startAt, not goingCount: candidate_date_a still accumulates
+        strictly more responses than candidate_date_b below, so a list still
+        ordered by goingCount descending would show candidate_date_a first,
+        while the date-ordered list this scenario now asserts shows it
+        second.
+        """
         self._sign_in()
-        self.steps.organizer_has_a_scheduling_gathering(
-            "会7", [days_from_now_iso(3), days_from_now_iso(10)]
-        )
-        candidate_date_a = self.dsl.candidate_date_id_at(0)
-        candidate_date_b = self.dsl.candidate_date_id_at(1)
+        earlier_iso = self.dsl.days_from_now_iso(3)
+        later_iso = self.dsl.days_from_now_iso(10)
+        self.steps.organizer_has_a_scheduling_gathering("会7", [earlier_iso, later_iso])
+        candidate_date_b = self.dsl.candidate_date_id_at(0)  # earlier_iso
+        candidate_date_a = self.dsl.candidate_date_id_at(1)  # later_iso, more responses below
         link_one = self.steps.a_participant_link_is_issued()
         self.steps.participant_opens_the_link(link_one)
         self.steps.participant_answers_the_candidate_date(candidate_date_a, "GOING")
@@ -263,7 +291,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.unanswered_summary_is(total_issued=3, revoked=0, active_issued=3, unanswered=1)
         self.steps.candidate_date_tally_is(candidate_date_a, going=1, maybe=1, not_going=0)
         self.steps.candidate_date_tally_is(candidate_date_b, going=0, maybe=1, not_going=0)
-        self.steps.candidate_dates_are_ordered_by_going_count_descending()
+        self.steps.candidate_date_order_matches_start_at_order([earlier_iso, later_iso])
 
     def test_tdr_gth_08_organizer_previews_open_shops_for_a_tentative_date(self) -> None:
         """**Rewritten 2026-09-09 (adr/0049 decision 2, 2026-09-08 human
@@ -273,8 +301,8 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        monday = next_weekday_iso(0)
-        other_day = days_from_now_iso(45)
+        monday = self.dsl.next_weekday_iso(0)
+        other_day = self.dsl.days_from_now_iso(45)
         self.steps.organizer_has_a_scheduling_gathering("会8", [monday, other_day])
         self.steps.organizer_opens_the_dashboard()
         candidate_date_id = self.dsl.candidate_date_id_at(0)
@@ -296,7 +324,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        wednesday = next_weekday_iso(2)
+        wednesday = self.dsl.next_weekday_iso(2)
         self.steps.organizer_has_a_scheduling_gathering("会9", [wednesday])
         link = self.steps.a_participant_link_is_issued()
         self.steps.participant_opens_the_link(link)
@@ -309,7 +337,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
     def test_tdr_gth_10_organizer_confirms_a_candidate_date(self) -> None:
         self._sign_in()
         self.steps.organizer_has_a_scheduling_gathering(
-            "会10", [days_from_now_iso(3), days_from_now_iso(10)]
+            "会10", [self.dsl.days_from_now_iso(3), self.dsl.days_from_now_iso(10)]
         )
         candidate_date_a = self.dsl.candidate_date_id_at(0)
         candidate_date_b = self.dsl.candidate_date_id_at(1)
@@ -332,7 +360,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
     def test_tdr_gth_11_responses_continue_after_a_date_is_selected(self) -> None:
         self._sign_in()
         self.steps.organizer_has_a_scheduling_gathering(
-            "会11", [days_from_now_iso(3), days_from_now_iso(10)]
+            "会11", [self.dsl.days_from_now_iso(3), self.dsl.days_from_now_iso(10)]
         )
         candidate_date_a = self.dsl.candidate_date_id_at(0)
         candidate_date_b = self.dsl.candidate_date_id_at(1)
@@ -357,7 +385,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         visible (unchanged) once link_b does answer.
         """
         self._sign_in()
-        self.steps.organizer_has_a_scheduling_gathering("会12", [days_from_now_iso(3)])
+        self.steps.organizer_has_a_scheduling_gathering("会12", [self.dsl.days_from_now_iso(3)])
         candidate_date_id = self.dsl.candidate_date_id_at(0)
         link_a = self.steps.a_participant_link_is_issued()
         self.steps.participant_opens_the_link(link_a)
@@ -431,14 +459,16 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
 
     def test_tdr_gth_13_guessing_a_token_is_denied_without_disclosure(self) -> None:
         self._sign_in()
-        self.steps.organizer_has_a_scheduling_gathering("秘密の会13", [days_from_now_iso(3)])
+        self.steps.organizer_has_a_scheduling_gathering(
+            "秘密の会13", [self.dsl.days_from_now_iso(3)]
+        )
         self.steps.a_participant_link_is_issued()
         response = self.steps.someone_guesses_a_token_and_requests_the_participant_view()
         self.steps.access_is_denied_without_disclosure(response)
 
     def test_tdr_gth_14_expired_link_cannot_be_used(self) -> None:
         self._sign_in()
-        self.steps.organizer_has_a_scheduling_gathering("会14", [days_from_now_iso(3)])
+        self.steps.organizer_has_a_scheduling_gathering("会14", [self.dsl.days_from_now_iso(3)])
         link = self.steps.a_participant_link_is_issued()
         self.steps.link_is_seeded_as_expired(link)
         self.steps.participant_opens_the_link(link)
@@ -446,7 +476,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
 
     def test_tdr_gth_15_rate_limited_response_does_not_lose_prior_answers(self) -> None:
         self._sign_in()
-        self.steps.organizer_has_a_scheduling_gathering("会15", [days_from_now_iso(3)])
+        self.steps.organizer_has_a_scheduling_gathering("会15", [self.dsl.days_from_now_iso(3)])
         link, candidate_date_id = self.steps.a_participant_has_already_answered_one_candidate_date(
             "GOING"
         )
@@ -457,7 +487,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
 
     def test_tdr_gth_16_organizer_reviews_the_issued_link_list(self) -> None:
         self._sign_in()
-        self.steps.organizer_has_a_scheduling_gathering("会16", [days_from_now_iso(3)])
+        self.steps.organizer_has_a_scheduling_gathering("会16", [self.dsl.days_from_now_iso(3)])
         self.steps.organizer_opens_the_dashboard()
         links = self.steps.organizer_issues_participant_links(3)
         candidate_date_id = self.dsl.candidate_date_id_at(0)
@@ -476,7 +506,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
 
     def test_tdr_gth_17_organizer_recopies_a_link(self) -> None:
         self._sign_in()
-        self.steps.organizer_has_a_scheduling_gathering("会17", [days_from_now_iso(3)])
+        self.steps.organizer_has_a_scheduling_gathering("会17", [self.dsl.days_from_now_iso(3)])
         self.steps.organizer_opens_the_dashboard()
         link = self.steps.organizer_issues_a_participant_link()
         before = self.steps.unanswered_summary_snapshot()
@@ -487,7 +517,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
 
     def test_tdr_gth_18_revoking_an_unanswered_link_reduces_the_denominator(self) -> None:
         self._sign_in()
-        self.steps.organizer_has_a_scheduling_gathering("会18", [days_from_now_iso(3)])
+        self.steps.organizer_has_a_scheduling_gathering("会18", [self.dsl.days_from_now_iso(3)])
         self.steps.organizer_opens_the_dashboard()
         self.steps.organizer_issues_a_participant_link()
         before = self.steps.unanswered_summary_snapshot()
@@ -499,7 +529,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
 
     def test_tdr_gth_19_revoked_link_cannot_be_used(self) -> None:
         self._sign_in()
-        self.steps.organizer_has_a_scheduling_gathering("会19", [days_from_now_iso(3)])
+        self.steps.organizer_has_a_scheduling_gathering("会19", [self.dsl.days_from_now_iso(3)])
         self.steps.organizer_opens_the_dashboard()
         link = self.steps.organizer_issues_a_participant_link()
         self.steps.organizer_revokes_the_link_at(0)
@@ -521,7 +551,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         enforcement.
         """
         self._sign_in()
-        self.steps.organizer_has_a_scheduling_gathering("会20", [days_from_now_iso(3)])
+        self.steps.organizer_has_a_scheduling_gathering("会20", [self.dsl.days_from_now_iso(3)])
         self.steps.organizer_opens_the_dashboard()
         link = self.steps.organizer_issues_a_participant_link()
         candidate_date_id = self.dsl.candidate_date_id_at(0)
@@ -544,7 +574,10 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
     def test_tdr_gth_21_organizer_opens_a_gathering_from_the_list(self) -> None:
         self._sign_in()
         gathering_a, gathering_b = self.steps.organizer_has_multiple_scheduling_gatherings(
-            [("会21a", [days_from_now_iso(3)]), ("会21b", [days_from_now_iso(10)])]
+            [
+                ("会21a", [self.dsl.days_from_now_iso(3)]),
+                ("会21b", [self.dsl.days_from_now_iso(10)]),
+            ]
         )
         confirmed_date_iso = gathering_b["candidateDates"][0]["startAt"]
         confirmed_date_id = gathering_b["candidateDates"][0]["id"]
@@ -591,10 +624,16 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.gathering_create_screen_is_shown()
 
     def test_tdr_gth_23_cannot_create_a_gathering_without_a_candidate_date(self) -> None:
+        """**Rewritten 2026-09-16 (ADR-0060 decision 5)**: the name-empty/
+        0-candidate-date disabled state moved from gathering-create-submit
+        (now inside the review dialog) to gathering-create-review-open --
+        this scenario's own Given/When never reaches the dialog at all, so
+        it must check review-open's own disabledState now, not submit's.
+        """
         self._sign_in()
         self.steps.organizer_opens_the_gathering_create_screen()
         self.steps.organizer_fills_the_gathering_name("会23")
-        self.steps.gathering_create_submit_is_disabled()
+        self.steps.gathering_create_review_open_is_disabled()
         attempt_create_without_dates = (
             self.steps.organizer_attempts_to_create_gathering_via_api_with_no_candidate_dates
         )
@@ -605,7 +644,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
 
     def test_tdr_gth_24_duplicate_candidate_date_is_rejected_by_the_inline_form(self) -> None:
         self._sign_in()
-        existing_iso = days_from_now_iso(3)
+        existing_iso = self.dsl.days_from_now_iso(3)
         self.steps.organizer_has_a_scheduling_gathering("会24", [existing_iso])
         self.steps.organizer_opens_the_dashboard()
         before_dates = self.steps.candidate_dates_snapshot()
@@ -621,12 +660,12 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         entire batch -- neither day is added (no partial success).
         """
         self._sign_in()
-        existing_iso = days_from_now_iso(3)
+        existing_iso = self.dsl.days_from_now_iso(3)
         self.steps.organizer_has_a_scheduling_gathering("会46", [existing_iso])
         self.steps.organizer_opens_the_dashboard()
         before_dates = self.steps.candidate_dates_snapshot()
         self.steps.organizer_opens_the_add_candidate_date_form()
-        new_iso = days_from_now_iso(20)
+        new_iso = self.dsl.days_from_now_iso(20)
         response = self.steps.organizer_submits_the_add_candidate_date_form([existing_iso, new_iso])
         self.steps.duplicate_candidate_date_is_rejected(
             response, [existing_iso, new_iso], before_dates
@@ -642,7 +681,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self._sign_in()
         self.steps.organizer_opens_the_gathering_create_screen()
         title = "会47"
-        today_iso = days_from_now_iso(0)
+        today_iso = self.dsl.days_from_now_iso(0)
         response = (
             self.steps.organizer_attempts_to_create_gathering_via_api_with_a_past_candidate_date(
                 title, today_iso
@@ -651,11 +690,51 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.create_is_rejected_because_date_not_in_future(response)
         self.steps.no_gathering_exists_with_title(title)
 
+    def test_gth_create_review_dialog_pages_by_month_and_lets_the_organizer_remove_a_day(
+        self,
+    ) -> None:
+        """review.dialog.item / monthNavigation (ADR-0060 decision 5). No
+        dedicated TDR-GTH-5x/6x scenario names this control -- the same
+        no-scenario-of-its-own precedent this file's own answerLater/
+        peekResults test and TDR-GTH-43's ordering check already establish
+        for contract Musts. Three selected days: one alone in the earliest
+        month, two sharing a later month -- deliberately removing one of the
+        *two* (not the last remaining day in its month), because this
+        contract does not fix this dialog's behavior when a removal empties
+        the currently-displayed month entirely (item.requiredOutcome's own
+        note), so this test only exercises the one removal outcome the
+        contract does fix.
+        """
+        self._sign_in()
+        earlier_iso = self.dsl.days_from_now_iso(3)
+        mid_a_iso, mid_b_iso = self.dsl.two_business_days_in_the_month_after_iso(earlier_iso)
+        self.steps.organizer_opens_the_gathering_create_screen()
+        self.steps.organizer_fills_the_gathering_name("会レビュー")
+        self.steps.organizer_selects_gathering_create_candidate_dates(
+            [earlier_iso, mid_a_iso, mid_b_iso]
+        )
+        self.steps.organizer_opens_the_gathering_create_review_dialog()
+        self.assertEqual(self.steps.review_dialog_selected_days(), {earlier_iso[:10]})
+        self.steps.organizer_pages_the_review_dialog_month(forward=True)
+        self.assertEqual(self.steps.review_dialog_selected_days(), {mid_a_iso[:10], mid_b_iso[:10]})
+        self.steps.organizer_removes_the_selected_day_from_the_review_dialog(mid_b_iso)
+        self.assertEqual(self.steps.review_dialog_selected_days(), {mid_a_iso[:10]})
+        self.steps.organizer_pages_the_review_dialog_month(forward=False)
+        self.assertEqual(self.steps.review_dialog_selected_days(), {earlier_iso[:10]})
+        payload = self.steps.organizer_confirms_the_review_dialog([earlier_iso, mid_a_iso])
+        self.assertEqual(
+            {date["startAt"][:10] for date in payload["candidateDates"]},
+            {earlier_iso[:10], mid_a_iso[:10]},
+        )
+
     def test_tdr_gth_25_candidate_screen_links_to_the_gathering_list_with_a_count(self) -> None:
         self._sign_in()
         self.steps.lunch_candidate_screen_is_available()
         self.steps.organizer_has_multiple_scheduling_gatherings(
-            [("会25a", [days_from_now_iso(3)]), ("会25b", [days_from_now_iso(10)])]
+            [
+                ("会25a", [self.dsl.days_from_now_iso(3)]),
+                ("会25b", [self.dsl.days_from_now_iso(10)]),
+            ]
         )
         self.steps.organizer_opens_the_lunch_candidate_screen()
         self.steps.in_progress_gathering_count_badge_shows(2)
@@ -674,7 +753,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        thursday = next_weekday_iso(3)
+        thursday = self.dsl.next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会26", [thursday])
         open_shop_ids = self.steps.open_shop_ids_for_the_confirmed_date()
         # Reviewer audit Major#3: SHOP_VOTING_NOT_STARTED (409) was never
@@ -746,8 +825,8 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        monday = next_weekday_iso(0)  # OPEN_SHOP_COUNT_BY_WEEKDAY[0] == 5 (1 closed: Monday)
-        wednesday = next_weekday_iso(2)  # OPEN_SHOP_COUNT_BY_WEEKDAY[2] == 4 (2 closed)
+        monday = self.dsl.next_weekday_iso(0)  # OPEN_SHOP_COUNT_BY_WEEKDAY[0]==5 (1 closed: Mon)
+        wednesday = self.dsl.next_weekday_iso(2)  # OPEN_SHOP_COUNT_BY_WEEKDAY[2] == 4 (2 closed)
         closed_shop_id = self.steps.shop_id_closed_only_on(2, 0)  # closed on Wed, open on Mon
         self.steps.organizer_has_a_scheduling_gathering("会27", [monday, wednesday])
         self.steps.organizer_opens_the_dashboard()
@@ -773,7 +852,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        thursday = next_weekday_iso(3)
+        thursday = self.dsl.next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会28", [thursday])
         shop_a, shop_b = self.steps.open_shop_ids_for_the_confirmed_date()[:2]
         self.steps.organizer_shortlists_shops_via_api([shop_a, shop_b])
@@ -801,7 +880,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        thursday = next_weekday_iso(3)
+        thursday = self.dsl.next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会29", [thursday])
         shop_a, shop_b = self.steps.open_shop_ids_for_the_confirmed_date()[:2]
         self.steps.organizer_shortlists_shops_via_api([shop_a, shop_b])
@@ -821,7 +900,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
     def test_tdr_gth_30_participant_can_always_change_their_shop_vote(self) -> None:
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        thursday = next_weekday_iso(3)
+        thursday = self.dsl.next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会30", [thursday])
         open_shop_ids = self.steps.open_shop_ids_for_the_confirmed_date()
         shop_a, _shop_b, not_shortlisted_shop = open_shop_ids[:3]
@@ -866,7 +945,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        thursday = next_weekday_iso(3)
+        thursday = self.dsl.next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会31", [thursday])
         shops, shop_5 = self.steps.confirmed_date_open_shop_ids_with_a_spare()
         shop_0, shop_1, shop_2, _shop_3, shop_4 = shops
@@ -908,7 +987,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        thursday = next_weekday_iso(3)
+        thursday = self.dsl.next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会32", [thursday])
         shops, shop_5 = self.steps.confirmed_date_open_shop_ids_with_a_spare()
         shop_0, _shop_1, _shop_2, _shop_3, shop_4 = shops
@@ -929,7 +1008,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
     def test_tdr_gth_33_organizer_finalizes_the_date_and_shop(self) -> None:
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        thursday = next_weekday_iso(3)
+        thursday = self.dsl.next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会33", [thursday])
         shop_a, shop_b, foreign_shop = self.steps.open_shop_ids_for_the_confirmed_date()[:3]
         self.steps.organizer_shortlists_shops_via_api([shop_a, shop_b])
@@ -998,7 +1077,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        thursday = next_weekday_iso(3)
+        thursday = self.dsl.next_weekday_iso(3)
         self.steps.organizer_has_a_scheduling_gathering("会34", [thursday])
         candidate_date_id = self.dsl.candidate_date_id_at(0)
         link = self.steps.a_participant_link_is_issued()
@@ -1047,7 +1126,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
     def test_tdr_gth_35_no_new_participant_links_after_finalized(self) -> None:
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        thursday = next_weekday_iso(3)
+        thursday = self.dsl.next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会35", [thursday])
         shop_a = self.steps.open_shop_ids_for_the_confirmed_date()[0]
         self.steps.organizer_shortlists_shops_via_api([shop_a])
@@ -1061,7 +1140,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
     def test_tdr_gth_36_organizer_can_still_recopy_a_link_after_finalized(self) -> None:
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        thursday = next_weekday_iso(3)
+        thursday = self.dsl.next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会36", [thursday])
         self.steps.organizer_opens_the_dashboard()
         link = self.steps.organizer_issues_a_participant_link()
@@ -1093,7 +1172,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        thursday = next_weekday_iso(3)
+        thursday = self.dsl.next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会37", [thursday])
         shops = self.steps.open_shop_ids_for_the_confirmed_date()[:5]
         self.steps.organizer_shortlists_shops_via_api(shops)
@@ -1128,7 +1207,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        thursday = next_weekday_iso(3)
+        thursday = self.dsl.next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会38", [thursday])
         shop_a, shop_b = self.steps.open_shop_ids_for_the_confirmed_date()[:2]
         self.steps.organizer_shortlists_shops_via_api([shop_a, shop_b])
@@ -1139,7 +1218,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
     def test_tdr_gth_39_participant_sees_map_and_shop_details_while_voting(self) -> None:
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        thursday = next_weekday_iso(3)
+        thursday = self.dsl.next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会39", [thursday])
         shops = self.steps.open_shop_ids_for_the_confirmed_date()[:3]
         self.steps.organizer_shortlists_shops_via_api(shops)
@@ -1161,7 +1240,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        thursday = next_weekday_iso(3)
+        thursday = self.dsl.next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会40", [thursday])
         shop_high, shop_mid, shop_low = self.steps.open_shop_ids_for_the_confirmed_date()[:3]
         self.steps.organizer_shortlists_shops_via_api([shop_high, shop_mid, shop_low])
@@ -1194,7 +1273,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        thursday = next_weekday_iso(3)
+        thursday = self.dsl.next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会41", [thursday])
         shop_a = self.steps.open_shop_ids_for_the_confirmed_date()[0]
         self.steps.organizer_shortlists_shops_via_api([shop_a])
@@ -1225,7 +1304,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         exhaustive" declaration.
         """
         self._sign_in()
-        self.steps.organizer_has_a_scheduling_gathering("会42", [days_from_now_iso(3)])
+        self.steps.organizer_has_a_scheduling_gathering("会42", [self.dsl.days_from_now_iso(3)])
         link = self.steps.a_participant_link_is_issued()
         self.steps.link_is_seeded_to_fail_unexpectedly(link)
         self.steps.participant_opens_the_link(link)
@@ -1262,9 +1341,9 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         candidate_date_isos = [
-            days_from_now_iso(30),
-            days_from_now_iso(3),
-            days_from_now_iso(15),
+            self.dsl.days_from_now_iso(30),
+            self.dsl.days_from_now_iso(3),
+            self.dsl.days_from_now_iso(15),
         ]
         self.steps.organizer_has_a_scheduling_gathering("会43", candidate_date_isos)
 
@@ -1336,7 +1415,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        thursday = next_weekday_iso(3)
+        thursday = self.dsl.next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会44", [thursday])
         already_shortlisted_shop_id = self.steps.open_shop_ids_for_the_confirmed_date()[0]
         self.steps.organizer_shortlists_shops_via_api([already_shortlisted_shop_id])
@@ -1381,7 +1460,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        thursday = next_weekday_iso(3)
+        thursday = self.dsl.next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会45", [thursday])
         self.steps.organizer_opens_the_dashboard()
         self.steps.organizer_opens_shop_selection_entry()
@@ -1398,7 +1477,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
 
     def test_tdr_gth_48_organizer_deletes_the_gathering(self) -> None:
         self._sign_in()
-        self.steps.organizer_has_a_scheduling_gathering("会48", [days_from_now_iso(3)])
+        self.steps.organizer_has_a_scheduling_gathering("会48", [self.dsl.days_from_now_iso(3)])
         gathering_id = self.dsl.gathering_id
         candidate_date_id = self.dsl.candidate_date_id_at(0)
         link = self.steps.a_participant_link_is_issued()
@@ -1437,7 +1516,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         self.steps.organizer_has_a_scheduling_gathering(
-            "会49", [days_from_now_iso(3), days_from_now_iso(10)]
+            "会49", [self.dsl.days_from_now_iso(3), self.dsl.days_from_now_iso(10)]
         )
         candidate_date_a = self.dsl.candidate_date_id_at(0)
         candidate_date_b = self.dsl.candidate_date_id_at(1)
@@ -1464,7 +1543,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         self.steps.organizer_has_a_scheduling_gathering(
-            "会50", [days_from_now_iso(3), days_from_now_iso(10)]
+            "会50", [self.dsl.days_from_now_iso(3), self.dsl.days_from_now_iso(10)]
         )
         self.steps.organizer_opens_the_dashboard()
         candidate_date_id = self.dsl.candidate_date_id_at(1)
@@ -1489,7 +1568,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         confirmed_id = self.steps.organizer_has_a_selecting_shop_gathering(
-            "会51", [days_from_now_iso(3)]
+            "会51", [self.dsl.days_from_now_iso(3)]
         )
         self.steps.organizer_opens_the_dashboard()
         self.steps.remove_candidate_date_control_is_absent(confirmed_id)
@@ -1504,7 +1583,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        thursday = next_weekday_iso(3)
+        thursday = self.dsl.next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会52", [thursday])
         shop_a = self.steps.open_shop_ids_for_the_confirmed_date()[0]
         self.steps.organizer_shortlists_shops_via_api([shop_a])
@@ -1530,7 +1609,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        thursday = next_weekday_iso(3)
+        thursday = self.dsl.next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会53", [thursday])
         shop_a = self.steps.open_shop_ids_for_the_confirmed_date()[0]
         self.steps.organizer_shortlists_shops_via_api([shop_a])
@@ -1551,7 +1630,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        thursday = next_weekday_iso(3)
+        thursday = self.dsl.next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会54", [thursday])
         shops = self.steps.open_shop_ids_for_the_confirmed_date()[:2]
         self.steps.organizer_shortlists_shops_via_api(shops)
@@ -1565,7 +1644,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        thursday = next_weekday_iso(3)
+        thursday = self.dsl.next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会55", [thursday])
         shop_tied_a, shop_tied_b, shop_behind = self.steps.open_shop_ids_for_the_confirmed_date()[
             :3
@@ -1597,7 +1676,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         """
         self._sign_in()
         self.steps.gathering_open_shop_population_is_available()
-        thursday = next_weekday_iso(3)
+        thursday = self.dsl.next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会56", [thursday])
         shop_a = self.steps.open_shop_ids_for_the_confirmed_date()[0]
         self.steps.organizer_shortlists_shops_via_api([shop_a])
@@ -1622,7 +1701,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         data-response-value の対応だけを検査する。
         """
         self._sign_in()
-        self.steps.organizer_has_a_scheduling_gathering("会64", [next_weekday_iso(3)])
+        self.steps.organizer_has_a_scheduling_gathering("会64", [self.dsl.next_weekday_iso(3)])
         candidate_date_id = self.dsl.candidate_date_id_at(0)
         named_link_a = self.steps.a_participant_link_is_issued()
         self.steps.participant_opens_the_link(named_link_a)
@@ -1646,3 +1725,135 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
             ],
         )
         self.steps.screen_has_no_forbidden_controls_or_disclosures()
+
+    # TDR-GTH-57/58 (new, ADR-0060 decision 1/2/4, 2026-09-16 human decision:
+    # 平日ランチの会には土日・祝日は不要). Both bypass organizerGatheringCreate's
+    # calendar the same way TDR-GTH-47 does -- a weekend/holiday day cell
+    # carries the native disabled state and can never itself be clicked, so
+    # the server-side rejection is exercised directly (the contract's own
+    # "authoritative enforcement" framing for CANDIDATE_DATE_NOT_A_BUSINESS_DAY,
+    # ADR-0060 decision 4). self.dsl.next_weekday_iso(5)/next_fixed_public_
+    # holiday_on_weekday_iso compute a real Saturday/holiday date from actual calendar
+    # time -- no server-clock faking, the same technique TDR-GTH-47 already
+    # uses for "today".
+
+    def test_tdr_gth_57_a_weekend_date_cannot_be_a_candidate_date(self) -> None:
+        self._sign_in()
+        self.steps.organizer_opens_the_gathering_create_screen()
+        title = "会57"
+        saturday_iso = self.dsl.next_weekday_iso(5)
+        response = (
+            self.steps.organizer_attempts_to_create_gathering_via_api_with_a_weekend_candidate_date(
+                title, saturday_iso
+            )
+        )
+        self.steps.create_is_rejected_because_date_is_not_a_business_day(response)
+        self.steps.no_gathering_exists_with_title(title)
+
+    def test_tdr_gth_58_a_public_holiday_date_cannot_be_a_candidate_date(self) -> None:
+        self._sign_in()
+        self.steps.organizer_opens_the_gathering_create_screen()
+        title = "会58"
+        holiday_iso = next_fixed_public_holiday_on_weekday_iso()
+        response = (
+            self.steps.organizer_attempts_to_create_gathering_via_api_with_a_holiday_candidate_date(
+                title, holiday_iso
+            )
+        )
+        self.steps.create_is_rejected_because_date_is_not_a_business_day(response)
+        self.steps.no_gathering_exists_with_title(title)
+
+    # TDR-GTH-59..62 (new, ADR-0060 decision 7, 2026-09-16 human decision:
+    # "○が多い日を優先。同票なら△が多いほう。それでも同票ならすべてつける").
+    # candidateDateList.candidateDate's data-current-leader -- TDR-GTH-54/55's
+    # own shop-side precedent, applied to candidate dates with the two-level
+    # goingCount-then-maybeCount cascade ADR-0060 decision 7 defines (distinct
+    # from the shop side's single summed value).
+
+    def test_tdr_gth_59_no_candidate_date_leads_before_any_answer_is_given(self) -> None:
+        self._sign_in()
+        self.steps.organizer_has_a_scheduling_gathering(
+            "会59", [self.dsl.days_from_now_iso(3), self.dsl.days_from_now_iso(10)]
+        )
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.candidate_date_current_leaders_are(set())
+
+    def test_tdr_gth_60_the_candidate_date_with_the_most_going_answers_leads(self) -> None:
+        self._sign_in()
+        self.steps.organizer_has_a_scheduling_gathering(
+            "会60", [self.dsl.days_from_now_iso(3), self.dsl.days_from_now_iso(10)]
+        )
+        leading_date = self.dsl.candidate_date_id_at(0)
+        behind_date = self.dsl.candidate_date_id_at(1)
+        link_one = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_one)
+        self.steps.participant_answers_the_candidate_date(leading_date, "GOING")
+        self.steps.participant_answers_the_candidate_date(behind_date, "GOING")
+        link_two = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_two)
+        self.steps.participant_answers_the_candidate_date(leading_date, "GOING")
+        self.steps.participant_answers_the_candidate_date(behind_date, "MAYBE")
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.candidate_date_current_leaders_are({leading_date})
+
+    def test_tdr_gth_61_a_going_tie_is_broken_by_the_maybe_count(self) -> None:
+        """TDR-GTH-61: leading_date and behind_date both collect goingCount=1
+        (an intentional tie, not incidental), so only maybeCount -- an
+        additional MAYBE answer on leading_date alone -- can distinguish them.
+        """
+        self._sign_in()
+        self.steps.organizer_has_a_scheduling_gathering(
+            "会61", [self.dsl.days_from_now_iso(3), self.dsl.days_from_now_iso(10)]
+        )
+        leading_date = self.dsl.candidate_date_id_at(0)
+        behind_date = self.dsl.candidate_date_id_at(1)
+        link_one = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_one)
+        self.steps.participant_answers_the_candidate_date(leading_date, "GOING")
+        self.steps.participant_answers_the_candidate_date(behind_date, "GOING")
+        link_two = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_two)
+        self.steps.participant_answers_the_candidate_date(leading_date, "MAYBE")
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.candidate_date_current_leaders_are({leading_date})
+
+    def test_tdr_gth_62_a_tie_on_both_going_and_maybe_marks_every_tied_date_as_leading(
+        self,
+    ) -> None:
+        self._sign_in()
+        self.steps.organizer_has_a_scheduling_gathering(
+            "会62", [self.dsl.days_from_now_iso(3), self.dsl.days_from_now_iso(10)]
+        )
+        tied_a = self.dsl.candidate_date_id_at(0)
+        tied_b = self.dsl.candidate_date_id_at(1)
+        link_one = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_one)
+        self.steps.participant_answers_the_candidate_date(tied_a, "GOING")
+        self.steps.participant_answers_the_candidate_date(tied_b, "GOING")
+        link_two = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_two)
+        self.steps.participant_answers_the_candidate_date(tied_a, "MAYBE")
+        self.steps.participant_answers_the_candidate_date(tied_b, "MAYBE")
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.candidate_date_current_leaders_are({tied_a, tied_b})
+
+    def test_tdr_gth_63_participant_also_sees_the_leading_candidate_date(self) -> None:
+        """TDR-GTH-63 (new, ADR-0060 decision 8): scheduleQuestion.tally's
+        data-current-leader mirrors the organizer-facing value exactly, for a
+        participant who has not answered either candidate date yet (TDR-GTH-12
+        precedent: the participant sees others' answers before their own).
+        """
+        self._sign_in()
+        self.steps.organizer_has_a_scheduling_gathering(
+            "会63", [self.dsl.days_from_now_iso(3), self.dsl.days_from_now_iso(10)]
+        )
+        leading_date = self.dsl.candidate_date_id_at(0)
+        behind_date = self.dsl.candidate_date_id_at(1)
+        link_one = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_one)
+        self.steps.participant_answers_the_candidate_date(leading_date, "GOING")
+        self.steps.participant_answers_the_candidate_date(behind_date, "MAYBE")
+        link_two = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_two)
+        self.steps.schedule_question_current_leader_is(leading_date, True)
+        self.steps.schedule_question_current_leader_is(behind_date, False)

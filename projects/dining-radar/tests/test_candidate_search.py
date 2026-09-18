@@ -1,50 +1,22 @@
 import json
 import re
 import uuid
-from datetime import datetime, timedelta
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
-from django.utils import timezone
 
-from dining_radar.gathering import holidays
 from dining_radar.gathering import services as gathering_services
 from dining_radar.gathering.models import GatheringPhase
 from dining_radar.suggestions import acceptance_state
+from tests.support.business_days import nth_business_datetime
 
 
 def csrf_token_from(response) -> str:
     matched = re.search(rb'name="csrfmiddlewaretoken" value="([^"]+)"', response.content)
     assert matched is not None
     return matched.group(1).decode("ascii")
-
-
-def _next_business_datetime(n: int = 1) -> datetime:
-    """The ``n``-th business day (Mon-Fri, non-Japan-public-holiday) from now,
-    as an aware ``datetime`` at local noon.
-
-    2026-09-18 fix: this file's own gathering fixtures (``_selecting_shop_
-    gathering``) fed ``gathering_services.create_gathering`` a raw
-    ``timezone.now() + timedelta(days=1)`` -- a real, latent gap
-    ``tests/test_gathering.py``'s own identically-named helper already
-    closed for its file (2026-09-16, ADR-0060 decision 4:
-    ``CANDIDATE_DATE_NOT_A_BUSINESS_DAY``) but this file's own two call
-    sites were not updated in that round. Surfaced by the real calendar
-    date advancing past a Friday (raising "+1 day" onto a Saturday) --
-    duplicated here verbatim (no shared module system exists in this
-    codebase's test suite either) rather than imported, mirroring how
-    ``tests/test_gathering.py`` already duplicates its own copy.
-    """
-    current = timezone.localtime(timezone.now()).date()
-    remaining = n
-    while remaining > 0:
-        current += timedelta(days=1)
-        if holidays.is_business_day(current):
-            remaining -= 1
-    naive_noon = datetime(current.year, current.month, current.day, 12, 0, 0)
-    return timezone.make_aware(naive_noon)
 
 
 class CandidateProposalsApiTests(TestCase):
@@ -705,9 +677,7 @@ class GatheringModeCandidateProposalsApiTests(TestCase):
 
     def _selecting_shop_gathering(self, organizer=None):
         organizer = organizer or self.user
-        gathering = gathering_services.create_gathering(
-            organizer, "会", [_next_business_datetime(1)]
-        )
+        gathering = gathering_services.create_gathering(organizer, "会", [nth_business_datetime(1)])
         candidate_date = gathering.candidate_dates.first()
         return gathering_services.confirm_candidate_date(organizer, gathering.id, candidate_date.id)
 
@@ -726,9 +696,7 @@ class GatheringModeCandidateProposalsApiTests(TestCase):
         self.assertEqual(response.json()["code"], "GATHERING_NOT_FOUND")
 
     def test_still_scheduling_is_a_safe_409(self):
-        gathering = gathering_services.create_gathering(
-            self.user, "会", [_next_business_datetime(1)]
-        )
+        gathering = gathering_services.create_gathering(self.user, "会", [nth_business_datetime(1)])
 
         response = self.post_proposal({"gatheringId": str(gathering.id)})
 

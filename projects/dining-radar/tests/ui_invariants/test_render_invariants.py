@@ -63,7 +63,7 @@ from __future__ import annotations
 
 import os
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
 from django.urls import reverse
@@ -78,6 +78,7 @@ from tests.acceptance.dsl.js_browser_mechanics import (
     is_candidate_proposal_response,
     wait_for_at_least_one,
 )
+from tests.support.business_days import next_business_weekday_iso, nth_business_day
 
 ORGANIZER_ACCOUNT_REF = "ui-invariants-organizer"
 ORGANIZER_IDENTIFIER = "synthetic-ui-invariants-organizer"
@@ -803,30 +804,49 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         self.assertEqual(info.value.status, 200)
         expect(by_test_id(self.page, "candidate-proposal-content")).to_be_attached()
 
+    def _account_disclosure_toggle(self) -> tuple[Locator, str]:
+        """Render-mode-correct account entry point: mobile's
+        candidate-primary-nav-account, else desktop's candidate-primary-nav-menu-toggle."""
+        mobile_account = by_test_id(self.page, "candidate-primary-nav-account")
+        if mobile_account.count() > 0:
+            return mobile_account, "mapPrimaryTouchLayout"
+        return by_test_id(self.page, "candidate-primary-nav-menu-toggle"), "twoColumnLayout"
+
     def test_c_account_menu_toggle_and_password_change_link_are_keyboard_operable(self) -> None:
-        self._sign_in_with_candidates()
-        toggle = by_test_id(self.page, "auth-account-menu-toggle")
-        self._assert_tabbable(toggle, "auth-account-menu-toggle")
-        details = self.page.locator("details.candidate-account-menu")
-        self.assertFalse(details.evaluate("el => el.open"), "menu must start closed")
+        """Opens the render-mode-correct account entry point at each width before
+        measuring what it discloses."""
+        for width, height, label in (NARROW_VIEWPORTS[0], TWO_COLUMN_VIEWPORTS[1]):
+            with self.subTest(viewport=label):
+                self.page.set_viewport_size({"width": width, "height": height})
+                self._sign_in_with_candidates()
+                toggle, mode = self._account_disclosure_toggle()
+                self._assert_tabbable(toggle, f"account disclosure toggle ({mode}, {label})")
+                # Present but hidden while closed, not absent.
+                expect(by_test_id(self.page, "auth-password-change-open")).to_be_hidden()
 
-        toggle.press("Enter")
-        self.assertTrue(details.evaluate("el => el.open"), "Enter did not open the account menu")
-
-        password_change = by_test_id(self.page, "auth-password-change-open")
-        self._assert_tabbable(password_change, "auth-password-change-open")
-        expected_path = reverse("authentication:password_change")
-        password_change.press("Enter")
-        expect(self.page).to_have_url(f"{self.dsl.base_url}{expected_path}")
+                toggle.press("Enter")
+                password_change = by_test_id(self.page, "auth-password-change-open")
+                expect(password_change).to_be_visible()
+                self._assert_tabbable(
+                    password_change, f"auth-password-change-open ({mode}, {label})"
+                )
+                expected_path = reverse("authentication:password_change")
+                password_change.press("Enter")
+                expect(self.page).to_have_url(f"{self.dsl.base_url}{expected_path}")
 
     def test_c_sign_out_is_keyboard_operable(self) -> None:
-        self._sign_in_with_candidates()
-        toggle = by_test_id(self.page, "auth-account-menu-toggle")
-        toggle.click()
-        sign_out = by_test_id(self.page, "auth-sign-out")
-        self._assert_tabbable(sign_out, "auth-sign-out")
-        sign_out.press("Enter")
-        expect(by_test_id(self.page, "auth-sign-in-form")).to_be_attached()
+        """Opens the render-mode-correct account entry point at each width
+        before reaching sign-out."""
+        for width, height, label in (NARROW_VIEWPORTS[0], TWO_COLUMN_VIEWPORTS[1]):
+            with self.subTest(viewport=label):
+                self.page.set_viewport_size({"width": width, "height": height})
+                self._sign_in_with_candidates()
+                toggle, mode = self._account_disclosure_toggle()
+                toggle.click()
+                sign_out = by_test_id(self.page, "auth-sign-out")
+                self._assert_tabbable(sign_out, f"auth-sign-out ({mode}, {label})")
+                sign_out.press("Enter")
+                expect(by_test_id(self.page, "auth-sign-in-form")).to_be_attached()
 
     # (d) Internal enum values are never exposed as visible text ----------
 
@@ -1001,11 +1021,13 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
             by_test_id(self.page, "candidate-filter-open").click()
             expect(by_test_id(self.page, "candidate-filter-panel")).to_have_count(0)
 
-            # Account menu: toggle, sign-out, password-change-open.
-            by_test_id(self.page, "auth-account-menu-toggle").click()
+            # Account menu: toggle, sign-out, password-change-open. Does not
+            # re-click the toggle to close it -- the disclosed sheet covers
+            # its own trigger, and the next iteration re-navigates anyway.
+            account_toggle, _account_mode = self._account_disclosure_toggle()
+            account_toggle.click()
             expect(by_test_id(self.page, "auth-sign-out")).to_be_visible()
             self._assert_all_declared_controls_meet_44px(f"account menu open at {label}")
-            by_test_id(self.page, "auth-account-menu-toggle").click()
 
     # (f) renderModes selects the correct mode at each tested width --------
 
@@ -1073,31 +1095,83 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
     # nav (ADR-0054 decision 1) -- never got the same extension until now.
     # ------------------------------------------------------------------
 
-    def _create_selecting_shop_gathering_via_api(self, title: str) -> str:
+    def _next_monday_iso(self) -> str:
+        """Date-stable weekday pin for _create_selecting_shop_gathering_via_
+        api below -- mirrors tests/acceptance/dsl/candidate_search_browser.
+        py's own next_weekday_iso(0) intent (Monday, OPEN_SHOP_COUNT_BY_
+        WEEKDAY[0] == 5 under GATHERING_OPEN_SHOP_WEEKDAY_MATCH, already
+        relied on at L4 for the identical determinism reason).
+
+        **Fixed (ADR-0060 decision 4, 2026-09-18)**: the former body picked
+        the next Monday by calendar weekday alone, with no check against
+        ``CANDIDATE_DATE_NOT_A_BUSINESS_DAY`` (holidays.is_business_day) --
+        a "happy Monday" national holiday (成人の日/海の日/敬老の日/スポーツ
+        の日) makes that Monday not a business day, and this suite's own
+        gathering-create call would then be rejected with 400 depending on
+        what day it happens to run (e.g. 2026-09-21, 敬老の日). Delegates to
+        ``tests.support.business_days.next_business_weekday_iso`` (this
+        project's one shared "N-th business day"/"next business weekday"
+        fixture-date builder, also used by tests/test_candidate_search.py
+        and tests/test_gathering.py) instead of re-deriving the same
+        business-day check locally a third time.
+        """
+        return next_business_weekday_iso(0)
+
+    def _create_selecting_shop_gathering_via_api(
+        self, title: str, candidate_date_iso: str | None = None
+    ) -> str:
         """Raw-HTTP Given-state builder (mirrors GatheringScreenInvariantTests.
         _seed_one_shortlisted_shop's own precedent of calling public
         gathering-scheduling-api.yaml operations directly via
         self.context.request rather than tests/acceptance/dsl/
         gathering_scheduling_browser.py, which is reserved to tester per
         ADR-0020 decision 6, the same boundary this file's own module
-        docstring states). Creates one candidate date tomorrow and
-        immediately confirms it, reaching SELECTING_SHOP -- the phase
-        gatheringMode.band requires (candidate-search-browser-interface.yaml
-        gatheringMode.band's own gatingcondition is
-        response.gatheringContext non-null, which candidate-proposals only
-        returns once a gatheringId names a gathering past SCHEDULING).
-        ``self.page`` must already be on an organizer-authenticated page
-        carrying the hidden CSRF field (the candidate screen itself, reached
-        via sign_in, satisfies this -- home.html's own
-        auth-account-menu-toggle sits behind the same hidden token
-        organizer_dashboard.html's `<div hidden>{% csrf_token %}</div>`
-        exposes).
+        docstring states). Creates one candidate date and immediately
+        confirms it, reaching SELECTING_SHOP -- the phase gatheringMode.band
+        requires (candidate-search-browser-interface.yaml gatheringMode.
+        band's own gating condition is response.gatheringContext non-null,
+        which candidate-proposals only returns once a gatheringId names a
+        gathering past SCHEDULING). ``self.page`` must already be on an
+        organizer-authenticated page carrying the hidden CSRF field (the
+        candidate screen itself, reached via sign_in, satisfies this --
+        home.html's own auth-account-menu-toggle sits behind the same
+        hidden token organizer_dashboard.html's
+        `<div hidden>{% csrf_token %}</div>` exposes).
+
+        **Fixed (date-rollover flake, 2026-09-17)**: previously hardcoded
+        "+3 days" with no caller-chosen weekday -- which weekday that lands
+        on drifts with the calendar date this suite happens to run on, and
+        the candidate population this screen shows for the confirmed date
+        is not guaranteed non-empty for every weekday under every mode this
+        file's own callers set (mirrors tests/acceptance/test_candidate_
+        search_acceptance.py's own identical "Fixed (date-rollover flake)"
+        note for TDR-CS-17/20, reproduced empirically here the same way:
+        this method's callers passed while "today" was 2026-09-16 and
+        failed once the date rolled to 2026-09-17). ``candidate_date_iso``
+        lets a caller pin a date-stable weekday instead (mirrors
+        tests/acceptance/dsl/candidate_search_browser.py's own
+        next_weekday_iso-based callers); a business-day-only default is kept
+        only for a caller that does not care.
+
+        **Fixed (ADR-0060 decision 4, 2026-09-18)**: the former "+3 days"
+        default (no weekday pinned) had the same
+        ``CANDIDATE_DATE_NOT_A_BUSINESS_DAY`` exposure ``_next_monday_iso``
+        above did -- unexercised by this file's own two current callers
+        (both pass ``candidate_date_iso``), but still a candidate-date
+        construction site that would fail depending on what day this suite
+        runs, so it is routed through the same shared
+        ``nth_business_day`` this module's other business-day fixture
+        builders use rather than left as a live latent flake.
         """
         token = csrf_token(self.page)
-        tomorrow = (datetime.now(UTC) + timedelta(days=3)).strftime("%Y-%m-%dT12:00:00Z")
+        start_at = (
+            datetime.fromisoformat(candidate_date_iso)
+            if candidate_date_iso is not None
+            else datetime.combine(nth_business_day(3), datetime.min.time())
+        ).strftime("%Y-%m-%dT12:00:00Z")
         create_response = self.context.request.post(
             f"{self.dsl.base_url}/gatherings",
-            data={"title": title, "candidateDates": [{"startAt": tomorrow}]},
+            data={"title": title, "candidateDates": [{"startAt": start_at}]},
             headers={"X-CSRFToken": token},
         )
         self.assertEqual(create_response.status, 201, create_response.text())
@@ -1111,70 +1185,153 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         self.assertEqual(confirm_response.status, 200, confirm_response.text())
         return gathering["id"]
 
-    def test_gathering_mode_band_and_persistent_nav_meet_44px_and_are_keyboard_operable(
-        self,
-    ) -> None:
-        """New controls this integration round adds to this screen that
-        friction-log.md FR-035's gate never covered: candidate-gathering-
-        mode-band (会モードの帯, this screen's sole return path back to the
-        gathering, ADR-0054 decision 4 -- see candidate-search-browser-
-        interface.yaml's gatheringMode.band.navigation) and this screen's
-        own copy of the persistent two-location nav (ADR-0054 decision 1:
-        "ランチ候補をさがす"/"ランチ会", added to web/templates/web/home.html
-        this same integration round). Neither carries
-        data-candidate-control-purpose (both are plain `<a href>` navigation
-        elements per this contract's own precedent, outside
-        allCandidateScreenFormControlsMustDeclarePurpose's scan -- see
-        gatheringEntry.entry.requirement/gatheringMode.band.navigation), so
-        neither is caught by test_e_activatable_controls_meet_44px_minimum_
-        target's purpose-based scan above; this test measures all three
-        directly instead, mirroring GatheringScreenInvariantTests.
-        test_gathering_screens_persistent_primary_nav_meets_44px_and_is_
-        keyboard_operable's identical reasoning for candidate-gathering-
-        entry on the organizer-facing screens.
+    def test_gathering_mode_band_is_no_longer_a_navigation_control(self) -> None:
+        """ADR-0059 decision 5 (2026-09-16, 束A「会への戻り道」) retires
+        candidate-gathering-mode-band's prior navigation role (ADR-0054
+        decision 4: "帯自体が戻る動線を兼ねる") -- gatheringMode.band.
+        navigationNote now states activating it "is no longer a recognized
+        input and produces no navigation and no public operation; it is a
+        pure status line". A regression that silently left the band's own
+        prior click/Enter handler wired would pass an absence-only check
+        (band itself still exists, just with a different role) -- this
+        proves the no-op directly, mirroring tests/acceptance/dsl/
+        candidate_search_browser.py's own assert_origin_marker_and_rings_
+        are_display_only "activate, then assert nothing changed" style for
+        a different always-present, non-interactive element.
         """
         self.dsl.reset_authentication_state()
         self.dsl.reset_candidate_state()
         self.dsl.enable_organizer(ORGANIZER_ACCOUNT_REF, ORGANIZER_IDENTIFIER, ORGANIZER_PASSWORD)
         self.dsl.sign_in(ORGANIZER_IDENTIFIER, ORGANIZER_PASSWORD)
-        self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING")
+        self.dsl.set_candidate_state("GATHERING_OPEN_SHOP_WEEKDAY_MATCH")
         self.dsl.open_candidate_screen()
-        gathering_id = self._create_selecting_shop_gathering_via_api("会UI不変量の確認会")
+        gathering_id = self._create_selecting_shop_gathering_via_api(
+            "会UI不変量の確認会", self._next_monday_iso()
+        )
 
-        for width, height, label in CONTROL_SIZE_VIEWPORTS:
-            with self.subTest(viewport=label):
-                self.page.set_viewport_size({"width": width, "height": height})
-                self.page.goto(f"{self.dsl.base_url}/?gatheringId={gathering_id}")
-                band = by_test_id(self.page, "candidate-gathering-mode-band")
-                expect(band).to_be_visible()
-                self._assert_tabbable(band, f"candidate-gathering-mode-band at {label}")
-                band_box = band.bounding_box()
-                self.assertIsNotNone(band_box, f"band has no bounding box ({label})")
-                self.assertGreaterEqual(band_box["width"], MINIMUM_TARGET_PX, label)
-                self.assertGreaterEqual(band_box["height"], MINIMUM_TARGET_PX, label)
+        self.page.goto(f"{self.dsl.base_url}/?gatheringId={gathering_id}")
+        band = by_test_id(self.page, "candidate-gathering-mode-band")
+        expect(band).to_be_visible()
+        band_box = band.bounding_box()
+        self.assertIsNotNone(band_box, "band has no bounding box")
+        self.assertGreaterEqual(band_box["width"], MINIMUM_TARGET_PX)
+        self.assertGreaterEqual(band_box["height"], MINIMUM_TARGET_PX)
 
-                for test_id, label_class in (
-                    ("candidate-gathering-entry", "candidate-gathering-entry-label"),
-                    (None, "gathering-primary-nav-label"),
-                ):
-                    entry = (
-                        by_test_id(self.page, test_id)
-                        if test_id
-                        else self.page.locator(".gathering-primary-nav-link--current")
-                    )
-                    expect(entry).to_be_visible()
-                    entry_label = test_id or "gathering-primary-nav-link"
-                    self._assert_tabbable(entry, f"{entry_label} at {label}")
-                    entry_box = entry.bounding_box()
-                    self.assertIsNotNone(entry_box, f"{test_id} has no bounding box ({label})")
-                    self.assertGreaterEqual(entry_box["width"], MINIMUM_TARGET_PX, label)
-                    self.assertGreaterEqual(entry_box["height"], MINIMUM_TARGET_PX, label)
-                    label_node = entry.locator(f".{label_class}")
-                    self.assertNotEqual(
-                        (label_node.text_content() or "").strip(),
-                        "",
-                        f"{test_id or 'gathering-primary-nav-link'} label text empty ({label})",
-                    )
+        url_before = self.page.url
+        band.dispatch_event("click")
+        self.page.wait_for_timeout(300)
+        self.assertEqual(self.page.url, url_before, "band navigated on click")
+        if band.get_attribute("tabindex") is not None:
+            band.focus()
+            band.press("Enter")
+            self.page.wait_for_timeout(300)
+            self.assertEqual(self.page.url, url_before, "band navigated on Enter")
+            band.press("Space")
+            self.page.wait_for_timeout(300)
+            self.assertEqual(self.page.url, url_before, "band navigated on Space")
+
+    def test_gathering_mode_primary_nav_and_shortlist_toast_meet_44px_and_are_keyboard_operable(
+        self,
+    ) -> None:
+        """ADR-0059 (2026-09-16, 束A「上部ナビと会への戻り道」) replaces this
+        screen's prior render-mode-independent nav pair (ADR-0054 decision
+        1: "ランチ候補をさがす"/"ランチ会") with a render-mode-specific
+        design: candidate-primary-nav-bar (mobileBarSearch/-Gathering/
+        -Account, unconditional under mapPrimaryTouchLayout) and candidate-
+        primary-nav-menu-toggle -> -menu-panel (menuDestinationSearch/
+        -Gathering + the existing account controls, unconditional under
+        twoColumnLayout) -- both unconditional on this screen while in
+        gathering mode too, since it is not one of gathering-scheduling-
+        browser-interface.yaml's own three organizer-facing screens
+        (gatheringEntry.mobileBar/menuToggle requirement paragraphs).
+        candidate-gathering-entry (the chip) is unlike those two: it stays
+        present here (unlike on the three organizer screens,
+        GatheringScreenInvariantTests' own sibling test below), since
+        entry.requirement's own exclusion only names those three screens,
+        not gatheringMode. None of the new elements below carry
+        data-candidate-control-purpose (plain navigation elements, per this
+        contract's existing gatheringEntry.entry precedent), so none is
+        caught by test_e_activatable_controls_meet_44px_minimum_target's
+        purpose-based scan above -- this test measures each directly.
+        gatheringMode.shortlistToast.returnControl is opened by actually
+        adding a shop (FR-013: a closed disclosure's own descendants render
+        an unreliable bounding box under this project's CI browser -- open
+        it before measuring what it discloses, mirroring
+        test_c_account_menu_toggle_and_password_change_link_are_keyboard_
+        operable's identical precedent above).
+        """
+        self.dsl.reset_authentication_state()
+        self.dsl.reset_candidate_state()
+        self.dsl.enable_organizer(ORGANIZER_ACCOUNT_REF, ORGANIZER_IDENTIFIER, ORGANIZER_PASSWORD)
+        self.dsl.sign_in(ORGANIZER_IDENTIFIER, ORGANIZER_PASSWORD)
+        self.dsl.set_candidate_state("GATHERING_OPEN_SHOP_WEEKDAY_MATCH")
+        self.dsl.open_candidate_screen()
+        gathering_id = self._create_selecting_shop_gathering_via_api(
+            "会UI不変量ナビの確認会", self._next_monday_iso()
+        )
+
+        def _assert_44px_and_tabbable(locator, label: str) -> None:
+            expect(locator).to_be_visible()
+            self._assert_tabbable(locator, label)
+            box = locator.bounding_box()
+            self.assertIsNotNone(box, f"{label} has no bounding box")
+            self.assertGreaterEqual(box["width"], MINIMUM_TARGET_PX, label)
+            self.assertGreaterEqual(box["height"], MINIMUM_TARGET_PX, label)
+
+        # --- mobile bottom nav (mapPrimaryTouchLayout, adr/0033 decision 1) ---
+        mobile_width, mobile_height, mobile_label = NARROW_VIEWPORTS[0]
+        self.page.set_viewport_size({"width": mobile_width, "height": mobile_height})
+        self.page.goto(f"{self.dsl.base_url}/?gatheringId={gathering_id}")
+        for test_id in (
+            "candidate-primary-nav-search",
+            "candidate-primary-nav-gathering",
+            "candidate-primary-nav-account",
+        ):
+            with self.subTest(check="mobile-nav", test_id=test_id):
+                _assert_44px_and_tabbable(
+                    by_test_id(self.page, test_id), f"{test_id} ({mobile_label})"
+                )
+        gathering_item = by_test_id(self.page, "candidate-primary-nav-gathering")
+        self.assertNotEqual(
+            (gathering_item.inner_text() or "").strip(),
+            "",
+            f"candidate-primary-nav-gathering label text empty ({mobile_label})",
+        )
+        expect(by_test_id(self.page, "candidate-gathering-entry")).to_have_count(0)
+
+        # --- desktop chip + menu (twoColumnLayout, adr/0049 decision 4) ---
+        desktop_width, desktop_height, desktop_label = TWO_COLUMN_VIEWPORTS[1]
+        self.page.set_viewport_size({"width": desktop_width, "height": desktop_height})
+        self.page.goto(f"{self.dsl.base_url}/?gatheringId={gathering_id}")
+        chip = by_test_id(self.page, "candidate-gathering-entry")
+        _assert_44px_and_tabbable(chip, f"candidate-gathering-entry ({desktop_label})")
+        self.assertNotEqual(
+            (chip.inner_text() or "").strip(),
+            "",
+            f"candidate-gathering-entry label text empty ({desktop_label})",
+        )
+
+        toggle = by_test_id(self.page, "candidate-primary-nav-menu-toggle")
+        _assert_44px_and_tabbable(toggle, f"candidate-primary-nav-menu-toggle ({desktop_label})")
+        toggle.press("Enter")
+        panel = by_test_id(self.page, "candidate-primary-nav-menu-panel")
+        expect(panel).to_be_visible()
+        menu_panel_test_ids = (
+            "candidate-primary-nav-menu-search",
+            "candidate-primary-nav-menu-gathering",
+        )
+        for test_id in menu_panel_test_ids:
+            with self.subTest(check="menu-panel", test_id=test_id):
+                _assert_44px_and_tabbable(
+                    by_test_id(self.page, test_id), f"{test_id} ({desktop_label})"
+                )
+
+        # --- gatheringMode.shortlistToast.returnControl (ADR-0059 decision 5) ---
+        self.page.goto(f"{self.dsl.base_url}/?gatheringId={gathering_id}")
+        cards = wait_for_at_least_one(self.page, "candidate-card")
+        cards.first.locator('[data-testid="candidate-card-gathering-toggle"]').click()
+        toast_return = by_test_id(self.page, "candidate-gathering-shortlist-toast-return")
+        _assert_44px_and_tabbable(toast_return, "candidate-gathering-shortlist-toast-return")
 
 
 # ---------------------------------------------------------------------------
@@ -1402,6 +1559,43 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
             by_test_id(page, month_next_test_id).click()
         return page.locator(f'[data-testid="{day_test_id}"][data-gathering-control-purpose]').first
 
+    def _find_weekend_or_holiday_disabled_cell(
+        self, page, day_test_id: str, month_next_test_id: str
+    ):
+        """A day cell disabled for a reason other than being today/past
+        (ADR-0060 decision 1/2: a Saturday, Sunday, or Japan public holiday).
+        Identified *relative to the calendar's own currently-enabled cells*,
+        not by this file independently computing "today" or a holiday
+        calendar (tester does not read implementation, and this file
+        otherwise never computes dates itself either): 明日以降のみ
+        (adr/0049 decision 3) only disables a contiguous run starting at the
+        calendar's first visible day, so any disabled cell whose data-date
+        sorts *after* the earliest enabled cell's data-date cannot be a
+        past/today disablement -- it must be a weekend or public holiday.
+        """
+        for _ in range(6):
+            all_cells = page.locator(f'[data-testid="{day_test_id}"]')
+            count = all_cells.count()
+            enabled_dates = sorted(
+                date
+                for index in range(count)
+                if (date := all_cells.nth(index).get_attribute("data-date")) is not None
+                and all_cells.nth(index).get_attribute("data-gathering-control-purpose") is not None
+            )
+            if enabled_dates:
+                earliest_enabled = enabled_dates[0]
+                for index in range(count):
+                    cell = all_cells.nth(index)
+                    if cell.get_attribute("data-gathering-control-purpose") is not None:
+                        continue
+                    cell_date = cell.get_attribute("data-date")
+                    if cell_date is not None and cell_date > earliest_enabled:
+                        return cell
+            by_test_id(page, month_next_test_id).click()
+        raise AssertionError(
+            f"could not find a weekend/holiday-disabled {day_test_id} cell within 6 months"
+        )
+
     def _create_gathering_via_ui(self, title: str, candidate_date_count: int = 1) -> str:
         """``createGathering`` (``gathering-scheduling-api.yaml``), driven
         through ``organizerGatheringCreate``'s own real UI. Leaves
@@ -1424,6 +1618,14 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         ``data-gathering-control-purpose`` activatable -- exactly the
         attribute callers of this method scan for (e.g.
         ``_assert_all_declared_gathering_controls_meet_44px``).
+
+        **Rewritten 2026-09-16 (ADR-0060 decision 5)**: "つくる" no longer
+        creates the gathering directly -- gathering-create-review-open now
+        opens gathering-create-review-dialog, whose own gathering-create-
+        submit (same test id/purpose, moved DOM home) is what actually
+        calls createGathering. Every other caller of this shared helper is
+        unaffected by this change (they only observe its return value/the
+        resulting dashboard).
         """
         self.page.goto(f"{self.dsl.base_url}/gatherings/new/")
         by_test_id(self.page, "gathering-create-name-input").fill(title)
@@ -1437,6 +1639,8 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
             "gathering-create-candidate-date-month-next",
             candidate_date_count,
         )
+        by_test_id(self.page, "gathering-create-review-open").click()
+        expect(by_test_id(self.page, "gathering-create-review-dialog")).to_be_attached()
         by_test_id(self.page, "gathering-create-submit").click()
         expect(self.page).to_have_url(re.compile(r"/gatherings/[0-9a-fA-F-]+/$"))
         match = re.search(r"/gatherings/([0-9a-fA-F-]+)/", self.page.url)
@@ -1649,6 +1853,13 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
     # --- organizerGatheringCreate --------------------------------------------
 
     def test_b_gathering_create_calendar_and_actions_are_keyboard_operable(self) -> None:
+        """**Rewritten 2026-09-16 (ADR-0060 decision 5)**: "つくる" no longer
+        creates the gathering directly -- gathering-create-review-open (new)
+        reveals gathering-create-review-dialog, whose own gathering-create-
+        submit (same test id/purpose, moved DOM home) now does. Both the
+        confirm and cancel paths through this dialog are exercised by
+        keyboard alone, on two separate fresh instances of this screen.
+        """
         self._sign_in_as_organizer()
         self.page.goto(f"{self.dsl.base_url}/gatherings/new/")
 
@@ -1665,13 +1876,62 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
 
         by_test_id(self.page, "gathering-create-name-input").fill("キーボードだけで作る会")
 
+        review_open = by_test_id(self.page, "gathering-create-review-open")
+        self._assert_tabbable(review_open, "gathering-create-review-open")
+        review_open.press("Enter")
+        expect(by_test_id(self.page, "gathering-create-review-dialog")).to_be_attached()
+
         submit = by_test_id(self.page, "gathering-create-submit")
         self._assert_tabbable(submit, "gathering-create-submit")
         submit.press("Enter")
         expect(self.page).to_have_url(re.compile(r"/gatherings/[0-9a-fA-F-]+/$"))
 
-        # cancel, exercised on a second, fresh instance of this screen.
+        # review.cancel / Escape, exercised on a second, fresh instance of
+        # this screen -- both close the dialog without creating a gathering
+        # and without discarding the pending day selection or name input
+        # (review.cancel.requiredOutcome). Escape is not a Must this
+        # contract fixes (its own review.dialog section names only the
+        # click-driven cancel control), but the implementation's own commit
+        # message states this dialog "moves focus in on open, closes on
+        # Escape, restores focus to the opener on close" -- a real,
+        # deliberately-built keyboard affordance this file's own
+        # answerLater/peekResults precedent already establishes gets
+        # checked even without a dedicated scenario ID.
         self.page.goto(f"{self.dsl.base_url}/gatherings/new/")
+        day_cell_2 = self._first_enabled_day_cell(
+            self.page,
+            "gathering-create-candidate-date-day",
+            "gathering-create-candidate-date-month-next",
+        )
+        day_cell_2.click()
+        by_test_id(self.page, "gathering-create-name-input").fill("キャンセルの確認会")
+
+        review_open_2 = by_test_id(self.page, "gathering-create-review-open")
+        review_open_2.click()
+        expect(by_test_id(self.page, "gathering-create-review-dialog")).to_be_attached()
+        self.page.keyboard.press("Escape")
+        expect(by_test_id(self.page, "gathering-create-review-dialog")).to_have_count(0)
+        focused_test_id = self.page.evaluate(
+            "() => document.activeElement && document.activeElement.getAttribute('data-testid')"
+        )
+        self.assertEqual(
+            focused_test_id,
+            "gathering-create-review-open",
+            "Escape must return focus to the control that opened the dialog",
+        )
+        self.assertEqual(day_cell_2.get_attribute("data-selected"), "true")
+
+        review_open_2.click()
+        expect(by_test_id(self.page, "gathering-create-review-dialog")).to_be_attached()
+        review_cancel = by_test_id(self.page, "gathering-create-review-cancel")
+        self._assert_tabbable(review_cancel, "gathering-create-review-cancel")
+        review_cancel.press("Enter")
+        expect(by_test_id(self.page, "gathering-create-review-dialog")).to_have_count(0)
+        expect(self.page).to_have_url(f"{self.dsl.base_url}/gatherings/new/")
+        self.assertEqual(day_cell_2.get_attribute("data-selected"), "true")
+
+        # gathering-create-cancel (whole-screen cancel, unaffected by
+        # ADR-0060), exercised on the same still-open instance.
         cancel = by_test_id(self.page, "gathering-create-cancel")
         self._assert_tabbable(cancel, "gathering-create-cancel")
         cancel.press("Enter")
@@ -1695,6 +1955,30 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
             ).to_be_visible()
             self._assert_all_declared_gathering_controls_meet_44px(self.page, label)
 
+    def test_e_gathering_create_review_dialog_controls_meet_44px_minimum_target(self) -> None:
+        """review.dialog's own controls (ADR-0060 decision 5) are a distinct
+        DOM state from organizerGatheringCreate's own screen-level controls
+        above, which never opens this dialog and so never measures anything
+        inside it -- a closed disclosure's contents must be opened before
+        being measured (FR-013), the same reasoning this file's own
+        finalize-/delete-confirm-dialog 44px tests already apply.
+        """
+        self._sign_in_as_organizer()
+        for width, height, label in GATHERING_CONTROL_SIZE_VIEWPORTS:
+            self.page.set_viewport_size({"width": width, "height": height})
+            self.page.goto(f"{self.dsl.base_url}/gatherings/new/")
+            by_test_id(self.page, "gathering-create-name-input").fill("モーダル寸法の確認会")
+            self._first_enabled_day_cell(
+                self.page,
+                "gathering-create-candidate-date-day",
+                "gathering-create-candidate-date-month-next",
+            ).click()
+            by_test_id(self.page, "gathering-create-review-open").click()
+            expect(by_test_id(self.page, "gathering-create-review-dialog")).to_be_attached()
+            self._assert_all_declared_gathering_controls_meet_44px(
+                self.page, f"review dialog open at {label}"
+            )
+
     def test_b_gathering_create_calendar_month_navigation_and_remove_selected_are_keyboard_operable(
         self,
     ) -> None:
@@ -1707,6 +1991,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         """
         self._sign_in_as_organizer()
         self.page.goto(f"{self.dsl.base_url}/gatherings/new/")
+        by_test_id(self.page, "gathering-create-name-input").fill("月送りキーボード確認会")
 
         month_label = by_test_id(self.page, "gathering-create-candidate-date-calendar").locator(
             ".gth-cal-month"
@@ -1723,48 +2008,150 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         month_previous.press("Enter")
         self.assertEqual(month_label.inner_text(), month_before, "month-previous did not return")
 
-        day_cell = self._first_enabled_day_cell(
+        # gathering-create-candidate-date-remove-selected moved into
+        # gathering-create-review-dialog 2026-09-16 (ADR-0060 decision 5) --
+        # its own month-paging is now the *dialog's* own monthNavigation
+        # (gathering-create-review-month-previous/-next), a state
+        # independent of the outer calendar's month-nav just exercised
+        # above. Three selected days: one alone in the earliest month, two
+        # sharing a later month -- deliberately keyboard-removing one of the
+        # *two* (not the last remaining day in its month), because this
+        # contract does not fix this dialog's behavior when a removal empties
+        # the currently-displayed month entirely (item.requiredOutcome's own
+        # note).
+        first_day = self._first_enabled_day_cell(
             self.page,
             "gathering-create-candidate-date-day",
             "gathering-create-candidate-date-month-next",
         )
-        selected_iso = day_cell.get_attribute("data-date")
-        day_cell.click()
-        self.assertEqual(day_cell.get_attribute("data-selected"), "true")
+        first_iso = first_day.get_attribute("data-date")
+        first_day.click()
 
-        remove_selected = self.page.locator(
-            '[data-testid="gathering-create-candidate-date-remove-selected"]'
-        ).first
-        self._assert_tabbable(remove_selected, "gathering-create-candidate-date-remove-selected")
-        remove_selected.press("Enter")
-        expect(
-            self.page.locator(
-                f'[data-testid="gathering-create-candidate-date-day"][data-date="{selected_iso}"]'
-            )
-        ).to_have_attribute("data-selected", "false")
-        self.assertEqual(
-            self.page.locator(
-                '[data-testid="gathering-create-candidate-date-remove-selected"]'
-            ).count(),
-            0,
+        by_test_id(self.page, "gathering-create-candidate-date-month-next").click()
+        second_day = self._first_enabled_day_cell(
+            self.page,
+            "gathering-create-candidate-date-day",
+            "gathering-create-candidate-date-month-next",
         )
+        second_iso = second_day.get_attribute("data-date")
+        second_day.click()
+        third_day = self._select_first_unselected_calendar_day(
+            self.page,
+            "gathering-create-candidate-date-day",
+            "gathering-create-candidate-date-month-next",
+            {first_iso, second_iso},
+        )
+        third_iso = third_day.get_attribute("data-date")
+
+        by_test_id(self.page, "gathering-create-review-open").click()
+        expect(by_test_id(self.page, "gathering-create-review-dialog")).to_be_attached()
+
+        def _current_dialog_selected_dates() -> set[str]:
+            items = self.page.locator(
+                '[data-testid="gathering-create-candidate-date-remove-selected"]'
+            )
+            return {items.nth(i).get_attribute("data-date") for i in range(items.count())}
+
+        # review.dialog.monthNavigation's own note: "Initial position is the
+        # earliest month containing a currently-selected day" -- first_iso's
+        # month, since it was selected before paging the outer calendar
+        # forward to select second_iso/third_iso.
+        self.assertEqual(_current_dialog_selected_dates(), {first_iso})
+
+        review_month_next = by_test_id(self.page, "gathering-create-review-month-next")
+        self._assert_tabbable(review_month_next, "gathering-create-review-month-next")
+        review_month_next.press("Enter")
+        self.assertEqual(_current_dialog_selected_dates(), {second_iso, third_iso})
+
+        third_item = self.page.locator(
+            f'[data-testid="gathering-create-candidate-date-remove-selected"][data-date="{third_iso}"]'
+        )
+        self._assert_tabbable(third_item, "gathering-create-candidate-date-remove-selected")
+        third_item.press("Enter")
+        # Only the dialog's own state is checked here, not the outer
+        # calendar's day cell -- the outer calendar may or may not still be
+        # showing third_iso's month at this point (this contract does not
+        # fix whether selecting a day elsewhere changes which month the
+        # outer calendar itself displays), and this test's own scope is the
+        # dialog's keyboard operability, not the outer calendar's month
+        # state (already covered separately, above).
+        self.assertEqual(_current_dialog_selected_dates(), {second_iso})
+
+        review_month_previous = by_test_id(self.page, "gathering-create-review-month-previous")
+        self._assert_tabbable(review_month_previous, "gathering-create-review-month-previous")
+        review_month_previous.press("Enter")
+        self.assertEqual(_current_dialog_selected_dates(), {first_iso})
 
     def test_e_gathering_create_calendar_navigation_and_remove_selected_meet_44px_minimum_target(
         self,
     ) -> None:
+        """**Rewritten 2026-09-16 (ADR-0060 decision 5)**: remove-selected
+        only renders inside gathering-create-review-dialog now -- this test
+        must open that dialog, or it silently stops measuring
+        remove-selected at all (a closed disclosure's contents must be
+        opened before being measured, FR-013).
+        """
         self._sign_in_as_organizer()
         for width, height, label in GATHERING_CONTROL_SIZE_VIEWPORTS:
             self.page.set_viewport_size({"width": width, "height": height})
             self.page.goto(f"{self.dsl.base_url}/gatherings/new/")
+            by_test_id(self.page, "gathering-create-name-input").fill(f"サイズ確認{label}")
             day_cell = self._first_enabled_day_cell(
                 self.page,
                 "gathering-create-candidate-date-day",
                 "gathering-create-candidate-date-month-next",
             )
             day_cell.click()
+            by_test_id(self.page, "gathering-create-review-open").click()
+            expect(by_test_id(self.page, "gathering-create-review-dialog")).to_be_attached()
             self._assert_all_declared_gathering_controls_meet_44px(
-                self.page, f"with a remove-selected control shown at {label}"
+                self.page, f"with a remove-selected control shown in the dialog at {label}"
             )
+
+    def test_gth_weekend_and_holiday_day_cells_cannot_be_selected(self) -> None:
+        """ADR-0060 decision 1/2/4 (2026-09-16, TDR-GTH-57/58): a Saturday,
+        Sunday, or Japan public holiday day cell carries no
+        data-gathering-control-purpose (this product's own established
+        enabled/disabled convention, not a native ``disabled`` attribute --
+        every other day-cell/control check in this file already uses this
+        same convention, e.g. ``_first_enabled_day_cell`` above) and cannot
+        be forced into a selected state either. Checked on both calendars
+        this contract fixes the same dayCell.disabledState rule for
+        (organizerGatheringCreate.calendar and addCandidateDateForm.calendar).
+        """
+        self._sign_in_as_organizer()
+        self.page.goto(f"{self.dsl.base_url}/gatherings/new/")
+        disabled_cell = self._find_weekend_or_holiday_disabled_cell(
+            self.page,
+            "gathering-create-candidate-date-day",
+            "gathering-create-candidate-date-month-next",
+        )
+        self.assertIsNone(
+            disabled_cell.get_attribute("data-gathering-control-purpose"),
+            "a weekend/holiday day cell must not declare an activation purpose",
+        )
+        self.assertEqual(disabled_cell.get_attribute("data-selected"), "false")
+        disabled_cell.click(force=True)
+        self.assertEqual(
+            disabled_cell.get_attribute("data-selected"),
+            "false",
+            "clicking a disabled weekend/holiday day cell must not select it",
+        )
+
+        self._create_gathering_via_ui("休日マス確認会")
+        by_test_id(self.page, "gathering-add-candidate-date-open").click()
+        expect(by_test_id(self.page, "gathering-add-candidate-date-form")).to_be_attached()
+        disabled_cell_add = self._find_weekend_or_holiday_disabled_cell(
+            self.page,
+            "gathering-add-candidate-date-day",
+            "gathering-add-candidate-date-month-next",
+        )
+        self.assertIsNone(
+            disabled_cell_add.get_attribute("data-gathering-control-purpose"),
+            "a weekend/holiday day cell must not declare an activation purpose",
+        )
+        disabled_cell_add.click(force=True)
+        self.assertEqual(disabled_cell_add.get_attribute("data-selected"), "false")
 
     # --- organizerDashboard ---------------------------------------------
 
@@ -1997,16 +2384,25 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
     def test_gathering_screens_persistent_primary_nav_meets_44px_and_is_keyboard_operable(
         self,
     ) -> None:
-        """ADR-0054 decision 1 (2026-09-12, human decision): "ランチ候補を
-        さがす"/"ランチ会" stay reachable, at a real tap-target size, from
-        every organizer-facing gathering screen -- fixing the production
-        report "会に入ると出られない". candidate-gathering-entry carries no
-        ``data-gathering-control-purpose`` (a plain navigation-only ``<a>``,
+        """ADR-0059 (2026-09-16, 束A) replaces ADR-0054 decision 1's single,
+        render-mode-independent candidate-gathering-entry chip on these
+        three organizer screens with a render-mode-specific pair:
+        candidate-primary-nav-bar (unconditional under
+        mapPrimaryTouchLayout) and candidate-primary-nav-menu-toggle ->
+        -menu-panel (unconditional under twoColumnLayout) -- both
         contracts/candidate-search-browser-interface.yaml's own
-        gatheringEntry.entry.requirement), so it is not caught by
-        ``_assert_all_declared_gathering_controls_meet_44px``'s purpose-based
-        scan above -- this test measures it directly instead, on all three
-        organizer screens this round adds it to.
+        gatheringEntry.mobileBar/menuToggle requirement paragraphs
+        (2026-09-16) state this holds on these same three screens, not only
+        on the candidate-search screen itself. candidate-gathering-entry
+        itself is now the *opposite* of ADR-0054 decision 1's rule here --
+        entry.requirement (2026-09-16) explicitly excludes these three
+        screens ("redundant... on a screen that already is that gathering")
+        -- this test also asserts its absence, a regression a silently-
+        still-present chip would previously have passed unnoticed. None of
+        the new elements carry ``data-gathering-control-purpose`` (plain
+        navigation elements, mirroring the retired chip's own precedent),
+        so none is caught by ``_assert_all_declared_gathering_controls_meet_
+        44px``'s purpose-based scan above.
         """
         self._sign_in_as_organizer()
         gathering_id = self._create_gathering_via_ui("常設ナビの確認会")
@@ -2015,20 +2411,52 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
             f"{self.dsl.base_url}/gatherings/new/",
             f"{self.dsl.base_url}/gatherings/{gathering_id}/",
         ]
+
+        def _assert_44px_and_tabbable(locator, label: str) -> None:
+            expect(locator).to_be_visible()
+            self._assert_tabbable(locator, label)
+            box = locator.bounding_box()
+            self.assertIsNotNone(box, f"{label} has no bounding box")
+            self.assertGreaterEqual(box["width"], MINIMUM_TARGET_PX, label)
+            self.assertGreaterEqual(box["height"], MINIMUM_TARGET_PX, label)
+
+        mobile_width, mobile_height, mobile_label = GATHERING_CONTROL_SIZE_VIEWPORTS[0]
+        self.page.set_viewport_size({"width": mobile_width, "height": mobile_height})
         for url in urls:
-            with self.subTest(url=url):
+            with self.subTest(viewport=mobile_label, url=url):
                 self.page.goto(url)
-                entry = by_test_id(self.page, "candidate-gathering-entry")
-                expect(entry).to_be_visible()
-                self._assert_tabbable(entry, "candidate-gathering-entry")
-                box = entry.bounding_box()
-                self.assertIsNotNone(box, f"candidate-gathering-entry has no bounding box ({url})")
-                self.assertGreaterEqual(box["width"], MINIMUM_TARGET_PX)
-                self.assertGreaterEqual(box["height"], MINIMUM_TARGET_PX)
-                label = entry.locator(".candidate-gathering-entry-label")
-                self.assertNotEqual(
-                    (label.text_content() or "").strip(), "", f"label text empty ({url})"
+                bar = by_test_id(self.page, "candidate-primary-nav-bar")
+                expect(bar).to_be_visible()
+                for test_id in (
+                    "candidate-primary-nav-search",
+                    "candidate-primary-nav-gathering",
+                    "candidate-primary-nav-account",
+                ):
+                    _assert_44px_and_tabbable(
+                        by_test_id(self.page, test_id), f"{test_id} ({mobile_label}, {url})"
+                    )
+                expect(by_test_id(self.page, "candidate-gathering-entry")).to_have_count(0)
+
+        desktop_width, desktop_height, desktop_label = GATHERING_CONTROL_SIZE_VIEWPORTS[1]
+        self.page.set_viewport_size({"width": desktop_width, "height": desktop_height})
+        for url in urls:
+            with self.subTest(viewport=desktop_label, url=url):
+                self.page.goto(url)
+                toggle = by_test_id(self.page, "candidate-primary-nav-menu-toggle")
+                _assert_44px_and_tabbable(
+                    toggle, f"candidate-primary-nav-menu-toggle ({desktop_label}, {url})"
                 )
+                toggle.press("Enter")
+                panel = by_test_id(self.page, "candidate-primary-nav-menu-panel")
+                expect(panel).to_be_visible()
+                for test_id in (
+                    "candidate-primary-nav-menu-search",
+                    "candidate-primary-nav-menu-gathering",
+                ):
+                    _assert_44px_and_tabbable(
+                        by_test_id(self.page, test_id), f"{test_id} ({desktop_label}, {url})"
+                    )
+                expect(by_test_id(self.page, "candidate-gathering-entry")).to_have_count(0)
 
     def test_b_gathering_dashboard_delete_confirmation_is_keyboard_operable(self) -> None:
         self._sign_in_as_organizer()
@@ -2072,6 +2500,31 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         # candidate-search-browser-interface.yaml's own gatheringMode/
         # recommendation population, a screen outside this file's
         # four-screen scope (class docstring).
+
+    def test_gth_leading_candidate_date_does_not_expose_raw_response_enum_text(self) -> None:
+        """ADR-0020 decision 4(d), applied to ADR-0060 decision 7's new
+        最有力 mark (gathering-candidate-date's data-current-leader /
+        responseTable.leaderSummary): renders only once at least one
+        candidate date actually leads -- a closed disclosure opened before
+        being measured (FR-013) -- and reuses the existing enum-token scan
+        unchanged. This is a regression gate on gathering.js's already-
+        established GOING/MAYBE/NOT_GOING translation, not a new
+        forbidden-token addition (adding new tokens is a human-language
+        judgment, ADR-0020 decision 4(d)'s own note, not a tester decision).
+        """
+        self._sign_in_as_organizer()
+        self._create_gathering_via_ui("最有力の確認会", candidate_date_count=2)
+        link_url = self._issue_participant_link_url()
+        participant_page = self._open_participant_view(link_url)
+        by_test_id(participant_page, "gathering-schedule-response-option").first.click()
+
+        self.page.reload()
+        expect(
+            self.page.locator(
+                '[data-testid="gathering-candidate-date"][data-current-leader="true"]'
+            )
+        ).to_have_count(1)
+        self._assert_no_forbidden_enum_token_is_visible_standalone_text(self.page)
 
     def test_e_gathering_dashboard_controls_meet_44px_minimum_target(self) -> None:
         self._sign_in_as_organizer()
