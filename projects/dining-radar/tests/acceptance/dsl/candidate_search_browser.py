@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, timedelta
 from itertools import product
 from pathlib import Path
 
@@ -19,7 +19,7 @@ from playwright.sync_api import Locator, Page, expect
 
 from tests.acceptance.dsl.authentication_browser import AuthenticationBrowserDsl
 from tests.acceptance.dsl.browser_mechanics import HttpBrowser, assert_no_content
-from tests.acceptance.dsl.business_days import resolve_business_day_iso
+from tests.acceptance.dsl.business_days import jst_now, resolve_business_day_iso
 from tests.acceptance.dsl.js_browser_mechanics import (
     CapturedApiResponse,
     assert_absent,
@@ -438,11 +438,32 @@ def next_weekday_iso(weekday: int, hour: int = 12) -> str:
     duplicated here rather than imported, mirroring this pair of DSL files'
     existing precedent of each owning its own small Given-state utilities
     rather than cross-importing between the two sibling suites.
+
+    **2026-09-19 CI fix**: counted against Japan calendar days (jst_now, not
+    this process's own local time/UTC) -- this product is Japan-only
+    (product-brief.md) and evaluates CandidateDateInput.startAt's "today or
+    earlier" rejection against that same calendar, per business_days.py's
+    own docstring (the exact CI reproduction: a UTC-midnight-crossing seed
+    computed during the 9 UTC hours already tomorrow in Japan lands on a
+    date the product itself still calls "today", rejecting it with
+    CANDIDATE_DATE_NOT_IN_FUTURE before this call's own createGathering
+    retry ever reaches the weekend/holiday check).
+
+    **Round-trip note**: the wall-clock date/time is picked by counting
+    Japan calendar days, but the *result* is labeled ``tzinfo=UTC`` (a
+    relabel via ``.replace()``, never a conversion) -- createGathering/
+    addCandidateDates echo ``candidateDates[].startAt`` back with the same
+    wall-clock numbers sent, always under a ``+00:00`` label regardless of
+    what offset the client actually sent (confirmed empirically: sending
+    ``+09:00`` broke this suite's own exact-string Given/Then comparisons
+    against an echoed ``+00:00``), and hour=12 keeps this safely on the
+    same calendar date even if the server instead reads the label at face
+    value and converts +9 hours (never crossing midnight).
     """
-    now = datetime.now(UTC)
+    now = jst_now()
     days_ahead = (weekday - now.weekday()) % 7 or 7
     target = (now + timedelta(days=days_ahead)).replace(
-        hour=hour, minute=0, second=0, microsecond=0
+        hour=hour, minute=0, second=0, microsecond=0, tzinfo=UTC
     )
     return target.isoformat()
 
@@ -666,12 +687,19 @@ class CandidateSearchBrowserDsl:
         next_weekday_iso/step_days=7 precedent) and creates again -- the
         eventual accepted create call *is* this Given's real state, not a
         throwaway probe.
+
+        **2026-09-19 CI fix**: the "+3 days" default is counted against
+        Japan calendar days (jst_now), the same reason next_weekday_iso above
+        was fixed (this product is Japan-only and evaluates "today or
+        earlier" against that calendar, not this process's own local
+        time/UTC) -- labeled ``tzinfo=UTC`` (a relabel, not a conversion),
+        the same round-trip note next_weekday_iso above documents.
         """
         seed_iso = (
             candidate_date_iso
             if candidate_date_iso is not None
-            else (datetime.now(UTC) + timedelta(days=3))
-            .replace(hour=12, minute=0, second=0, microsecond=0)
+            else (jst_now() + timedelta(days=3))
+            .replace(hour=12, minute=0, second=0, microsecond=0, tzinfo=UTC)
             .isoformat()
         )
         accepted_response: CapturedApiResponse | None = None

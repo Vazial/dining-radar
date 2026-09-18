@@ -14,14 +14,56 @@ scenario this rule exists for is itself guarding against). This module
 therefore never computes weekends/holidays itself; it only ever asks the
 product, through its own public boundary, whether one candidate date is
 accepted, and advances to the next candidate on an observed rejection.
+
+**2026-09-19 CI time-dependent-failure fix**: the contract's own "today or
+earlier is rejected" (CANDIDATE_DATE_NOT_IN_FUTURE) is evaluated by this
+product against Japan calendar days -- this is a Japan-only product (product-
+brief.md), and the contract's "startAt's date, time excluded" wording is
+naturally read against that same locale, not against whichever timezone the
+acceptance suite's own process happens to run in. A seed built from
+``datetime.now(UTC)`` disagrees with the product about which calendar day
+"today" is for exactly the 9 UTC hours (15:00-24:00) that are already
+tomorrow in Japan (JST = UTC+9, no DST) -- reproduced in CI at
+2026-09-18T15:07Z (JST 2026-09-19 00:07): next_weekday_iso(5)'s "next
+Saturday" landed on the UTC calendar day 2026-09-19, which was JST's *today*,
+not tomorrow, so createGathering rejected it with CANDIDATE_DATE_NOT_IN_
+FUTURE before ever reaching the weekend check TDR-GTH-57 meant to exercise.
+``jst_now`` below is the single clock every date-seed builder in this
+suite's two DSL files goes through -- monkeypatch this one function (not
+``datetime.now`` itself, and never this module's own already-timezone-aware
+``resolve_business_day_iso`` above, which only ever advances whatever
+tz-aware seed it is given) to fix "now" for a deterministic check.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 MAX_BUSINESS_DAY_ADVANCES = 8
+
+# product-brief.md: this product has no locale/timezone setting -- it is a
+# single-region (Japan) product, and settings_base.TIME_ZONE is "Asia/Tokyo"
+# (fixed +09:00, no DST, confirmed in activeContext.md's own deploy-target
+# realization notes). CandidateDateInput.startAt's "today or earlier"/
+# "weekend or Japan public holiday" checks are both evaluated against that
+# same Japan calendar day, not the acceptance suite process's own local time
+# or UTC.
+JST = ZoneInfo("Asia/Tokyo")
+
+
+def jst_now() -> datetime:
+    """The current moment as a Japan-local aware ``datetime`` -- the single
+    clock every candidate-date seed in tests/acceptance is built from. A
+    caller needing a fixed "now" for a deterministic, non-server check
+    (this module's own docstring above) monkeypatches this function, e.g.
+    ``unittest.mock.patch("tests.acceptance.dsl.business_days.jst_now", ...)``
+    or, from the sibling DSL modules that import it by name, patches their
+    own module-level reference instead (``patch.object(gathering_scheduling_
+    browser, "jst_now", ...)``).
+    """
+    return datetime.now(JST)
 
 
 class BusinessDayNotFoundError(AssertionError):
