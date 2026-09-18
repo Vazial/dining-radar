@@ -194,6 +194,10 @@
     // confirm-dialog is currently revealed (client-side only -- opening it
     // calls no public operation).
     deleteConfirmOpen: false,
+    // Board D4: desktop starts with 回答 alone open (tab pattern); mobile
+    // starts both closed (disclosure pattern) -- read once, at load.
+    decisionAnswersOpen: isDesktopDecisionLayout(),
+    decisionLinksOpen: false,
   };
 
   // The self-made calendar instance backing addCandidateDateForm.calendar --
@@ -277,6 +281,13 @@
     var day = date.getUTCDate();
     var weekday = WEEKDAY_LABELS_JA[date.getUTCDay()];
     return month + "/" + day + "（" + weekday + "）";
+  }
+
+  // Board D4's split display ("10/8 (木)" big, "12:00 から" small) needs a
+  // time-only half; same UTC-safe accessors as formatGatheringDateTime.
+  function formatGatheringTime(isoString) {
+    var date = new Date(isoString);
+    return pad2(date.getUTCHours()) + ":" + pad2(date.getUTCMinutes());
   }
 
   function el(tag, attrs, children) {
@@ -1534,33 +1545,31 @@
   // default) unchanged by this fix. testId/data attributes are unchanged
   // -- only visible text and DOM position move (developer discretion,
   // this contract fixes neither).
-  function renderShortlistedShopDetailFields(shop) {
+  // withTestIds=false lets decisionBanner's own row (board D4) reuse this
+  // markup without misreporting itself as the FINALIZED-absent list's child.
+  function renderShortlistedShopDetailFields(shop, withTestIds) {
+    var declareTestId = withTestIds !== false;
+    function fieldAttrs(testId) {
+      var attrs = { class: "gth-shop-detail" };
+      if (declareTestId) {
+        attrs["data-testid"] = testId;
+      }
+      return attrs;
+    }
     var fields = [
-      el(
-        "span",
-        { "data-testid": "gathering-shortlisted-shop-genre", class: "gth-shop-detail" },
-        [shop.genre]
-      ),
-      el(
-        "span",
-        { "data-testid": "gathering-shortlisted-shop-walking-time", class: "gth-shop-detail" },
-        ["徒歩 約" + shop.walkingTimeMinutes + "分"]
-      ),
-      el(
-        "span",
-        { "data-testid": "gathering-shortlisted-shop-capacity-tier", class: "gth-shop-detail" },
-        ["席 " + (shop.capacityTier ? CAPACITY_TIER_LABELS[shop.capacityTier] : "情報なし")]
-      ),
-      el(
-        "span",
-        { "data-testid": "gathering-shortlisted-shop-non-smoking", class: "gth-shop-detail" },
-        [shop.nonSmokingStatus ? NON_SMOKING_LABELS[shop.nonSmokingStatus] : "情報なし"]
-      ),
-      el(
-        "span",
-        { "data-testid": "gathering-shortlisted-shop-dinner-budget", class: "gth-shop-detail" },
-        ["予算 " + (shop.dinnerBudgetTier ? BUDGET_TIER_LABELS[shop.dinnerBudgetTier] : "情報なし")]
-      ),
+      el("span", fieldAttrs("gathering-shortlisted-shop-genre"), [shop.genre]),
+      el("span", fieldAttrs("gathering-shortlisted-shop-walking-time"), [
+        "徒歩 約" + shop.walkingTimeMinutes + "分",
+      ]),
+      el("span", fieldAttrs("gathering-shortlisted-shop-capacity-tier"), [
+        "席 " + (shop.capacityTier ? CAPACITY_TIER_LABELS[shop.capacityTier] : "情報なし"),
+      ]),
+      el("span", fieldAttrs("gathering-shortlisted-shop-non-smoking"), [
+        shop.nonSmokingStatus ? NON_SMOKING_LABELS[shop.nonSmokingStatus] : "情報なし",
+      ]),
+      el("span", fieldAttrs("gathering-shortlisted-shop-dinner-budget"), [
+        "予算 " + (shop.dinnerBudgetTier ? BUDGET_TIER_LABELS[shop.dinnerBudgetTier] : "情報なし"),
+      ]),
     ];
     // "・" separators between fields only (board's own literal wording) --
     // aria-hidden, purely visual punctuation, not read out by a screen
@@ -1699,6 +1708,37 @@
       )
     );
     return el("div", attrs, children);
+  }
+
+  // Board D4's decided-shop row: same parts as renderShortlistedShopItem,
+  // minus finalizeSelect (nothing left to choose) and its own testId (that
+  // list is FINALIZED-absent, so this row cannot reuse it either).
+  function renderDecisionShopRow(shop) {
+    return el("div", { class: "gth-shop-row gth-shop-row--vote" }, [
+      el("span", { class: "gth-shop-rank" }, ["1"]),
+      el("div", { class: "gth-shop-body" }, [
+        el("div", { class: "gth-shop-name-row" }, [
+          el("span", { class: "gth-shop-name" }, [shop.name]),
+        ]),
+        renderShortlistedShopVoteRow(shop),
+        el(
+          "div",
+          { class: "gth-shop-detail-row" },
+          renderShortlistedShopDetailFields(shop, false)
+        ),
+      ]),
+      el(
+        "a",
+        {
+          "data-testid": "gathering-decision-shop-page-link",
+          href: shop.providerPageUrl,
+          target: "_blank",
+          rel: "noopener noreferrer",
+          class: "gth-shop-link",
+        },
+        ["店のページ"]
+      ),
+    ]);
   }
 
   function initializeShortlistedShopMap(container, shops) {
@@ -2014,14 +2054,23 @@
     }
     map.on("layeradd layerremove", refreshOverlayCountAttributes);
 
+    // Board D4's checkmark pin (a distinct icon class from the plain
+    // numbered dot above). bindTooltip's label is a separate Leaflet layer
+    // type, so it does not affect overlayMarkerCount.
     var shopIcon = window.L.divIcon({
-      className: "gathering-shortlisted-shop-map-marker-icon",
-      html: '<span class="gathering-shortlisted-shop-map-marker-visual"></span>',
-      iconSize: [22, 22],
-      iconAnchor: [11, 11],
+      className: "gathering-decision-shop-map-marker-icon",
+      html: '<span class="gathering-decision-shop-map-marker-visual">✓</span>',
+      iconSize: [28, 28],
+      iconAnchor: [14, 14],
     });
     var shopMarker = window.L.marker(shopLatLng, { icon: shopIcon, keyboard: false });
     shopMarker.addTo(map);
+    shopMarker.bindTooltip(shop.name, {
+      permanent: true,
+      direction: "right",
+      offset: [10, 0],
+      className: "gth-map-label",
+    });
     var shopMarkerEl = shopMarker.getElement();
     if (shopMarkerEl) {
       shopMarkerEl.setAttribute("data-testid", "gathering-decision-shop-map-marker");
@@ -2040,6 +2089,12 @@
         alt: "集まる場所",
       });
       originMarker.addTo(map);
+      originMarker.bindTooltip("集まる場所", {
+        permanent: true,
+        direction: "right",
+        offset: [8, 0],
+        className: "gth-map-label",
+      });
       var originEl = originMarker.getElement();
       if (originEl) {
         originEl.setAttribute("data-testid", "gathering-decision-shop-map-origin-marker");
@@ -2057,48 +2112,160 @@
 
   var pendingDecisionMap = null;
 
-  function renderFinalizedSummary() {
+  // Board D4's PC/mobile split for the answers/links groups -- read fresh
+  // on every render(), not cached, so a viewport change still picks it up.
+  function isDesktopDecisionLayout() {
+    return Boolean(window.matchMedia && window.matchMedia("(min-width: 48rem)").matches);
+  }
+
+  function toggleDecisionAnswers() {
+    if (isDesktopDecisionLayout()) {
+      state.decisionAnswersOpen = true;
+      state.decisionLinksOpen = false;
+    } else {
+      state.decisionAnswersOpen = !state.decisionAnswersOpen;
+    }
+    render();
+  }
+
+  function toggleDecisionLinks() {
+    if (isDesktopDecisionLayout()) {
+      state.decisionLinksOpen = true;
+      state.decisionAnswersOpen = false;
+    } else {
+      state.decisionLinksOpen = !state.decisionLinksOpen;
+    }
+    render();
+  }
+
+  // Board D4: PC groups responseTable/participantLinkPane behind two
+  // mutually-exclusive tabs (回答 open first); mobile behind two
+  // independent disclosure rows (both closed first) -- presentation only,
+  // neither testId's own presenceRule changes.
+  function renderDecisionAnswersLinksGroups(candidateDateLeaders) {
+    var desktop = isDesktopDecisionLayout();
+    var answersLabel = "回答 " + state.gathering.respondedParticipantCount + "人";
+    var linksLabel = "回答リンク " + state.gathering.activeParticipantLinkCount + "本";
+
+    function groupButton(testId, label, open, onToggle) {
+      var children = [label];
+      if (!desktop) {
+        children.push(el("span", { class: "gth-decision-chevron", "aria-hidden": "true" }, ["›"]));
+      }
+      var button = el(
+        "button",
+        {
+          type: "button",
+          "data-testid": testId,
+          class: desktop ? "gth-decision-tab" : "gth-decision-disclosure",
+          "data-gathering-control-purpose": testId,
+        },
+        children
+      );
+      if (desktop) {
+        button.setAttribute("role", "tab");
+        button.setAttribute("aria-selected", open ? "true" : "false");
+      } else {
+        button.setAttribute("aria-expanded", open ? "true" : "false");
+      }
+      button.addEventListener("click", onToggle);
+      return button;
+    }
+
+    var answersButton = groupButton(
+      "gathering-decision-answers-open",
+      answersLabel,
+      state.decisionAnswersOpen,
+      toggleDecisionAnswers
+    );
+    var linksButton = groupButton(
+      "gathering-decision-links-open",
+      linksLabel,
+      state.decisionLinksOpen,
+      toggleDecisionLinks
+    );
+    // issuanceClosed's badge sits beside this entrance, not inside its
+    // gated content -- its own presenceRule is unconditional on phase.
+    var linksEntrance = el("div", { class: "gth-decision-links-entrance" }, [
+      linksButton,
+      renderParticipantLinkIssuanceClosedBadge(),
+    ]);
+
+    if (desktop) {
+      var activePane = state.decisionLinksOpen
+        ? renderParticipantLinkPane()
+        : renderResponseTable(candidateDateLeaders);
+      return el("div", { class: "gth-decision-groups" }, [
+        el("div", { class: "gth-decision-tabs", role: "tablist" }, [answersButton, linksEntrance]),
+        el("div", { class: "gth-decision-tabpanel" }, [activePane]),
+      ]);
+    }
+
+    var children = [answersButton];
+    if (state.decisionAnswersOpen) {
+      children.push(
+        el("div", { class: "gth-decision-disclosure-panel" }, [
+          renderResponseTable(candidateDateLeaders),
+        ])
+      );
+    }
+    children.push(linksEntrance);
+    if (state.decisionLinksOpen) {
+      children.push(
+        el("div", { class: "gth-decision-disclosure-panel" }, [renderParticipantLinkPane()])
+      );
+    }
+    return el("div", { class: "gth-decision-groups" }, children);
+  }
+
+  // Board D4: map fills the whole stage behind a floating panel, the same
+  // gth-shop-stage/gth-shop-map pattern SELECTING_SHOP already uses.
+  function renderFinalizedSummary(candidateDateLeaders) {
     var confirmed = state.gathering.candidateDates.filter(function (candidateDate) {
       return candidateDate.isConfirmed;
     })[0];
     var finalizedShop = state.gathering.shortlistedShops.filter(function (shop) {
       return shop.shopId === state.gathering.finalizedShopId;
     })[0];
-    var bodyChildren = [
-      el("div", { class: "gth-decision-row" }, [
-        el("span", { class: "gth-decision-label" }, ["日時"]),
-        el("b", {}, [confirmed ? formatGatheringDateTime(confirmed.startAt) : "―"]),
-      ]),
-      el("div", { class: "gth-decision-row" }, [
-        el("span", { class: "gth-decision-label" }, ["お店"]),
-        el("b", {}, [finalizedShop ? finalizedShop.name : state.gathering.finalizedShopId]),
+
+    var panelChildren = [
+      el("div", { class: "gth-decision-head" }, [
+        el("span", { class: "gth-decision-badge" }, ["決まりました"]),
+        confirmed
+          ? el("span", { class: "gth-decision-going" }, [
+              "行ける ",
+              el("b", {}, [String(confirmed.goingCount)]),
+              "人",
+            ])
+          : null,
       ]),
     ];
+    if (confirmed) {
+      panelChildren.push(
+        el("div", { class: "gth-decision-datetime" }, [
+          el("b", { class: "gth-decision-date-big" }, [formatGatheringDate(confirmed.startAt)]),
+          el("span", { class: "gth-decision-time" }, [
+            formatGatheringTime(confirmed.startAt) + " から",
+          ]),
+        ])
+      );
+    }
+
+    var mapContainer = null;
     if (finalizedShop) {
-      var mapContainer = el(
+      panelChildren.push(renderDecisionShopRow(finalizedShop));
+      mapContainer = el(
         "div",
-        { "data-testid": "gathering-decision-shop-map", class: "gth-decision-map" },
+        { "data-testid": "gathering-decision-shop-map", class: "gth-shop-map" },
         []
       );
       pendingDecisionMap = { container: mapContainer, shop: finalizedShop };
-      bodyChildren.push(mapContainer);
-      bodyChildren.push(
-        el(
-          "a",
-          {
-            "data-testid": "gathering-decision-shop-page-link",
-            href: finalizedShop.providerPageUrl,
-            target: "_blank",
-            rel: "noopener noreferrer",
-            class: "gth-shop-link",
-          },
-          ["店のページを見る"]
-        )
-      );
     } else {
       pendingDecisionMap = null;
     }
-    return el(
+    panelChildren.push(renderDecisionAnswersLinksGroups(candidateDateLeaders));
+
+    var panel = el(
       "div",
       {
         "data-testid": "gathering-decision-banner",
@@ -2107,13 +2274,15 @@
         "data-finalized-shop-name": finalizedShop
           ? finalizedShop.name
           : state.gathering.finalizedShopId,
-        class: "gth-decision",
+        class: "gth-decision-panel",
       },
-      [
-        el("span", { class: "gth-decision-badge" }, ["決まりました"]),
-        el("div", { class: "gth-decision-body" }, bodyChildren),
-      ]
+      panelChildren
     );
+
+    var stageChildren = mapContainer ? [mapContainer, panel] : [panel];
+    return el("div", { class: "gth-pane gth-pane--flush" }, [
+      el("div", { class: "gth-shop-stage" }, stageChildren),
+    ]);
   }
 
   // Minimal Tab-cycling focus trap while gathering-participant-link-issue-
@@ -2316,6 +2485,32 @@
       "div",
       { "data-testid": "gathering-participant-link-list", class: "gth-link-list" },
       state.participantLinks.map(renderParticipantLinkItem)
+    );
+  }
+
+  // Extracted so FINALIZED can nest this same pane inside the decision
+  // panel's own answers/links groups (renderDecisionAnswersLinksGroups)
+  // instead of rendering it as a separate top-level section.
+  function renderParticipantLinkPane() {
+    var linkPaneHeadChildren = [el("div", { class: "gth-pane-head" }, ["発行済みリンク"])];
+    if (state.gathering.phase !== "FINALIZED") {
+      linkPaneHeadChildren.push(renderParticipantLinkCopy());
+    }
+    // issuanceClosed's badge is not nested here once FINALIZED -- see
+    // renderParticipantLinkIssuanceClosedBadge's own call site instead.
+    return el("div", { class: "gth-pane" }, [
+      el("div", { class: "gth-pane-head-row" }, linkPaneHeadChildren),
+      renderParticipantLinkList(),
+    ]);
+  }
+
+  // Marks that issuance itself has ended, distinct from participantLinkCopy's
+  // plain absence -- always visible once FINALIZED, unlike its own list.
+  function renderParticipantLinkIssuanceClosedBadge() {
+    return el(
+      "span",
+      { "data-testid": "gathering-participant-link-issuance-closed", class: "gth-badge-muted" },
+      ["発行はおわり"]
     );
   }
 
@@ -2587,35 +2782,17 @@
       sections.push(renderShortlistedShopVotes());
     }
 
+    // Board D4: FINALIZED nests responseTable/participantLinkList inside
+    // the decision panel's own answers/links groups, not as separate
+    // sections -- neither testId's presenceRule changes.
     if (phase === "FINALIZED") {
-      sections.push(renderFinalizedSummary());
-    }
-
-    // ADR-0056 decision 1: always present, alongside (not replacing) the
-    // per-candidate-date tally above and the link-management list below.
-    sections.push(renderResponseTable(candidateDateLeaders));
-
-    var linkPaneHeadChildren = [el("div", { class: "gth-pane-head" }, ["発行済みリンク"])];
-    if (phase !== "FINALIZED") {
-      linkPaneHeadChildren.push(renderParticipantLinkCopy());
+      sections.push(renderFinalizedSummary(candidateDateLeaders));
     } else {
-      // ADR-0056 decision 11: a short badge marking that issuance itself
-      // has ended on purpose, distinct from participantLinkCopy's own
-      // plain absence (which by itself carried no such signal).
-      linkPaneHeadChildren.push(
-        el(
-          "span",
-          { "data-testid": "gathering-participant-link-issuance-closed", class: "gth-badge-muted" },
-          ["発行はおわり"]
-        )
-      );
+      // ADR-0056 decision 1: always present, alongside (not replacing) the
+      // per-candidate-date tally above and the link-management list below.
+      sections.push(renderResponseTable(candidateDateLeaders));
+      sections.push(renderParticipantLinkPane());
     }
-    sections.push(
-      el("div", { class: "gth-pane" }, [
-        el("div", { class: "gth-pane-head-row" }, linkPaneHeadChildren),
-        renderParticipantLinkList(),
-      ])
-    );
 
     root.appendChild(el("div", { class: "gth-dash" }, sections));
 

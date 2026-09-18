@@ -2505,17 +2505,12 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
     def test_b_gathering_dashboard_finalized_decision_screen_recopy_remains_keyboard_operable(
         self,
     ) -> None:
-        """ADR-0062 decision 4 (2026-09-17, board D4: 「決まった店と集まる場所
-        だけ」): once FINALIZED, shortlistedShopVotes (list/item/finalizeSelect/
-        finalizeOpen) itself becomes absent -- but participantLinkList's own
-        recopy control is one of the few this contract keeps reachable post-
-        finalize (P4, TDR-GTH-36), and gathering-decision-shop-page-link
-        (decisionBanner's own new provider-page link, mirroring gathering-
-        shortlisted-shop-page-link's own precedent) is newly opened to the
-        organizer for the first time. No existing render invariant in this
-        file had examined any control *inside* the FINALIZED screen itself --
-        the earlier keyboard-operable test above only passes through this
-        phase transition at its very last assertion and ends there.
+        """ADR-0062 decision 4 / addendum 22 (2026-09-19): once FINALIZED,
+        shortlistedShopVotes itself becomes absent, but participantLinkList's
+        own recopy control stays reachable post-finalize (P4, TDR-GTH-36) --
+        now behind gathering-decision-links-open's own entrance (answersOpen/
+        linksOpen), opened here before measuring (closed-entrance content is
+        not visible until its own entrance is activated, by design).
         """
         self._sign_in_as_organizer()
         gathering_id = self._create_gathering_via_ui("確定後キーボード確認会")
@@ -2538,7 +2533,11 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         self._assert_tabbable(decision_link, "gathering-decision-shop-page-link")
         self.assertTrue(decision_link.get_attribute("href"))
 
+        links_open = by_test_id(self.page, "gathering-decision-links-open")
+        self._assert_tabbable(links_open, "gathering-decision-links-open")
+        links_open.press("Enter")
         recopy = by_test_id(self.page, "gathering-participant-link-recopy").first
+        expect(recopy).to_be_visible()
         self._assert_tabbable(recopy, "gathering-participant-link-recopy")
         recopy.press("Enter")
         # Activation-does-not-error only (mirrors this file's own
@@ -2549,26 +2548,12 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
     def test_e_gathering_dashboard_finalized_decision_screen_meets_44px_minimum_target(
         self,
     ) -> None:
-        """ADR-0062 decision 4: the FINALIZED-phase organizerDashboard render
-        (decisionBanner plus the still-present recopy control) is a screen
-        state this file's own 44px sweep had never reached before -- the
-        same kind of gap FR-035 names for newly-declared controls, applied
-        here to a newly-reachable *screen state*.
-
-        **Known limitation (tester note, ADR-0062 未決事項2)**: this sweep
-        only measures controls visible in whatever this screen's default
-        render state is. ADR-0062 deliberately left the PC tab-switch
-        ("回答"/"回答リンク") and the mobile disclosure-row toggle without a
-        fixed testId/purpose (見送った代替案: a new disclosure-toggle
-        purpose) -- this file cannot click open a control the contract does
-        not name without guessing at the implementation, so it cannot
-        reliably force a collapsed panel open before measuring it. The
-        shared 44px helper's own "no control was actually measured" guard
-        (``_assert_all_declared_gathering_controls_meet_44px``) still fires
-        if a fully-collapsed implementation left nothing visible at all;
-        ADR-0062's own 未決事項2 already names this exact measurement
-        (opened-then-measured tab/row content) as orchestrator's own
-        follow-up once an implementation exists to inspect by hand.
+        """ADR-0062 decision 4 / addendum 22: the FINALIZED-phase
+        organizerDashboard render is a screen state this file's own 44px
+        sweep had never reached before. Measures both the default (answers-
+        open) state and, after activating links-open, the entrance-revealed
+        participantLinkList content too -- a closed entrance's own content
+        is correctly invisible/unmeasured until opened, per design.
         """
         self._sign_in_as_organizer()
         for width, height, label in GATHERING_CONTROL_SIZE_VIEWPORTS:
@@ -2590,6 +2575,40 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
             self._assert_all_declared_gathering_controls_meet_44px(
                 self.page, f"FINALIZED decision screen at {label}"
             )
+            by_test_id(self.page, "gathering-decision-links-open").click()
+            expect(by_test_id(self.page, "gathering-participant-link-list")).to_be_visible()
+            self._assert_all_declared_gathering_controls_meet_44px(
+                self.page, f"FINALIZED decision screen, links-open at {label}"
+            )
+
+    def test_gathering_dashboard_finalized_answers_links_entrance_has_declared_purpose(
+        self,
+    ) -> None:
+        """ADR-0062 addendum 22 (2026-09-19, contract 0.24.1): answersOpen/
+        linksOpen (gathering-decision-answers-open/-links-open) are the
+        entrance to responseTable/participantLinkList once FINALIZED --
+        checked directly (not only via the generic 44px sweep, which would
+        silently stop counting a control whose purpose attribute is
+        removed, rather than failing) so removing either one's declared
+        purpose is caught here specifically.
+        """
+        self._sign_in_as_organizer()
+        gathering_id = self._create_gathering_via_ui("確定後開閉目印確認会")
+        by_test_id(self.page, "gathering-candidate-date").click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        self._seed_one_shortlisted_shop(gathering_id)
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+        by_test_id(self.page, "gathering-finalize-shop-select").click()
+        by_test_id(self.page, "gathering-finalize-open").click()
+        by_test_id(self.page, "gathering-finalize-confirm").click()
+        expect(by_test_id(self.page, "gathering-phase-indicator")).to_have_attribute(
+            "data-gathering-phase", "FINALIZED"
+        )
+        for test_id in ("gathering-decision-answers-open", "gathering-decision-links-open"):
+            control = by_test_id(self.page, test_id)
+            expect(control).to_be_visible()
+            self.assertEqual(control.get_attribute("data-gathering-control-purpose"), test_id)
 
     def test_gathering_dashboard_response_table_reflects_one_row_per_participant_link(
         self,

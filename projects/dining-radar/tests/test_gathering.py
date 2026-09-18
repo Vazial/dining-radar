@@ -5913,7 +5913,7 @@ class Adr0062ShortlistedShopDetailFieldsSourceTests(SimpleTestCase):
         """board D1: 「◯分」→「徒歩◯分」."""
         source = GATHERING_JS.read_text(encoding="utf-8")
 
-        start = source.index("function renderShortlistedShopDetailFields(shop) {")
+        start = source.index("function renderShortlistedShopDetailFields(shop, withTestIds) {")
         end = source.index("function renderShortlistedShopItem(shop, index, leaders) {", start)
         body = source[start:end]
 
@@ -6095,7 +6095,12 @@ class GatheringDateTimeFormattingSourceTests(SimpleTestCase):
         self.assertNotIn("[candidateDate.startAt]", gathering_source)
         self.assertNotIn("[confirmed ? confirmed.startAt", gathering_source)
         self.assertIn("formatGatheringDateTime(candidateDate.startAt)", gathering_source)
-        self.assertIn("formatGatheringDateTime(confirmed.startAt)", gathering_source)
+        # Board D4 (ADR-0062 decision 4): the decision panel's own date
+        # splits into a big date + separate time (formatGatheringDate/
+        # formatGatheringTime), not the combined formatGatheringDateTime
+        # gathering-candidate-date above still uses.
+        self.assertIn("formatGatheringDate(confirmed.startAt)", gathering_source)
+        self.assertIn("formatGatheringTime(confirmed.startAt)", gathering_source)
 
         participant_source = PARTICIPANT_JS.read_text(encoding="utf-8")
         self.assertNotIn("[question.startAt]", participant_source)
