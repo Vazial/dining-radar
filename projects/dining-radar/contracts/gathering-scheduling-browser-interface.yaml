@@ -765,11 +765,31 @@
 # - `allowedPurposes`へ2件を追加した: gathering-participant-day-list-open,
 #   gathering-participant-day-list-close（allowedPurposesNoteAdr0061Addendum参照）。
 #
+# 2026-09-19 追補22 (architect、orchestratorの確認（ADR-0062未決事項2「確定後パネルのPC/スマホ
+#   折りたたみの実測はorchestratorの領分」）を受けて起草。確定後の幹事ダッシュボード（追補20/
+#   ADR-0062決定4が新設したfinalizedSummary）が回答表・発行済みリンクへ渡る入口（PCのタブ・
+#   スマホの開閉行）に目印を持たず、描画不変量（ADR-0020決定4の(c)キーボード到達・(e)44px）で
+#   測れない状態にあった——orchestratorが2026-09-19に確認し、目印を付けて契約へ載せると決めた
+#   （束Cの追補21、日の一覧の開閉と同じ扱い）。新しい業務判断ではない。contractVersionを
+#   0.24.0から0.24.1へ上げる):
+# - `organizerDashboard.finalizedSummary`へ`answersOpen`（testId/purpose:
+#   gathering-decision-answers-open）・`linksOpen`（testId/purpose:
+#   gathering-decision-links-open）を新設した。PCのタブ形の提示では相互排他の2つのタブ
+#   （aria-selectedで状態を表す、回答のタブが最初に選ばれている）、スマホの開閉行の提示では
+#   独立して開閉する2つの行（aria-expandedで状態を表す、両方とも最初は閉じている）——この
+#   契約は依然どちらの提示になるかを画面幅で固定しない（既存のno-renderModes流儀）。
+# - `responseTable`/`participantLinkList`自体のpresenceRuleは変えない（3局面ともDOM上に
+#   存在し続ける）——変わるのは、FINALIZED局面で「見えるか」がanswersOpen/linksOpenの状態に
+#   依存するようになったことだけ。`unchangedRecords`の該当箇所（「この契約はディスクロージャ
+#   トグルを導入しない」としていた記述）を書き換えた。
+# - `allowedPurposes`へ2件を追加した: gathering-decision-answers-open,
+#   gathering-decision-links-open（allowedPurposesNoteAdr0062Addendum参照）。
+#
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.24.0'
+contractVersion: '0.24.1'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -1147,7 +1167,8 @@ unavailableControls:
      gathering-participant-day-navigate,
      gathering-participant-link-issue-dialog-copy,
      gathering-participant-link-issue-dialog-close,
-     gathering-participant-day-list-open, gathering-participant-day-list-close]
+     gathering-participant-day-list-open, gathering-participant-day-list-close,
+     gathering-decision-answers-open, gathering-decision-links-open]
   allowedPurposesNote2026_09_12: >-
     Eight purposes added, one removed (this file's own 2026-09-12 revision,
     ADR-0054/ADR-0055/ADR-0056, contracts/REVISION-PLAN.md 2節). Added:
@@ -1245,6 +1266,17 @@ unavailableControls:
     decision -- the same architect-technical-judgment gap-closing
     allowedPurposesNoteAdr0061 above already performed once for
     gathering-create-review-open/-cancel/-month-navigate.
+  allowedPurposesNoteAdr0062Addendum: >-
+    Two purposes added (2026-09-19 追補22, orchestrator's confirmation of
+    ADR-0062 未決事項2 -- an entrance with no testId/purpose cannot be
+    measured against ADR-0020 decision 4's tap-target/keyboard-
+    reachability invariants, the same reasoning allowedPurposesNoteAdr0061
+    Addendum above already applied once for gathering-participant-day-
+    list-open/-close). Added: gathering-decision-answers-open,
+    gathering-decision-links-open (organizerDashboard.finalizedSummary.
+    answersOpen/linksOpen below, the entrance to responseTable/
+    participantLinkList once phase is FINALIZED). Not a new business
+    decision.
   forbiddenPurposes:
     - manual-ordering
     - secondary-condition
@@ -3120,6 +3152,80 @@ browserControlSurface:
             scan (unavailableControls.formControlExemptTestIds), the same
             precedent gathering-participant-decision-page-link already
             establishes.
+      answersOpen:
+        description: >-
+          Added 2026-09-19 (orchestrator's own confirmation of this ADR's
+          未決事項2, the same escalation path ADR-0059 decision 5/ADR-0060
+          decision 5 already used for geometry this contract otherwise
+          leaves open -- applied here because an entrance with no
+          testId/purpose cannot be measured against ADR-0020 決定4's
+          tap-target/keyboard-reachability invariants, the same reason
+          addendum 21 above named dayList.sheetOpen/sheetClose). The
+          entrance to organizerDashboard.responseTable above, paired with
+          linksOpen below.
+        testId: gathering-decision-answers-open
+        purpose: gathering-decision-answers-open
+        presenceRule: >-
+          Present exactly when finalizedSummary itself is present (i.e.
+          whenever phase is FINALIZED), same condition as linksOpen below.
+        requirement: >-
+          On the tab-shaped presentation (board G1, PC), this and
+          linksOpen below are two mutually exclusive tabs; exactly one
+          carries aria-selected="true" at any time, and this one starts
+          selected (板G1: 回答のタブが最初に選ばれている). On the
+          disclosure-row-shaped presentation (board G2, narrow viewport),
+          this is one of two independent rows (paired with linksOpen
+          below) that each carry aria-expanded reflecting their own
+          open/closed state independently of the other; this one starts
+          aria-expanded="false" (板G2: 「回答を見る N人」の行は最初は閉じて
+          いる). This contract does not name these two presentations as
+          render modes and does not fix which viewport width selects
+          which one (this file's existing no-renderModes convention,
+          ADR-0062 decision 4's own 検討した代替案).
+        requiredOutcome: >-
+          Activating it makes organizerDashboard.responseTable above
+          currently visible (on the tab-shaped presentation this also
+          makes linksOpen's own aria-selected false and
+          organizerDashboard.participantLinkList above currently not
+          visible; on the disclosure-row-shaped presentation it affects
+          only this row's own aria-expanded and does not change linksOpen
+          below). Calls no public operation -- it only discloses the
+          already-required responseTable above; responseTable's own
+          presenceRule/fields (above) are unchanged by this control's
+          existence.
+      linksOpen:
+        description: >-
+          Added 2026-09-19, same origin as answersOpen above. The entrance
+          to organizerDashboard.participantLinkList above, symmetric with
+          answersOpen above.
+        testId: gathering-decision-links-open
+        purpose: gathering-decision-links-open
+        presenceRule: >-
+          Present exactly when finalizedSummary itself is present (i.e.
+          whenever phase is FINALIZED), same condition as answersOpen
+          above.
+        requirement: >-
+          On the tab-shaped presentation (board G1, PC), this and
+          answersOpen above are two mutually exclusive tabs; exactly one
+          carries aria-selected="true" at any time, and answersOpen above
+          -- not this one -- starts selected (板G1: 回答のタブが最初に選ば
+          れている). On the disclosure-row-shaped presentation (board G2,
+          narrow viewport), this is one of two independent rows (paired
+          with answersOpen above) that each carry aria-expanded reflecting
+          their own open/closed state independently of the other; this
+          one starts aria-expanded="false" (板G2: 「回答リンク N本」の行も
+          最初は閉じている).
+        requiredOutcome: >-
+          Activating it makes organizerDashboard.participantLinkList
+          above currently visible (on the tab-shaped presentation this
+          also makes answersOpen's own aria-selected false and
+          organizerDashboard.responseTable above currently not visible;
+          on the disclosure-row-shaped presentation it affects only this
+          row's own aria-expanded and does not change answersOpen above).
+          Calls no public operation -- it only discloses the already-
+          required participantLinkList above; participantLinkList's own
+          presenceRule/fields (above) are unchanged by this control's
+          existence.
       unchangedRecords: >-
         gathering-phase-indicator, gathering-responded-summary,
         gathering-unanswered-summary, gathering-candidate-date-list/
@@ -3147,12 +3253,22 @@ browserControlSurface:
         remaining sections under) read gathering-responded-summary.
         data-responded-count and gathering-unanswered-summary.
         data-active-issued-links respectively -- both already required
-        above, unchanged by this decision. This contract does not fix
-        which of these values sit behind a disclosure control on narrow
-        viewports and which are always visible -- see ADR-0062 "検討した
-        代替案" for why this round does not introduce a mobile-only
-        disclosure toggle for responseTable/participantLinkList the way
-        auth-account-menu-toggle gates sign-out/password-change.
+        above, unchanged by this decision. **Changed 2026-09-19 (追補22,
+        orchestrator's confirmation of this ADR's own 未決事項2)**: this
+        contract now names the entrance to each of responseTable/
+        participantLinkList above -- answersOpen/linksOpen above --
+        because an entrance with no testId/purpose cannot be measured
+        against ADR-0020 決定4's tap-target/keyboard-reachability
+        invariants (the same reasoning addendum 21 above already applied
+        to dayList.sheetOpen/sheetClose). Neither responseTable's nor
+        participantLinkList's own presenceRule changes (both remain
+        unconditionally present in the DOM across all three phases, as
+        fixed above) -- only whether either is currently *visible* once
+        phase is FINALIZED now depends on answersOpen/linksOpen's own
+        aria-selected/aria-expanded state (see those two above); before
+        FINALIZED, neither entrance control exists (their own
+        presenceRule above), and both sections remain directly visible
+        exactly as before, unaffected by this decision.
       linkManagement: >-
         See participantLinkCopy.presenceRule and participantLinkList.item.
         recopy/revoke above for the read-only-except-recopy rule this

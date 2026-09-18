@@ -332,7 +332,14 @@ TDR-GTH-65/66を足すため）を触るのを機にあわせて閉じる。新�
    範囲外——次にこれらの画面を扱う回に、architectが人間へ確認することを推奨する。
 2. **確定後パネルのPC/スマホ折りたたみ（タブ・行の開閉）の実測**（44px下限、開閉アニメーション
    等）は、`ADR-0059`決定5・`ADR-0060`決定5と同じくorchestratorの領分——実装が固まった段階で
-   確認する。
+   確認する。**2026-09-19、orchestratorが実装を確認し、入口（PCのタブ・スマホの開閉行）に
+   目印（testId・purposeとも`gathering-decision-answers-open`／`gathering-decision-links-open`、
+   状態は開閉行の`aria-expanded`・タブの`aria-selected`で表す）を付けて契約へ載せた**——目印の
+   無い操作部品は描画不変量（`ADR-0020`決定4の(c)キーボード到達・(e)44px）で測れないという
+   理由による（束Cの追補21、日の一覧の開閉と同じ扱い）。`gathering-scheduling-browser-
+   interface.yaml`の追補22・contractVersion 0.24.1として反映した（`organizerDashboard.
+   finalizedSummary.answersOpen`/`linksOpen`を新設。`responseTable`/`participantLinkList`
+   自体のpresenceRuleは無変更のまま、見えるかどうかだけがこの2つの状態に依存するようになった）。
 3. **`gathering-shortlisted-shop-page-link`と同様、`gathering-decision-shop-page-link`が
    `formControlExemptTestIds`へ登録されていることの以後の維持**は developer/tester の実装時の
    注意点として申し送る——本ADR自身は登録済みとして帰結節のdiffに含めている。
