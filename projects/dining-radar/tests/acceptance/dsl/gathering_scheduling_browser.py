@@ -39,7 +39,7 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from tests.acceptance.dsl.authentication_browser import AuthenticationBrowserDsl
 from tests.acceptance.dsl.browser_mechanics import HttpBrowser, assert_no_content
-from tests.acceptance.dsl.business_days import resolve_business_day_iso
+from tests.acceptance.dsl.business_days import jst_now, resolve_business_day_iso
 from tests.acceptance.dsl.js_browser_mechanics import (
     CapturedApiResponse,
     assert_absent,
@@ -630,6 +630,25 @@ OPEN_SHOP_COUNT_BY_WEEKDAY = {0: 5, 1: 5, 2: 4, 3: 6, 4: 6, 5: 6, 6: 5}
 # (not free functions) because resolving requires a real, signed-in-organizer
 # round trip; every call site already has ``self.dsl``/``self`` available at
 # the point it previously called the free function.
+#
+# **2026-09-19 CI fix, round-trip note**: every seed below picks its
+# wall-clock date/time by counting Japan calendar days (business_days.
+# jst_now) -- see that module's own docstring for why -- but then labels
+# the *result* with ``tzinfo=UTC`` rather than JST, keeping the same
+# wall-clock numbers unchanged (a relabel, never a conversion: ``.replace()``
+# does not shift a value the way ``.astimezone()`` would). This matches an
+# observed, contract-level round trip this suite's own assertions already
+# depend on throughout (createGathering/addCandidateDates always echo
+# ``candidateDates[].startAt`` back with the same wall-clock numbers the
+# client sent, labeled ``+00:00`` regardless of what offset the client
+# actually sent -- confirmed empirically this round: sending ``+09:00``
+# produced an exact-string-comparison failure against an echoed ``+00:00``
+# carrying the identical hour). Sending JST-computed wall-clock numbers
+# under a UTC label still lands on the intended Japan calendar day from the
+# server's own side (the same CANDIDATE_DATE_NOT_IN_FUTURE/weekend checks
+# this module's own docstring above describes): interpreting hour=12 as
+# real UTC and converting to Japan time only ever adds 9 hours, landing at
+# 21:00 the same calendar date, never past midnight into the next one.
 _FIXED_HOLIDAYS_MD = [
     (1, 1),  # 元日
     (2, 11),  # 建国記念の日
@@ -657,16 +676,51 @@ def next_fixed_public_holiday_on_weekday_iso(hour: int = 12) -> str:
     on a weekend, it is skipped (TDR-GTH-57 already covers weekends; this
     scenario is specifically about a holiday that is *also* a weekday).
     """
-    today = datetime.now(UTC).date()
+    today = jst_now().date()
     year = today.year
     while True:
         for month, day in sorted(_FIXED_HOLIDAYS_MD):
             candidate = date(year, month, day)
             if candidate > today and candidate.weekday() < 5:
+                # tzinfo=UTC (a label, not a conversion) -- this module's own
+                # 2026-09-19 round-trip note above.
                 return datetime(
                     candidate.year, candidate.month, candidate.day, hour, tzinfo=UTC
                 ).isoformat()
         year += 1
+
+
+def _next_weekday_seed_iso(weekday: int, hour: int = 12) -> str:
+    """The pure, no-network half of next_weekday_iso below: the next future
+    occurrence (never "today") of ``weekday`` (Python's date.weekday():
+    Monday=0 ... Sunday=6), counted against jst_now() -- this product is
+    Japan-only (product-brief.md) and evaluates CandidateDateInput.startAt's
+    "today or earlier"/"weekend" checks against Japan calendar days, not
+    whichever timezone this suite's own process happens to run in (2026-09-19
+    CI fix: this module's own docstring has the full reproduction). Split out
+    from next_weekday_iso so this seed arithmetic can be checked in isolation
+    (jst_now patched, no Django test client/Playwright/live server needed).
+    """
+    now = jst_now()
+    days_ahead = (weekday - now.weekday()) % 7 or 7
+    # tzinfo=UTC (a label, not a conversion) -- this module's own 2026-09-19
+    # round-trip note above.
+    return (
+        (now + timedelta(days=days_ahead))
+        .replace(hour=hour, minute=0, second=0, microsecond=0, tzinfo=UTC)
+        .isoformat()
+    )
+
+
+def _days_from_now_seed_iso(days: int, hour: int = 12) -> str:
+    """The pure, no-network half of days_from_now_iso below: ``days`` Japan
+    calendar days from jst_now() (see _next_weekday_seed_iso above for why
+    Japan calendar days, not this process's own timezone or UTC)."""
+    return (
+        (jst_now() + timedelta(days=days))
+        .replace(hour=hour, minute=0, second=0, microsecond=0, tzinfo=UTC)
+        .isoformat()
+    )
 
 
 class GatheringSchedulingBrowserDsl:
@@ -850,17 +904,17 @@ class GatheringSchedulingBrowserDsl:
         weekday are unaffected). Weekend values (5=Saturday, 6=Sunday) are
         returned unresolved -- TDR-GTH-57 deliberately needs an actual weekend
         date; it is that scenario's own rejection subject, not Given-state
-        this suite needs to avoid colliding with.
+        this suite needs to avoid colliding with. Counted against Japan
+        calendar days (_next_weekday_seed_iso's own jst_now, not this
+        process's own local time/UTC) -- this product is Japan-only and
+        evaluates "today"/"weekend" against that same calendar, per this
+        module's own 2026-09-19 CI fix note.
         """
-        now = datetime.now(UTC)
-        days_ahead = (weekday - now.weekday()) % 7 or 7
-        seed = (now + timedelta(days=days_ahead)).replace(
-            hour=hour, minute=0, second=0, microsecond=0
-        )
+        seed_iso = _next_weekday_seed_iso(weekday, hour)
         if weekday >= 5:
-            return seed.isoformat()
+            return seed_iso
         return resolve_business_day_iso(
-            seed.isoformat(), self._probe_candidate_date_is_a_business_day, step_days=7
+            seed_iso, self._probe_candidate_date_is_a_business_day, step_days=7
         )
 
     def days_from_now_iso(self, days: int, hour: int = 12) -> str:
@@ -874,15 +928,15 @@ class GatheringSchedulingBrowserDsl:
         relative order between two different ``days`` values this suite's own
         before/after-style assertions rely on (a real inversion would require
         every one of ``business_days.MAX_BUSINESS_DAY_ADVANCES`` consecutive
-        days to be rejected, which fails loudly on its own).
+        days to be rejected, which fails loudly on its own). Counted against
+        Japan calendar days (_days_from_now_seed_iso's own jst_now), the same
+        2026-09-19 CI fix next_weekday_iso above documents.
         """
-        seed = (datetime.now(UTC) + timedelta(days=days)).replace(
-            hour=hour, minute=0, second=0, microsecond=0
-        )
+        seed_iso = _days_from_now_seed_iso(days, hour)
         if days <= 0:
-            return seed.isoformat()
+            return seed_iso
         return resolve_business_day_iso(
-            seed.isoformat(), self._probe_candidate_date_is_a_business_day, step_days=1
+            seed_iso, self._probe_candidate_date_is_a_business_day, step_days=1
         )
 
     def two_business_days_in_the_month_after_iso(
