@@ -2014,7 +2014,7 @@
   // initializeDecisionMap (module docstring there explains the full
   // rationale: map.eachLayer, not a hand-kept counter, so an untagged
   // marker/line/ring added by any future code path is still caught).
-  function initializeOrganizerDecisionMap(container, shop, searchOrigin) {
+  function initializeOrganizerDecisionMap(container, shop, searchOrigin, panel) {
     if (activeDecisionMap) {
       activeDecisionMap.remove();
       activeDecisionMap = null;
@@ -2022,7 +2022,10 @@
     if (!window.L || !container) {
       return;
     }
-    var map = window.L.map(container, { attributionControl: false });
+    // zoomControl: false + topright (real-machine finding): Leaflet's own
+    // default top-left control sat directly under gth-decision-panel.
+    var map = window.L.map(container, { attributionControl: false, zoomControl: false });
+    window.L.control.zoom({ position: "topright" }).addTo(map);
     window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
     }).addTo(map);
@@ -2031,7 +2034,28 @@
     if (searchOrigin) {
       boundsLatLngs.push([searchOrigin.latitude, searchOrigin.longitude]);
     }
-    map.fitBounds(window.L.latLngBounds(boundsLatLngs), { padding: [24, 24] });
+    // Keeps both pins clear of panel's own footprint -- measured, not
+    // guessed, since the panel's own height depends on its content.
+    var fitOptions = { padding: [24, 24] };
+    if (panel) {
+      var panelRect = panel.getBoundingClientRect();
+      var containerRect = container.getBoundingClientRect();
+      if (isDesktopDecisionLayout()) {
+        fitOptions = {
+          paddingTopLeft: [
+            Math.max(24, panelRect.right - containerRect.left + 16),
+            Math.max(24, panelRect.bottom - containerRect.top + 16),
+          ],
+          paddingBottomRight: [24, 24],
+        };
+      } else {
+        fitOptions = {
+          paddingTopLeft: [24, 24],
+          paddingBottomRight: [24, Math.max(24, containerRect.bottom - panelRect.top + 16)],
+        };
+      }
+    }
+    map.fitBounds(window.L.latLngBounds(boundsLatLngs), fitOptions);
 
     function countOverlaysByType() {
       var counts = { marker: 0, line: 0, ring: 0 };
@@ -2142,7 +2166,9 @@
   // mutually-exclusive tabs (回答 open first); mobile behind two
   // independent disclosure rows (both closed first) -- presentation only,
   // neither testId's own presenceRule changes.
-  function renderDecisionAnswersLinksGroups(candidateDateLeaders) {
+  // statsRow/schedulePane move here from above the map (board G1/G2) --
+  // their own testIds' presenceRule is unchanged, only where they render.
+  function renderDecisionAnswersLinksGroups(candidateDateLeaders, statsRow, schedulePane) {
     var desktop = isDesktopDecisionLayout();
     var answersLabel = "回答 " + state.gathering.respondedParticipantCount + "人";
     var linksLabel = "回答リンク " + state.gathering.activeParticipantLinkCount + "本";
@@ -2193,11 +2219,11 @@
 
     if (desktop) {
       var activePane = state.decisionLinksOpen
-        ? renderParticipantLinkPane()
-        : renderResponseTable(candidateDateLeaders);
+        ? [renderParticipantLinkPane()]
+        : [statsRow, schedulePane, renderResponseTable(candidateDateLeaders)];
       return el("div", { class: "gth-decision-groups" }, [
         el("div", { class: "gth-decision-tabs", role: "tablist" }, [answersButton, linksEntrance]),
-        el("div", { class: "gth-decision-tabpanel" }, [activePane]),
+        el("div", { class: "gth-decision-tabpanel" }, activePane),
       ]);
     }
 
@@ -2205,6 +2231,8 @@
     if (state.decisionAnswersOpen) {
       children.push(
         el("div", { class: "gth-decision-disclosure-panel" }, [
+          statsRow,
+          schedulePane,
           renderResponseTable(candidateDateLeaders),
         ])
       );
@@ -2220,7 +2248,7 @@
 
   // Board D4: map fills the whole stage behind a floating panel, the same
   // gth-shop-stage/gth-shop-map pattern SELECTING_SHOP already uses.
-  function renderFinalizedSummary(candidateDateLeaders) {
+  function renderFinalizedSummary(candidateDateLeaders, statsRow, schedulePane) {
     var confirmed = state.gathering.candidateDates.filter(function (candidateDate) {
       return candidateDate.isConfirmed;
     })[0];
@@ -2259,11 +2287,8 @@
         { "data-testid": "gathering-decision-shop-map", class: "gth-shop-map" },
         []
       );
-      pendingDecisionMap = { container: mapContainer, shop: finalizedShop };
-    } else {
-      pendingDecisionMap = null;
     }
-    panelChildren.push(renderDecisionAnswersLinksGroups(candidateDateLeaders));
+    panelChildren.push(renderDecisionAnswersLinksGroups(candidateDateLeaders, statsRow, schedulePane));
 
     var panel = el(
       "div",
@@ -2279,9 +2304,17 @@
       panelChildren
     );
 
+    // panel is measured once laid out, so fitBounds can keep both pins
+    // clear of whichever corner/edge it currently covers.
+    if (finalizedShop) {
+      pendingDecisionMap = { container: mapContainer, shop: finalizedShop, panel: panel };
+    } else {
+      pendingDecisionMap = null;
+    }
+
     var stageChildren = mapContainer ? [mapContainer, panel] : [panel];
     return el("div", { class: "gth-pane gth-pane--flush" }, [
-      el("div", { class: "gth-shop-stage" }, stageChildren),
+      el("div", { class: "gth-decision-stage" }, stageChildren),
     ]);
   }
 
@@ -2546,33 +2579,35 @@
       { "data-testid": "gathering-response-table-header", class: "gth-response-header" },
       headerCells
     );
-    // ADR-0060 decision 7: one instance per CandidateDate currently carrying
-    // data-current-leader="true" -- zero when no one has responded yet,
-    // more than one when tied.
-    var leaderSummaryItems = state.gathering.candidateDates
-      .filter(function (candidateDate) {
-        return Boolean(leaders[candidateDate.id]);
-      })
-      .map(function (candidateDate) {
-        return el("span", {
-          "data-testid": "gathering-response-table-leader-summary",
-          "data-candidate-date-id": candidateDate.id,
-          class: "gth-response-leader-summary-item",
-        }, [
-          formatGatheringDate(candidateDate.startAt) + " 行ける " + candidateDate.goingCount + "/" +
-            state.gathering.activeParticipantLinkCount,
-        ]);
-      });
-    var leaderSummaryChildren = [el("span", { class: "gth-response-leader-summary-label" }, ["有力"])].concat(
-      leaderSummaryItems.length > 0
-        ? leaderSummaryItems
-        : [el("span", { class: "gth-response-leader-summary-empty" }, ["まだありません"])]
-    );
-    var leaderSummary = el(
-      "div",
-      { class: "gth-response-leader-summary" },
-      leaderSummaryChildren
-    );
+    // Only while phase is SCHEDULING (the row exists to help pick a date;
+    // once one is picked, absent regardless of any leader still tied).
+    var leaderSummary = null;
+    if (state.gathering.phase === "SCHEDULING") {
+      var leaderSummaryItems = state.gathering.candidateDates
+        .filter(function (candidateDate) {
+          return Boolean(leaders[candidateDate.id]);
+        })
+        .map(function (candidateDate) {
+          return el("span", {
+            "data-testid": "gathering-response-table-leader-summary",
+            "data-candidate-date-id": candidateDate.id,
+            class: "gth-response-leader-summary-item",
+          }, [
+            formatGatheringDate(candidateDate.startAt) + " 行ける " + candidateDate.goingCount + "/" +
+              state.gathering.activeParticipantLinkCount,
+          ]);
+        });
+      var leaderSummaryChildren = [el("span", { class: "gth-response-leader-summary-label" }, ["有力"])].concat(
+        leaderSummaryItems.length > 0
+          ? leaderSummaryItems
+          : [el("span", { class: "gth-response-leader-summary-empty" }, ["まだありません"])]
+      );
+      leaderSummary = el(
+        "div",
+        { class: "gth-response-leader-summary" },
+        leaderSummaryChildren
+      );
+    }
     var rows = state.participantLinks.map(function (link) {
       var responses = link.scheduleResponses || [];
       var cells = responses.map(function (entry) {
@@ -2728,14 +2763,23 @@
     }
     var phase = state.gathering.phase;
 
-    var header = el("div", { class: "gth-header" }, [
+    // Board D4: FINALIZED keeps only the title row above the map --
+    // statsRow/schedulePane below move inside the answers entrance.
+    var headerChildren = [
       el("div", { class: "gth-header-row" }, [
         el("div", { class: "gth-title" }, [state.gathering.title]),
         renderDeleteGathering(),
       ]),
       renderPhaseIndicator(),
-      el("div", { class: "gth-stats-row" }, [renderResponseSummary(), renderUnansweredSummary()]),
+    ];
+    var statsRow = el("div", { class: "gth-stats-row" }, [
+      renderResponseSummary(),
+      renderUnansweredSummary(),
     ]);
+    if (phase !== "FINALIZED") {
+      headerChildren.push(statsRow);
+    }
+    var header = el("div", { class: "gth-header" }, headerChildren);
 
     var candidateDateLeaders = computeCandidateDateLeaders(state.gathering.candidateDates);
     var candidateDateListChildren = state.gathering.candidateDates.map(function (candidateDate) {
@@ -2760,7 +2804,10 @@
     }
     var schedulePane = el("div", { class: "gth-pane" }, schedulePaneChildren);
 
-    var sections = [header, schedulePane];
+    var sections = [header];
+    if (phase !== "FINALIZED") {
+      sections.push(schedulePane);
+    }
 
     if (phase === "SELECTING_SHOP" && state.gathering.votingStartedAt === null) {
       sections.push(
@@ -2786,7 +2833,7 @@
     // the decision panel's own answers/links groups, not as separate
     // sections -- neither testId's presenceRule changes.
     if (phase === "FINALIZED") {
-      sections.push(renderFinalizedSummary(candidateDateLeaders));
+      sections.push(renderFinalizedSummary(candidateDateLeaders, statsRow, schedulePane));
     } else {
       // ADR-0056 decision 1: always present, alongside (not replacing) the
       // per-candidate-date tally above and the link-management list below.
@@ -2806,7 +2853,8 @@
       initializeOrganizerDecisionMap(
         pendingDecisionMap.container,
         pendingDecisionMap.shop,
-        organizerSearchOrigin
+        organizerSearchOrigin,
+        pendingDecisionMap.panel
       );
     }
     restoreFocusFromDescriptor(root, focusDescriptor);

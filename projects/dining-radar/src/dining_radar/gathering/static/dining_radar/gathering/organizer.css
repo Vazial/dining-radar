@@ -1388,6 +1388,19 @@
   min-height: 26rem;
   height: 32rem;
 }
+/* Board's own FINALIZED frame (real-machine finding): the map fills from
+   right below the heading to the viewport bottom, not a fixed height --
+   own class so SELECTING_SHOP's gth-shop-stage above is unaffected. */
+.gth-decision-stage {
+  position: relative;
+  min-height: 26rem;
+  height: calc(100vh - 18rem);
+}
+@media (max-width: 47.9375rem) {
+  .gth-decision-stage {
+    height: calc(100vh - 16rem);
+  }
+}
 /* An explicit z-index makes this establish its own stacking context, so
    Leaflet's own panes (up to z-index 700) stay contained beneath it
    instead of comparing directly against gth-shop-panel's z-index. */

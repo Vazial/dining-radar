@@ -2610,6 +2610,41 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
             expect(control).to_be_visible()
             self.assertEqual(control.get_attribute("data-gathering-control-purpose"), test_id)
 
+    def test_gathering_dashboard_leader_summary_is_absent_once_a_date_is_decided(
+        self,
+    ) -> None:
+        """ADR-0060 addendum 23 (2026-09-19, contract 0.24.2): leaderSummary
+        (the "有力" row) helps pick a date -- once one is picked
+        (SELECTING_SHOP onward), it is absent even though the same
+        candidate date still carries data-current-leader="true" (that
+        attribute itself is unchanged by this addendum).
+        """
+        self._sign_in_as_organizer()
+        self._create_gathering_via_ui("有力の消える確認会", candidate_date_count=2)
+        link_url = self._issue_participant_link_url()
+        participant_page = self._open_participant_view(link_url)
+        by_test_id(participant_page, "gathering-schedule-response-option").first.click()
+        self.page.reload()
+
+        expect(
+            self.page.locator(
+                '[data-testid="gathering-candidate-date"][data-current-leader="true"]'
+            )
+        ).to_have_count(1)
+        expect(by_test_id(self.page, "gathering-response-table-leader-summary")).to_be_visible()
+
+        by_test_id(self.page, "gathering-candidate-date").first.click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        expect(by_test_id(self.page, "gathering-phase-indicator")).to_have_attribute(
+            "data-gathering-phase", "SELECTING_SHOP"
+        )
+        expect(
+            self.page.locator(
+                '[data-testid="gathering-candidate-date"][data-current-leader="true"]'
+            )
+        ).to_have_count(1)
+        expect(by_test_id(self.page, "gathering-response-table-leader-summary")).to_have_count(0)
+
     def test_gathering_dashboard_response_table_reflects_one_row_per_participant_link(
         self,
     ) -> None:

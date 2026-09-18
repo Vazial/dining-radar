@@ -5979,7 +5979,7 @@ class Adr0062DecisionBannerSourceTests(SimpleTestCase):
         source = GATHERING_JS.read_text(encoding="utf-8")
 
         start = source.index(
-            "function initializeOrganizerDecisionMap(container, shop, searchOrigin) {"
+            "function initializeOrganizerDecisionMap(container, shop, searchOrigin, panel) {"
         )
         end = source.index("var pendingDecisionMap = null;", start)
         body = source[start:end]
@@ -6561,3 +6561,20 @@ class FocusRestoreAcrossRerenderExecutionTests(SimpleTestCase):
                 """,
             )
             self.assertEqual(output, '{"index":1,"first":0,"second":1}', path.name)
+
+
+class Adr0060Addendum23LeaderSummaryPresenceRuleSourceTests(SimpleTestCase):
+    """ADR-0060 addendum 23 (2026-09-19, contract 0.24.2): leaderSummary
+    (the "有力" row) is a picking aid, of no use once a date is already
+    decided -- present only while phase is SCHEDULING; absent in
+    SELECTING_SHOP/FINALIZED regardless of any tied data-current-leader."""
+
+    def test_leader_summary_is_gated_on_the_scheduling_phase(self):
+        source = GATHERING_JS.read_text(encoding="utf-8")
+
+        start = source.index("function renderResponseTable(leaders) {")
+        end = source.index("var rows = state.participantLinks.map(", start)
+        body = source[start:end]
+
+        self.assertIn('state.gathering.phase === "SCHEDULING"', body)
+        self.assertIn("var leaderSummary = null;", body)
