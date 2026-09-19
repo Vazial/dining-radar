@@ -1,4 +1,5 @@
-"""Thin Gherkin-to-DSL mappings for TDR-GTH-01 through TDR-GTH-56.
+"""Thin Gherkin-to-DSL mappings for TDR-GTH-01 through TDR-GTH-56, plus
+TDR-GTH-64.
 
 Updated 2026-09-13 (独立監査 audit-gathering-redesign-steps.md Minor 2,
 FR update pattern this codebase already applies to
@@ -6,6 +7,16 @@ test_gathering_scheduling_acceptance.py's own module docstring): this
 file's docstring had not been updated to cover
 shop_vote_tally_total_active_participant_count_is (TDR-GTH-56), even
 though that mapping was already present.
+
+Updated 2026-09-17 (ADR-0061, 束C「参加者を呼ぶ・答える」): removed the
+retired answerLater/peekResults mappings (both controls no longer exist,
+decision 3) and finalized_view_still_shows_shop_vote_tally (decision 5
+reverses ADR-0055 decision 8 a second time -- shop-vote surfaces are once
+again included in participant_question_surfaces_are_replaced, not shown
+separately). Added: organizer_issues_and_copies_a_participant_link_via_dialog
+(decision 1's two-step link-issuance dialog), the daySkip/dayPrevious/
+dayList/progress mappings (decision 3's one-candidate-date-at-a-time flow),
+and schedule_question_respondents_are (decision 2, TDR-GTH-64).
 """
 
 from __future__ import annotations
@@ -38,6 +49,11 @@ class GatheringSchedulingSteps:
         self, title: str, candidate_date_isos: list[str]
     ) -> None:
         self.dsl.given_scheduling_gathering(title, candidate_date_isos)
+
+    def organizer_has_a_scheduling_gathering_with_business_days(
+        self, title: str, count: int
+    ) -> list[str]:
+        return self.dsl.given_scheduling_gathering_with_business_days(title, count)
 
     def gathering_open_shop_population_is_available(self) -> None:
         self.dsl.set_gathering_open_shop_population()
@@ -122,6 +138,9 @@ class GatheringSchedulingSteps:
 
     def organizer_issues_participant_links(self, count: int) -> list[dict[str, str]]:
         return self.dsl.issue_n_participant_links_from_dashboard(count)
+
+    def organizer_issues_and_copies_a_participant_link_via_dialog(self) -> dict[str, str]:
+        return self.dsl.issue_participant_link_and_copy_via_dialog()
 
     def a_participant_link_is_issued(self) -> dict[str, str]:
         return self.dsl.issue_participant_link_via_api()
@@ -391,38 +410,59 @@ class GatheringSchedulingSteps:
     def participant_view_is_valid(self) -> None:
         self.dsl.assert_valid_participant_view_is_shown()
 
-    # answerLater / peekResults (adr/0050 decision 1) ------------------------
+    # daySkip / dayPrevious / dayList / progress (ADR-0061決定3) -------------
 
-    def answer_later_and_peek_results_are_present(self) -> None:
-        self.dsl.assert_answer_later_and_peek_results_present()
+    def participant_answers_the_currently_displayed_day(self, status: str) -> str:
+        return self.dsl.answer_first_schedule_question(status)
 
-    def answer_later_and_peek_results_are_absent(self) -> None:
-        self.dsl.assert_answer_later_and_peek_results_absent()
+    def participant_currently_displayed_day_is(self, candidate_date_id: str) -> None:
+        self.dsl.assert_currently_reachable_schedule_question_is(candidate_date_id)
 
-    def participant_activates_answer_later_and_state_is_unchanged(
-        self, candidate_date_id: str, expected_response: str
+    def participant_jumps_to_day_via_day_list(self, candidate_date_id: str) -> None:
+        self.dsl.navigate_to_day_via_day_list(candidate_date_id)
+
+    def participant_skips_the_currently_displayed_day(self) -> str:
+        return self.dsl.skip_currently_reachable_schedule_question()
+
+    def participant_goes_to_the_previous_day(self) -> None:
+        self.dsl.go_to_previous_schedule_question()
+
+    def participant_day_previous_is_disabled(self) -> None:
+        self.dsl.assert_day_previous_is_disabled()
+
+    def participant_schedule_progress_is(self, *, total: int, answered: int) -> None:
+        self.dsl.assert_schedule_progress(total=total, answered=answered)
+
+    def schedule_question_respondents_are(
+        self, candidate_date_id: str, expected: list[dict[str, object]]
     ) -> None:
-        self.dsl.activate_answer_later_and_verify_it_changes_no_state(
-            candidate_date_id, expected_response
-        )
+        self.dsl.assert_schedule_question_respondents(candidate_date_id, expected)
 
-    def participant_activates_peek_results_and_tallies_are_visible(
-        self, candidate_date_id: str
-    ) -> None:
-        self.dsl.activate_peek_results_and_verify_tallies_are_visible(candidate_date_id)
+    # dayList.sheetOpen / sheetClose (ADR-0061 追補21) -----------------------
 
-    def answer_later_confirmation_reproduces_schedule_answer(
-        self, candidate_date_id: str, expected_response: str
-    ) -> None:
-        self.dsl.assert_answer_later_confirmation_reproduces_schedule_answer(
-            candidate_date_id, expected_response
-        )
+    def participant_uses_a_narrow_viewport(self) -> None:
+        self.dsl.use_narrow_participant_viewport()
 
-    def answer_later_confirmation_has_no_schedule_item_for(self, candidate_date_id: str) -> None:
-        self.dsl.assert_answer_later_confirmation_has_no_schedule_item_for(candidate_date_id)
+    def participant_opens_the_day_list_sheet(self) -> None:
+        self.dsl.open_day_list_sheet()
 
-    def answer_later_confirmation_schedule_item_count_is(self, expected_count: int) -> None:
-        self.dsl.assert_answer_later_confirmation_schedule_item_count(expected_count)
+    def participant_closes_the_day_list_sheet(self) -> None:
+        self.dsl.close_day_list_sheet()
+
+    def day_list_is_visible(self) -> None:
+        self.dsl.assert_day_list_is_visible()
+
+    def day_list_is_not_visible(self) -> None:
+        self.dsl.assert_day_list_is_not_visible()
+
+    def day_list_sheet_open_is_present(self) -> None:
+        self.dsl.assert_day_list_sheet_open_is_present()
+
+    def day_list_sheet_close_is_not_offered(self) -> None:
+        self.dsl.assert_day_list_sheet_close_is_not_offered()
+
+    def day_list_sheet_close_is_offered(self) -> None:
+        self.dsl.assert_day_list_sheet_close_is_offered()
 
     def prior_responses_are_retained(self, before: dict[str, dict[str, object]]) -> None:
         self.dsl.assert_answer_state_unchanged(before)
@@ -649,17 +689,6 @@ class GatheringSchedulingSteps:
 
     def participant_question_surfaces_are_replaced(self) -> None:
         self.dsl.assert_participant_question_surfaces_are_replaced()
-
-    def finalized_view_still_shows_shop_vote_tally(
-        self, shop_id: str, *, want_to_go: int, ok_to_go: int, not_going: int, responded: int
-    ) -> None:
-        self.dsl.assert_finalized_view_still_shows_shop_vote_tally(
-            shop_id,
-            want_to_go=want_to_go,
-            ok_to_go=ok_to_go,
-            not_going=not_going,
-            responded=responded,
-        )
 
     def participant_name_controls_are_absent(self) -> None:
         self.dsl.assert_participant_name_controls_are_absent()

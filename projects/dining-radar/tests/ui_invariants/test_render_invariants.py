@@ -1652,12 +1652,20 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         """``issueParticipantLinks``, driven through
         ``organizerDashboard.participantLinkCopy``. ``self.page`` must
         already be on that gathering's ``organizerDashboard``.
+
+        ADR-0061 decision 1 (2026-09-17): activation no longer carries
+        ``data-issued-link-url`` on the button itself -- it now opens
+        ``issueDialog``, which carries that attribute instead. Closes the
+        dialog afterwards so callers land on an ordinary dashboard, not one
+        with a dialog left open.
         """
-        copy_control = by_test_id(self.page, "gathering-participant-link-copy")
-        copy_control.click()
-        expect(copy_control).to_have_attribute("data-issued-link-url", re.compile(r"^http"))
-        url = copy_control.get_attribute("data-issued-link-url")
+        by_test_id(self.page, "gathering-participant-link-copy").click()
+        dialog = by_test_id(self.page, "gathering-participant-link-issue-dialog")
+        expect(dialog).to_have_attribute("data-issued-link-url", re.compile(r"^http"))
+        url = dialog.get_attribute("data-issued-link-url")
         assert url is not None
+        by_test_id(self.page, "gathering-participant-link-issue-dialog-close").click()
+        expect(dialog).to_have_count(0)
         return url
 
     def _open_participant_view(self, url: str, viewport: tuple[int, int] | None = None):
@@ -2224,7 +2232,14 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         copy_control = by_test_id(self.page, "gathering-participant-link-copy")
         self._assert_tabbable(copy_control, "gathering-participant-link-copy")
         copy_control.press("Enter")
-        expect(copy_control).to_have_attribute("data-issued-link-url", re.compile(r"^http"))
+        # ADR-0061 decision 1: Enter opens issueDialog rather than writing
+        # data-issued-link-url onto copy_control itself -- dialogCopy/
+        # dialogClose get their own dedicated keyboard test below, this only
+        # confirms the 2-step flow's first step still activates by keyboard.
+        dialog = by_test_id(self.page, "gathering-participant-link-issue-dialog")
+        expect(dialog).to_have_attribute("data-issued-link-url", re.compile(r"^http"))
+        by_test_id(self.page, "gathering-participant-link-issue-dialog-close").press("Enter")
+        expect(dialog).to_have_count(0)
 
         # shopSelectionEntry.open: only tabbability/activation is asserted
         # here. Its requiredOutcome navigates to
@@ -2238,6 +2253,56 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         shortlist_open.press("Enter")
         self.page.wait_for_timeout(500)
         self.assertNotEqual(self.page.url, url_before, "gathering-shortlist-open did not navigate")
+
+    def test_b_gathering_dashboard_link_issue_dialog_is_keyboard_operable(self) -> None:
+        """ADR-0061 decision 1 (2026-09-17, human decision: 「発行で小窓が
+        開き、そこでコピー」): dedicated keyboard coverage of issueDialog's
+        own dialogCopy/dialogClose (the core-controls test above only opens
+        and closes it as a byproduct of walking every other control).
+        Enter's effect on dialogCopy is checked by its own visible-text
+        change (dialogCopy.requiredOutcome does not fix the wording, but
+        this file's own render always flips it on activation) -- the
+        clipboard write itself is TDR-GTH-03/17's L4 concern, not this
+        gate's (decision4(c) only requires keyboard reachability/
+        activation-parity, not the side effect's content).
+        """
+        self._sign_in_as_organizer()
+        self._create_gathering_via_ui("発行小窓のキーボード確認会")
+
+        copy_control = by_test_id(self.page, "gathering-participant-link-copy")
+        self._assert_tabbable(copy_control, "gathering-participant-link-copy")
+        copy_control.press("Enter")
+        dialog = by_test_id(self.page, "gathering-participant-link-issue-dialog")
+        expect(dialog).to_have_attribute("data-issued-link-url", re.compile(r"^http"))
+
+        dialog_copy = by_test_id(self.page, "gathering-participant-link-issue-dialog-copy")
+        self._assert_tabbable(dialog_copy, "gathering-participant-link-issue-dialog-copy")
+        dialog_copy.press("Enter")
+        expect(dialog_copy).to_have_text("✓ コピーしました")
+
+        dialog_close = by_test_id(self.page, "gathering-participant-link-issue-dialog-close")
+        self._assert_tabbable(dialog_close, "gathering-participant-link-issue-dialog-close")
+        dialog_close.press("Enter")
+        expect(dialog).to_have_count(0)
+
+    def test_e_gathering_dashboard_link_issue_dialog_controls_meet_44px_minimum_target(
+        self,
+    ) -> None:
+        """dialogCopy/dialogClose already carry data-gathering-control-
+        purpose, so the generic sweep covers them once the dialog is
+        actually open (same open-before-measuring discipline
+        test_e_gathering_dashboard_finalize_confirmation_meets_44px_minimum_target
+        above already uses for its own dialog)."""
+        self._sign_in_as_organizer()
+        for width, height, label in GATHERING_CONTROL_SIZE_VIEWPORTS:
+            self.page.set_viewport_size({"width": width, "height": height})
+            self._create_gathering_via_ui(f"発行小窓サイズ確認会{label}")
+            by_test_id(self.page, "gathering-participant-link-copy").click()
+            dialog = by_test_id(self.page, "gathering-participant-link-issue-dialog")
+            expect(dialog).to_be_attached()
+            self._assert_all_declared_gathering_controls_meet_44px(
+                self.page, f"link issue dialog open at {label}"
+            )
 
     def test_b_gathering_dashboard_remove_candidate_date_is_keyboard_operable(self) -> None:
         """ADR-0056 decision 2 (2026-09-12, human decision): a previously
@@ -2555,15 +2620,40 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
     # --- participantAnswer --------------------------------------------------
 
     def test_b_participant_answer_controls_are_keyboard_operable(self) -> None:
-        link_url = self._build_participant_link()
+        """ADR-0061 decision 3 replaces this test's old answerLater/
+        peekResults tail (both retired) with daySkip/dayPrevious/dayList's
+        own item -- the default context viewport (no explicit ``viewport``,
+        >=1024px) puts dayList in its wide, always-visible sidebar shape
+        (``DAY_LIST_WIDE_LAYOUT_QUERY``), so no sheet needs opening here.
+        3 candidate dates (d0/d1/d2, startAt ascending): answering d0 auto-
+        advances past it (responseOptions.requiredOutcome), so d0's own
+        gathering-schedule-question is no longer in the DOM afterwards
+        (scheduleQuestion.cardinality: exactly one reachable at a time) --
+        its recorded response is instead read back from its own dayList
+        row (dayList.item.attributes.yourResponse, always present
+        regardless of which date is current).
+        """
+        link_url = self._build_participant_link(candidate_date_count=3)
         page = self._open_participant_view(link_url)
+        day_items = by_test_id(page, "gathering-participant-day-item")
+        d0, d1, d2 = (day_items.nth(i).get_attribute("data-candidate-date-id") for i in range(3))
+
+        # d0 is current first (ensureCurrentCandidateDateId's own default:
+        # the first not-yet-answered date) -- dayPrevious is disabled here.
+        expect(by_test_id(page, "gathering-participant-answer-previous")).to_be_disabled()
 
         option = by_test_id(page, "gathering-schedule-response-option").first
         self._assert_tabbable(option, "gathering-schedule-response-option")
         response_value = option.get_attribute("data-response-value")
         option.press("Enter")
+        expect(
+            page.locator(
+                f'[data-testid="gathering-participant-day-item"][data-candidate-date-id="{d0}"]'
+            )
+        ).to_have_attribute("data-your-response", response_value)
+        # Auto-advance moved the currently reachable date to d1.
         expect(by_test_id(page, "gathering-schedule-question").first).to_have_attribute(
-            "data-your-response", response_value
+            "data-candidate-date-id", d1
         )
 
         name_open = by_test_id(page, "gathering-participant-name-open")
@@ -2578,15 +2668,53 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
             "data-participant-named", "true"
         )
 
-        answer_later = by_test_id(page, "gathering-participant-answer-later")
-        self._assert_tabbable(answer_later, "gathering-participant-answer-later")
-        answer_later.press("Enter")
-        expect(by_test_id(page, "gathering-participant-answer-later-confirmation")).to_be_attached()
+        # daySkip: d1 -> d2.
+        skip = by_test_id(page, "gathering-participant-answer-skip")
+        self._assert_tabbable(skip, "gathering-participant-answer-skip")
+        skip.press("Enter")
+        expect(by_test_id(page, "gathering-schedule-question").first).to_have_attribute(
+            "data-candidate-date-id", d2
+        )
 
-        peek = by_test_id(page, "gathering-participant-peek-results")
-        self._assert_tabbable(peek, "gathering-participant-peek-results")
-        peek.press("Enter")
-        expect(by_test_id(page, "gathering-schedule-tally").first).to_be_visible()
+        # dayPrevious: d2 -> d1 (enabled here, unlike at d0 above).
+        previous = by_test_id(page, "gathering-participant-answer-previous")
+        expect(previous).to_be_enabled()
+        self._assert_tabbable(previous, "gathering-participant-answer-previous")
+        previous.press("Enter")
+        expect(by_test_id(page, "gathering-schedule-question").first).to_have_attribute(
+            "data-candidate-date-id", d1
+        )
+
+        # dayList's own item: jumps straight to d0.
+        target_item = day_items.nth(0)
+        self._assert_tabbable(target_item, "gathering-participant-day-item")
+        target_item.press("Enter")
+        expect(by_test_id(page, "gathering-schedule-question").first).to_have_attribute(
+            "data-candidate-date-id", d0
+        )
+
+    def test_b_participant_answer_day_list_sheet_toggle_is_keyboard_operable(self) -> None:
+        """dayList's narrow-layout entry point (developer-chosen
+        presentation, ADR-0061 decision 3 leaves the shape open) carries no
+        contract-fixed test id, but ADR-0020 decision 4(c) still requires
+        it to be keyboard reachable like any other activatable control --
+        closes the same class of gap friction-log.md FR-035 named for the
+        retired footer's own controls.
+        """
+        link_url = self._build_participant_link(candidate_date_count=2)
+        page = self._open_participant_view(link_url, viewport=(390, 844))
+        wait_for_at_least_one(page, "gathering-schedule-question")
+
+        toggle = by_test_id(page, "gathering-participant-day-list-open")
+        self._assert_tabbable(toggle, "gathering-participant-day-list-open")
+        toggle.press("Enter")
+        sheet_list = by_test_id(page, "gathering-participant-day-list")
+        expect(sheet_list).to_be_visible()
+
+        close = by_test_id(page, "gathering-participant-day-list-close")
+        self._assert_tabbable(close, "gathering-participant-day-list-close")
+        close.press("Enter")
+        expect(sheet_list).to_be_hidden()
 
     def test_c_participant_answer_schedule_values_are_never_shown_as_raw_enum_text(self) -> None:
         link_url = self._build_participant_link(candidate_date_count=2)
@@ -2602,79 +2730,59 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         # test_c_gathering_dashboard_phase_is_never_shown_as_raw_enum_text
         # above (both need a shopId this file does not construct).
 
-    def test_e_participant_answer_footer_controls_meet_44px_minimum_target(self) -> None:
-        """Primary target of this round (friction-log.md FR-035):
-        ``participant.js``'s ``renderFooter()`` used to push the "あとで
-        答える" confirmation ``<p>`` into the same flex row (``.gth-foot``)
-        as the two footer buttons, as a third flex sibling with no
-        ``flex-basis``/``flex-grow`` of its own -- squeezing both
-        ``flex: 1`` buttons' own width well under 44px once the
-        confirmation text is showing. Exercised both before and after that
-        confirmation appears, at two widths (``GATHERING_CONTROL_SIZE_VIEWPORTS``).
-        """
-        link_url = self._build_participant_link()
-        for width, height, label in GATHERING_CONTROL_SIZE_VIEWPORTS:
-            page = self._open_participant_view(link_url, viewport=(width, height))
-            wait_for_at_least_one(page, "gathering-participant-answer-later")
-            self._assert_all_declared_gathering_controls_meet_44px(
-                page, f"before answer-later at {label}"
-            )
-
-            by_test_id(page, "gathering-participant-answer-later").click()
-            expect(
-                by_test_id(page, "gathering-participant-answer-later-confirmation")
-            ).to_be_attached()
-            self._assert_all_declared_gathering_controls_meet_44px(
-                page, f"after answer-later confirmation shown at {label}"
-            )
-
-    def test_e_answer_later_confirmations_overlapping_surface_and_peek_are_keyboard_operable(
+    def test_c_participant_answer_respondent_list_never_shows_raw_response_enum_text(
         self,
     ) -> None:
-        """2026-09-13 integration-round fixes, both newly covered here
-        (friction-log.md FR-035's own recurrence -- this file previously had
-        no test exercising either): (1) the answerLater confirmation's own
-        overlapping surface (``.gth-overlay``, ADR-0055 decision 3's "重なる
-        別の面") was mouse-only -- a keyboard-only participant had no way to
-        dismiss it at all before this round's fix added a
-        tabindex/role="button"/Enter-Space handler to the scrim; (2) that
-        same scrim used to sit above *every* other control at a higher
-        z-index, including 結果をのぞく (gathering-participant-peek-results,
-        a read-only, non-destructive control this round's fix deliberately
-        keeps reachable regardless of any open overlay) -- a real
-        integration defect this round found via
-        ``test_gth_answer_later_and_peek_results_are_functional`` (a
-        30-second Playwright actionability timeout, ".gth-overlay
-        intercepts pointer events"), fixed by giving peekResults a higher
-        stacking order than the scrim.
+        """respondentList (ADR-0061 decision 2, board's F2: 「空いた所にだれが
+        何と答えたかを名前つきで並べる」) translates ScheduleRespondent.response
+        the same way yourResponse already does -- extends the existing
+        enum-token gate to this newly-declared peer-facing surface. Two
+        participant links answer the same candidate date so the list
+        actually renders more than this viewer's own entry.
         """
-        link_url = self._build_participant_link()
-        page = self._open_participant_view(link_url)
-        wait_for_at_least_one(page, "gathering-participant-answer-later")
+        self._sign_in_as_organizer()
+        self._create_gathering_via_ui("respondentList表示enum確認会", candidate_date_count=1)
+        first_link_url = self._issue_participant_link_url()
+        second_link_url = self._issue_participant_link_url()
 
-        by_test_id(page, "gathering-participant-answer-later").click()
-        overlay = page.locator(".gth-overlay")
-        confirmation = by_test_id(page, "gathering-participant-answer-later-confirmation")
-        expect(confirmation).to_be_visible()
-        box = confirmation.bounding_box()
-        self.assertIsNotNone(box, "answerLater confirmation has no bounding box")
-        self.assertGreater(box["width"], 0)
-        self.assertGreater(box["height"], 0)
+        first_page = self._open_participant_view(first_link_url)
+        by_test_id(first_page, "gathering-schedule-response-option").first.click()
+        expect(by_test_id(first_page, "gathering-schedule-question").first).to_have_attribute(
+            "data-your-response", "GOING"
+        )
+        second_page = self._open_participant_view(second_link_url)
+        by_test_id(second_page, "gathering-schedule-response-option").nth(1).click()
+        expect(by_test_id(second_page, "gathering-schedule-question").first).to_have_attribute(
+            "data-your-response", "MAYBE"
+        )
 
-        # (2) peekResults stays reachable through the still-open overlay --
-        # a real click, not merely a tabindex check, since this is exactly
-        # the actionability failure the integration round reproduced.
-        peek = by_test_id(page, "gathering-participant-peek-results")
-        peek.click()
-        expect(by_test_id(page, "gathering-schedule-tally").first).to_be_visible()
-        # The overlay itself is unaffected by activating peek (peekResults
-        # calls no public operation and does not touch answerLater's own
-        # state) -- still open, confirming this was a real click-through fix,
-        # not an accidental dismissal.
-        expect(confirmation).to_be_visible()
+        # Both PUTs have now been confirmed by their own page's DOM (above)
+        # before reloading first_page to read back the peer's own entry --
+        # not merely issued, avoiding a race against the second PUT's own
+        # in-flight request.
+        first_page.reload()
+        wait_for_at_least_one(first_page, "gathering-schedule-respondent-item")
+        expect(by_test_id(first_page, "gathering-schedule-respondent-item")).to_have_count(2)
+        self._assert_no_forbidden_enum_token_is_visible_standalone_text(first_page)
 
-        # (1) the scrim itself is keyboard-tabbable and Enter closes it.
-        self._assert_tabbable(overlay, "gathering answerLater overlay scrim")
-        overlay.focus()
-        page.keyboard.press("Enter")
-        expect(confirmation).to_have_count(0)
+    def test_e_participant_answer_day_navigation_controls_meet_44px_minimum_target(
+        self,
+    ) -> None:
+        """ADR-0061 decision 3 replaces this round's target (friction-
+        log.md FR-035's own precedent) with daySkip/dayPrevious/dayList:
+        the first two already carry data-gathering-control-purpose, so the
+        existing generic sweep covers them once visible; dayList's own
+        narrow-layout toggle/close (this file's own newly-added test ids,
+        see participant.js) are opened first so the sheet's own item
+        controls are actually visible before being measured (ADR-0020
+        decision 6: a closed sheet is measured only after opening its real
+        entry point).
+        """
+        link_url = self._build_participant_link(candidate_date_count=2)
+        for width, height, label in GATHERING_CONTROL_SIZE_VIEWPORTS:
+            page = self._open_participant_view(link_url, viewport=(width, height))
+            wait_for_at_least_one(page, "gathering-schedule-question")
+            if width < 1024:
+                by_test_id(page, "gathering-participant-day-list-open").click()
+                expect(by_test_id(page, "gathering-participant-day-list")).to_be_visible()
+            self._assert_all_declared_gathering_controls_meet_44px(page, label)

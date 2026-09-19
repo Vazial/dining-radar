@@ -83,6 +83,12 @@ TENTATIVE_SELECTED_ATTR = "data-tentative-selected"
 ADD_CANDIDATE_DATE_OPEN = "gathering-add-candidate-date-open"
 PARTICIPANT_LINK_COPY = "gathering-participant-link-copy"
 ISSUED_LINK_URL_ATTR = "data-issued-link-url"
+# issueDialog (ADR-0061決定1, 2026-09-17: 発行を「発行して小窓が開き、そこで
+# コピー」の2段へ分割。participantLinkCopy自身はもうクリップボードへ書き込ま
+# ない -- data-issued-link-urlはこの小窓自身に移った).
+PARTICIPANT_LINK_ISSUE_DIALOG = "gathering-participant-link-issue-dialog"
+PARTICIPANT_LINK_ISSUE_DIALOG_COPY = "gathering-participant-link-issue-dialog-copy"
+PARTICIPANT_LINK_ISSUE_DIALOG_CLOSE = "gathering-participant-link-issue-dialog-close"
 PARTICIPANT_LINK_LIST = "gathering-participant-link-list"
 PARTICIPANT_LINK_ITEM = "gathering-participant-link-item"
 PARTICIPANT_LINK_ID_ATTR = "data-participant-link-id"
@@ -356,6 +362,13 @@ YOUR_RESPONSE_ATTR = "data-your-response"
 RESPONSE_OPTION = "gathering-schedule-response-option"
 RESPONSE_VALUE_ATTR = "data-response-value"
 SCHEDULE_TALLY = "gathering-schedule-tally"
+# respondentList (ADR-0061決定2, TDR-GTH-64): peer-to-peer visibility of each
+# respondent's own name and answer for this candidate date.
+RESPONDENT_LIST = "gathering-schedule-respondent-list"
+RESPONDENT_ITEM = "gathering-schedule-respondent-item"
+# progress (unchanged shape, now also read by the day-navigation Musts below).
+TOTAL_CANDIDATE_DATES_ATTR = "data-total-candidate-dates"
+ANSWERED_CANDIDATE_DATES_ATTR = "data-answered-candidate-dates"
 PARTICIPANT_NAME_OPEN = "gathering-participant-name-open"
 PARTICIPANT_NAME_INPUT = "gathering-participant-name-input"
 PARTICIPANT_NAME_SUBMIT = "gathering-participant-name-submit"
@@ -368,31 +381,44 @@ LINK_ERROR_CODE_ATTR = "data-link-error-code"
 # does not.
 PARTICIPANT_LOAD_ERROR = "gathering-participant-load-error"
 
-# answerLater / peekResults (adr/0050 decision 1, 2026-09-08〜09 human
-# decision: 「あとで答える」「結果をのぞく」を実際に動く操作にする -- both
-# previously visual-only). Neither owns a dedicated TDR-GTH-4x scenario (the
-# contract's own note: "no dedicated TDR-GTH-4x scenario names these two
-# controls, but they are real, present controls... so they must still be
-# declared"), so this suite verifies their requiredOutcome directly as a UI
-# implementation detail, the same precedent TDR-GTH-43's ordering check and
-# TDR-CS-02's desktop/mobile split already establish for contract Musts with
-# no scenario of their own.
-ANSWER_LATER = "gathering-participant-answer-later"
-ANSWER_LATER_CONFIRMATION = "gathering-participant-answer-later-confirmation"
-# confirmation.scheduleItem (added gathering-scheduling-browser-interface.yaml
-# 0.18.0 追補15): a dedicated, non-reused echo element -- see
-# assert_answer_later_confirmation_reproduces_schedule_answer below for why
-# this replaced a same-testId-reuse check that only ever ran conditionally.
-# confirmation.shopItem is this same addition's sibling
-# (gathering-participant-answer-later-confirmation-shop-item,
-# data-shop-id/data-your-vote) but no scenario in this suite currently
-# exercises "あとで答える" after a shop vote has been cast, so it is not
-# given a named constant here (this file's own convention of not declaring
-# a constant for an observation surface no test yet reads).
-ANSWER_LATER_CONFIRMATION_SCHEDULE_ITEM = (
-    "gathering-participant-answer-later-confirmation-schedule-item"
-)
-PEEK_RESULTS = "gathering-participant-peek-results"
+# daySkip / dayPrevious / dayList (ADR-0061決定3, 2026-09-17 human decision:
+# 「1日ずつ、答えると自動で次の日へ」). Replaces answerLater/peekResults
+# (gathering-participant-answer-later/-peek-results and their confirmation
+# echo), retired entirely the same round -- every prior answer already saves
+# itself the moment it is submitted, so leaving mid-way needs no dedicated
+# "answer later" control, and the schedule tally's own always-present
+# visibility (adr/0050 decision 2) already made "peek results" moot. Neither
+# daySkip/dayPrevious/dayList owns a dedicated TDR-GTH-6x scenario of its own
+# (the contract's own note), so this suite verifies their requiredOutcome
+# directly as a UI implementation detail, the same precedent TDR-GTH-43's
+# ordering check and the retired answerLater/peekResults test already
+# established for contract Musts with no scenario of their own.
+DAY_SKIP = "gathering-participant-answer-skip"
+DAY_PREVIOUS = "gathering-participant-answer-previous"
+DAY_LIST = "gathering-participant-day-list"
+DAY_LIST_ITEM = "gathering-participant-day-item"
+# dayList.sheetOpen/sheetClose (ADR-0061 追補21, 2026-09-18, contractVersion
+# 0.23.1): the narrow-width bottom-sheet disclosure/close pair for dayList --
+# present only on the render mode where dayList presents as a bottom sheet
+# (sheetOpen) / only while that sheet is open (sheetClose). A drafting gap
+# this contract itself names (allowedPurposesNoteAdr0061Addendum): developer
+# had already attached data-testid/data-gathering-control-purpose to both
+# for the ADR-0020 decision 4 44px/keyboard-reachability audit before this
+# contract ever registered either purpose, so the cross-cutting
+# "every control declares an allowed purpose" scan failed whenever it ran
+# against the participant screen at a narrow viewport -- this suite had only
+# ever exercised that scan at desktop width, so it never caught it.
+DAY_LIST_SHEET_OPEN = "gathering-participant-day-list-open"
+DAY_LIST_SHEET_CLOSE = "gathering-participant-day-list-close"
+# Duplicated from candidate_search_browser.py's own
+# MOBILE_MAP_PRIMARY_TOUCH_VIEWPORT rather than imported (this pair of DSL
+# files' established precedent -- see CANDIDATE_SEARCH_DESKTOP_TWO_COLUMN_
+# VIEWPORT's own comment below). dayList.sheetOpen/sheetClose's own
+# presenceRule is scoped to "whichever render mode presents dayList as a
+# bottom sheet" without fixing a breakpoint value -- this is simply *a*
+# narrow width, chosen to match the value this codebase already uses
+# elsewhere for the same "definitely narrow" purpose.
+PARTICIPANT_ANSWER_NARROW_VIEWPORT = {"width": 390, "height": 844}
 
 # unavailableControls (both namespaces; gathering-scheduling-browser-interface.yaml).
 # Mirrors candidate_search_browser.py's ALLOWED_CONTROL_PURPOSES /
@@ -461,12 +487,23 @@ GATHERING_ALLOWED_PURPOSES = {
     "gathering-delete-open",
     "gathering-delete-confirm",
     "gathering-delete-cancel",
-    # answerLater / peekResults (adr/0050 decision 1) -- no dedicated
-    # TDR-GTH-4x scenario names these two controls, but they are real,
-    # present controls on participantAnswer once rendered, so they must
-    # still be declared here for the cross-cutting purpose scan.
-    "gathering-participant-answer-later",
-    "gathering-participant-peek-results",
+    # daySkip / dayPrevious / dayList (ADR-0061決定3) -- replaces the retired
+    # gathering-participant-answer-later/-peek-results entries below this
+    # same set used to carry. gathering-participant-day-navigate is shared by
+    # every gathering-participant-day-item, the same one-purpose-shared-by-
+    # siblings pattern gathering-schedule-response-select already
+    # establishes.
+    "gathering-participant-answer-skip",
+    "gathering-participant-answer-previous",
+    "gathering-participant-day-navigate",
+    # participantLinkCopy's issueDialog (ADR-0061決定1): the small window's
+    # own two controls.
+    "gathering-participant-link-issue-dialog-copy",
+    "gathering-participant-link-issue-dialog-close",
+    # dayList.sheetOpen/sheetClose (ADR-0061 追補21, 2026-09-18, contract
+    # 0.23.1) -- the narrow-width bottom-sheet disclosure/close pair.
+    "gathering-participant-day-list-open",
+    "gathering-participant-day-list-close",
 }
 # unavailableControls.valueEntryControlTestIds (ADR-0039, v0.4): native
 # input/textarea value-entry controls exempt from purpose declaration --
@@ -927,6 +964,23 @@ class GatheringSchedulingBrowserDsl:
         exists to drive through the browser).
         """
         self._create_gathering(title, candidate_date_isos)
+
+    def given_scheduling_gathering_with_business_days(self, title: str, count: int) -> list[str]:
+        """Same Given as given_scheduling_gathering above, for a caller that
+        only needs ``count`` ascending business-day candidate dates and does
+        not care about their exact values. **Rewritten 2026-09-18 (merge with
+        feat/dining-radar-bundle-b-dates)**: reuses this file's own
+        days_from_now_iso instance method (business_days.resolve_business_day_iso,
+        ADR-0060) instead of a locally reimplemented holiday calendar -- each
+        of the ``count`` seeds is spaced 7 calendar days apart, comfortably
+        wider than business_days.MAX_BUSINESS_DAY_ADVANCES's own single-day-
+        at-a-time resolution window, so resolution can never invert their
+        ascending order. Returns the ascending ISO strings that were
+        actually accepted.
+        """
+        candidate_isos = [self.days_from_now_iso(2 + 7 * index) for index in range(count)]
+        self._create_gathering(title, candidate_isos)
+        return candidate_isos
 
     def _create_gathering(self, title: str, candidate_date_isos: list[str]) -> None:
         response = self._api(
@@ -1939,15 +1993,59 @@ class GatheringSchedulingBrowserDsl:
         return require(match, f"issued link url has unexpected shape: {url}").group(1)  # type: ignore[union-attr]
 
     def issue_participant_link_from_dashboard(self) -> dict[str, str]:
-        """1クリック=1本 (D8, ADR-0036決定4). participantLinkCopy.requiredOutcome."""
+        """1クリック=1本 (D8, ADR-0036決定4). participantLinkCopy.requiredOutcome
+        -> issueDialog (**changed 2026-09-17, ADR-0061決定1**: issuing now only
+        opens a small window carrying the returned URL on its own
+        data-issued-link-url; it no longer writes to the clipboard itself).
+
+        Given-state builder reused by many scenarios that only need one
+        issued link to exist (TDR-GTH-16/18/19/36 among others). **Per PR
+        #196 audit Minor (ADR-0061 未決事項2)**: this helper no longer
+        embeds the clipboard-write assertion -- a shared Given helper
+        asserting an implementation detail only TDR-GTH-03/17 actually care
+        about made every scenario that merely reuses this helper as a Given
+        fail for clipboard reasons unrelated to what it was testing. The
+        write itself is asserted by issue_participant_link_and_copy_via_dialog
+        below (TDR-GTH-03) and recopy_participant_link_at (TDR-GTH-17),
+        each specific to the scenario that actually names it.
+        """
+        before = self._read_unanswered_summary()
+        button = assert_present(self.assertions, self.page, PARTICIPANT_LINK_COPY)
+        button.click()
+        dialog = assert_present(self.assertions, self.page, PARTICIPANT_LINK_ISSUE_DIALOG)
+        expect(dialog).to_have_attribute(ISSUED_LINK_URL_ATTR, re.compile(r".+"))
+        url = dialog.get_attribute(ISSUED_LINK_URL_ATTR)
+        close = assert_present(self.assertions, self.page, PARTICIPANT_LINK_ISSUE_DIALOG_CLOSE)
+        close.click()
+        assert_absent(self.assertions, self.page, PARTICIPANT_LINK_ISSUE_DIALOG)
+        after = self._read_unanswered_summary()
+        self.assertions.assertEqual(after["totalIssuedLinks"], before["totalIssuedLinks"] + 1)
+        self.assertions.assertEqual(after["activeIssuedLinks"], before["activeIssuedLinks"] + 1)
+        issued = {"token": self._token_from_url(url), "url": url}
+        self._issued_order.append(issued)
+        return issued
+
+    def issue_participant_link_and_copy_via_dialog(self) -> dict[str, str]:
+        """TDR-GTH-03 「そのまま貼り付けて使える状態で得られる」: unlike the
+        Given-only helper above, this actually presses issueDialog's own
+        「リンクをコピー」(dialogCopy) and asserts the clipboard write it
+        carries -- **the Must ADR-0058 originally placed on participantLinkCopy
+        itself now lives here, moved by ADR-0061決定1** (not removed; the
+        activation that must satisfy it changed).
+        """
         before = self._read_unanswered_summary()
         button = assert_present(self.assertions, self.page, PARTICIPANT_LINK_COPY)
         writes_before = clipboard_write_count(self.page)
         button.click()
-        expect(button).to_have_attribute(ISSUED_LINK_URL_ATTR, re.compile(r".+"))
-        url = button.get_attribute(ISSUED_LINK_URL_ATTR)
-        # TDR-GTH-03 "そのまま貼り付けて使える状態で得られる" / ADR-0058 decision 1
+        dialog = assert_present(self.assertions, self.page, PARTICIPANT_LINK_ISSUE_DIALOG)
+        expect(dialog).to_have_attribute(ISSUED_LINK_URL_ATTR, re.compile(r".+"))
+        url = dialog.get_attribute(ISSUED_LINK_URL_ATTR)
+        copy_button = assert_present(self.assertions, self.page, PARTICIPANT_LINK_ISSUE_DIALOG_COPY)
+        copy_button.click()
         assert_clipboard_write_received(self.assertions, self.page, url, writes_before)
+        close = assert_present(self.assertions, self.page, PARTICIPANT_LINK_ISSUE_DIALOG_CLOSE)
+        close.click()
+        assert_absent(self.assertions, self.page, PARTICIPANT_LINK_ISSUE_DIALOG)
         after = self._read_unanswered_summary()
         self.assertions.assertEqual(after["totalIssuedLinks"], before["totalIssuedLinks"] + 1)
         self.assertions.assertEqual(after["activeIssuedLinks"], before["activeIssuedLinks"] + 1)
@@ -2852,18 +2950,58 @@ class GatheringSchedulingBrowserDsl:
             f'[data-testid="{SCHEDULE_QUESTION}"][{CANDIDATE_DATE_ID_ATTR}="{candidate_date_id}"]'
         )
 
+    def _day_list_item_locator(self, candidate_date_id: str) -> Locator:
+        return self.page.locator(
+            f'[data-testid="{DAY_LIST_ITEM}"][{CANDIDATE_DATE_ID_ATTR}="{candidate_date_id}"]'
+        )
+
+    def _ensure_schedule_question_reachable(self, candidate_date_id: str) -> None:
+        """scheduleQuestion.cardinality (**changed 2026-09-17, ADR-0061決定3**):
+        exactly one gathering-schedule-question is reachable at a time --
+        the simultaneous-render alternative this contract permitted through
+        2026-09-16 is gone. Jumps there via dayList's own requiredOutcome
+        (「日の一覧から日へ飛ぶ」, calls no public operation, changes no
+        data-your-response value) when candidate_date_id is not already the
+        currently-reachable one -- deterministic regardless of which date
+        auto-advance or a fresh page load happened to leave reachable.
+        """
+        if self.first_reachable_schedule_question_candidate_date_id() == candidate_date_id:
+            return
+        day_item = self._day_list_item_locator(candidate_date_id)
+        expect(day_item).to_have_count(1)
+        day_item.click()
+        self.assertions.assertEqual(
+            self.first_reachable_schedule_question_candidate_date_id(), candidate_date_id
+        )
+
     def answer_schedule_question(self, candidate_date_id: str, status: str) -> None:
+        self._ensure_schedule_question_reachable(candidate_date_id)
         question = self._schedule_question_locator(candidate_date_id)
-        expect(question).to_be_attached()
         option = question.locator(
             f'[data-testid="{RESPONSE_OPTION}"][{RESPONSE_VALUE_ATTR}="{status}"]'
         )
         option.click()
-        expect(question).to_have_attribute(YOUR_RESPONSE_ATTR, status)
+        # responseOptions.requiredOutcome's own auto-advance (ADR-0061決定3)
+        # may already have moved the currently-reachable date on to the next
+        # one by the time this assertion runs, so this candidate date's own
+        # gathering-schedule-question is no longer a reliable read target.
+        # dayList's own per-date item (data-your-response) is the surface
+        # this contract guarantees stays queryable "regardless of which
+        # single date is currently the reachable gathering-schedule-question"
+        # -- see assert_schedule_question_your_response below, which shares
+        # this same ground truth.
+        expect(self._day_list_item_locator(candidate_date_id)).to_have_attribute(
+            YOUR_RESPONSE_ATTR, status
+        )
 
     def answer_first_schedule_question(self, status: str) -> str:
-        question = wait_for_at_least_one(self.page, SCHEDULE_QUESTION).first
-        candidate_date_id = question.get_attribute(CANDIDATE_DATE_ID_ATTR)
+        """Answers whichever gathering-schedule-question is currently
+        reachable (scheduleQuestion.cardinality, ADR-0061決定3: exactly one
+        at a time) -- for a participant who has just opened their link with
+        nothing answered yet, this is the first candidate date in
+        orderingInvariant order.
+        """
+        candidate_date_id = self.first_reachable_schedule_question_candidate_date_id()
         self.answer_schedule_question(candidate_date_id, status)
         return candidate_date_id
 
@@ -2871,6 +3009,112 @@ class GatheringSchedulingBrowserDsl:
         return wait_for_at_least_one(self.page, SCHEDULE_QUESTION).first.get_attribute(
             CANDIDATE_DATE_ID_ATTR
         )
+
+    def navigate_to_day_via_day_list(self, candidate_date_id: str) -> None:
+        """dayList.item.requiredOutcome (「日の一覧から日へ飛ぶ」, ADR-0061決定3):
+        public entry point for scenarios that name this navigation directly,
+        reusing the same ensure-reachable mechanics answer_schedule_question
+        above uses implicitly.
+        """
+        self._ensure_schedule_question_reachable(candidate_date_id)
+
+    def skip_currently_reachable_schedule_question(self) -> str:
+        """daySkip.requiredOutcome (「とばす」, ADR-0061決定3): advances past
+        the currently reachable candidate date without answering it. Returns
+        the skipped date's own id so a caller can assert its
+        data-your-response stayed whatever it already was.
+        """
+        skipped = self.first_reachable_schedule_question_candidate_date_id()
+        by_test_id(self.page, DAY_SKIP).click()
+        return skipped
+
+    def go_to_previous_schedule_question(self) -> None:
+        """dayPrevious.requiredOutcome (「前の日」, ADR-0061決定3)."""
+        by_test_id(self.page, DAY_PREVIOUS).click()
+
+    def assert_day_previous_is_disabled(self) -> None:
+        """dayPrevious.disabledState: disabled exactly when the currently
+        reachable candidate date is the first in orderingInvariant order.
+        """
+        expect(by_test_id(self.page, DAY_PREVIOUS)).to_be_disabled()
+
+    def assert_currently_reachable_schedule_question_is(
+        self, expected_candidate_date_id: str
+    ) -> None:
+        self.assertions.assertEqual(
+            self.first_reachable_schedule_question_candidate_date_id(), expected_candidate_date_id
+        )
+
+    def assert_schedule_progress(self, *, total: int, answered: int) -> None:
+        """progress.requirement (gathering-participant-progress): total
+        equals the count of ParticipantView.scheduleQuestions, answered
+        equals the count among them whose yourResponse is non-null.
+        """
+        node = assert_present(self.assertions, self.page, PARTICIPANT_PROGRESS)
+        self.assertions.assertEqual(node.get_attribute(TOTAL_CANDIDATE_DATES_ATTR), str(total))
+        self.assertions.assertEqual(
+            node.get_attribute(ANSWERED_CANDIDATE_DATES_ATTR), str(answered)
+        )
+
+    # dayList.sheetOpen / sheetClose (ADR-0061 追補21, 2026-09-18) -----------
+
+    def use_narrow_participant_viewport(self) -> None:
+        """Pins the viewport to a definitely-narrow width before navigating
+        to the participant screen -- dayList.sheetOpen/sheetClose's own
+        presenceRule only ever renders on "whichever render mode presents
+        dayList as a bottom sheet", which this suite had never actually
+        reached before this method existed (coordinator report, ADR-0061
+        追補21: the acceptance suite only ever opened this screen at desktop
+        width, so the missing allowedPurposes registration this addendum
+        closes went undetected here).
+        """
+        self.page.set_viewport_size(PARTICIPANT_ANSWER_NARROW_VIEWPORT)
+
+    def open_day_list_sheet(self) -> None:
+        """dayList.sheetOpen.requiredOutcome: "Activating it discloses
+        dayList as a bottom sheet"."""
+        by_test_id(self.page, DAY_LIST_SHEET_OPEN).click()
+
+    def close_day_list_sheet(self) -> None:
+        """dayList.sheetClose.requiredOutcome: "Activating it hides the
+        bottom sheet sheetOpen discloses"."""
+        by_test_id(self.page, DAY_LIST_SHEET_CLOSE).click()
+
+    def assert_day_list_is_visible(self) -> None:
+        expect(by_test_id(self.page, DAY_LIST)).to_be_visible()
+
+    def assert_day_list_is_not_visible(self) -> None:
+        """Playwright's own not-visible (attached-but-hidden or fully
+        detached both satisfy this) -- dayList.presenceRule itself is
+        unchanged by this addendum (still "present exactly when
+        ParticipantView.decision is null"), so this checks the bottom
+        sheet's own visual disclosure, not dayList's DOM presence.
+        """
+        expect(by_test_id(self.page, DAY_LIST)).not_to_be_visible()
+
+    def assert_day_list_sheet_open_is_present(self) -> None:
+        assert_present(self.assertions, self.page, DAY_LIST_SHEET_OPEN)
+
+    def assert_day_list_sheet_close_is_not_offered(self) -> None:
+        """sheetClose.presenceRule ("Present only while the bottom sheet ...
+        is currently open"). **Checked via Playwright visibility, not DOM
+        attachment**: the real implementation nests this control inside
+        dayList's own sheet container and hides that whole container via
+        CSS rather than removing it from the DOM (confirmed directly:
+        get_by_test_id still resolves to 1 element, but is_visible() is
+        False) -- a legitimate shape this contract's own requiredOutcome
+        text leaves open ("this contract does not fix modal/drawer/bottom-
+        sheet shape"). Playwright's not_to_be_visible already treats a
+        zero-size/display:none/off-screen element as satisfying this, so it
+        does not fail on this attached-but-hidden shape the way a strict
+        DOM-count check (assert_absent) would.
+        """
+        node = by_test_id(self.page, DAY_LIST_SHEET_CLOSE)
+        if node.count() > 0:
+            expect(node.first).not_to_be_visible()
+
+    def assert_day_list_sheet_close_is_offered(self) -> None:
+        expect(by_test_id(self.page, DAY_LIST_SHEET_CLOSE)).to_be_visible()
 
     def assert_first_reachable_schedule_question_matches_start_at_order(
         self, start_at_isos: list[str]
@@ -2912,6 +3156,13 @@ class GatheringSchedulingBrowserDsl:
         )
 
     def _read_schedule_tally_or_none(self, candidate_date_id: str) -> dict[str, str] | None:
+        """Reads the tally from the *currently reachable* gathering-schedule-
+        question for this date (ADR-0061決定3: only one is ever reachable at
+        once) -- navigates there via dayList first if it is not already the
+        one on screen, since the tally lives inside scheduleQuestion, not
+        dayList's own per-date item.
+        """
+        self._ensure_schedule_question_reachable(candidate_date_id)
         tally = self._schedule_question_locator(candidate_date_id).locator(
             f'[data-testid="{SCHEDULE_TALLY}"]'
         )
@@ -2929,11 +3180,14 @@ class GatheringSchedulingBrowserDsl:
         """rateLimitedScheduleResponse.priorAnswersRetained (TDR-GTH-15) requires
         every previously recorded data-your-response *and* gathering-schedule-tally
         value to survive a rejected request -- both are captured here, not just
-        data-your-response.
+        data-your-response. data-your-response itself is read from dayList's
+        own per-date item (see assert_schedule_question_your_response below
+        for why that is the ground truth this contract guarantees regardless
+        of which single date is currently reachable, ADR-0061決定3).
         """
         return {
             candidate_date_id: {
-                "yourResponse": self._schedule_question_locator(candidate_date_id).get_attribute(
+                "yourResponse": self._day_list_item_locator(candidate_date_id).get_attribute(
                     YOUR_RESPONSE_ATTR
                 ),
                 "tally": self._read_schedule_tally_or_none(candidate_date_id),
@@ -2948,6 +3202,7 @@ class GatheringSchedulingBrowserDsl:
     def attempt_answer_schedule_question_expecting_rate_limit(
         self, candidate_date_id: str, status: str
     ) -> None:
+        self._ensure_schedule_question_reachable(candidate_date_id)
         question = self._schedule_question_locator(candidate_date_id)
         option = question.locator(
             f'[data-testid="{RESPONSE_OPTION}"][{RESPONSE_VALUE_ATTR}="{status}"]'
@@ -2984,7 +3239,15 @@ class GatheringSchedulingBrowserDsl:
         )
 
     def assert_schedule_question_your_response(self, candidate_date_id: str, expected: str) -> None:
-        expect(self._schedule_question_locator(candidate_date_id)).to_have_attribute(
+        """Reads dayList's own per-date item (data-your-response), not the
+        (possibly currently-unreachable, ADR-0061決定3) scheduleQuestion
+        element directly -- dayList.item.requirement guarantees "one item
+        per CandidateDate ... regardless of which single date is currently
+        the reachable gathering-schedule-question", the surface this
+        contract actually guarantees is queryable for a date that is not the
+        one presently on screen.
+        """
+        expect(self._day_list_item_locator(candidate_date_id)).to_have_attribute(
             YOUR_RESPONSE_ATTR, expected
         )
 
@@ -3007,6 +3270,7 @@ class GatheringSchedulingBrowserDsl:
         still legitimately carries unchanged) precisely because it no
         longer denotes a real observation surface on this element.
         """
+        self._ensure_schedule_question_reachable(candidate_date_id)
         node = self._schedule_question_locator(candidate_date_id)
         self.assertions.assertIsNone(node.get_attribute("data-open-shop-count"))
 
@@ -3019,6 +3283,7 @@ class GatheringSchedulingBrowserDsl:
         as literal test ids (not named constants) precisely because they no
         longer denote a real, defined observation surface.
         """
+        self._ensure_schedule_question_reachable(candidate_date_id)
         question = self._schedule_question_locator(candidate_date_id)
         self.assertions.assertEqual(
             question.locator('[data-testid="gathering-open-shop-preview-item"]').count(), 0
@@ -3039,12 +3304,43 @@ class GatheringSchedulingBrowserDsl:
         Must's own reversal -- no scenario names an UNANSWERED question
         whose tally is absent any longer.
         """
+        self._ensure_schedule_question_reachable(candidate_date_id)
         question = self._schedule_question_locator(candidate_date_id)
         tally = question.locator(f'[data-testid="{SCHEDULE_TALLY}"]')
         expect(tally).to_have_count(1)
         self.assertions.assertEqual(tally.get_attribute("data-going-count"), str(going))
         self.assertions.assertEqual(tally.get_attribute("data-maybe-count"), str(maybe))
         self.assertions.assertEqual(tally.get_attribute("data-not-going-count"), str(not_going))
+
+    def assert_schedule_question_respondents(
+        self, candidate_date_id: str, expected: list[dict[str, object]]
+    ) -> None:
+        """scheduleQuestion.respondentList.item (TDR-GTH-64, ADR-0061決定2):
+        one entry per participant who has answered this candidate date
+        (this viewer's own entry included if the viewer itself has
+        answered), each carrying its own response value and whether it is
+        named. DOM order is not fixed by this contract, so this compares as
+        an unordered multiset -- not the exact visible name text either
+        (this contract does not require it to be machine-asserted, the same
+        latitude participantLinkList.item.requirement already takes,
+        TDR-GTH-16's own "名無しを含む" distinguishability, not text
+        equality).
+        """
+        self._ensure_schedule_question_reachable(candidate_date_id)
+        question = self._schedule_question_locator(candidate_date_id)
+        items = question.locator(f'[data-testid="{RESPONDENT_ITEM}"]')
+        expect(items).to_have_count(len(expected))
+        actual = sorted(
+            (
+                items.nth(index).get_attribute(RESPONSE_VALUE_ATTR),
+                items.nth(index).get_attribute(PARTICIPANT_NAMED_ATTR),
+            )
+            for index in range(items.count())
+        )
+        expected_pairs = sorted(
+            (entry["response"], "true" if entry["named"] else "false") for entry in expected
+        )
+        self.assertions.assertEqual(actual, expected_pairs)
 
     def assert_schedule_question_current_leader(
         self, candidate_date_id: str, expected: bool
@@ -3055,7 +3351,14 @@ class GatheringSchedulingBrowserDsl:
         participant-side value is computed from the same
         ParticipantView.scheduleQuestions goingCount/maybeCount this suite's
         organizer-side assertion already reads from CandidateDate.
+
+        **Merge fixup (bundle C, ADR-0061決定3)**: navigates there via
+        _ensure_schedule_question_reachable first -- scheduleQuestion.
+        cardinality now allows only one candidate date's question reachable
+        at a time, so this candidate date's own tally is not necessarily the
+        one already on screen.
         """
+        self._ensure_schedule_question_reachable(candidate_date_id)
         question = self._schedule_question_locator(candidate_date_id)
         tally = question.locator(f'[data-testid="{SCHEDULE_TALLY}"]')
         expect(tally).to_have_count(1)
@@ -3083,116 +3386,6 @@ class GatheringSchedulingBrowserDsl:
     def assert_valid_participant_view_is_shown(self) -> None:
         assert_all_present(self.assertions, self.page, [PARTICIPANT_HEADER, SCHEDULE_QUESTION])
         assert_absent(self.assertions, self.page, PARTICIPANT_LINK_ERROR)
-
-    # answerLater / peekResults (adr/0050 decision 1) ------------------------
-
-    def assert_answer_later_and_peek_results_present(self) -> None:
-        """Both share one presenceRule: present exactly when
-        ParticipantView.decision is null (the same phase scheduleQuestion/
-        shopVoteQuestion render in)."""
-        assert_all_present(self.assertions, self.page, [ANSWER_LATER, PEEK_RESULTS])
-
-    def assert_answer_later_and_peek_results_absent(self) -> None:
-        """Mirrors nameControl.open's own presenceRule once finalized --
-        both controls disappear once ParticipantView.decision is non-null."""
-        assert_all_absent(self.assertions, self.page, [ANSWER_LATER, PEEK_RESULTS])
-
-    def activate_answer_later_and_verify_it_changes_no_state(
-        self, candidate_date_id: str, expected_response: str
-    ) -> None:
-        """answerLater.requiredOutcome: reveals a confirmation surface with
-        non-empty text and calls no public operation -- checked here as
-        "the already-recorded answer is unchanged by activating it" (this
-        suite has no network-interception convention in this file the way
-        candidate_search_browser.py's _perform_without_candidate_request
-        does; before/after DOM comparison of the one value this action could
-        plausibly disturb is the equivalent proof for this contract).
-        """
-        by_test_id(self.page, ANSWER_LATER).click()
-        confirmation = assert_present(self.assertions, self.page, ANSWER_LATER_CONFIRMATION)
-        self.assertions.assertNotEqual(confirmation.inner_text().strip(), "")
-        self.assert_schedule_question_your_response(candidate_date_id, expected_response)
-
-    def assert_answer_later_confirmation_reproduces_schedule_answer(
-        self, candidate_date_id: str, expected_response: str
-    ) -> None:
-        """answerLater.confirmation.scheduleItem (gathering-scheduling-
-        browser-interface.yaml 0.18.0 追補15, ADR-0056): **replaces the
-        previous conditional check**, which only ran its strong assertion
-        when the implementation happened to reuse the live
-        gathering-schedule-question element inside the confirmation surface
-        -- a different implementation shape (a separate echo element) made
-        that branch never execute, leaving only the weak "non-empty text"
-        baseline (a tester finding this same contract revision's header
-        comment now records). 0.18.0 closes this by giving the reproduced
-        echo its own dedicated, non-reused testId
-        (gathering-participant-answer-later-confirmation-schedule-item) that
-        this suite can always find regardless of markup shape. Confirms
-        exactly one such item exists for this candidate date and its
-        data-your-response matches the participant's own recorded answer --
-        no weak fallback branch remains.
-        """
-        confirmation = assert_present(self.assertions, self.page, ANSWER_LATER_CONFIRMATION)
-        item = confirmation.locator(
-            f'[data-testid="{ANSWER_LATER_CONFIRMATION_SCHEDULE_ITEM}"]'
-            f'[{CANDIDATE_DATE_ID_ATTR}="{candidate_date_id}"]'
-        )
-        expect(item).to_have_count(1)
-        expect(item).to_have_attribute(YOUR_RESPONSE_ATTR, expected_response)
-
-    def assert_answer_later_confirmation_has_no_schedule_item_for(
-        self, candidate_date_id: str
-    ) -> None:
-        """answerLater.confirmation.scheduleItem's own requirement (0.19.0):
-        "No candidate date whose yourResponse is null appears here -- this
-        surface echoes answers given, not every candidate date". **Added
-        (2026-09-13, 欠陥注入で判明: 未回答の候補日の項目まで描く欠陥が緑の
-        まま通った)**: the prior Given had only one, already-answered
-        candidate date, so an unanswered one never existed for this
-        requirement to be checked against. Same direct-locator convention
-        as assert_answer_later_confirmation_reproduces_schedule_answer
-        above, filtered to the candidate date this participant left
-        unanswered.
-        """
-        confirmation = assert_present(self.assertions, self.page, ANSWER_LATER_CONFIRMATION)
-        item = confirmation.locator(
-            f'[data-testid="{ANSWER_LATER_CONFIRMATION_SCHEDULE_ITEM}"]'
-            f'[{CANDIDATE_DATE_ID_ATTR}="{candidate_date_id}"]'
-        )
-        expect(item).to_have_count(0)
-
-    def assert_answer_later_confirmation_schedule_item_count(self, expected_count: int) -> None:
-        """answerLater.confirmation.scheduleItem's own cardinality (0.19.0):
-        "One element per ParticipantScheduleQuestion whose yourResponse is
-        non-null". Checks the *total* count of schedule items reproduced,
-        so an item rendered for an unanswered candidate date cannot hide
-        behind an otherwise-correct answered-date item -- neither the
-        per-date reproduction check nor the per-date absence check above
-        looks at the total, so this is what actually closes the gap the
-        same tester finding above (a defect that draws every candidate
-        date's item, not only the answered ones) would otherwise slip
-        through.
-        """
-        confirmation = assert_present(self.assertions, self.page, ANSWER_LATER_CONFIRMATION)
-        items = confirmation.locator(f'[data-testid="{ANSWER_LATER_CONFIRMATION_SCHEDULE_ITEM}"]')
-        expect(items).to_have_count(expected_count)
-
-    def activate_peek_results_and_verify_tallies_are_visible(self, candidate_date_id: str) -> None:
-        """peekResults.requiredOutcome: makes every currently reachable
-        gathering-schedule-tally/gathering-shop-vote-tally simultaneously
-        visible in the DOM. scheduleQuestion.tally/shopVoteQuestion.tally
-        are already unconditionally present as of adr/0050 decision 2 (this
-        suite's own assert_schedule_question_tally/assert_shop_vote_tally
-        already prove DOM presence elsewhere) -- this checks the property
-        peekResults specifically adds: actual Playwright visibility (not
-        merely DOM attachment), for whichever tallies are currently
-        reachable, after activation.
-        """
-        by_test_id(self.page, PEEK_RESULTS).click()
-        tally = self._schedule_question_locator(candidate_date_id).locator(
-            f'[data-testid="{SCHEDULE_TALLY}"]'
-        )
-        expect(tally).to_be_visible()
 
     # unexpectedLoadFailureOutcome / loadFailure (TDR-GTH-42, adr/0047) -----
 
@@ -3615,44 +3808,32 @@ class GatheringSchedulingBrowserDsl:
         )
 
     def assert_participant_question_surfaces_are_replaced(self) -> None:
-        """replacesQuestionSurfaces (adr/0042). **Narrowed 2026-09-12 (ADR-0055
-        decision 8, human decision "確定後も参加者は店ごとの票を見られるまま
-        にする", resolving a self-contradiction this contract carried since
-        2026-09-09 -- see this slice's tester report)**: only the
-        per-candidate-date schedule breakdown and the answered/total
-        progress counter stop being shown once finalized.
-        gathering-shop-vote-question (and its own gathering-shop-vote-tally)
-        is deliberately **not** included here any longer -- see
-        assert_finalized_view_still_shows_shop_vote_tally below for the
-        positive check of what remains visible.
+        """replacesQuestionSurfaces (adr/0042). **Reversed back 2026-09-17
+        (ADR-0061決定5, human decision "他の候補の店と票は出さない",
+        reversing ADR-0055 decision 8 a second time)**: ADR-0055 decision 8
+        (2026-09-12) had excluded gathering-shop-vote-question (and its own
+        gathering-shop-vote-tally)/gathering-shop-vote-map from this list to
+        resolve a self-contradiction this contract carried since 2026-09-09
+        (this entry vs. TDR-GTH-34's own literal text -- see this slice's
+        prior tester report). The human has now seen the finalized screen in
+        its real board form and chosen to hide every other shop there, so
+        this round restores the original list, this time keeping it (no more
+        self-contradiction: TDR-GTH-34's text never changed). **Also adds
+        gathering-participant-day-list** (new this round, ADR-0061決定3) to
+        the schedule-question/progress pair that were already here.
         """
-        assert_all_absent(self.assertions, self.page, [SCHEDULE_QUESTION, PARTICIPANT_PROGRESS])
-
-    def assert_finalized_view_still_shows_shop_vote_tally(
-        self, shop_id: str, *, want_to_go: int, ok_to_go: int, not_going: int, responded: int
-    ) -> None:
-        """finalizedView.replacesQuestionSurfaces, positive half (ADR-0055
-        decision 8, TDR-GTH-34): the live shop-vote tally remains present
-        and correct after finalization, even though
-        shopVoteQuestion.presenceRule's own literal prose elsewhere in this
-        contract was not updated to match (a genuine contract
-        self-contradiction -- see this slice's tester report). This suite
-        follows the more specific, more recently authored intent (this
-        section's own description text and the human decision it records),
-        not the stale presenceRule text. noOperations (same contract
-        section) additionally requires the vote *option* controls
-        themselves to be gone even though the question/tally remain --
-        checked here too, not only the tally values.
-        """
-        self.assert_shop_vote_tally(
-            shop_id,
-            want_to_go=want_to_go,
-            ok_to_go=ok_to_go,
-            not_going=not_going,
-            responded=responded,
+        assert_all_absent(
+            self.assertions,
+            self.page,
+            [
+                SCHEDULE_QUESTION,
+                PARTICIPANT_PROGRESS,
+                DAY_LIST,
+                SHOP_VOTE_QUESTION,
+                SHOP_VOTE_TALLY,
+                SHOP_VOTE_MAP,
+            ],
         )
-        question = self._shop_vote_question_locator(shop_id)
-        assert_absent(self.assertions, question, SHOP_VOTE_OPTION)
 
     def assert_participant_name_controls_are_absent(self) -> None:
         """nameControl.open/submit's own presenceRule ("Absent once
@@ -3699,6 +3880,24 @@ class GatheringSchedulingBrowserDsl:
         silently-added, untracked input is still caught (this is the point
         of ADR-0039's traceability condition, not a blanket input
         exemption).
+
+        **Fixed (tester diagnostic, 2026-09-17)**: crossFileSharedNavigation's
+        own shared elements (candidate-search-browser-interface.yaml's
+        gatheringEntry.menuToggle/menuPanel/.../auth-sign-out among them,
+        unconditional on every screen this file covers since ADR-0059,
+        2026-09-16) declare `data-candidate-control-purpose`, a different
+        contract's own purpose attribute -- never this file's own
+        `data-gathering-control-purpose`. This scan previously read this
+        file's own attribute off every matched control regardless, so a
+        shared-nav button (e.g. auth-sign-out) always read back `None` and
+        failed the assertIn check below, on every screen this scan ran
+        against once organizerDashboard's finalize confirmation (and every
+        screen after it) started rendering that shared nav. The contract's
+        own words license skipping them entirely here ("no entry for them is
+        added here") -- this fix recognizes them by that other attribute's
+        presence and skips them, rather than adding their purposes to this
+        file's own GATHERING_ALLOWED_PURPOSES (which would wrongly imply this
+        file's own contract declares them).
         """
         assert_all_absent(self.assertions, self.page, GATHERING_FORBIDDEN_TEST_IDS)
         assert_all_absent(self.assertions, self.page, GATHERING_DISCLOSURE_FORBIDDEN_TEST_IDS)

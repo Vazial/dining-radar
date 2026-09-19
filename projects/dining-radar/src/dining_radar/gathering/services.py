@@ -537,6 +537,53 @@ def participant_link_schedule_responses(
     return mapping
 
 
+def schedule_response_respondents(
+    gathering: Gathering,
+) -> dict[uuid.UUID, list[tuple[str | None, str]]]:
+    """``ParticipantScheduleQuestion.respondents`` for every candidate date on this
+    gathering at once (ADR-0061 decision 2, 2026-09-17 human decision).
+
+    Maps each ``CandidateDate.id`` to the list of ``(displayName, status)``
+    pairs recorded against it -- one entry per participant link that has
+    answered that candidate date, including a viewer's own entry when that
+    viewer has answered (this function does not know or care which link is
+    the caller's own; ``serialize_schedule_question`` reads this same list
+    for every candidate date regardless of viewer). This is the peer-facing
+    mirror of ``participant_link_schedule_responses`` above (ADR-0056
+    decision 1, which the organizer's own ``responseTable`` already reads) --
+    that function groups by participant link, this one groups by candidate
+    date instead, since ``respondents`` is a per-candidate-date array. One
+    query for the whole gathering, not one per candidate date, the same
+    "resolve once per request, reuse per tally" discipline this module's
+    other whole-gathering lookups (``candidate_dates_with_tallies``,
+    ``participant_link_schedule_responses``) already follow.
+
+    **Ordered deterministically** (2026-09-18 coordinator report, closing a
+    real intermittent-failure class adr/0048 already named for this exact
+    shape: reading a related field without an explicit ``order_by`` leaves
+    row order to the database's own unspecified default, which can differ
+    between reads of the same data) -- by the answering participant link's
+    own ``issued_at`` ascending, ties broken by ``id`` ascending (adr/0048,
+    the identical 発行順 basis ``ParticipantLink.Meta.ordering`` and
+    ``list_participant_links``/``participant_link_schedule_responses``
+    already use). ADR-0061 decision 2 itself does not fix this array's
+    order (``ScheduleRespondent``'s own contract description: "a test
+    correlates an entry by its own displayName/response values"); this
+    ordering is this function's own deterministic choice, reusing an
+    already-established basis rather than introducing a new one, not a
+    contract requirement.
+    """
+    responses = (
+        ScheduleResponse.objects.filter(candidate_date__gathering=gathering)
+        .order_by("participant_link__issued_at", "participant_link_id")
+        .values_list("candidate_date_id", "participant_link__display_name", "status")
+    )
+    mapping: dict[uuid.UUID, list[tuple[str | None, str]]] = defaultdict(list)
+    for candidate_date_id, display_name, status in responses:
+        mapping[candidate_date_id].append((display_name, status))
+    return mapping
+
+
 def response_summary(gathering: Gathering) -> tuple[int, int]:
     """``(respondedParticipantCount, anonymousRespondedParticipantCount)``.
 

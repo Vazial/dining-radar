@@ -505,10 +505,24 @@
 #   （決定6、人間裁定「候補日の並びを日付順へ」）: `goingCount`降順・`startAt`昇順タイブレーク
 #   （adr/0048）から、`startAt`昇順単独へ変える——同一会内で`startAt`は常に一意（重複防止）なので
 #   タイブレークは要らない。
+#
+# 2026-09-17 追補14 (architect、ADR-0061。実機フィードバック第2便・束C（参加者を呼ぶ・答える、
+# 2026-09-17人間裁定）。version 0.16.0 -> 0.17.0):
+# - **`ParticipantScheduleQuestion`へ`respondents`（新規スキーマ`ScheduleRespondent`の配列）を
+#   追加した**（決定2、人間裁定「他の参加者の名前と答えを並べる」）: 候補日ごとに、回答済みの
+#   参加者リンク1件につき1エントリ（このビューアー自身を含む）を、名前（自己申告、名無しを含む）
+#   と回答つきで返す。`tally`と同じ「本人の回答の有無によらず常に見える」可視性（adr/0050決定2）
+#   の下にあり、`ParticipantLinkSummary.scheduleResponses`（ADR-0056決定1）が幹事に対して既に
+#   開いている同じデータの、参加者どうし向けの鏡像である。参加者リンクのID・トークンはいずれも
+#   露出しない。
+# - **本ADRの決定1（回答リンクの発行の2段階化）・決定3（日程回答の1日ずつフロー、
+#   answerLater/peekResultsの全廃）・決定5（確定後の店の情報を消す）は、いずれもこのAPIファイル
+#   自体のスキーマ・エンドポイントを変更しない**（決定1・3・5はブラウザ契約側の観測面・操作の
+#   組み替えにとどまる）——本ファイルの変更は決定2の`respondents`追加のみである。
 openapi: 3.0.3
 info:
   title: Dining Radar Gathering Scheduling API
-  version: 0.16.0
+  version: 0.17.0
   description: >-
     Lets an authenticated organizer list their gatherings, create a gathering
     with candidate dates, add further candidate dates in a batch while
@@ -2852,7 +2866,7 @@ components:
             refresh without a second request.
     ParticipantScheduleQuestion:
       type: object
-      required: [candidateDateId, startAt, yourResponse, tally]
+      required: [candidateDateId, startAt, yourResponse, tally, respondents]
       additionalProperties: false
       description: >-
         This schema previously also carried `openShopCount` ("この日に開いて
@@ -2902,6 +2916,66 @@ components:
             human explicitly chose to let participants coordinate on how
             others are answering instead. Mirrors the organizer-facing
             CandidateDate counts for this same candidate date.
+        respondents:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScheduleRespondent'
+          description: >-
+            Added 2026-09-17 (ADR-0061 decision 2, human decision: 束C
+            レイアウト案F2「空いた所にだれが何と答えたかを名前つきで並べる」).
+            One entry per participant link whose response to this candidate
+            date is non-null, including this viewer's own entry if this
+            viewer has answered -- i.e. exactly
+            `tally.goingCount + tally.maybeCount + tally.notGoingCount`
+            entries. Always present as an array (possibly empty) regardless
+            of whether `yourResponse` above is null for this same candidate
+            date -- the same "always visible regardless of this viewer's
+            own answer" gating `tally` above already carries (adr/0050
+            decision 2), extended here from counts to per-participant
+            identity on the participant-facing side for the first time.
+            This is the peer-facing mirror of what `ParticipantLinkSummary.
+            scheduleResponses` already gives the organizer (ADR-0056
+            decision 1, 誰が・どの候補日に・何と答えたか) -- a second, later
+            widening of the same visibility boundary ADR-0050 decision 2
+            opened between participants themselves (ADR-0061 decision 2).
+            This contract does not fix the array's order -- a test
+            correlates an entry by its own displayName/response values, the
+            same "no fixed order, correlate by attribute" convention
+            ParticipantLinkSummary.scheduleResponses above already
+            establishes for its own array.
+    ScheduleRespondent:
+      type: object
+      required: [displayName, response]
+      additionalProperties: false
+      description: >-
+        Added 2026-09-17 (ADR-0061 decision 2). One participant's own
+        response to one candidate date, as shown to every other participant
+        holding a valid signed link for the same gathering -- this schema
+        only ever appears inside ParticipantScheduleQuestion.respondents,
+        itself only reachable via getParticipantView.
+      properties:
+        displayName:
+          type: string
+          nullable: true
+          description: >-
+            Null exactly when this respondent has not self-reported a name
+            (same "名無し" meaning as ParticipantLinkSummary.displayName).
+            This schema exposes no identifier for this respondent beyond
+            this name -- not this participant's linkId, not their token
+            (architect design judgment, ADR-0061 decision 2, the same
+            minimum-disclosure reasoning ParticipantShopVoteOption.
+            addedAfterVotingStarted's own description already applies to a
+            signed-link participant).
+        response:
+          $ref: '#/components/schemas/ScheduleResponseStatus'
+          description: >-
+            Never null -- this entry exists only for a participant whose
+            response to this candidate date is non-null (an unanswered
+            participant simply has no entry in
+            ParticipantScheduleQuestion.respondents, the same
+            "absence means unanswered" convention
+            ParticipantLinkSummary.scheduleResponses above already
+            establishes).
     ParticipantShopVoteOption:
       type: object
       required:
