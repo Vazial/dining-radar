@@ -1420,20 +1420,21 @@
   padding: 0;
   overflow: hidden;
 }
-.gth-shop-stage {
-  position: relative;
-  min-height: 26rem;
-  height: 32rem;
-}
-/* Board's own FINALIZED frame (real-machine finding): the map fills from
-   right below the heading to the viewport bottom, not a fixed height --
-   own class so SELECTING_SHOP's gth-shop-stage above is unaffected. */
+/* Board's own frame (real-machine finding, extended 2026-09-19 to
+   SELECTING_SHOP's own gth-shop-stage per board S4 comparison: 画面の下の
+   帯が画面の真ん中あたりにあり、その下にまだ地図が続いている -- a fixed
+   height left a growing strip of empty map below gth-bottom-bar instead of
+   reaching the viewport bottom): the map fills from right below the
+   heading to the viewport bottom, not a fixed height. Both stages share
+   this one rule so they cannot drift apart again. */
+.gth-shop-stage,
 .gth-decision-stage {
   position: relative;
   min-height: 26rem;
   height: calc(100vh - 18rem);
 }
 @media (max-width: 47.9375rem) {
+  .gth-shop-stage,
   .gth-decision-stage {
     height: calc(100vh - 16rem);
   }
@@ -1520,6 +1521,7 @@
 }
 .gth-shop-select-tab {
   min-height: 2.75rem;
+  min-width: 2.75rem;
   padding: 0 0.75rem;
   border: 0;
   border-radius: 0.5rem;
@@ -1546,10 +1548,41 @@
   outline: 2px solid #14614a;
   outline-offset: 2px;
 }
+/* Board S4-SpSelect draws all 4 tabs on one line even at phone width --
+   real-render finding: the desktop-tuned gap/padding/font-size above wrap
+   the 4th tab ("リンク N本") onto its own second line at 390px. Tightened
+   here (mobile only; PC keeps the wider spacing above) rather than
+   shortening any tab's own label text, since board S4-PcSelect's "回答
+   7/9人" wording is this file's own normative reference and this contract
+   does not fork tab *shape* by viewport (decision 3's own no-renderModes
+   note) -- narrower spacing is geometry, not a second shape. */
+@media (max-width: 47.9375rem) {
+  .gth-shop-select-tabs {
+    gap: 0.25rem 0.375rem;
+    padding: 0.625rem 0.5rem 0.5rem;
+  }
+  .gth-shop-select-tab {
+    padding: 0 0.4rem;
+    font-size: 0.75rem;
+  }
+}
 .gth-shop-select-pane {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+/* participantLinkCopy (ADR-0063 decision 3's own scope note: this control
+   is not one of the 4 tab-gated targets) -- kept unconditionally visible
+   below the tab strip, on every tab, not just linksTab (tester finding,
+   TDR-GTH-36). */
+.gth-shop-panel-link-copy {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.5rem 0.75rem 0;
+  flex-shrink: 0;
+}
+.gth-pane > .gth-shop-panel-link-copy {
+  padding: 0;
 }
 /* Board D2 (ADR-0062 decision 2): the bottom-of-screen action bar every
    confirm-selection flow on this pane shares -- geometry only, the
@@ -1607,9 +1640,18 @@
        now-elevated gth-bottom-bar (both comments above). */
     bottom: 7.75rem;
     width: auto;
-    /* Board's own mobile frame (party2/d2/D1-a-SpShops) leaves the map's
-       upper half visible above this sheet, not just a sliver. */
-    max-height: 50%;
+    /* **Changed 2026-09-19 (board S4-SpSelect comparison, coordinator
+       finding)**: board S4's own sheet is 64% of its map area's height
+       (that board's own literal `height: 64%` on the sheet layer), not
+       50% -- 50% left only one shop row visible, cut off top and bottom,
+       instead of board's own "a full row plus the next one peeking".
+       This pane's own participantLinkCopy row (unconditionally present
+       per contract, absent from board's own drawing, see the rule below)
+       also competes for this same budget, so this round's own
+       real-render-checked value (70%) runs higher than board's own 64% --
+       ADR-0063 未決事項3 leaves this file's exact measurements to later
+       confirmation. */
+    max-height: 70%;
     border-radius: 1.125rem 1.125rem 0 0;
     padding-top: 0.625rem;
   }

@@ -2870,6 +2870,37 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
         expect(by_test_id(self.page, "gathering-participant-link-list")).to_be_hidden()
 
+    def test_gathering_dashboard_participant_link_copy_is_unconditional_on_shop_select_tab(
+        self,
+    ) -> None:
+        """ADR-0063 decision 3's own scope note names exactly 4 tab-gated
+        targets (shopSelectionEntry/shortlistedShopVotes.list,
+        candidateDateList, responseTable, participantLinkList) --
+        participantLinkCopy is deliberately not one of them, so its own
+        presenceRule ("Present while phase is SCHEDULING or
+        SELECTING_SHOP") must hold regardless of which tab is currently
+        selected (tester finding, TDR-GTH-36: it must be reachable from
+        the default shopTab, not only from linksTab)."""
+        self._sign_in_as_organizer()
+        self._create_gathering_via_ui("回答リンク発行ボタンの確認会")
+        by_test_id(self.page, "gathering-candidate-date").click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        expect(by_test_id(self.page, "gathering-dashboard-confirmed-date")).to_be_visible()
+
+        shop_tab = by_test_id(self.page, "gathering-shop-select-tab-shop")
+        expect(shop_tab).to_have_attribute("aria-selected", "true")
+        copy_control = by_test_id(self.page, "gathering-participant-link-copy")
+        expect(copy_control).to_be_visible()
+        self._assert_tabbable(copy_control, "gathering-participant-link-copy")
+
+        for tab_test_id in (
+            "gathering-shop-select-tab-schedule",
+            "gathering-shop-select-tab-answers",
+            "gathering-shop-select-tab-links",
+        ):
+            by_test_id(self.page, tab_test_id).click()
+            expect(copy_control).to_be_visible()
+
     def test_gathering_dashboard_selected_shop_row_pins_without_reordering_the_list(
         self,
     ) -> None:

@@ -1840,7 +1840,14 @@
     // (possibly taller) panel's real, laid-out size, the same panel-aware
     // technique initializeOrganizerDecisionMap below already established
     // for FINALIZED's own gth-decision-panel.
-    var fitOptions = { padding: [24, 24] };
+    // maxZoom: 16 (coordinator finding, board comparison): without a cap,
+    // a tight or near-collinear set of points (this file cannot tell
+    // whether that is a real, closely-clustered shortlist or a synthetic
+    // population's own coordinate model until it looks) fits to a very
+    // high zoom, reading as pins "寄りすぎ" -- the same cap
+    // initializeOrganizerDecisionMap below already applies for exactly
+    // this reason.
+    var fitOptions = { padding: [24, 24], maxZoom: 16 };
     if (panel) {
       var panelRect = panel.getBoundingClientRect();
       var containerRect = container.getBoundingClientRect();
@@ -1848,11 +1855,13 @@
         fitOptions = {
           paddingTopLeft: [Math.max(24, panelRect.right - containerRect.left + 16), 24],
           paddingBottomRight: [24, 24],
+          maxZoom: 16,
         };
       } else {
         fitOptions = {
           paddingTopLeft: [24, 24],
           paddingBottomRight: [24, Math.max(24, containerRect.bottom - panelRect.top + 16)],
+          maxZoom: 16,
         };
       }
     }
@@ -1972,7 +1981,17 @@
       return renderResponseTable(candidateDateLeaders);
     }
     if (state.shopSelectTab === "links") {
-      return renderParticipantLinkPane();
+      // participantLinkCopy is NOT one of this panel's 4 tab-gated targets
+      // (ADR-0063 decision 3 names exactly shopSelectionEntry/
+      // shortlistedShopVotes.list, candidateDateList, responseTable, and
+      // participantLinkList -- participantLinkCopy is deliberately absent
+      // from that list) -- only the list itself is this tab's own content;
+      // the copy control is rendered unconditionally elsewhere (tester
+      // finding, TDR-GTH-36).
+      return el("div", { class: "gth-pane" }, [
+        el("div", { class: "gth-pane-head" }, ["発行済みリンク"]),
+        renderParticipantLinkList(),
+      ]);
     }
     // "shop" (default, board S4: 既定は「店」).
     if (shops.length === 0) {
@@ -2022,6 +2041,15 @@
       candidateDateList,
       candidateDateLeaders
     );
+    // participantLinkCopy.presenceRule ("Present while phase is SCHEDULING
+    // or SELECTING_SHOP") is unconditional on this panel's own tab state --
+    // rendered once here, outside renderShopSelectTabContent, so it stays
+    // in the DOM regardless of which tab is currently selected (tester
+    // finding, TDR-GTH-36: it must be reachable even while shopTab, the
+    // default, is showing).
+    var persistentLinkCopy = el("div", { class: "gth-shop-panel-link-copy" }, [
+      renderParticipantLinkCopy(),
+    ]);
 
     if (!votingStarted) {
       // No shop ever shortlisted yet -- no map to float over (this
@@ -2029,7 +2057,7 @@
       // shortlistedShopVotes.list's own presenceRule, unaffected by this
       // decision). Plain, non-floating pane; shopTab's own content above
       // is just shopSelectionEntry.open ("開いている店から選ぶ").
-      return el("div", { class: "gth-pane" }, [tabStrip, content]);
+      return el("div", { class: "gth-pane" }, [tabStrip, persistentLinkCopy, content]);
     }
 
     var mapContainer = el(
@@ -2039,6 +2067,7 @@
     );
     var panel = el("div", { class: "gth-shop-panel" }, [
       tabStrip,
+      persistentLinkCopy,
       el("div", { class: "gth-shop-panel-body" }, [content]),
     ]);
     pendingShortlistedShopMap = { container: mapContainer, shops: shops, leaders: leaders, panel: panel };
