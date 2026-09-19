@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, timedelta
 from itertools import product
@@ -116,6 +117,50 @@ FILTER_APPLY = "candidate-filter-apply"
 FILTER_REVERT = "candidate-filter-revert"
 FILTER_PENDING_NOTE = "candidate-filter-pending-note"
 SEARCH_AGAIN = "candidate-search-again"
+# searchAgainControl (adr/0064 決定1): Locator.inner_text() alone cannot
+# prove a *visible* label -- it does not filter out an accessible-only
+# mirror of the label kept in the DOM but visually shrunk to near-zero size
+# (the common "sr-only" clip technique), nor does it distinguish a lone icon
+# glyph (a Unicode Symbol, not a Letter) from real label text. This walks
+# every text node under the control and keeps only the ones whose full
+# ancestor chain (up to and including the control itself) is neither
+# display:none/visibility:hidden nor rendered at a bounding size at or below
+# _HIDDEN_TEXT_MAX_SIZE_PX in either dimension -- see
+# assert_search_again_control_has_a_non_empty_visible_label's own docstring
+# for the reviewer-reported fault this fixes.
+_HIDDEN_TEXT_MAX_SIZE_PX = 2
+_VISIBLE_TEXT_NODES_JS = """(control, maxHiddenSizePx) => {
+  const isStyleHidden = (el) => {
+    const style = getComputedStyle(el);
+    return style.display === "none" || style.visibility === "hidden";
+  };
+  const isRectTooSmall = (el) => {
+    const rect = el.getBoundingClientRect();
+    return rect.width <= maxHiddenSizePx || rect.height <= maxHiddenSizePx;
+  };
+  const walker = document.createTreeWalker(control, NodeFilter.SHOW_TEXT);
+  let visibleText = "";
+  let node = walker.nextNode();
+  while (node) {
+    if (node.textContent && node.textContent.trim()) {
+      let hidden = false;
+      let el = node.parentElement;
+      while (el) {
+        if (isStyleHidden(el) || isRectTooSmall(el)) {
+          hidden = true;
+          break;
+        }
+        if (el === control) break;
+        el = el.parentElement;
+      }
+      if (!hidden) {
+        visibleText += node.textContent;
+      }
+    }
+    node = walker.nextNode();
+  }
+  return visibleText;
+}"""
 IZAKAYA_BAR_FALLBACK_NOTICE = "candidate-izakaya-bar-fallback-notice"
 BUDGET_TIER_NOTE = "candidate-budget-tier-note"
 NO_RESULTS = "candidate-no-results"
@@ -2894,16 +2939,36 @@ class CandidateSearchBrowserDsl:
         candidate-search-again's visible label text is a Must whenever the
         control is present, under twoColumnLayout as much as under
         mapPrimaryTouchLayout -- a bare icon-only shape (no accompanying
-        text) is no longer permitted, mirroring gatheringEntry.entry's own
-        visible-label-is-a-Must style elsewhere in this contract. The exact
-        wording is an implementation choice this contract does not fix, so
-        this only asserts non-empty text, not any particular phrase.
+        visible text) is no longer permitted, mirroring gatheringEntry.
+        entry's own visible-label-is-a-Must style elsewhere in this
+        contract. The exact wording is an implementation choice this
+        contract does not fix, so this only requires at least one Unicode
+        letter among the control's actually rendered text.
+
+        **Fixed (reviewer-reported gap, 2026-09-19)**: an earlier version of
+        this check read Locator.inner_text(), which does not filter out (a)
+        a non-letter icon glyph character (e.g. "↻") or (b) accessible-only
+        text kept in the DOM but visually shrunk to near-zero size (the
+        common "sr-only" clip technique) -- a reported fault injection
+        (CSS-hiding only the visible label text, at one viewport only)
+        still passed under the old check because one or both of those
+        remained in innerText. This instead walks every text node inside
+        the control and keeps only the ones whose full ancestor chain (up
+        to and including the control itself) is neither
+        display:none/visibility:hidden nor rendered at a bounding size at
+        or below _HIDDEN_TEXT_MAX_SIZE_PX in either dimension (see
+        _VISIBLE_TEXT_NODES_JS below), then requires at least one Unicode
+        Letter character among what survives -- a lone symbol glyph has no
+        Letter category, so it alone can no longer satisfy this Must.
         """
         control = assert_present(self.assertions, self.page, SEARCH_AGAIN)
+        visible_text = control.evaluate(_VISIBLE_TEXT_NODES_JS, _HIDDEN_TEXT_MAX_SIZE_PX)
+        has_letter = any(unicodedata.category(char).startswith("L") for char in visible_text)
         self.assertions.assertTrue(
-            control.inner_text().strip(),
-            "candidate-search-again must carry a non-empty visible label "
-            "(adr/0064 決定1: icon-only is no longer permitted)",
+            has_letter,
+            "candidate-search-again must carry at least one actually rendered "
+            "Unicode letter as its visible label (adr/0064 決定1: icon-only is "
+            f"no longer permitted); rendered text found: {visible_text!r}",
         )
 
     def assert_search_again_reused_filters_and_replaced_display(self) -> None:
