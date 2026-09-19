@@ -282,6 +282,18 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         proposal response to give its first card a long free-text value.
         The public API shape, acceptance steps, and state seam remain
         unchanged.
+
+        adr/0064 decision 2 (2026-09-19 human ruling on design board
+        party2/e1: 定休日の記載が見にくい) moved regularHoliday out of its
+        old full-width candidate-card-detail-footer row into the shared
+        dl.candidate-facts 2-column grid (cardDataAttributes.detailGroup),
+        alongside totalSeats/nonSmokingStatus/dinnerBudgetTier. This test's
+        old >=70%-card-width assertion asserted the *previous* design's own
+        premise (a nearly-full-width row) and is retired along with that
+        premise; the width band asserted below instead confirms the value
+        is now constrained to roughly one grid column (not the whole card,
+        and not collapsed to nothing) while every no-truncation/no-clip
+        assertion below is unchanged and still enforced.
         """
 
         long_regular_holiday = (
@@ -332,11 +344,22 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         self.assertEqual(measurement["textOverflow"], "clip")
         self.assertEqual(measurement["overflowX"], "visible")
         self.assertLessEqual(measurement["scrollWidth"], measurement["clientWidth"])
-        self.assertGreaterEqual(
+        # dl.candidate-facts is a 2-column grid (repeat(2, minmax(0, 1fr))),
+        # so a genuinely grid-placed value sits well under half the card's
+        # width (never approaching the old full-row's >=70%) but still well
+        # above zero (a collapsed/degenerate column, e.g. min-width:0
+        # crushing it to nothing, would fail the lower bound).
+        self.assertLess(
             measurement["width"],
-            measurement["cardWidth"] * 0.7,
-            "regular-holiday value should keep most of the card width after "
-            "the link moves below it",
+            measurement["cardWidth"] * 0.6,
+            "regular-holiday value should sit inside one facts-grid column, "
+            "not span most of the card, now that it shares detailGroup's "
+            "container with totalSeats/nonSmokingStatus/dinnerBudgetTier",
+        )
+        self.assertGreater(
+            measurement["width"],
+            measurement["cardWidth"] * 0.25,
+            "regular-holiday's own grid column must not be collapsed to a sliver",
         )
         self.assertGreater(
             measurement["height"], 32, "long text should wrap beyond two short lines"

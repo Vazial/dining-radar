@@ -197,9 +197,19 @@
        looking at are not what produced the candidates below. */
     .candidate-filter-pending { font-size: 0.75rem; color: #8a6d1f; font-weight: 650; }
     .candidate-filter-caret { color: #68766c; font-size: 0.9rem; flex: 0 0 auto; }
+    /* adr/0064 decision 1 (2026-09-19 human ruling on design board party2/e1:
+       「もう一度探す」というラベルが動作を説明していない): this shape --
+       icon + non-empty visible label, never icon-only -- now applies under
+       every renderModes width this contract names (candidate-search-
+       browser-interface.yaml's searchAgainControl Must), so no narrower
+       media query below reduces it back to a bare circular icon. gap
+       (rather than a label-only margin) spaces the icon and label so both
+       stay correct regardless of which is first in source order; the third
+       flex child (.visually-hidden) is taken out of flow by its own
+       position: absolute and is unaffected by this gap. */
     .candidate-search-again {
       flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
-      min-height: 2.75rem; padding: 0 0.9rem; border-radius: 0.5rem;
+      gap: 0.35rem; min-height: 2.75rem; padding: 0 0.9rem; border-radius: 0.5rem;
       border: 1px solid #14684a; background: #fff; color: #14684a;
       font: inherit; font-weight: 700; font-size: 0.875rem; cursor: pointer; white-space: nowrap;
     }
@@ -606,11 +616,23 @@
        grid's own column count (measured: dt 12px font at 19.2px line
        height, dd 13.6px font at 21.76px line height, both a 1.6 ratio). */
     [data-testid="candidate-card"] dl.candidate-facts dt { font-weight: 650; font-size: 0.75rem; line-height: 1.3; color: #536057; }
-    [data-testid="candidate-card"] dl.candidate-facts dd { margin: 0; font-size: 0.85rem; line-height: 1.3; }
+    /* overflow-wrap: anywhere guards regularHoliday specifically (adr/0064
+       decision 2 moved it into this grid; it is the one member of this
+       group carrying provider free text rather than a short coarse label --
+       see the long-holiday regression in tests/ui_invariants/
+       test_render_invariants.py). The default 'normal' wrapping already
+       breaks between CJK characters without this, but a run of ASCII
+       punctuation/half-width text in a provider's own free text would not
+       wrap without it. */
+    [data-testid="candidate-card"] dl.candidate-facts dd {
+      margin: 0; font-size: 0.85rem; line-height: 1.3; overflow-wrap: anywhere;
+    }
     /* Each field is a label+value pair wrapped in its own <div> (see
        fieldRow in candidate.js). adr/0019 grows this list from four fields
        to five (access is removed; capacityTier's coarse label, non-smoking
-       reference, and dinner-budget reference are added). */
+       reference, and dinner-budget reference are added). adr/0064 decision 2
+       adds a fourth member, regularHoliday, moved in from the retired
+       detail-footer fieldRow -- exactly filling this grid's 2x2 layout. */
     [data-testid="candidate-card"] dl.candidate-facts > div {
       display: flex; flex-direction: column; gap: 0.0625rem;
     }
@@ -672,12 +694,14 @@
          contributor. This is a starting value only -- "削り幅は実測で詰め
          る" (DeckFix.dc.html's own settled decision) means orchestrator
          measures the resulting on-screen map area and may tune this
-         further. The regular-holiday footer stays an independent block
-         (candidate-card-detail-footer, unedited by this rule) rather than
-         folding into the facts grid -- doing so would break the frozen
-         `tests/ui_invariants` gate requiring its value to keep >=70% of
-         the card's width without truncation (activeContext.md, 2026-08-25;
-         DeckFix.dc.html repeats this same warning). */
+         further. candidate-card-detail-footer is unedited by this rule --
+         it now carries only the provider link (regular-holiday moved out of
+         it into the facts grid below, adr/0064 decision 2, 2026-09-19 human
+         ruling "定休日の記載が見にくい"; the >=70%-card-width invariant this
+         comment used to cite for keeping regular-holiday out of the grid no
+         longer applies -- see dl.candidate-facts below and
+         tests/ui_invariants/test_render_invariants.py's own updated
+         comment). */
       [data-testid="candidate-card"] { padding: 0.625rem 0.75rem; gap: 0.4375rem; }
       [data-testid="candidate-card-description"] {
         display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden;
@@ -877,23 +901,12 @@
     .candidate-filter-summary-label {
       font-size: 0.6875rem; line-height: 1; color: #738078; font-weight: 700;
     }
+    /* adr/0064 decision 2 retired this footer's own fieldRow (regular-
+       holiday) -- it now carries only the provider link (candidate.js).
+       margin-top: auto (>=64rem, below) still pins that link to the card's
+       bottom edge regardless of the facts grid's own height. */
     .candidate-card-detail-footer {
-      display: flex; flex-direction: column; align-items: stretch; gap: 0.35rem;
-    }
-    .candidate-card-detail-footer .candidate-fact-row {
-      display: flex; align-items: baseline; min-width: 0; gap: 0.3rem;
-    }
-    .candidate-card-detail-footer dt { flex: 0 0 auto; color: #68766c; font-size: 0.75rem; font-weight: 650; line-height: 1.3; }
-    .candidate-card-detail-footer dd {
-      margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-      color: #29342e; font-size: 0.8125rem; line-height: 1.3;
-    }
-    .candidate-card-detail-footer .candidate-fact-row--candidate-card-regular-holiday {
-      width: 100%;
-    }
-    .candidate-card-detail-footer .candidate-fact-row--candidate-card-regular-holiday dd {
-      overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere;
-      line-height: 1.35;
+      display: flex; flex-direction: column; align-items: stretch;
     }
 
     @media (max-width: 63.999rem) {
@@ -930,11 +943,12 @@
         width: 0.45rem; height: 0.45rem; overflow: hidden; color: transparent;
         flex: 0 0 0.45rem; border-radius: 50%; background: #b77b18;
       }
-      .candidate-search-again {
-        box-sizing: border-box; width: 2.75rem; min-height: 2.75rem; padding: 0;
-        border: 0; border-radius: 50%;
-      }
-      .candidate-search-again-label { display: none; }
+      /* adr/0064 decision 1 retired the bare-circular-icon shape this width
+         used to force (box-sizing/width/padding/border-radius overrides
+         removed here) and the .candidate-search-again-label { display:
+         none; } rule that went with it -- the base rule above (icon +
+         visible label, gap-separated) now applies unchanged at this width
+         too, matching E1-a-SpCandidates.dc.html's board. */
       .candidate-filter-panel {
         position: absolute; top: calc(100% + 0.4rem); left: 0; right: 0; z-index: 8;
         padding: 0 0 0.45rem; gap: 0; border: 1px solid #cddccf; border-radius: 0 0 0.75rem 0.75rem;
@@ -1277,7 +1291,10 @@
       .candidate-budget-tier-note { grid-column: 1 / -1; }
       .candidate-filter-actions { padding-top: 0.2rem; border-top: 1px solid #eceee9; }
       .candidate-budget-tier-note { margin-top: -0.15rem; }
-      .candidate-search-again-label { display: inline; margin-left: 0.35rem; }
+      /* candidate-search-again-label's own visibility/spacing is the base
+         rule's job now (gap on .candidate-search-again, above) -- adr/0064
+         decision 1 removed the display:none/margin-left split this width
+         used to need when narrower widths hid the label outright. */
     }
 
   </style>

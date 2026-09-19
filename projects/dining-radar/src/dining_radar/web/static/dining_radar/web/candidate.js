@@ -700,6 +700,17 @@
         "夜予算"
       )
     );
+    // adr/0064 decision 2 (2026-09-19 human ruling on design board party2/e1:
+    // 定休日の記載が見にくい): regularHoliday moves out of the trailing
+    // candidate-card-detail-footer row it used to share with the provider
+    // link, into this same shared dl.candidate-facts container as
+    // totalSeats/nonSmokingStatus/dinnerBudgetTier -- cardDataAttributes.
+    // detailGroup (candidate-search-browser-interface.yaml) now requires all
+    // four to share one DOM container distinct from every other
+    // requiredFields entry's own container. fieldRow's own value/label/raw-
+    // value behavior is unchanged (no rawValueAttribute here, same as
+    // before the move) -- only the container this call appends into moves.
+    facts.appendChild(fieldRow("定休日", "candidate-card-regular-holiday", candidate.regularHoliday));
     card.appendChild(facts);
 
     // adr/0019 decision 5 (unchanged): present only when cardPaymentAvailable
@@ -745,12 +756,10 @@
     link.addEventListener("click", function (event) {
       event.stopPropagation();
     });
-    card.appendChild(
-      el("div", { "class": "candidate-card-detail-footer" }, [
-        fieldRow("定休日", "candidate-card-regular-holiday", candidate.regularHoliday),
-        link,
-      ])
-    );
+    // adr/0064 decision 2: regularHoliday's own fieldRow moved into the
+    // dl.candidate-facts grid above (see the facts.appendChild call there);
+    // this footer now carries only the provider link.
+    card.appendChild(el("div", { "class": "candidate-card-detail-footer" }, [link]));
 
     // adr/0049 decision 1: gatheringMode.cardToggle -- present on every
     // candidate-card exactly when response.gatheringContext is non-null.
@@ -2208,8 +2217,8 @@
       },
       [
         el("span", { "class": "candidate-search-again-icon", "aria-hidden": "true" }, ["↻"]),
-        el("span", { "class": "candidate-search-again-label", "aria-hidden": "true" }, ["もう一度探す"]),
-        el("span", { "class": "visually-hidden" }, ["もう一度探す"]),
+        el("span", { "class": "candidate-search-again-label", "aria-hidden": "true" }, ["別の候補を出す"]),
+        el("span", { "class": "visually-hidden" }, ["別の候補を出す"]),
       ]
     );
     searchAgain.addEventListener("click", function () {
