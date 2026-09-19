@@ -1731,6 +1731,67 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         self.assertEqual(put_response.status, 200, put_response.text())
         return shop_id
 
+    def _seed_two_shortlisted_shops_with_a_clear_leader(self, gathering_id: str) -> tuple[str, str]:
+        """Shortlists two real, synthetic shops and casts exactly one
+        WANT_TO_GO vote for the first only, so it -- and only it -- carries
+        data-current-leader="true" (ADR-0055 decision 6's 0-response-
+        excluded rule leaves the second, unvoted shop "false"). Returns
+        (leaderShopId, otherShopId) in shortlistedShopVotes.list.
+        orderingInvariant's own order (votes descending) -- the leader
+        sorts first.
+
+        Same out-of-scope reasoning as ``_seed_one_shortlisted_shop`` above
+        for shop selection (candidate-search-browser-interface.yaml's own
+        gatheringMode); the vote itself (``setShopVotes``) is likewise
+        driven directly through its own public API operation rather than
+        participant.js's real UI, since actually opening and answering
+        through participantAnswer for this purpose alone would pull a
+        second, unrelated screen into a check this file's docstring scopes
+        to the 4 organizer/participant dashboard screens' own render
+        invariants, not participantAnswer's vote flow itself (already
+        covered elsewhere in this file). ``self.page`` must already be on
+        an organizer-authenticated page (same precondition as
+        ``_seed_one_shortlisted_shop``).
+        """
+        self.dsl.reset_candidate_state()
+        self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING")
+        csrf = csrf_token(self.page)
+        propose_response = self.context.request.post(
+            f"{self.base_url}/candidate-proposals",
+            data={"gatheringId": gathering_id},
+            headers={"X-CSRFToken": csrf},
+        )
+        self.assertEqual(propose_response.status, 200, propose_response.text())
+        candidates = propose_response.json()["candidates"]
+        self.assertGreaterEqual(
+            len(candidates), 2, "need at least 2 synthetic candidates to shortlist"
+        )
+        leader_shop_id = candidates[0]["shopId"]
+        other_shop_id = candidates[1]["shopId"]
+        put_response = self.context.request.put(
+            f"{self.dsl.base_url}/gatherings/{gathering_id}/shortlisted-shops",
+            data={"shopIds": [leader_shop_id, other_shop_id]},
+            headers={"X-CSRFToken": csrf},
+        )
+        self.assertEqual(put_response.status, 200, put_response.text())
+
+        issue_response = self.context.request.post(
+            f"{self.dsl.base_url}/gatherings/{gathering_id}/participant-links",
+            data={"count": 1},
+            headers={"X-CSRFToken": csrf},
+        )
+        self.assertEqual(issue_response.status, 201, issue_response.text())
+        participant_token = issue_response.json()["issuedLinks"][0]["token"]
+        # setShopVotes is participant-token-authenticated, not session-based
+        # (participant.js itself never sends a CSRF header for it) -- no
+        # header needed here either.
+        vote_response = self.context.request.put(
+            f"{self.dsl.base_url}/participant-links/{participant_token}/shop-votes",
+            data={"votes": [{"shopId": leader_shop_id, "status": "WANT_TO_GO"}]},
+        )
+        self.assertEqual(vote_response.status, 200, vote_response.text())
+        return leader_shop_id, other_shop_id
+
     # --- shared assertion helpers (mirrors RenderedScreenInvariantTests'
     # own (c)/(e) helpers above, generalized to
     # data-gathering-control-purpose / GATHERING_* constants) ---------------
@@ -2225,10 +2286,21 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         confirm = by_test_id(self.page, "gathering-confirm-date-select")
         self._assert_tabbable(confirm, "gathering-confirm-date-select")
         confirm.press("Enter")
-        expect(by_test_id(self.page, "gathering-phase-indicator")).to_have_attribute(
-            "data-gathering-phase", "SELECTING_SHOP"
-        )
+        # ADR-0063 decision 1 (2026-09-19): gathering-phase-indicator itself
+        # becomes absent while phase is SELECTING_SHOP -- headingBar's own
+        # gathering-dashboard-confirmed-date (present exactly under the same
+        # condition) is this file's own substitute "we reached SELECTING_
+        # SHOP" signal from here on (the same substitution this ADR's own
+        # 未決事項1 names).
+        expect(by_test_id(self.page, "gathering-dashboard-confirmed-date")).to_be_visible()
 
+        # ADR-0063 decision 3: participantLinkCopy now lives behind
+        # shopSelectionPanel's own linksTab -- opened here before
+        # interacting with it (closed-tab content is not visible until its
+        # own tab is activated, by design, mirroring this file's own
+        # existing open-before-measuring discipline for FINALIZED's
+        # linksOpen).
+        by_test_id(self.page, "gathering-shop-select-tab-links").click()
         copy_control = by_test_id(self.page, "gathering-participant-link-copy")
         self._assert_tabbable(copy_control, "gathering-participant-link-copy")
         copy_control.press("Enter")
@@ -2241,12 +2313,14 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         by_test_id(self.page, "gathering-participant-link-issue-dialog-close").press("Enter")
         expect(dialog).to_have_count(0)
 
-        # shopSelectionEntry.open: only tabbability/activation is asserted
+        # shopSelectionEntry.open now lives behind shopTab -- switch back
+        # before reaching for it. Only tabbability/activation is asserted
         # here. Its requiredOutcome navigates to
         # candidate-search-browser-interface.yaml's own gatheringMode screen
         # -- a screen outside this file's four-screen scope (class
         # docstring) -- so this file does not follow it there or assert its
         # contents.
+        by_test_id(self.page, "gathering-shop-select-tab-shop").click()
         shortlist_open = by_test_id(self.page, "gathering-shortlist-open")
         self._assert_tabbable(shortlist_open, "gathering-shortlist-open")
         url_before = self.page.url
@@ -2339,9 +2413,12 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         confirmed_dates = self.page.locator('[data-testid="gathering-candidate-date"]')
         confirmed_dates.first.click()
         by_test_id(self.page, "gathering-confirm-date-select").click()
-        expect(by_test_id(self.page, "gathering-phase-indicator")).to_have_attribute(
-            "data-gathering-phase", "SELECTING_SHOP"
-        )
+        # ADR-0063 decision 1: see this file's own
+        # test_b_gathering_dashboard_core_controls_are_keyboard_operable
+        # for why gathering-dashboard-confirmed-date replaces
+        # gathering-phase-indicator as the "reached SELECTING_SHOP" signal
+        # from here on.
+        expect(by_test_id(self.page, "gathering-dashboard-confirmed-date")).to_be_visible()
         expect(
             self.page.locator(
                 '[data-testid="gathering-candidate-date"][data-confirmed="true"] '
@@ -2373,9 +2450,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         gathering_id = self._create_gathering_via_ui("確定フローの確認会")
         by_test_id(self.page, "gathering-candidate-date").click()
         by_test_id(self.page, "gathering-confirm-date-select").click()
-        expect(by_test_id(self.page, "gathering-phase-indicator")).to_have_attribute(
-            "data-gathering-phase", "SELECTING_SHOP"
-        )
+        expect(by_test_id(self.page, "gathering-dashboard-confirmed-date")).to_be_visible()
         shop_id = self._seed_one_shortlisted_shop(gathering_id)
         self.page.reload()
         expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
@@ -2516,6 +2591,11 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         gathering_id = self._create_gathering_via_ui("確定後キーボード確認会")
         by_test_id(self.page, "gathering-candidate-date").click()
         by_test_id(self.page, "gathering-confirm-date-select").click()
+        # ADR-0063 decision 3: participantLinkCopy now lives behind
+        # shopSelectionPanel's own linksTab while SELECTING_SHOP (opened
+        # here before interacting with it, same discipline as this file's
+        # own FINALIZED-phase linksOpen below).
+        by_test_id(self.page, "gathering-shop-select-tab-links").click()
         by_test_id(self.page, "gathering-participant-link-copy").click()
         self._seed_one_shortlisted_shop(gathering_id)
         self.page.reload()
@@ -2561,6 +2641,10 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
             gathering_id = self._create_gathering_via_ui(f"確定後サイズ確認会{label}")
             by_test_id(self.page, "gathering-candidate-date").click()
             by_test_id(self.page, "gathering-confirm-date-select").click()
+            # ADR-0063 decision 3: see this file's own
+            # test_b_gathering_dashboard_finalized_decision_screen_recopy_
+            # remains_keyboard_operable for why linksTab is opened first.
+            by_test_id(self.page, "gathering-shop-select-tab-links").click()
             by_test_id(self.page, "gathering-participant-link-copy").click()
             self._seed_one_shortlisted_shop(gathering_id)
             self.page.reload()
@@ -2635,14 +2719,18 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
 
         by_test_id(self.page, "gathering-candidate-date").first.click()
         by_test_id(self.page, "gathering-confirm-date-select").click()
-        expect(by_test_id(self.page, "gathering-phase-indicator")).to_have_attribute(
-            "data-gathering-phase", "SELECTING_SHOP"
-        )
+        expect(by_test_id(self.page, "gathering-dashboard-confirmed-date")).to_be_visible()
+        # ADR-0063 decision 3: candidateDateList/responseTable now live
+        # behind shopSelectionPanel's own scheduleTab/answersTab while
+        # SELECTING_SHOP -- each opened here in turn before its own content
+        # is checked.
+        by_test_id(self.page, "gathering-shop-select-tab-schedule").click()
         expect(
             self.page.locator(
                 '[data-testid="gathering-candidate-date"][data-current-leader="true"]'
             )
         ).to_have_count(1)
+        by_test_id(self.page, "gathering-shop-select-tab-answers").click()
         expect(by_test_id(self.page, "gathering-response-table-leader-summary")).to_have_count(0)
 
     def test_gathering_dashboard_response_table_reflects_one_row_per_participant_link(
@@ -2667,6 +2755,209 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         table = by_test_id(self.page, "gathering-response-table")
         expect(table).to_be_visible()
         expect(self.page.locator('[data-testid="gathering-response-table-row"]')).to_have_count(2)
+
+    def test_gathering_dashboard_heading_bar_replaces_phase_indicator_only_while_selecting_shop(
+        self,
+    ) -> None:
+        """ADR-0063 decisions 1-2 (2026-09-19, board S4): a full round trip
+        (SCHEDULING -> SELECTING_SHOP -> FINALIZED) confirming headingBar
+        (gathering-dashboard-title/-confirmed-date) and phaseIndicator
+        (gathering-phase-indicator) are mutually exclusive across exactly
+        the one phase decision 1 carves out -- both present together would
+        be a regression of the "replaces the badge for this one phase"
+        design, and headingBar surviving into FINALIZED would duplicate
+        finalizedSummary.decisionBanner's own heading role.
+        """
+        self._sign_in_as_organizer()
+        title = "見出し切り替えの確認会"
+        gathering_id = self._create_gathering_via_ui(title)
+
+        # SCHEDULING: phaseIndicator present, headingBar absent.
+        expect(by_test_id(self.page, "gathering-phase-indicator")).to_have_attribute(
+            "data-gathering-phase", "SCHEDULING"
+        )
+        expect(by_test_id(self.page, "gathering-dashboard-title")).to_have_count(0)
+        expect(by_test_id(self.page, "gathering-dashboard-confirmed-date")).to_have_count(0)
+
+        by_test_id(self.page, "gathering-candidate-date").click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+
+        # SELECTING_SHOP: headingBar present with the real title/date,
+        # phaseIndicator absent.
+        expect(by_test_id(self.page, "gathering-phase-indicator")).to_have_count(0)
+        heading_title = by_test_id(self.page, "gathering-dashboard-title")
+        expect(heading_title).to_be_visible()
+        self.assertEqual(heading_title.get_attribute("data-gathering-title"), title)
+        gathering_response = self.context.request.get(
+            f"{self.dsl.base_url}/gatherings/{gathering_id}"
+        )
+        self.assertEqual(gathering_response.status, 200, gathering_response.text())
+        confirmed_date_iso = gathering_response.json()["candidateDates"][0]["startAt"]
+        heading_date = by_test_id(self.page, "gathering-dashboard-confirmed-date")
+        expect(heading_date).to_be_visible()
+        self.assertEqual(
+            heading_date.get_attribute("data-confirmed-candidate-date"), confirmed_date_iso
+        )
+
+        self._seed_one_shortlisted_shop(gathering_id)
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+        by_test_id(self.page, "gathering-finalize-shop-select").click()
+        by_test_id(self.page, "gathering-finalize-open").click()
+        by_test_id(self.page, "gathering-finalize-confirm").click()
+
+        # FINALIZED: phaseIndicator returns, headingBar is gone again.
+        expect(by_test_id(self.page, "gathering-phase-indicator")).to_have_attribute(
+            "data-gathering-phase", "FINALIZED"
+        )
+        expect(by_test_id(self.page, "gathering-dashboard-title")).to_have_count(0)
+        expect(by_test_id(self.page, "gathering-dashboard-confirmed-date")).to_have_count(0)
+
+    def test_b_gathering_dashboard_shop_select_tabs_are_keyboard_operable_and_toggle_content(
+        self,
+    ) -> None:
+        """ADR-0063 decision 3 (2026-09-19, board S4): the 4-tab strip
+        (shopTab default-selected) -- each tab is keyboard-reachable, only
+        one carries aria-selected="true" at a time, and activating one
+        makes its own target's content visible while the others' own
+        content is not (candidateDateList/responseTable/participantLinkList
+        each keep their own presenceRule -- only whether this panel
+        currently discloses them changes)."""
+        self._sign_in_as_organizer()
+        gathering_id = self._create_gathering_via_ui("タブ切り替えの確認会")
+        by_test_id(self.page, "gathering-candidate-date").click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        self._seed_one_shortlisted_shop(gathering_id)
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+
+        shop_tab = by_test_id(self.page, "gathering-shop-select-tab-shop")
+        schedule_tab = by_test_id(self.page, "gathering-shop-select-tab-schedule")
+        answers_tab = by_test_id(self.page, "gathering-shop-select-tab-answers")
+        links_tab = by_test_id(self.page, "gathering-shop-select-tab-links")
+
+        # Default selection (board S4: 既定は「店」).
+        expect(shop_tab).to_have_attribute("aria-selected", "true")
+        expect(schedule_tab).to_have_attribute("aria-selected", "false")
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+        expect(by_test_id(self.page, "gathering-candidate-date-list")).to_be_hidden()
+
+        self._assert_tabbable(schedule_tab, "gathering-shop-select-tab-schedule")
+        schedule_tab.press("Enter")
+        expect(schedule_tab).to_have_attribute("aria-selected", "true")
+        expect(shop_tab).to_have_attribute("aria-selected", "false")
+        expect(by_test_id(self.page, "gathering-candidate-date-list")).to_be_visible()
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_hidden()
+
+        self._assert_tabbable(answers_tab, "gathering-shop-select-tab-answers")
+        answers_tab.press("Enter")
+        expect(answers_tab).to_have_attribute("aria-selected", "true")
+        expect(schedule_tab).to_have_attribute("aria-selected", "false")
+        expect(by_test_id(self.page, "gathering-response-table")).to_be_visible()
+        expect(by_test_id(self.page, "gathering-candidate-date-list")).to_be_hidden()
+
+        self._assert_tabbable(links_tab, "gathering-shop-select-tab-links")
+        links_tab.press("Enter")
+        expect(links_tab).to_have_attribute("aria-selected", "true")
+        expect(answers_tab).to_have_attribute("aria-selected", "false")
+        expect(by_test_id(self.page, "gathering-participant-link-list")).to_be_visible()
+        expect(by_test_id(self.page, "gathering-response-table")).to_be_hidden()
+
+        self._assert_tabbable(shop_tab, "gathering-shop-select-tab-shop")
+        shop_tab.press("Enter")
+        expect(shop_tab).to_have_attribute("aria-selected", "true")
+        expect(links_tab).to_have_attribute("aria-selected", "false")
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+        expect(by_test_id(self.page, "gathering-participant-link-list")).to_be_hidden()
+
+    def test_gathering_dashboard_selected_shop_row_pins_without_reordering_the_list(
+        self,
+    ) -> None:
+        """ADR-0063 decision 4 (2026-09-19, board S4, human decision:
+        残りは票が多い順のまま並べ、番号の丸は票の順位を保つ): selecting a
+        shop other than the current vote leader must not change
+        gathering-shortlisted-shop-list's own DOM order (orderingInvariant,
+        votes descending) -- only a CSS-visual pin, never a DOM reorder
+        (this ADR's own 検討した代替案 explicitly rejects the reorder)."""
+        self._sign_in_as_organizer()
+        gathering_id = self._create_gathering_via_ui("並び順の確認会")
+        by_test_id(self.page, "gathering-candidate-date").click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        leader_shop_id, other_shop_id = self._seed_two_shortlisted_shops_with_a_clear_leader(
+            gathering_id
+        )
+        self.page.reload()
+        items = self.page.locator('[data-testid="gathering-shortlisted-shop-item"]')
+        expect(items).to_have_count(2)
+        order_before = [items.nth(index).get_attribute("data-shop-id") for index in range(2)]
+        self.assertEqual(order_before, [leader_shop_id, other_shop_id])
+        expect(items.nth(0)).to_have_attribute("data-current-leader", "true")
+        expect(items.nth(1)).to_have_attribute("data-current-leader", "false")
+        # The rank badge itself carries no test id (display-only, board S4)
+        # -- its text is read from the item's own DOM position, the same
+        # position this test's own order_before/order_after compare.
+        rank_before = items.nth(1).locator(".gth-shop-rank").inner_text()
+        self.assertEqual(rank_before, "2", "the non-leader shop must start ranked 2nd")
+
+        # Select the second (non-leader) row.
+        self.page.locator(
+            f'[data-testid="gathering-shortlisted-shop-item"][data-shop-id="{other_shop_id}"] '
+            '[data-testid="gathering-finalize-shop-select"]'
+        ).click()
+
+        order_after = [items.nth(index).get_attribute("data-shop-id") for index in range(2)]
+        self.assertEqual(
+            order_after,
+            order_before,
+            "selecting a non-leader shop must not reorder gathering-shortlisted-shop-list",
+        )
+        rank_after = self.page.locator(
+            f'[data-testid="gathering-shortlisted-shop-item"][data-shop-id="{other_shop_id}"]'
+            " .gth-shop-rank"
+        ).inner_text()
+        self.assertEqual(
+            rank_after, "2", "the selected shop's own rank number must stay 2, not jump to 1"
+        )
+
+    def test_gathering_dashboard_shop_map_marker_reflects_leader_and_selected_signals(
+        self,
+    ) -> None:
+        """ADR-0063 decision 4 (2026-09-19, board S4, human decision: 緑=票が
+        多いこと、スミ色=幹事が選んでいること): the map marker's own visual
+        modifier classes are driven by the correlated
+        gathering-shortlisted-shop-item's own data-current-leader/the
+        radio's data-finalize-selected -- never conflated, and the two
+        signals may point at two different shops at once (a shop can be
+        the vote leader without being the organizer's current pick)."""
+        self._sign_in_as_organizer()
+        gathering_id = self._create_gathering_via_ui("ピンの色の確認会")
+        by_test_id(self.page, "gathering-candidate-date").click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        leader_shop_id, other_shop_id = self._seed_two_shortlisted_shops_with_a_clear_leader(
+            gathering_id
+        )
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+        self.page.locator(
+            f'[data-testid="gathering-shortlisted-shop-item"][data-shop-id="{other_shop_id}"] '
+            '[data-testid="gathering-finalize-shop-select"]'
+        ).click()
+
+        leader_marker = self.page.locator(
+            f'[data-testid="gathering-shortlisted-shop-map-marker"][data-shop-id="{leader_shop_id}"]'
+        )
+        other_marker = self.page.locator(
+            f'[data-testid="gathering-shortlisted-shop-map-marker"][data-shop-id="{other_shop_id}"]'
+        )
+        expect(leader_marker).to_be_visible()
+        expect(other_marker).to_be_visible()
+
+        leader_icon_class = leader_marker.evaluate("el => el.className")
+        other_icon_class = other_marker.evaluate("el => el.className")
+        self.assertIn("gathering-shortlisted-shop-map-marker-icon--leader", leader_icon_class)
+        self.assertNotIn("gathering-shortlisted-shop-map-marker-icon--selected", leader_icon_class)
+        self.assertIn("gathering-shortlisted-shop-map-marker-icon--selected", other_icon_class)
+        self.assertNotIn("gathering-shortlisted-shop-map-marker-icon--leader", other_icon_class)
 
     def test_gathering_screens_persistent_primary_nav_meets_44px_and_is_keyboard_operable(
         self,
@@ -2778,10 +3069,24 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
 
         by_test_id(self.page, "gathering-candidate-date").click()
         by_test_id(self.page, "gathering-confirm-date-select").click()
-        expect(by_test_id(self.page, "gathering-phase-indicator")).to_have_attribute(
-            "data-gathering-phase", "SELECTING_SHOP"
-        )
+        expect(by_test_id(self.page, "gathering-dashboard-confirmed-date")).to_be_visible()
+        # ADR-0063 decision 1 (2026-09-19): the phase badge itself is gone
+        # for this one phase, not merely re-labelled -- a direct regression
+        # check on that presenceRule change, since this test's own purpose
+        # (phase never shown as raw enum text) is closest in spirit to
+        # catching a badge that silently came back showing the raw value.
+        expect(by_test_id(self.page, "gathering-phase-indicator")).to_have_count(0)
         self._assert_no_forbidden_enum_token_is_visible_standalone_text(self.page)
+        # ADR-0063 decision 3: sweeps every one of shopSelectionPanel's own
+        # tabs too -- each reveals different visible text (schedule/answers/
+        # links) this scan had never reached while phase is SELECTING_SHOP.
+        for tab_test_id in (
+            "gathering-shop-select-tab-schedule",
+            "gathering-shop-select-tab-answers",
+            "gathering-shop-select-tab-links",
+        ):
+            by_test_id(self.page, tab_test_id).click()
+            self._assert_no_forbidden_enum_token_is_visible_standalone_text(self.page)
         # SELECTING_SHOP's own shop-vote tallies (WANT_TO_GO/OK_TO_GO) and
         # FINALIZED are not reached here -- both need a shopId sourced from
         # candidate-search-browser-interface.yaml's own gatheringMode/
@@ -2826,12 +3131,26 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
 
             by_test_id(self.page, "gathering-candidate-date").click()
             by_test_id(self.page, "gathering-confirm-date-select").click()
-            expect(by_test_id(self.page, "gathering-phase-indicator")).to_have_attribute(
-                "data-gathering-phase", "SELECTING_SHOP"
-            )
+            expect(by_test_id(self.page, "gathering-dashboard-confirmed-date")).to_be_visible()
             self._assert_all_declared_gathering_controls_meet_44px(
-                self.page, f"SELECTING_SHOP at {label}"
+                self.page, f"SELECTING_SHOP, shopTab at {label}"
             )
+            # ADR-0063 decision 3: each of shopSelectionPanel's other 3
+            # tabs reveals its own controls (candidateDateList's tentative-
+            # select/removal, responseTable has none of its own, linksTab's
+            # own participantLinkCopy) -- swept in turn the same way
+            # FINALIZED's own links-open state is swept elsewhere in this
+            # file.
+            for tab_test_id in (
+                "gathering-shop-select-tab-schedule",
+                "gathering-shop-select-tab-answers",
+                "gathering-shop-select-tab-links",
+            ):
+                by_test_id(self.page, tab_test_id).click()
+                self._assert_all_declared_gathering_controls_meet_44px(
+                    self.page, f"SELECTING_SHOP, {tab_test_id} at {label}"
+                )
+            by_test_id(self.page, "gathering-shop-select-tab-shop").click()
 
             by_test_id(self.page, "gathering-delete-open").click()
             expect(by_test_id(self.page, "gathering-delete-confirm-dialog")).to_be_attached()
