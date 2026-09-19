@@ -504,3 +504,13 @@ class CandidateSearchSteps:
         self, gathering_id: str, expected_shop_ids: set[str]
     ) -> None:
         self.dsl.assert_gathering_shortlisted_shop_ids_match_server(gathering_id, expected_shop_ids)
+
+    # ADR-0064 (2026-09-19): searchAgainControl (decision 1) and
+    # cardDataAttributes.detailGroup (decision 2) -- contract Musts with no
+    # scenario of their own ---------------------------------------------
+
+    def search_again_control_has_a_non_empty_visible_label(self) -> None:
+        self.dsl.assert_search_again_control_has_a_non_empty_visible_label()
+
+    def card_detail_fields_share_one_container(self) -> None:
+        self.dsl.assert_card_detail_fields_share_one_container()

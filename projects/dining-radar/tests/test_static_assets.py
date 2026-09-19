@@ -294,15 +294,57 @@ class CandidateSurfaceSourceTests(SimpleTestCase):
         self.assertIn("candidate-card-description", template)
         self.assertIn("display: none", template)
 
-    def test_card_payment_caution_and_regular_holiday_do_not_overstate_or_truncate(self):
-        template = HOME_TEMPLATE.read_text(encoding="utf-8")
+    def test_card_payment_caution_does_not_overstate(self):
         script = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
 
         self.assertIn("クレジットカード非対応（支払い方法は要確認）", script)
-        self.assertIn("candidate-fact-row--candidate-card-regular-holiday", template)
-        self.assertIn("flex-direction: column; align-items: stretch", template)
-        self.assertIn("width: 100%", template)
-        self.assertIn("white-space: normal", template)
+
+    def test_regular_holiday_moved_into_the_shared_detail_grid(self):
+        """adr/0064 decision 2: cardDataAttributes.detailGroup.
+
+        regularHoliday now shares dl.candidate-facts with totalSeats/
+        nonSmokingStatus/dinnerBudgetTier -- the same DOM container, per the
+        contract's new Must -- and no longer has a fieldRow call inside
+        candidate-card-detail-footer (which now carries only the provider
+        link).
+        """
+        template = HOME_TEMPLATE.read_text(encoding="utf-8")
+        script = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        # Structural placement: exactly one facts.appendChild call builds
+        # regularHoliday's fieldRow, and it is the same `facts` dl instance
+        # every other detailGroup member above it already appends into
+        # (all four calls sit between `var facts = el("dl", ...)` and
+        # `card.appendChild(facts)`, with no other appendChild target
+        # anywhere in between).
+        facts_start = script.index('var facts = el("dl", { "class": "candidate-facts" }, []);')
+        facts_end = script.index("card.appendChild(facts);", facts_start)
+        facts_block = script[facts_start:facts_end]
+        self.assertEqual(facts_block.count("facts.appendChild("), 4)
+        self.assertIn(
+            'fieldRow("定休日", "candidate-card-regular-holiday", candidate.regularHoliday)',
+            facts_block,
+        )
+        self.assertIn('"candidate-card-total-seats"', facts_block)
+        self.assertIn('"candidate-card-non-smoking"', facts_block)
+        self.assertIn('"candidate-card-dinner-budget"', facts_block)
+
+        # The old detail-footer fieldRow call is gone -- that container now
+        # wraps only the provider link.
+        footer_call = (
+            'card.appendChild(el("div", { "class": "candidate-card-detail-footer" }, [link]));'
+        )
+        self.assertIn(footer_call, script)
+        self.assertNotIn(
+            'fieldRow("定休日", "candidate-card-regular-holiday", candidate.regularHoliday),\n'
+            "        link,",
+            script,
+        )
+
+        # No truncation regression: the facts grid still wraps rather than
+        # clipping long provider free text (overflow-wrap replaces the old
+        # detail-footer-only white-space/overflow-wrap pair, which moved
+        # with regularHoliday into this shared, generic rule).
         self.assertIn("overflow-wrap: anywhere", template)
         self.assertNotIn("max-height: 13.5rem", template)
 
@@ -350,6 +392,29 @@ class CandidateSurfaceSourceTests(SimpleTestCase):
         self.assertIn("candidate-search-again-label", template)
         self.assertIn('"class": "candidate-search-again-label"', script)
         self.assertIn('"aria-hidden": "true"', script)
+
+    def test_search_again_label_is_renamed_and_visible_under_every_render_mode(self):
+        """adr/0064 decision 1: searchAgainControl's visible-label Must.
+
+        The label reads "別の候補を出す" (not the retired "もう一度探す"),
+        and no width-scoped override collapses this control back to a bare
+        circular icon -- the shape the human ruling explicitly retired.
+        """
+        template = HOME_TEMPLATE.read_text(encoding="utf-8")
+        script = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
+
+        label_and_sr_text = (
+            '["別の候補を出す"]),\n'
+            '        el("span", { "class": "visually-hidden" }, ["別の候補を出す"])'
+        )
+        self.assertIn(label_and_sr_text, script)
+        self.assertNotIn("もう一度探す", script)
+
+        # No override anywhere in the template turns this control back into
+        # an icon-only circle -- the label-hiding rule the narrow-width
+        # media query used to pair with a circular .candidate-search-again
+        # shape override is gone outright.
+        self.assertNotIn(".candidate-search-again-label { display: none; }", template)
 
     def test_mobile_filter_panel_overlays_and_selected_chips_have_a_checkmark(self):
         template = HOME_TEMPLATE.read_text(encoding="utf-8")

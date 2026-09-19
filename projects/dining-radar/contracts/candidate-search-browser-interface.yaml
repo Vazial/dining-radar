@@ -422,8 +422,22 @@
 #   test idを持たないため契約変更を要しない。
 # - 具体的なYAML編集は次工程で行う（本改訂に同梱の`.spec`ファイル参照）。architect自身は
 #   `contracts/`配下のYAMLへ直接書き込まない。
+#
+# 2026-09-19 追補 (architect、adr/0064。実機フィードバック第1便・束Eの2件
+# （2026-09-19人間裁定、party2/e1の板）への対応。contractVersionを1.12.0から1.13.0へ上げる):
+# - **candidate-search-againの可視ラベルを必須にする**（adr/0064決定1、人間裁定「もう一度探す」
+#   というラベルが動作を説明していない）: 新規`browserControlSurface.proposal.searchAgainControl`
+#   を新設し、この要素の可視ラベルテキストが`renderModes`のどちらの下でも非空であることをMustに
+#   する——モバイル幅でアイコンだけにする実装はもう許されない。正確な文言・アイコンの有無は無変更
+#   のまま実装選択に残す。`allowedPurposes`・`browserActions.searchAgain`は無変更。
+# - **カードの定休日をtotalSeats/nonSmokingStatus/dinnerBudgetTierと同じ共有コンテナへ移す**
+#   （adr/0064決定2、人間裁定「定休日の記載が見にくい」）: 新規`cardDataAttributes.detailGroup`を
+#   新設し、この4項目が他のどのrequiredFields項目のコンテナとも異なる1つの共有DOMコンテナ内に
+#   置かれることをMustにする。各項目自身の値・ラベル・生値の規則はいずれも無変更。
+# - 具体的なYAML編集は次工程で行う（本改訂に同梱の`.spec`ファイル参照）。architect自身は
+#   `contracts/`配下のYAMLへ直接書き込まない。
 
-contractVersion: '1.12.0'
+contractVersion: '1.13.0'
 kind: acceptance-browser-interface
 scope: candidate-search
 profiles:
@@ -621,6 +635,27 @@ browserControlSurface:
       searchAgain: candidate-search-again
       izakayaBarFallbackNotice: candidate-izakaya-bar-fallback-notice
       budgetTierNote: candidate-budget-tier-note
+    searchAgainControl:
+      testId: candidate-search-again
+      purpose: candidate-search-again
+      requirement: >-
+        2026-09-19 (adr/0064 decision 1, human ruling on design board
+        party2/e1: 「もう一度探す」というラベルが動作を説明していない). Its
+        visible label text is a Must whenever this control is present
+        (browserEntry.authenticatedInitialOutcome.present, unchanged) --
+        under mapPrimaryTouchLayout as much as under twoColumnLayout, this
+        control must never be icon-only (a bare circular icon carrying no
+        accompanying text, the shape the human ruling explicitly retired).
+        The exact wording, icon, font size, and shape remain implementation
+        choices this contract does not fix, mirroring
+        gatheringEntry.entry's own visible-label Must and
+        walkingTimeEstimateWording's content-only-Must style elsewhere in
+        this contract. This control's underlying behavior (re-search under
+        the currently applied filters, per shownPoolPriority) and its
+        position (the condition-summary row) are both unchanged by this
+        revision -- neither was fixed by this contract before, and the
+        human ruling leaves both unchanged (see browserActions.searchAgain
+        below).
     cardDataAttributes:
       candidateRef: data-candidate-ref
       requiredFields:
@@ -726,6 +761,29 @@ browserControlSurface:
           estimate signal). The exact wording is an implementation choice
           this contract does not fix, mirroring how the dinner-basis
           disclosure's exact phrasing is also left to implementation.
+      detailGroup:
+        members:
+          [candidate-card-regular-holiday, candidate-card-total-seats,
+           candidate-card-non-smoking, candidate-card-dinner-budget]
+        requirement: >-
+          These four requiredFields entries -- regularHoliday, totalSeats,
+          nonSmokingStatus, dinnerBudgetTier -- share one DOM container
+          distinct from every other requiredFields entry's own container
+          (name, genre, description, walkingTimeMinutes, providerPageLink),
+          mirroring how filterPanel.controlGrouping (adr/0024 decision 2)
+          already makes a grouping decision machine-observable rather than
+          leaving it purely to rendered geometry. Added 2026-09-19 (adr/0064
+          decision 2, human ruling on design board party2/e1: 定休日の記載が
+          見にくい) -- regularHoliday moves out of the trailing row it used
+          to share with the detail link, into this shared container
+          alongside totalSeats/nonSmokingStatus/dinnerBudgetTier. Each
+          member's own labelObservation, valueStateAttribute, and (where
+          declared) rawValueAttribute rule above is unchanged by this move --
+          this adds only the shared-container property, not a new value,
+          label, or raw-value rule. regularHoliday's own visible value (the
+          provider's regularHoliday text verbatim when provided, or the
+          existing data-value-state=unavailable implementation-neutral
+          wording when null, per nullBehavior above) is unchanged.
     markerDataAttributes:
       candidateRef: data-candidate-ref
       selectionState: data-selection-state

@@ -610,3 +610,66 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
             gathering_id
         )
         self.steps.mobile_bar_gathering_item_returns_to_this_gathering(gathering_id)
+
+    # ADR-0064 (2026-09-19, human ruling on design board party2/e1) ---------
+    # searchAgainControl (decision 1) and cardDataAttributes.detailGroup
+    # (decision 2) are both contract Musts with no scenario of their own
+    # (adr/0064's own 帰結: TDR-CS-11/14 only had their quoted visible-label
+    # name updated, and TDR-CS-02's card-field enumeration is written in
+    # business language, not DOM placement) -- mirrors this suite's own
+    # established "専用シナリオの無い契約Must" treatment (see the ADR-0059
+    # nav block above). Both checks run at both render modes and in both the
+    # ordinary screen and gathering mode, since neither Must is scoped to
+    # just one of those.
+    # -------------------------------------------------------------------
+
+    def test_adr_0064_search_again_control_has_a_non_empty_visible_label(self) -> None:
+        """searchAgainControl (adr/0064決定1): candidate-search-again の可視
+        ラベルは、twoColumnLayout・mapPrimaryTouchLayoutのいずれでも、通常の
+        画面・会モードのいずれでも非空である——モバイル幅で丸いアイコンだけに
+        する実装は、この契約のもとではもう許されない。
+        """
+        self._sign_in()
+        self.steps.lunch_candidates_can_be_proposed()
+
+        self.steps.organizer_compares_candidates_at_two_column_viewport()
+        self.steps.search_again_control_has_a_non_empty_visible_label()
+        self.steps.organizer_compares_candidates_at_map_primary_touch_viewport()
+        self.steps.search_again_control_has_a_non_empty_visible_label()
+
+        self.steps.gathering_open_shop_population_is_available()
+        gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会064a")
+        self.steps.organizer_opens_this_screen_in_gathering_mode_at_two_column_viewport(
+            gathering_id
+        )
+        self.steps.search_again_control_has_a_non_empty_visible_label()
+        self.steps.organizer_opens_this_screen_in_gathering_mode_at_map_primary_touch_viewport(
+            gathering_id
+        )
+        self.steps.search_again_control_has_a_non_empty_visible_label()
+
+    def test_adr_0064_card_detail_fields_share_one_container(self) -> None:
+        """cardDataAttributes.detailGroup (adr/0064決定2): 定休日・総席数の
+        めやす・禁煙対応のめやす・予算感の段階の4項目は、他のどのカード項目
+        （店名・ジャンル・紹介・徒歩のめやす時間・詳細へのリンク）とも異なる
+        1つの共有コンテナの中にある——twoColumnLayout・mapPrimaryTouchLayout
+        のいずれでも、通常の画面・会モードのいずれでも。
+        """
+        self._sign_in()
+        self.steps.lunch_candidates_can_be_proposed()
+
+        self.steps.organizer_compares_candidates_at_two_column_viewport()
+        self.steps.card_detail_fields_share_one_container()
+        self.steps.organizer_compares_candidates_at_map_primary_touch_viewport()
+        self.steps.card_detail_fields_share_one_container()
+
+        self.steps.gathering_open_shop_population_is_available()
+        gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会064b")
+        self.steps.organizer_opens_this_screen_in_gathering_mode_at_two_column_viewport(
+            gathering_id
+        )
+        self.steps.card_detail_fields_share_one_container()
+        self.steps.organizer_opens_this_screen_in_gathering_mode_at_map_primary_touch_viewport(
+            gathering_id
+        )
+        self.steps.card_detail_fields_share_one_container()

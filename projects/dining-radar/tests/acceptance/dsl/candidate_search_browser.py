@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, timedelta
 from itertools import product
@@ -116,6 +117,50 @@ FILTER_APPLY = "candidate-filter-apply"
 FILTER_REVERT = "candidate-filter-revert"
 FILTER_PENDING_NOTE = "candidate-filter-pending-note"
 SEARCH_AGAIN = "candidate-search-again"
+# searchAgainControl (adr/0064 決定1): Locator.inner_text() alone cannot
+# prove a *visible* label -- it does not filter out an accessible-only
+# mirror of the label kept in the DOM but visually shrunk to near-zero size
+# (the common "sr-only" clip technique), nor does it distinguish a lone icon
+# glyph (a Unicode Symbol, not a Letter) from real label text. This walks
+# every text node under the control and keeps only the ones whose full
+# ancestor chain (up to and including the control itself) is neither
+# display:none/visibility:hidden nor rendered at a bounding size at or below
+# _HIDDEN_TEXT_MAX_SIZE_PX in either dimension -- see
+# assert_search_again_control_has_a_non_empty_visible_label's own docstring
+# for the reviewer-reported fault this fixes.
+_HIDDEN_TEXT_MAX_SIZE_PX = 2
+_VISIBLE_TEXT_NODES_JS = """(control, maxHiddenSizePx) => {
+  const isStyleHidden = (el) => {
+    const style = getComputedStyle(el);
+    return style.display === "none" || style.visibility === "hidden";
+  };
+  const isRectTooSmall = (el) => {
+    const rect = el.getBoundingClientRect();
+    return rect.width <= maxHiddenSizePx || rect.height <= maxHiddenSizePx;
+  };
+  const walker = document.createTreeWalker(control, NodeFilter.SHOW_TEXT);
+  let visibleText = "";
+  let node = walker.nextNode();
+  while (node) {
+    if (node.textContent && node.textContent.trim()) {
+      let hidden = false;
+      let el = node.parentElement;
+      while (el) {
+        if (isStyleHidden(el) || isRectTooSmall(el)) {
+          hidden = true;
+          break;
+        }
+        if (el === control) break;
+        el = el.parentElement;
+      }
+      if (!hidden) {
+        visibleText += node.textContent;
+      }
+    }
+    node = walker.nextNode();
+  }
+  return visibleText;
+}"""
 IZAKAYA_BAR_FALLBACK_NOTICE = "candidate-izakaya-bar-fallback-notice"
 BUDGET_TIER_NOTE = "candidate-budget-tier-note"
 NO_RESULTS = "candidate-no-results"
@@ -248,6 +293,25 @@ CARD_PAYMENT_CAUTION_TEST_ID = "candidate-card-payment-caution"
 CARD_PAYMENT_CAUTION_ATTRIBUTE = "data-card-payment-available"
 CARD_PAYMENT_VALUE_STATE_ATTRIBUTE = "data-card-payment-value-state"
 PROVIDER_PAGE_LINK_TEST_ID = "candidate-card-provider-page-link"
+# cardDataAttributes.detailGroup (adr/0064 決定2, contractVersion 1.13.0):
+# these four requiredFields entries must share one DOM container distinct
+# from every other requiredFields entry's own container. Built from
+# REQUIRED_CARD_FIELDS/CARD_WALKING_TIME_TEST_ID/PROVIDER_PAGE_LINK_TEST_ID's
+# own test ids rather than a second literal list, so a future requiredFields
+# change cannot silently drift out of sync with this Must's own member set.
+CARD_DETAIL_GROUP_TEST_IDS = [
+    REQUIRED_CARD_FIELDS["regularHoliday"][0],
+    REQUIRED_CARD_FIELDS["totalSeats"][0],
+    REQUIRED_CARD_FIELDS["nonSmokingStatus"][0],
+    REQUIRED_CARD_FIELDS["dinnerBudgetTier"][0],
+]
+CARD_NON_DETAIL_GROUP_FIELD_TEST_IDS = [
+    REQUIRED_CARD_FIELDS["name"][0],
+    REQUIRED_CARD_FIELDS["genre"][0],
+    REQUIRED_CARD_FIELDS["description"][0],
+    CARD_WALKING_TIME_TEST_ID,
+    PROVIDER_PAGE_LINK_TEST_ID,
+]
 # Verified 1:1 against candidate-search-browser-interface.yaml v1.8.0's own
 # unavailableControls.allowedPurposes list (18 entries, contract lines
 # ~1207-1217) -- every entry below has a matching contract entry and vice
@@ -2071,6 +2135,85 @@ class CandidateSearchBrowserDsl:
             self.assertions.assertNotEqual(text, str(candidate["walkingTimeMinutes"]))
             self.assertions.assertRegex(text, r"約|およそ|推定|めやす|見込み|くらい|程度")
 
+    def assert_card_detail_fields_share_one_container(self) -> None:
+        """cardDataAttributes.detailGroup (adr/0064 決定2, human ruling on
+        design board party2/e1: 定休日の記載が見にくい). regularHoliday/
+        totalSeats/nonSmokingStatus/dinnerBudgetTier must share one DOM
+        container distinct from every other requiredFields entry's own
+        container (name/genre/description/walkingTimeMinutes/
+        providerPageLink) -- filterPanel.controlGrouping (adr/0024 決定2) is
+        this contract's own precedent for making a grouping decision machine
+        observable, mirrored here from filter controls to card fields for
+        the first time. No dedicated TDR-CS scenario names DOM placement
+        (TDR-CS-02's card-field enumeration is business language, per
+        adr/0064's own 帰結), so this is asserted directly against every
+        currently rendered card, the same "専用シナリオの無い契約Must"
+        treatment this suite already uses elsewhere.
+
+        For each card, finds the nearest common DOM ancestor of the four
+        detailGroup member elements and requires (a) that ancestor is not
+        the card element itself -- there must be a genuine shared
+        sub-container, not merely "everything is somewhere inside the
+        card" -- and (b) none of the other five requiredFields elements are
+        descendants of that same ancestor. Mirrors the existing
+        node.closest('[data-testid="candidate-card"]') ancestor-lookup
+        technique tests/ui_invariants/test_render_invariants.py already
+        uses for this same card, applied here to find the narrower shared
+        container rather than the card itself.
+        """
+        cards = wait_for_at_least_one(self.page, CARD)
+        for index in range(cards.count()):
+            card = cards.nth(index)
+            result = card.evaluate(
+                """(card, args) => {
+                  const [detailIds, otherIds] = args;
+                  const byId = (id) => card.querySelector('[data-testid="' + id + '"]');
+                  const detailEls = detailIds.map(byId);
+                  if (detailEls.some((el) => !el)) {
+                    return {ok: false, reason: "a detailGroup member element is missing"};
+                  }
+                  const ancestorsOf = (el) => {
+                    const chain = [];
+                    let cur = el;
+                    while (cur) {
+                      chain.push(cur);
+                      if (cur === card) break;
+                      cur = cur.parentElement;
+                    }
+                    return chain;
+                  };
+                  const chains = detailEls.map(ancestorsOf);
+                  let common = null;
+                  for (const candidate of chains[0]) {
+                    if (chains.every((chain) => chain.includes(candidate))) {
+                      common = candidate;
+                      break;
+                    }
+                  }
+                  if (!common) {
+                    return {ok: false, reason: "no shared ancestor found within the card"};
+                  }
+                  if (common === card) {
+                    return {ok: false, reason: "the only shared ancestor is the card itself"};
+                  }
+                  const otherEls = otherIds.map(byId).filter((el) => el);
+                  const leaked = otherEls.filter((el) => common.contains(el));
+                  return {
+                    ok: leaked.length === 0,
+                    reason: leaked.length
+                      ? "the shared container also contains " + leaked.length +
+                        " non-detailGroup field(s)"
+                      : null,
+                  };
+                }""",
+                [CARD_DETAIL_GROUP_TEST_IDS, CARD_NON_DETAIL_GROUP_FIELD_TEST_IDS],
+            )
+            self.assertions.assertTrue(
+                result["ok"],
+                f"card {index}: detailGroup members do not share a distinct DOM "
+                f"container ({result.get('reason')})",
+            )
+
     def select_first_card_and_verify_marker_highlighted(self) -> None:
         card = wait_for_at_least_one(self.page, CARD).first
         candidate_ref = card.get_attribute("data-candidate-ref")
@@ -2789,6 +2932,44 @@ class CandidateSearchBrowserDsl:
 
     def assert_no_results_indicator_absent(self) -> None:
         assert_absent(self.assertions, self.page, NO_RESULTS)
+
+    def assert_search_again_control_has_a_non_empty_visible_label(self) -> None:
+        """searchAgainControl (adr/0064 決定1, human ruling on design board
+        party2/e1: 「もう一度探す」というラベルが動作を説明していない).
+        candidate-search-again's visible label text is a Must whenever the
+        control is present, under twoColumnLayout as much as under
+        mapPrimaryTouchLayout -- a bare icon-only shape (no accompanying
+        visible text) is no longer permitted, mirroring gatheringEntry.
+        entry's own visible-label-is-a-Must style elsewhere in this
+        contract. The exact wording is an implementation choice this
+        contract does not fix, so this only requires at least one Unicode
+        letter among the control's actually rendered text.
+
+        **Fixed (reviewer-reported gap, 2026-09-19)**: an earlier version of
+        this check read Locator.inner_text(), which does not filter out (a)
+        a non-letter icon glyph character (e.g. "↻") or (b) accessible-only
+        text kept in the DOM but visually shrunk to near-zero size (the
+        common "sr-only" clip technique) -- a reported fault injection
+        (CSS-hiding only the visible label text, at one viewport only)
+        still passed under the old check because one or both of those
+        remained in innerText. This instead walks every text node inside
+        the control and keeps only the ones whose full ancestor chain (up
+        to and including the control itself) is neither
+        display:none/visibility:hidden nor rendered at a bounding size at
+        or below _HIDDEN_TEXT_MAX_SIZE_PX in either dimension (see
+        _VISIBLE_TEXT_NODES_JS below), then requires at least one Unicode
+        Letter character among what survives -- a lone symbol glyph has no
+        Letter category, so it alone can no longer satisfy this Must.
+        """
+        control = assert_present(self.assertions, self.page, SEARCH_AGAIN)
+        visible_text = control.evaluate(_VISIBLE_TEXT_NODES_JS, _HIDDEN_TEXT_MAX_SIZE_PX)
+        has_letter = any(unicodedata.category(char).startswith("L") for char in visible_text)
+        self.assertions.assertTrue(
+            has_letter,
+            "candidate-search-again must carry at least one actually rendered "
+            "Unicode letter as its visible label (adr/0064 決定1: icon-only is "
+            f"no longer permitted); rendered text found: {visible_text!r}",
+        )
 
     def assert_search_again_reused_filters_and_replaced_display(self) -> None:
         initial = require(self.initial, "initial proposal was not requested")
