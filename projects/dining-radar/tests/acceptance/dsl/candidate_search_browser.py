@@ -928,6 +928,23 @@ class CandidateSearchBrowserDsl:
             "limitReached": node.get_attribute(GATHERING_MODE_LIMIT_REACHED_ATTR) == "true",
         }
 
+    def _wait_for_gathering_mode_band_shortlisted_count(self, expected: int) -> None:
+        """**Fixed (coordinator report, hand-run CI flake, TDR-GTH-44's own
+        identical fix in gathering_scheduling_browser.py)**: cardToggle's
+        requiredOutcome fixes only the *eventual* band count after a
+        toggle, not that the card's own data-gathering-shortlisted
+        attribute and the band's own re-render land in the same tick --
+        the card flips first, and the band's own count can lag it by a
+        frame. Reading _read_gathering_mode_band() exactly once
+        immediately after asserting the card's attribute (this file's own
+        prior shape) races that lag. expect(...).to_have_attribute polls
+        until the contract's own eventual-consistency Must actually holds
+        (or a real regression times out), matching this suite's own
+        established "wait for the settle point, never sleep" convention.
+        """
+        band = by_test_id(self.page, GATHERING_MODE_BAND)
+        expect(band).to_have_attribute(GATHERING_MODE_SHORTLISTED_COUNT_ATTR, str(expected))
+
     def assert_gathering_mode_band_shows(
         self, *, shortlisted: int, max_shortlisted: int = 5, limit_reached: bool | None = None
     ) -> None:
@@ -952,10 +969,16 @@ class CandidateSearchBrowserDsl:
     def assert_gathering_shortlist_toast_shows(
         self, *, shortlisted: int, max_shortlisted: int = 5
     ) -> None:
+        """**Fixed (coordinator report, same TDR-GTH-44 flake class)**: this
+        toast can mount with the click's own eventual count trailing by a
+        frame the same way gatheringMode.band can (_wait_for_gathering_
+        mode_band_shortlisted_count above's own reasoning) -- polls via
+        expect(...).to_have_attribute rather than reading each attribute
+        exactly once right after wait_for_at_least_one's own mere
+        attachment wait.
+        """
         toast = wait_for_at_least_one(self.page, GATHERING_SHORTLIST_TOAST).first
-        self.assertions.assertEqual(
-            int(toast.get_attribute(GATHERING_MODE_SHORTLISTED_COUNT_ATTR)), shortlisted
-        )
+        expect(toast).to_have_attribute(GATHERING_MODE_SHORTLISTED_COUNT_ATTR, str(shortlisted))
         self.assertions.assertEqual(
             int(toast.get_attribute(GATHERING_MODE_MAX_SHORTLISTED_ATTR)), max_shortlisted
         )
@@ -1072,7 +1095,7 @@ class CandidateSearchBrowserDsl:
         before = self._read_gathering_mode_band()["shortlisted"]
         target.click()
         expect(target).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "true")
-        self.assertions.assertEqual(self._read_gathering_mode_band()["shortlisted"], before + 1)
+        self._wait_for_gathering_mode_band_shortlisted_count(before + 1)
 
     def toggle_off_the_first_shortlisted_candidate(self) -> None:
         """See toggle_first_candidate_into_gathering's docstring above for why
@@ -1091,7 +1114,7 @@ class CandidateSearchBrowserDsl:
         before = self._read_gathering_mode_band()["shortlisted"]
         target.click()
         expect(target).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "false")
-        self.assertions.assertEqual(self._read_gathering_mode_band()["shortlisted"], before - 1)
+        self._wait_for_gathering_mode_band_shortlisted_count(before - 1)
 
     def toggle_a_not_yet_shortlisted_card_and_return_ref(self) -> str:
         """gatheringMode.cardToggle/mapMarker (TDR-CS-20, ADR-0056 decision 4,

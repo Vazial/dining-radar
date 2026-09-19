@@ -2698,6 +2698,23 @@ class GatheringSchedulingBrowserDsl:
             "max": int(node.get_attribute(GATHERING_MODE_MAX_SHORTLISTED_ATTR)),
         }
 
+    def _wait_for_gathering_mode_band_shortlisted_count(self, expected: int) -> None:
+        """**Fixed (coordinator report, hand-run CI flake, TDR-GTH-44)**:
+        cardToggle's requiredOutcome fixes only the *eventual* band count
+        after a toggle, not that the card's own data-gathering-shortlisted
+        attribute and the band's own re-render land in the same tick --
+        the card flips first, and the band's own count can lag it by a
+        frame. A caller that reads _read_gathering_mode_band() exactly
+        once immediately after asserting the card's attribute (this file's
+        own prior shape) races that lag and occasionally reads the
+        not-yet-updated count. expect(...).to_have_attribute polls until
+        the contract's own eventual-consistency Must actually holds (or a
+        real regression times out), matching this suite's own established
+        "wait for the settle point, never sleep" convention.
+        """
+        band = by_test_id(self.page, GATHERING_MODE_BAND)
+        expect(band).to_have_attribute(GATHERING_MODE_SHORTLISTED_COUNT_ATTR, str(expected))
+
     def assert_gathering_mode_band_shows(
         self, *, shortlisted: int, max_shortlisted: int = 5
     ) -> None:
@@ -2771,7 +2788,7 @@ class GatheringSchedulingBrowserDsl:
         toggle = card.locator(f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]')
         toggle.click()
         expect(toggle).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "true")
-        self.assertions.assertEqual(self._read_gathering_mode_band()["shortlisted"], before + 1)
+        self._wait_for_gathering_mode_band_shortlisted_count(before + 1)
         return candidate_ref
 
     def toggle_off_candidate_card_by_ref(self, candidate_ref: str) -> None:
@@ -2792,7 +2809,7 @@ class GatheringSchedulingBrowserDsl:
         before = self._read_gathering_mode_band()["shortlisted"]
         toggle.click()
         expect(toggle).to_have_attribute(CANDIDATE_GATHERING_SHORTLISTED_ATTR, "false")
-        self.assertions.assertEqual(self._read_gathering_mode_band()["shortlisted"], before - 1)
+        self._wait_for_gathering_mode_band_shortlisted_count(before - 1)
 
     def search_again_on_shop_selection_entry(self) -> None:
         """ADR-0052 decision 3's shown-pool-priority technique, driven
