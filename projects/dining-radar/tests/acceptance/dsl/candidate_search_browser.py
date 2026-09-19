@@ -352,6 +352,34 @@ GATHERING_TOGGLE_DISABLED_REASON_LAST_SHOP = "last-shop"
 CANDIDATE_CARD_GATHERING_LAST_SHOP_NOTICE = "candidate-card-gathering-last-shop-notice"
 GATHERING_SHORTLIST_OPEN = "gathering-shortlist-open"
 GATHERING_PHASE_INDICATOR = "gathering-phase-indicator"
+# ADR-0059 (2026-09-16, 束A「上部ナビと会への戻り道」): gatheringMode.
+# shortlistToast -- appears immediately after a successful add (never a
+# removal), shares the same shortlistedCount/maxShortlisted attribute names
+# gatheringMode.band already carries (GATHERING_MODE_SHORTLISTED_COUNT_ATTR/
+# GATHERING_MODE_MAX_SHORTLISTED_ATTR below, reused rather than duplicated).
+GATHERING_SHORTLIST_TOAST = "candidate-gathering-shortlist-toast"
+GATHERING_SHORTLIST_TOAST_RETURN = "candidate-gathering-shortlist-toast-return"
+# ADR-0059 decision1/2/4: the three render-mode/location-specific shapes of
+# openGatheringEntry/returnToGatheringFromEntry's own shared input, plus the
+# desktop menu's disclosure surface and the current-location marker every
+# nav destination (chip/menu/mobile-bar item) carries.
+CANDIDATE_GATHERING_ENTRY = "candidate-gathering-entry"
+GATHERING_ENTRY_ACTIVE_GATHERING_ID_ATTR = "data-active-gathering-id"
+PRIMARY_NAV_MENU_TOGGLE = "candidate-primary-nav-menu-toggle"
+PRIMARY_NAV_MENU_PANEL = "candidate-primary-nav-menu-panel"
+PRIMARY_NAV_MENU_DESTINATION_SEARCH = "candidate-primary-nav-menu-search"
+PRIMARY_NAV_MENU_DESTINATION_GATHERING = "candidate-primary-nav-menu-gathering"
+PRIMARY_NAV_BAR = "candidate-primary-nav-bar"
+PRIMARY_NAV_BAR_SEARCH = "candidate-primary-nav-search"
+PRIMARY_NAV_BAR_GATHERING = "candidate-primary-nav-gathering"
+PRIMARY_NAV_BAR_ACCOUNT = "candidate-primary-nav-account"
+PRIMARY_NAV_CURRENT_ATTR = "data-primary-nav-current"
+# gathering-scheduling-browser-interface.yaml's own organizerGatheringList
+# screen test id (TDR-GTH-25's own openGatheringEntry destination), read as
+# a raw string here rather than imported -- mirrors this section's own
+# established module-boundary precedent (GATHERING_SHORTLIST_OPEN/
+# GATHERING_PHASE_INDICATOR above, OPEN_SHOP_COUNT_BY_WEEKDAY's docstring).
+GATHERING_LIST_SCREEN = "gathering-list"
 # Duplicated from gathering_scheduling_browser.py's own OPEN_SHOP_COUNT_BY_
 # WEEKDAY (test-support-api.yaml's GATHERING_OPEN_SHOP_WEEKDAY_MATCH
 # description's per-weekday openShopCount table) rather than imported,
@@ -736,6 +764,100 @@ class CandidateSearchBrowserDsl:
             self._applied_filters = self._normalized_filters(self._current_filters())
             self._pending_filters = dict(self._applied_filters)
 
+    def open_gathering_mode_at_two_column_viewport(self, gathering_id: str) -> None:
+        """ADR-0059 decision 2: candidate-gathering-entry (the chip) and
+        candidate-primary-nav-menu-toggle are each exclusive to
+        twoColumnLayout -- pins DESKTOP_TWO_COLUMN_VIEWPORT (chosen
+        deliberately far from any plausible breakpoint, mirroring
+        open_candidate_screen_at_two_column_viewport's own reasoning) before
+        opening this screen's own gatheringMode, since
+        open_gathering_mode_from_dashboard itself does not fix a viewport.
+        """
+        self.page.set_viewport_size(DESKTOP_TWO_COLUMN_VIEWPORT)
+        self.open_gathering_mode_from_dashboard(gathering_id)
+
+    def open_gathering_mode_at_map_primary_touch_viewport(self, gathering_id: str) -> None:
+        """Mirrors open_gathering_mode_at_two_column_viewport above, in the
+        opposite direction: ADR-0059 decision 1's candidate-primary-nav-bar
+        is exclusive to mapPrimaryTouchLayout.
+        """
+        self.page.set_viewport_size(MOBILE_MAP_PRIMARY_TOUCH_VIEWPORT)
+        self.open_gathering_mode_from_dashboard(gathering_id)
+
+    # openGatheringEntry / returnToGatheringFromEntry's shared 3-input nav
+    # (ADR-0059 decision 4) -- not tied to a TDR-CS scenario id (this nav
+    # structure has no corresponding business scenario, the same "UI構造の
+    # 決定であり業務規則の追加ではない" reasoning candidate-search.feature's
+    # own header comment for TDR-CS-23 states, mirroring the existing
+    # gatheringEntry/openGatheringEntry precedent, adr/0054 decision4). ------
+
+    def _assert_navigated_to_gathering_list(self) -> None:
+        wait_for_at_least_one(self.page, GATHERING_LIST_SCREEN)
+
+    def _assert_navigated_to_this_gathering_dashboard(self, gathering_id: str) -> None:
+        wait_for_at_least_one(self.page, GATHERING_PHASE_INDICATOR)
+        self.assertions.assertIn(f"/gatherings/{gathering_id}/", self.page.url)
+
+    def assert_desktop_chip_returns_to_this_gathering(self, gathering_id: str) -> None:
+        """gatheringMode active (gatheringContext non-null): the chip's
+        activation must resolve to returnToGatheringFromEntry, not
+        openGatheringEntry -- navigating to *this* gathering's own
+        dashboard, never the plain gathering list.
+        """
+        chip = assert_present(self.assertions, self.page, CANDIDATE_GATHERING_ENTRY)
+        expect(chip).to_have_attribute(GATHERING_ENTRY_ACTIVE_GATHERING_ID_ATTR, gathering_id)
+        chip.click()
+        self._assert_navigated_to_this_gathering_dashboard(gathering_id)
+
+    def assert_desktop_chip_opens_the_gathering_list(self) -> None:
+        """gatheringMode inactive (gatheringContext null, the ordinary
+        candidate-search screen): the same chip's activation must instead
+        resolve to openGatheringEntry, navigating to the gathering list.
+        """
+        chip = assert_present(self.assertions, self.page, CANDIDATE_GATHERING_ENTRY)
+        self.assertions.assertIsNone(chip.get_attribute(GATHERING_ENTRY_ACTIVE_GATHERING_ID_ATTR))
+        chip.click()
+        self._assert_navigated_to_gathering_list()
+
+    def _open_desktop_menu_panel(self) -> None:
+        toggle = assert_present(self.assertions, self.page, PRIMARY_NAV_MENU_TOGGLE)
+        toggle.click()
+        wait_for_at_least_one(self.page, PRIMARY_NAV_MENU_PANEL)
+
+    def assert_desktop_menu_gathering_destination_returns_to_this_gathering(
+        self, gathering_id: str
+    ) -> None:
+        self._open_desktop_menu_panel()
+        destination = assert_present(
+            self.assertions, self.page, PRIMARY_NAV_MENU_DESTINATION_GATHERING
+        )
+        expect(destination).to_have_attribute(PRIMARY_NAV_CURRENT_ATTR, "true")
+        destination.click()
+        self._assert_navigated_to_this_gathering_dashboard(gathering_id)
+
+    def assert_desktop_menu_gathering_destination_opens_the_gathering_list(self) -> None:
+        self._open_desktop_menu_panel()
+        destination = assert_present(
+            self.assertions, self.page, PRIMARY_NAV_MENU_DESTINATION_GATHERING
+        )
+        expect(destination).to_have_attribute(PRIMARY_NAV_CURRENT_ATTR, "false")
+        destination.click()
+        self._assert_navigated_to_gathering_list()
+
+    def assert_mobile_bar_gathering_item_returns_to_this_gathering(self, gathering_id: str) -> None:
+        wait_for_at_least_one(self.page, PRIMARY_NAV_BAR)
+        item = assert_present(self.assertions, self.page, PRIMARY_NAV_BAR_GATHERING)
+        expect(item).to_have_attribute(PRIMARY_NAV_CURRENT_ATTR, "true")
+        item.click()
+        self._assert_navigated_to_this_gathering_dashboard(gathering_id)
+
+    def assert_mobile_bar_gathering_item_opens_the_gathering_list(self) -> None:
+        wait_for_at_least_one(self.page, PRIMARY_NAV_BAR)
+        item = assert_present(self.assertions, self.page, PRIMARY_NAV_BAR_GATHERING)
+        expect(item).to_have_attribute(PRIMARY_NAV_CURRENT_ATTR, "false")
+        item.click()
+        self._assert_navigated_to_gathering_list()
+
     def _read_gathering_mode_band(self) -> dict[str, object]:
         node = assert_present(self.assertions, self.page, GATHERING_MODE_BAND)
         return {
@@ -752,6 +874,88 @@ class CandidateSearchBrowserDsl:
         self.assertions.assertEqual(band["max"], max_shortlisted)
         if limit_reached is not None:
             self.assertions.assertEqual(band["limitReached"], limit_reached)
+
+    # gatheringMode.shortlistToast (TDR-CS-17's new And, TDR-CS-23, ADR-0059
+    # decision 5) ------------------------------------------------------------
+
+    def assert_gathering_shortlist_toast_is_absent(self) -> None:
+        """shortlistToast.presenceRule: "It never appears while
+        shortlistedCount is zero" -- this suite's own "0件→1件目で現れる"
+        half of the architect's recommended focus (activeContext.md's own
+        申し送り, since the contract deliberately leaves the auto-dismiss
+        delay unfixed).
+        """
+        assert_absent(self.assertions, self.page, GATHERING_SHORTLIST_TOAST)
+
+    def assert_gathering_shortlist_toast_shows(
+        self, *, shortlisted: int, max_shortlisted: int = 5
+    ) -> None:
+        toast = wait_for_at_least_one(self.page, GATHERING_SHORTLIST_TOAST).first
+        self.assertions.assertEqual(
+            int(toast.get_attribute(GATHERING_MODE_SHORTLISTED_COUNT_ATTR)), shortlisted
+        )
+        self.assertions.assertEqual(
+            int(toast.get_attribute(GATHERING_MODE_MAX_SHORTLISTED_ATTR)), max_shortlisted
+        )
+
+    # Generous relative to any plausible short auto-dismiss delay an
+    # implementation might choose (the contract deliberately leaves the
+    # exact duration unfixed, ADR-0059 未決事項2) -- this suite's own
+    # "5/5 では自分で消えない" half of the architect's recommended focus:
+    # since shortlistToast.presenceRule guarantees the toast never
+    # self-dismisses once shortlistedCount equals maxShortlisted, this wait
+    # is not a race against an unknown timing value (there is nothing to
+    # race -- the Must holds for any elapsed time), it only makes the check
+    # non-vacuous by waiting past what an ordinary (non-capped) toast would
+    # plausibly have already dismissed itself within.
+    _SHORTLIST_TOAST_PERSISTENCE_CHECK_MS = 4000
+
+    def assert_gathering_shortlist_toast_persists_at_the_cap(self) -> None:
+        toast = wait_for_at_least_one(self.page, GATHERING_SHORTLIST_TOAST)
+        self.page.wait_for_timeout(self._SHORTLIST_TOAST_PERSISTENCE_CHECK_MS)
+        self.assertions.assertEqual(
+            toast.count(),
+            1,
+            "shortlistToast must not self-dismiss once shortlistedCount equals "
+            "maxShortlistedShops (ADR-0059 decision 5)",
+        )
+
+    def given_a_gathering_with_four_of_five_shops_shortlisted(
+        self, title: str, candidate_date_iso: str | None = None
+    ) -> str:
+        """Given-state builder for TDR-CS-23's own Given ("すでに4件を会に
+        入れている"). Pins Monday (OPEN_SHOP_COUNT_BY_WEEKDAY[0] == 5,
+        exactly the 5-item display cap, the same pin TDR-CS-18's own Then
+        step already relies on for an exact-population match) so every
+        proposeCandidates call against this gathering deterministically
+        returns the identical, complete 5-shop set -- mirrors
+        given_a_gathering_with_exactly_one_shortlisted_shop's own reasoning
+        for why this matters: the independent proposeCandidates call
+        open_gathering_mode_from_dashboard triggers later must not omit the
+        one shop this method deliberately leaves not-yet-shortlisted.
+        """
+        if candidate_date_iso is None:
+            candidate_date_iso = next_weekday_iso(0)  # Monday: 5 open shops == display cap
+        gathering_id = self.given_a_selecting_shop_gathering(title, candidate_date_iso)
+        proposal_response = self._gathering_api(
+            "POST", "/candidate-proposals", {"gatheringId": gathering_id}, csrf=True
+        )
+        self.assertions.assertEqual(proposal_response.status, 200, proposal_response.body)
+        candidates = proposal_response.payload["candidates"]
+        self.assertions.assertEqual(
+            len(candidates),
+            5,
+            "Monday's open-shop population must exactly fill the 5-item display cap",
+        )
+        shop_ids_to_shortlist = [candidate["shopId"] for candidate in candidates[:4]]
+        shortlist_response = self._gathering_api(
+            "PUT",
+            f"/gatherings/{gathering_id}/shortlisted-shops",
+            {"shopIds": shop_ids_to_shortlist},
+            csrf=True,
+        )
+        self.assertions.assertEqual(shortlist_response.status, 200, shortlist_response.body)
+        return gathering_id
 
     def toggle_first_candidate_into_gathering(self) -> None:
         """gatheringMode.cardToggle's requiredOutcome (TDR-CS-17): toggles the
@@ -780,7 +984,22 @@ class CandidateSearchBrowserDsl:
         click and the same index continues to identify the same card across
         it -- mirroring gathering_scheduling_browser.py's own identical fix
         for this same gatheringMode screen's cardToggle.
+
+        **Fixed (FR-039, ADR-0059 integration round)**: this method read
+        ``toggles.count()`` with no prior wait for this screen's own cards
+        to finish rendering -- ``Locator.count()`` never waits the way
+        ``expect(...)``/``wait_for_at_least_one`` do (the same distinction
+        ``wait_for_at_least_one``'s own docstring documents), so a call
+        landing before the first paint of ``candidate-card-gathering-
+        toggle`` saw an empty locator and this method's own ``next(...)``
+        raised ``StopIteration`` instead of finding the not-yet-shortlisted
+        target (reproduced empirically once ADR-0059's own additional
+        navigation/toast DOM lengthened this screen's own render path just
+        enough to make the race newly visible -- a settle-point fix, not a
+        sleep: the wait resolves as soon as one card attaches, never a
+        fixed duration).
         """
+        wait_for_at_least_one(self.page, CANDIDATE_CARD_GATHERING_TOGGLE)
         toggles = self.page.locator(f'[data-testid="{CANDIDATE_CARD_GATHERING_TOGGLE}"]')
         target_index = next(
             index

@@ -382,6 +382,62 @@ class CandidateSearchSteps:
             shortlisted=shortlisted, max_shortlisted=max_shortlisted, limit_reached=limit_reached
         )
 
+    # gatheringMode.shortlistToast (TDR-CS-17's new And, TDR-CS-23, ADR-0059
+    # decision 5) --------------------------------------------------------
+
+    def gathering_shortlist_toast_is_absent(self) -> None:
+        self.dsl.assert_gathering_shortlist_toast_is_absent()
+
+    def gathering_shortlist_toast_shows(
+        self, *, shortlisted: int, max_shortlisted: int = 5
+    ) -> None:
+        self.dsl.assert_gathering_shortlist_toast_shows(
+            shortlisted=shortlisted, max_shortlisted=max_shortlisted
+        )
+
+    def gathering_shortlist_toast_persists_at_the_cap(self) -> None:
+        self.dsl.assert_gathering_shortlist_toast_persists_at_the_cap()
+
+    def organizer_has_a_gathering_with_four_of_five_shops_shortlisted(
+        self, title: str, candidate_date_iso: str | None = None
+    ) -> str:
+        return self.dsl.given_a_gathering_with_four_of_five_shops_shortlisted(
+            title, candidate_date_iso
+        )
+
+    # openGatheringEntry / returnToGatheringFromEntry's shared 3-input nav
+    # (ADR-0059 decision 4) -----------------------------------------------
+
+    def organizer_opens_this_screen_in_gathering_mode_at_two_column_viewport(
+        self, gathering_id: str
+    ) -> None:
+        self.dsl.open_gathering_mode_at_two_column_viewport(gathering_id)
+
+    def organizer_opens_this_screen_in_gathering_mode_at_map_primary_touch_viewport(
+        self, gathering_id: str
+    ) -> None:
+        self.dsl.open_gathering_mode_at_map_primary_touch_viewport(gathering_id)
+
+    def desktop_chip_returns_to_this_gathering(self, gathering_id: str) -> None:
+        self.dsl.assert_desktop_chip_returns_to_this_gathering(gathering_id)
+
+    def desktop_chip_opens_the_gathering_list(self) -> None:
+        self.dsl.assert_desktop_chip_opens_the_gathering_list()
+
+    def desktop_menu_gathering_destination_returns_to_this_gathering(
+        self, gathering_id: str
+    ) -> None:
+        self.dsl.assert_desktop_menu_gathering_destination_returns_to_this_gathering(gathering_id)
+
+    def desktop_menu_gathering_destination_opens_the_gathering_list(self) -> None:
+        self.dsl.assert_desktop_menu_gathering_destination_opens_the_gathering_list()
+
+    def mobile_bar_gathering_item_returns_to_this_gathering(self, gathering_id: str) -> None:
+        self.dsl.assert_mobile_bar_gathering_item_returns_to_this_gathering(gathering_id)
+
+    def mobile_bar_gathering_item_opens_the_gathering_list(self) -> None:
+        self.dsl.assert_mobile_bar_gathering_item_opens_the_gathering_list()
+
     # gatheringMode.mapMarker (TDR-CS-20, ADR-0056 decision 4) ---------------
 
     def organizer_toggles_a_shop_into_the_gathering_and_returns_its_ref(self) -> str:

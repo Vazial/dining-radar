@@ -658,11 +658,31 @@
 #   TDR-GTH-36が「そのリンクの回答状況は変わらない」をTDR-GTH-17の重複にせず注記で済ませている
 #   この契約の既存の流儀を踏襲した。
 #
+# 2026-09-16 追補18 (architect、ADR-0059。実機フィードバック第2便・束A（上部ナビ・会への戻り道、
+# 2026-09-15〜16人間裁定）。このファイル自身のtestId/allowedPurposesは増やさない——共有ナビの
+# 唯一の規範sourceはcandidate-search-browser-interface.yamlのまま（ADR-0054決定1と同じ流儀）。
+# contractVersionを0.20.0から0.21.0へ上げる):
+# - **`unavailableControls`へ`crossFileSharedNavigation`を新設した**: candidate-search-
+#   browser-interface.yamlのgatheringEntry（menuToggle/menuPanel/mobileBarとその子要素）が、
+#   この契約の3画面（organizerGatheringList・organizerGatheringCreate・organizerDashboard）
+#   でも常設されることを明記した。これらの要素は`data-candidate-control-purpose`を宣言する
+#   （このファイル自身の`data-gathering-control-purpose`ではない）ため、この契約自身の
+#   `allGatheringScreenFormControlsMustDeclarePurpose`のスキャン対象にもallowedPurposesの
+#   宣言対象にも該当しない。
+# - **この3画面から初めてサインアウト・パスワード変更に到達できるようになる**（menuPanel／
+#   mobileBar.account経由）。これらのコントロール自体（`authentication-browser-interface.yaml`
+#   のauth-sign-out/auth-password-change-open）はこのファイルが定義するものではなく、この
+#   ファイル自身の変更を要しない——candidate-search-browser-interface.yaml側の追加が唯一の
+#   変更点である。
+# - `returnToGatheringFromBand`の廃止（candidate-search-browser-interface.yaml側、ADR-0059）
+#   により、`gathering-shortlist-open`からこの画面へ渡った後の戻り方は変わるが、この契約自身の
+#   `organizerDashboard`の観測面・操作は無変更——戻り方の変更は候補検索側の契約だけで完結する。
+#
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.20.0'
+contractVersion: '0.21.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -1144,6 +1164,25 @@ unavailableControls:
     forbidden-test-id list in the first place). See each remaining
     element's own requirement text below for what it does and does not
     show.
+  crossFileSharedNavigation: >-
+    Added 2026-09-16 (ADR-0059). candidate-search-browser-interface.yaml's
+    gatheringEntry.menuToggle/menuPanel/menuDestinationSearch/
+    menuDestinationGathering (desktop, twoColumnLayout) and
+    gatheringEntry.mobileBar and its three children (mobile,
+    mapPrimaryTouchLayout) are present, unconditionally, on every one of
+    this file's own organizerGatheringList/organizerGatheringCreate/
+    organizerDashboard screens -- the same "no test id of its own, one
+    normative source elsewhere" pattern this file's own header note already
+    established for candidate-gathering-entry (ADR-0054 decision 1). These
+    elements declare candidate-search-browser-interface.yaml's own
+    data-candidate-control-purpose attribute, not this file's
+    data-gathering-control-purpose -- neither
+    allGatheringScreenFormControlsMustDeclarePurpose's scan above nor this
+    file's own allowedPurposes list applies to them, and no entry for them
+    is added here. Their disclosure includes, for the first time, a way to
+    reach authentication-browser-interface.yaml's auth-sign-out and
+    auth-password-change-open from any of these three screens -- previously
+    reachable only from the candidate-search screen.
 
 browserControlSurface:
   organizerGatheringList:

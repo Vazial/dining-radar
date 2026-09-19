@@ -896,6 +896,11 @@
     }
     var shopIds = [];
     var thisShopId = null;
+    // ADR-0059 decision 5: shortlistToast appears only when the activated
+    // card's own toggle flips false->true (a shop being *added*, never a
+    // removal) -- captured here from the card's pre-click attribute, before
+    // the flip below.
+    var isAddition = false;
     orderedCardElements.forEach(function (cardEl) {
       var toggleEl = cardEl.querySelector('[data-testid="candidate-card-gathering-toggle"]');
       if (!toggleEl) {
@@ -906,6 +911,7 @@
       var isOn = toggleEl.getAttribute("data-gathering-shortlisted") === "true";
       if (ref === candidateRef) {
         thisShopId = shopId;
+        isAddition = !isOn;
         isOn = !isOn;
       }
       if (isOn && shopId) {
@@ -963,34 +969,35 @@
             String(currentGatheringContext.maxShortlistedShops)
           );
           band.setAttribute("data-shortlist-limit-reached", limitReached ? "true" : "false");
-          // Keep the band's own visible face (ADR-0054 decision 4's "数が
-          // 読めること自体が合図" design) and its returnToGatheringFromBand
-          // href in lockstep with renderGatheringModeBand's own state
-          // computation above -- band.href does not change (this is still
-          // the same gathering), only the modifier class and count text.
-          band.classList.remove(
-            "candidate-gathering-mode-band--empty",
-            "candidate-gathering-mode-band--filled",
-            "candidate-gathering-mode-band--full"
-          );
+          // ADR-0059 decision 5: the band is a pure status line now (no
+          // navigation-styled empty/filled states) -- only its
+          // limit-reached fill and count text stay in lockstep here.
+          band.classList.toggle("candidate-gathering-mode-band--full", limitReached);
           var countEl = band.querySelector(".candidate-gathering-mode-band-count");
-          if (currentGatheringContext.shortlistedShopCount === 0) {
-            band.classList.add("candidate-gathering-mode-band--empty");
-            if (countEl) {
-              countEl.textContent = "会にもどる";
-            }
-          } else {
-            band.classList.add(
-              limitReached
-                ? "candidate-gathering-mode-band--full"
-                : "candidate-gathering-mode-band--filled"
-            );
-            if (countEl) {
-              countEl.textContent =
-                String(currentGatheringContext.shortlistedShopCount) + "件を入れて会にもどる";
-            }
+          if (countEl) {
+            countEl.textContent =
+              "入れた店 " +
+              String(currentGatheringContext.shortlistedShopCount) +
+              " / " +
+              String(currentGatheringContext.maxShortlistedShops);
           }
         }
+        // ADR-0059 decision 5: the toast is the primary return path
+        // immediately after an addition; browserActions.
+        // returnToGatheringFromEntry (the primary nav's own "ランチ会"
+        // destination) stays in sync via syncPrimaryNavGatheringLinks below
+        // regardless of whether a toast is shown. A removal never shows a
+        // new toast (shortlistToast.presenceRule's own "never appears as a
+        // result of removing a shop"), and also dismisses any toast still
+        // lingering from an earlier at-the-cap addition -- its own attribute
+        // values (shortlistedCount/maxShortlisted) would otherwise go stale
+        // the moment this removal changes the count it was still showing.
+        if (isAddition) {
+          renderGatheringShortlistToast(currentGatheringContext);
+        } else {
+          dismissGatheringShortlistToast();
+        }
+        syncPrimaryNavGatheringLinks();
         // This response's fresh gatheringContext (reassigned above) is what
         // gatheringCardToggleDisabledReason reads, so every currently-
         // displayed card's disabled state/reason/notice is recomputed here
@@ -2368,55 +2375,100 @@
   // presenceRule names only response.gatheringContext, not any other
   // render-state condition).
   //
-  // ADR-0054 decision 4 / ADR-0056 decision 7 (2026-09-12 human ruling): the
-  // band is also gatheringMode's *sole* return path back to the gathering --
-  // no separate "戻る"/confirm control exists, because a shop already saves
-  // the instant its toggle is activated (a later "confirm and return" would
-  // falsely imply an unsaved state). Implemented as a plain `<a href>`
-  // (browserActions.returnToGatheringFromBand's own "navigates to
-  // gathering-scheduling-browser-interface.yaml's browserEntry.
-  // organizerDashboard" requirement), not a `<button>` -- this keeps it
-  // outside unavailableControls.allCandidateScreenFormControlsMustDeclare
-  // Purpose's scan, mirroring candidate-gathering-entry's own precedent.
-  // The band's own visible face changes with the count itself, so the
-  // number reaching (or not reaching) the cap is the return signal: 0件=
-  // white outline "会にもどる"; 1〜4件=filled "N件を入れて会にもどる";
-  // 5件=a further, distinct fill color (ADR-0056 decision 7's own
-  // data-shortlist-limit-reached mirrors this same boundary).
+  // ADR-0059 decision 5 (2026-09-16, "案2「入れた瞬間だけ小窓」"): the band
+  // is no longer a return path -- ADR-0054 decision 4 / ADR-0056 decision
+  // 7's "帯自体が戻る動線を兼ねる" is overturned. It is now formControl:
+  // false, a plain <div> (never an <a>, no href, no click handler) --
+  // activating it by any input is not a recognized input and produces no
+  // navigation. Its own visible face still discloses
+  // data-shortlist-limit-reached via a distinct fill once the 5-shop cap is
+  // reached (TDR-CS-21), unchanged from before this revision. The return
+  // path moved to renderGatheringShortlistToast below (immediately after a
+  // shop is added) and, once that toast has dismissed, to the primary nav's
+  // own "ランチ会" destination (browserActions.returnToGatheringFromEntry).
   function renderGatheringModeBand(context) {
     if (!context) {
       return null;
     }
     var limitReached = context.shortlistedShopCount >= context.maxShortlistedShops;
-    var stateClass;
-    var countText;
-    if (context.shortlistedShopCount === 0) {
-      stateClass = "candidate-gathering-mode-band--empty";
-      countText = "会にもどる";
-    } else if (limitReached) {
-      stateClass = "candidate-gathering-mode-band--full";
-      countText = String(context.shortlistedShopCount) + "件を入れて会にもどる";
-    } else {
-      stateClass = "candidate-gathering-mode-band--filled";
-      countText = String(context.shortlistedShopCount) + "件を入れて会にもどる";
-    }
+    var countText = String(context.shortlistedShopCount) + " / " + String(context.maxShortlistedShops);
     return el(
-      "a",
+      "div",
       {
-        href: "/gatherings/" + encodeURIComponent(context.gatheringId) + "/",
         "data-testid": "candidate-gathering-mode-band",
         "data-gathering-shortlisted-count": String(context.shortlistedShopCount),
         "data-gathering-max-shortlisted": String(context.maxShortlistedShops),
         "data-shortlist-limit-reached": limitReached ? "true" : "false",
-        "class": "candidate-gathering-mode-band " + stateClass,
+        "class": "candidate-gathering-mode-band" + (limitReached ? " candidate-gathering-mode-band--full" : ""),
       },
       [
         el("span", { "class": "candidate-gathering-mode-band-condition" }, [
           formatGatheringConfirmedDate(context.confirmedCandidateDate) + "に開いている店",
         ]),
-        el("span", { "class": "candidate-gathering-mode-band-count" }, [countText]),
+        el("span", { "class": "candidate-gathering-mode-band-count" }, ["入れた店 " + countText]),
       ]
     );
+  }
+
+  // ADR-0059 decision 5: gatheringMode.shortlistToast -- the organizer's
+  // primary return path immediately after adding a shop (see
+  // toggleCardGatheringShortlist below for when this is called). Removes
+  // any existing toast first (a second addition before the first toast's
+  // own timer/dismissal must not stack two toasts). Auto-dismisses after
+  // SHORTLIST_TOAST_AUTO_DISMISS_MS *unless* shortlistedCount equals
+  // maxShortlisted at this exact moment (the contract's own "stays present
+  // until the organizer navigates away" case) -- the timer is simply never
+  // started then, rather than started and cancelled, so there is nothing to
+  // clear if the organizer later removes a shop and re-adds another before
+  // navigating away.
+  var SHORTLIST_TOAST_AUTO_DISMISS_MS = 4000;
+  var shortlistToastDismissTimer = null;
+
+  function dismissGatheringShortlistToast() {
+    if (shortlistToastDismissTimer !== null) {
+      clearTimeout(shortlistToastDismissTimer);
+      shortlistToastDismissTimer = null;
+    }
+    var existing = document.querySelector('[data-testid="candidate-gathering-shortlist-toast"]');
+    if (existing) {
+      existing.remove();
+    }
+  }
+
+  function renderGatheringShortlistToast(context) {
+    dismissGatheringShortlistToast();
+    var limitReached = context.shortlistedShopCount >= context.maxShortlistedShops;
+    var toast = el(
+      "div",
+      {
+        "data-testid": "candidate-gathering-shortlist-toast",
+        "data-gathering-shortlisted-count": String(context.shortlistedShopCount),
+        "data-gathering-max-shortlisted": String(context.maxShortlistedShops),
+        "class": "candidate-gathering-shortlist-toast",
+      },
+      [
+        el("span", {}, [
+          "入れました・" + String(context.shortlistedShopCount) + " / " + String(context.maxShortlistedShops),
+        ]),
+        el(
+          "a",
+          {
+            href: "/gatherings/" + encodeURIComponent(context.gatheringId) + "/",
+            "data-testid": "candidate-gathering-shortlist-toast-return",
+            "class": "candidate-gathering-shortlist-toast-return",
+          },
+          ["会にもどる"]
+        ),
+      ]
+    );
+    document.body.appendChild(toast);
+    if (!limitReached) {
+      shortlistToastDismissTimer = window.setTimeout(function () {
+        shortlistToastDismissTimer = null;
+        toast.remove();
+      }, SHORTLIST_TOAST_AUTO_DISMISS_MS);
+    }
+    return toast;
   }
 
   // A human-readable rendering of gatheringContext.confirmedCandidateDate
@@ -2452,7 +2504,7 @@
     // toggleCardGatheringShortlist below look up each currently-displayed
     // card's own Candidate.shopId without inventing a new DOM attribute.
     currentGatheringContext = body.gatheringContext || null;
-    updateGatheringEntryActiveState();
+    syncPrimaryNavGatheringLinks();
     currentCandidatesByRef = {};
     (body.candidates || []).forEach(function (candidate) {
       currentCandidatesByRef[candidate.candidateRef] = candidate;
@@ -2623,41 +2675,79 @@
     renderProblem(body.code, body.message, hasDisplayedProposal);
   }
 
-  // ADR-0056 decision 8: candidate-gathering-entry.activeGathering --
-  // data-active-gathering-id is present, with the current gathering's
-  // opaque id as its exact string value, exactly when this screen was
-  // reached in gathering mode (response.gatheringContext non-null);
-  // absent -- the attribute itself missing, not merely empty -- on the
-  // ordinary, non-gathering screen this same entry element also serves.
-  // Independent of badge.presenceRule below (both live on the same
-  // element but govern different things). Called synchronously from
-  // renderResult (no network round trip of its own needed -- the value
-  // already lives on currentGatheringContext).
-  function updateGatheringEntryActiveState() {
-    var entry = document.querySelector('[data-testid="candidate-gathering-entry"]');
-    if (!entry) {
-      return;
-    }
-    if (currentGatheringContext) {
-      entry.setAttribute("data-active-gathering-id", currentGatheringContext.gatheringId);
-    } else {
-      entry.removeAttribute("data-active-gathering-id");
+  // ADR-0059 decisions 2-4: the "ランチ会" destination now takes three
+  // render-mode/location-specific shapes sharing one navigation meaning
+  // (gatheringEntry.entry/mobileBarGathering/menuDestinationGathering) --
+  // browserActions.openGatheringEntry/returnToGatheringFromEntry share the
+  // same three inputs with opposite preconditions on
+  // response.gatheringContext. This screen determines the effective
+  // gathering id from currentGatheringContext once a response has settled,
+  // falling back to gatheringModeId (the URL's own gatheringId, read
+  // synchronously at module load, see readGatheringIdFromUrl above) before
+  // that -- this contract does not fix the exact navigation mechanism
+  // (gatheringMode's own description), so a URL query parameter doubling as
+  // the "am I in gathering mode yet" proxy for this screen's own initial,
+  // pre-response paint is this implementation's choice. Every survivor of
+  // initializePrimaryNav's render-mode removal (menuDestinationGathering/
+  // mobileBarGathering, and the chip if present) is kept in lockstep here;
+  // called at DOMContentLoaded (initializePrimaryNav) and again after every
+  // renderResult and toggleCardGatheringShortlist success (currentGathering
+  // Context only ever changes on one of those two paths).
+  function syncPrimaryNavGatheringLinks() {
+    var effectiveGatheringId = currentGatheringContext
+      ? currentGatheringContext.gatheringId
+      : gatheringModeId;
+    var isGatheringMode = !!effectiveGatheringId;
+    var gatheringHref = isGatheringMode
+      ? "/gatherings/" + encodeURIComponent(effectiveGatheringId) + "/"
+      : null;
+    document
+      .querySelectorAll(
+        '[data-testid="candidate-primary-nav-menu-gathering"], [data-testid="candidate-primary-nav-gathering"]'
+      )
+      .forEach(function (link) {
+        link.setAttribute("data-primary-nav-current", isGatheringMode ? "true" : "false");
+        if (gatheringHref) {
+          link.setAttribute("href", gatheringHref);
+        }
+      });
+    document
+      .querySelectorAll(
+        '[data-testid="candidate-primary-nav-menu-search"], [data-testid="candidate-primary-nav-search"]'
+      )
+      .forEach(function (link) {
+        link.setAttribute("data-primary-nav-current", isGatheringMode ? "false" : "true");
+      });
+    // ADR-0056 decision 8: the chip's own data-active-gathering-id (present
+    // only in gathering mode, absent -- the attribute itself, not merely
+    // empty -- otherwise) and its own href, kept in the same lockstep.
+    var chip = document.querySelector('[data-testid="candidate-gathering-entry"]');
+    if (chip) {
+      if (isGatheringMode) {
+        chip.setAttribute("data-active-gathering-id", effectiveGatheringId);
+        chip.setAttribute("href", gatheringHref);
+      } else {
+        chip.removeAttribute("data-active-gathering-id");
+      }
     }
   }
 
   // contracts/candidate-search-browser-interface.yaml's gatheringEntry
-  // section (adr/0038): candidate-gathering-entry itself is plain,
-  // server-rendered HTML (home.html) and therefore already present before
-  // this script runs. Only the badge -- which mirrors
-  // gathering-scheduling-api.yaml's getInProgressGatheringCount, a
-  // different business contract's own resource -- is built here, once
-  // fetched. Independent of the candidate-proposal request above: a
-  // failure fetching one must never block or hide the other.
+  // section: unlike menuToggle/mobileBar (server-rendered, present
+  // unconditionally per renderModes), gatheringEntry.entry (the chip) must
+  // be entirely absent from the DOM -- not merely hidden -- whenever
+  // data-in-progress-gathering-count is zero (2026-09-16 human ruling, see
+  // that requirement's own text), so it is built here in full once fetched,
+  // never server-rendered in home.html. Its count mirrors gathering-
+  // scheduling-api.yaml's getInProgressGatheringCount, a different business
+  // contract's own resource. Independent of the candidate-proposal request
+  // above: a failure fetching one must never block or hide the other. Only
+  // ever inserted while [data-primary-nav-desktop] itself still exists --
+  // initializePrimaryNav has already removed it entirely under
+  // mapPrimaryTouchLayout, where the chip has no place at all (mobileBar
+  // carries the same count on its own gathering item instead, see below).
   function loadGatheringEntryBadge() {
-    var entry = document.querySelector('[data-testid="candidate-gathering-entry"]');
-    if (!entry) {
-      return;
-    }
+    var desktopNav = document.querySelector("[data-primary-nav-desktop]");
     fetch("/gatherings/in-progress-count", { credentials: "same-origin" })
       .then(function (response) {
         return response.status === 200 ? response.json() : null;
@@ -2667,25 +2757,139 @@
           return;
         }
         var count = body.inProgressGatheringCount;
-        var badge = entry.querySelector('[data-testid="candidate-gathering-entry-badge"]');
-        // presenceRule: present exactly when the count is greater than
-        // zero; absent when it is zero (Handoff.dc.html: "0のときはバッジを
-        // 出さない").
+        // mobileBarGathering.badgeCount: present, as a decimal integer
+        // string, exactly when the count is greater than zero; absent
+        // (the attribute itself) when it is zero -- unlike entry's own
+        // chip, the bar item's own "ランチ会" label stays present either
+        // way (mobileBar is unconditional).
+        var barGathering = document.querySelector('[data-testid="candidate-primary-nav-gathering"]');
+        if (barGathering) {
+          if (count > 0) {
+            barGathering.setAttribute("data-in-progress-gathering-count", String(count));
+          } else {
+            barGathering.removeAttribute("data-in-progress-gathering-count");
+          }
+        }
+        if (!desktopNav) {
+          return;
+        }
+        var chip = desktopNav.querySelector('[data-testid="candidate-gathering-entry"]');
         if (count > 0) {
+          if (!chip) {
+            chip = el(
+              "a",
+              { href: "/gatherings/", "data-testid": "candidate-gathering-entry", "class": "candidate-gathering-entry" },
+              [
+                el("span", { "aria-hidden": "true" }, ["🍽"]),
+                el("span", {}, ["ランチ会"]),
+              ]
+            );
+            desktopNav.appendChild(chip);
+          }
+          var badge = chip.querySelector('[data-testid="candidate-gathering-entry-badge"]');
           if (!badge) {
-            badge = el("span", { "data-testid": "candidate-gathering-entry-badge", "class": "candidate-gathering-entry-badge" }, []);
-            entry.appendChild(badge);
+            badge = el(
+              "span",
+              { "data-testid": "candidate-gathering-entry-badge", "class": "candidate-gathering-entry-badge" },
+              []
+            );
+            chip.appendChild(badge);
           }
           badge.setAttribute("data-in-progress-gathering-count", String(count));
           badge.textContent = String(count);
-        } else if (badge) {
-          badge.remove();
+        } else if (chip) {
+          chip.remove();
         }
+        syncPrimaryNavGatheringLinks();
       })
       .catch(function () {});
   }
 
+  // ADR-0059 decisions 1-2: renderModes.twoColumnLayout/mapPrimaryTouchLayout
+  // are mutually exclusive -- exactly one of [data-primary-nav-desktop]
+  // (the ≡ menu) and every [data-primary-nav-mobile] node (the bottom bar
+  // and its own account sheet) survives in the live DOM. Both are
+  // server-rendered unconditionally in home.html (authentication-browser-
+  // interface.yaml's renderModel requires auth-sign-out/
+  // auth-password-change-open to exist in server-rendered HTML, not be
+  // JS-inserted, for TDR-AUTH's own plain-HTTP '/' entry check) -- this
+  // function removes whichever one does not match the current viewport,
+  // once, at DOMContentLoaded, mirroring renderResult's own one-shot,
+  // render-time-only isTwoColumnLayout read (adr/0032 decision3: no
+  // live-resize mode switching). Also wires the mobile account sheet's
+  // open/close (candidate-primary-nav-account, auth-account-menu-toggle
+  // purpose) and Escape-to-close for both the ≡ <details> and the sheet.
+  function initializePrimaryNav() {
+    var isTwoColumn = window.matchMedia && window.matchMedia("(min-width: 64rem)").matches;
+    if (isTwoColumn) {
+      document.querySelectorAll("[data-primary-nav-mobile]").forEach(function (node) {
+        node.remove();
+      });
+    } else {
+      var desktopNav = document.querySelector("[data-primary-nav-desktop]");
+      if (desktopNav) {
+        desktopNav.remove();
+      }
+    }
+    syncPrimaryNavGatheringLinks();
+
+    var accountButton = document.querySelector('[data-testid="candidate-primary-nav-account"]');
+    var accountSheet = document.getElementById("primary-nav-account-sheet");
+    if (accountButton && accountSheet) {
+      accountButton.addEventListener("click", function () {
+        var willOpen = accountSheet.hasAttribute("hidden");
+        if (willOpen) {
+          accountSheet.removeAttribute("hidden");
+        } else {
+          accountSheet.setAttribute("hidden", "");
+        }
+        accountButton.setAttribute("aria-expanded", willOpen ? "true" : "false");
+      });
+    }
+    // gatheringEntry.menuDestinationSearch/mobileBarSearch: "Activating it
+    // while already true does not reload the same screen (no-op)". Read
+    // data-primary-nav-current at click time (not a stale closure), since
+    // syncPrimaryNavGatheringLinks can flip it after this listener attaches
+    // (e.g. once gathering mode is confirmed by the first response). No
+    // equivalent no-op exists for the gathering destination (menuDestination
+    // Gathering/mobileBarGathering never states this rule -- only navigates,
+    // via openGatheringEntry/returnToGatheringFromEntry).
+    document.addEventListener("click", function (event) {
+      var target =
+        event.target.closest &&
+        event.target.closest(
+          '[data-testid="candidate-primary-nav-menu-search"], [data-testid="candidate-primary-nav-search"]'
+        );
+      if (target && target.getAttribute("data-primary-nav-current") === "true") {
+        event.preventDefault();
+      }
+    });
+    // Esc closes the ≡ menu (<details>) and the mobile account sheet alike,
+    // returning focus to whichever trigger opened it.
+    document.addEventListener("keydown", function (event) {
+      if (event.key !== "Escape" && event.key !== "Esc") {
+        return;
+      }
+      var openMenu = document.querySelector(".primary-nav-menu[open]");
+      if (openMenu) {
+        openMenu.removeAttribute("open");
+        var toggle = openMenu.querySelector('[data-testid="candidate-primary-nav-menu-toggle"]');
+        if (toggle) {
+          toggle.focus();
+        }
+      }
+      if (accountSheet && !accountSheet.hasAttribute("hidden")) {
+        accountSheet.setAttribute("hidden", "");
+        if (accountButton) {
+          accountButton.setAttribute("aria-expanded", "false");
+          accountButton.focus();
+        }
+      }
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
+    initializePrimaryNav();
     requestProposal(null)
       .then(function (result) {
         handleProposalResponse(result.status, result.body);

@@ -47,7 +47,6 @@
       gap: 0.5rem;
     }
     header[data-testid="authenticated-application-shell"] .app-header h1 { margin: 0; font-size: 1.35rem; }
-    header[data-testid="authenticated-application-shell"] .account-nav { margin-top: 0; }
 
     /* Point 1: a small native-tooltip marker instead of a full paragraph
        (ADR-0013 decision 8: no contract change, since it has no click
@@ -60,43 +59,66 @@
     }
     .candidate-account-note:focus-visible { outline: 2px solid #155c42; outline-offset: 2px; }
 
-    /* --- persistent primary nav (ADR-0054 decision 1, 2026-09-13
-       integration fix) -----------------------------------------------------
-       Two locations that stay reachable from every organizer-facing
-       gathering screen -- "ランチ候補をさがす" (this screen itself) and
-       "ランチ会" (candidate-gathering-entry). Duplicated, byte-for-byte in
-       spirit, from gathering/templates/gathering/organizer_primary_nav.html
-       and organizer.css's own ".gathering-primary-nav"/"-link" rules (this
-       codebase's existing no-shared-module-system convention) -- kept in
-       sync by hand across the two Django apps' own static assets. Visible
-       label text is never hidden at any width (the production defect this
-       decision names). candidate-gathering-entry (Handoff.dc.html 案B) is a
-       bordered button-styled link (not a <button>, see the HTML comment
-       above it) plus an in-progress-count badge. min-height 2.75rem keeps
-       the same 44px tap target this screen's other controls already use. */
-    .gathering-primary-nav {
-      display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem;
+    /* --- persistent primary nav (ADR-0059, 2026-09-16 束A "上部ナビと会への
+       戻り道") -----------------------------------------------------------
+       Replaces ADR-0054 decision 1's single always-visible-label nav with
+       two mutually exclusive render-mode shapes (renderModes.twoColumnLayout
+       / mapPrimaryTouchLayout): a desktop ≡ menu
+       (candidate-primary-nav-menu-toggle/-panel, [data-primary-nav-desktop])
+       and a mobile bottom bar (candidate-primary-nav-bar,
+       [data-primary-nav-mobile]) plus its own account bottom sheet. Both are
+       server-rendered unconditionally (authentication-browser-
+       interface.yaml's renderModel requires auth-sign-out/
+       auth-password-change-open to exist in server-rendered HTML, not be
+       JS-inserted) -- candidate.js's initializePrimaryNav() removes
+       whichever one does not match the current viewport at
+       DOMContentLoaded, so exactly one survives in the live DOM
+       (renderModes.invariant), while TDR-AUTH's own plain-HTTP DSL (no JS)
+       still finds both copies of the account controls in the raw response
+       (duplicate-tolerant, see browser_mechanics.py's test_id_node
+       first-match semantics) before that JS ever runs. Duplicated,
+       byte-for-byte in spirit, from gathering/templates/gathering/
+       organizer_primary_nav.html and organizer.css's own
+       ".primary-nav-*" rules (this codebase's existing no-shared-module-
+       system convention). Every control keeps the same 44px tap target
+       this screen's other controls already use. */
+    .primary-nav-desktop { display: flex; align-items: center; gap: 0.5rem; }
+    .primary-nav-menu { position: relative; }
+    .primary-nav-menu-toggle {
+      display: inline-flex; align-items: center; justify-content: center;
+      list-style: none; cursor: pointer; user-select: none;
+      box-sizing: border-box; min-width: 2.75rem; min-height: 2.75rem; padding: 0 0.75rem;
+      border: 1px solid #dce3da; border-radius: 0.5rem;
+      background: #fff; font-size: 1.15rem;
     }
-    .gathering-primary-nav-link,
+    .primary-nav-menu-toggle::-webkit-details-marker { display: none; }
+    .primary-nav-menu-toggle:hover { background: #f4f5f1; }
+    .primary-nav-menu-toggle:focus-visible { outline: 2px solid #155c42; outline-offset: 2px; }
+    .primary-nav-menu[open] .primary-nav-menu-toggle { border-color: #155c42; }
+    .primary-nav-menu-panel {
+      position: absolute; right: 0; top: calc(100% + 0.4rem); z-index: 20;
+      display: flex; flex-direction: column; gap: 0.3rem;
+      min-width: 12rem; background: #fff; border: 1px solid #dce3da;
+      border-radius: 0.5rem; padding: 0.4rem; box-shadow: 0 0.5rem 1.5rem rgb(23 49 36 / 14%);
+    }
+    .primary-nav-menu-link {
+      display: flex; align-items: center; gap: 0.4rem; width: 100%;
+      box-sizing: border-box; min-height: 2.75rem; padding: 0 0.75rem; border-radius: 0.4rem;
+      border: 0; background: transparent; color: #1c2420; font: inherit; font-weight: 600;
+      text-align: left; text-decoration: none; cursor: pointer;
+    }
+    .primary-nav-menu-link:hover { background: #f4f5f1; }
+    .primary-nav-menu-link:focus-visible { outline: 2px solid #155c42; outline-offset: 2px; }
+    .primary-nav-menu-link[data-primary-nav-current="true"] { background: #e9f1eb; font-weight: 700; }
+    .primary-nav-menu-form { margin: 0; width: 100%; }
     .candidate-gathering-entry {
       display: inline-flex; align-items: center; gap: 0.35rem;
       min-height: 2.75rem; padding: 0 0.8rem; border: 1px solid #c6cfc6;
       border-radius: 0.6rem; background: #fff; color: #17201b;
       font-weight: 650; font-size: 0.875rem; text-decoration: none; white-space: nowrap;
     }
-    .gathering-primary-nav-link:hover,
     .candidate-gathering-entry:hover { background: #f4f6f2; }
-    .gathering-primary-nav-link:focus-visible,
     .candidate-gathering-entry:focus-visible { outline: 2px solid #14684a; outline-offset: 2px; }
-    /* aria-current="page" (a machine-readable "you are here" signal, not
-       persuasive prose -- FR-034 concerns explanatory sentences, not a
-       standard current-page nav indicator): filled instead of outlined,
-       mirroring this file's own selected/active-state convention
-       elsewhere (e.g. .gth-opt--on in participant screens). */
-    .gathering-primary-nav-link--current {
-      background: #14614a; border-color: #14614a; color: #fff; font-weight: 700;
-    }
-    .gathering-primary-nav-link--current:hover { background: #0e4736; }
     .candidate-gathering-entry-badge {
       display: inline-flex; align-items: center; justify-content: center;
       min-width: 1.125rem; height: 1.125rem; border-radius: 999px;
@@ -104,36 +126,47 @@
       padding: 0 0.3rem;
     }
 
-    /* Point 2: password-change/sign-out behind a native <details> menu
-       (ADR-0013 decision 6/7, auth-account-menu-toggle purpose; see the
-       HTML comment above it for the renderModel reasoning). */
-    .candidate-account-menu { position: relative; }
-    .candidate-account-menu summary {
-      display: inline-flex; align-items: center; gap: 0.4rem;
-      list-style: none; cursor: pointer; user-select: none;
-      min-height: 2.75rem; padding: 0 0.9rem;
-      border: 1px solid #dce3da; border-radius: 0.5rem;
-      background: #fff; font-weight: 650;
+    /* Mobile bottom bar (candidate-primary-nav-bar): fixed to the viewport
+       bottom, three equal-width items (さがす／ランチ会 N／アカウント).
+       data-primary-nav-current marks "いまここ" (a machine-readable
+       current-page signal, not persuasive prose -- FR-034 concerns
+       explanatory sentences, not a standard current-page nav indicator). */
+    .primary-nav-bar {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+      display: flex; background: #fff; border-top: 1px solid #dce3da;
+      box-shadow: 0 -0.25rem 1rem rgb(23 49 36 / 8%);
     }
-    .candidate-account-menu summary::-webkit-details-marker { display: none; }
-    .candidate-account-menu summary:hover { background: #f4f5f1; }
-    .candidate-account-menu summary:focus-visible { outline: 2px solid #155c42; outline-offset: 2px; }
-    .candidate-account-menu[open] summary { border-color: #155c42; }
-    .candidate-account-menu-panel {
-      position: absolute; right: 0; top: calc(100% + 0.4rem); z-index: 20;
+    .primary-nav-bar-link {
+      flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 0.15rem; box-sizing: border-box; min-height: 3.25rem; padding: 0.25rem 0;
+      border: 0; background: transparent; color: #4b564e; font: inherit;
+      text-decoration: none; cursor: pointer;
+    }
+    .primary-nav-bar-link:focus-visible { outline: 2px solid #155c42; outline-offset: -2px; }
+    .primary-nav-bar-link[data-primary-nav-current="true"] { color: #14614a; font-weight: 700; }
+    .primary-nav-bar-label { font-size: 0.6875rem; line-height: 1; }
+    .primary-nav-account-sheet {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 31;
       display: flex; flex-direction: column; gap: 0.3rem;
-      min-width: 11rem; background: #fff; border: 1px solid #dce3da;
-      border-radius: 0.5rem; padding: 0.4rem; box-shadow: 0 0.5rem 1.5rem rgb(23 49 36 / 14%);
+      background: #fff; border-top: 1px solid #dce3da; border-radius: 0.75rem 0.75rem 0 0;
+      padding: 0.6rem; box-shadow: 0 -0.5rem 1.5rem rgb(23 49 36 / 18%);
     }
-    .candidate-account-menu-panel a,
-    .candidate-account-menu-panel button {
+    .primary-nav-account-sheet[hidden] { display: none; }
+    .primary-nav-account-sheet-link {
       display: flex; align-items: center; width: 100%;
-      min-height: 2.75rem; padding: 0 0.75rem; border-radius: 0.4rem;
-      background: transparent; color: #1c2420; font: inherit; font-weight: 600; text-align: left;
+      box-sizing: border-box; min-height: 2.75rem; padding: 0 0.85rem; border-radius: 0.5rem;
+      border: 0; background: #f7f8f5; color: #1c2420; font: inherit; font-weight: 650;
+      text-align: left; text-decoration: none; cursor: pointer;
     }
-    .candidate-account-menu-panel a:hover,
-    .candidate-account-menu-panel button:hover { background: #f4f5f1; }
-    .candidate-account-menu-panel form { margin: 0; width: 100%; }
+    .primary-nav-account-sheet-link:hover { background: #eceee9; }
+    .primary-nav-account-sheet-link:focus-visible { outline: 2px solid #155c42; outline-offset: 2px; }
+    .primary-nav-account-sheet-form { margin: 0; width: 100%; }
+    /* #candidate-app's own bottom padding keeps the fixed bottom bar from
+       overlapping the deck's floating card at narrow widths -- 3.25rem
+       (the bar's own min-height) plus a small margin. */
+    @media (max-width: 63.999rem) {
+      body { padding-bottom: 3.75rem; }
+    }
 
     /* Filter surface (human design review 2026-08-10). Replaces the
        "絞り込む" button + modal dialog pair, which the reviewer rejected
@@ -250,31 +283,53 @@
       margin: 0; padding: 0.6rem 0.85rem; border-radius: 0.4rem;
       box-sizing: border-box; min-height: 2.75rem;
       background: #f0f5ee; border: 1px solid #cddccf; color: #2c3a2f;
-      font-size: 0.8125rem; line-height: 1.5; text-decoration: none;
+      font-size: 0.8125rem; line-height: 1.5;
       display: flex; flex-wrap: wrap; align-items: center;
       justify-content: space-between; gap: 0.5rem;
     }
-    .candidate-gathering-mode-band:focus-visible { outline: 2px solid #14684a; outline-offset: 2px; }
     .candidate-gathering-mode-band-count { font-weight: 700; }
-    /* 0件: white outline (会にもどる). */
-    .candidate-gathering-mode-band--empty {
-      background: #fff; border-color: #14684a; color: #14684a;
-    }
-    .candidate-gathering-mode-band--empty:hover { background: #f4f6f2; }
-    /* 1〜4件: filled (N件を入れて会にもどる). */
-    .candidate-gathering-mode-band--filled {
-      background: #14684a; border-color: #14684a; color: #fff;
-    }
-    .candidate-gathering-mode-band--filled:hover { background: #0d4b35; }
-    .candidate-gathering-mode-band--filled .candidate-gathering-mode-band-condition,
-    .candidate-gathering-mode-band--filled .candidate-gathering-mode-band-count { color: #fff; }
-    /* 5件到達: a further, distinct fill so the ground color itself changes
-       once the cap is reached (data-shortlist-limit-reached="true"). */
+    /* ADR-0059 decision 5 (2026-09-16): the band is retired as a
+       navigation element (ADR-0054 decision 4 / ADR-0056 decision 7's
+       "帯自体が戻る動線を兼ねる" is overturned) -- it is now
+       formControl:false, a plain status line (candidate.js's
+       renderGatheringModeBand builds a <div>, not an <a>, with no href).
+       The empty/filled navigation-styled states are retired along with
+       that role; only the 5件到達 (limit-reached) state remains, since
+       that is a status the band itself must still disclose (TDR-CS-21).
+       The return path moved to shortlistToast (below) and, once
+       dismissed, to the primary nav's own "ランチ会" destination. */
     .candidate-gathering-mode-band--full {
       background: #0d4b35; border-color: #0d4b35; color: #fff;
     }
     .candidate-gathering-mode-band--full .candidate-gathering-mode-band-condition,
     .candidate-gathering-mode-band--full .candidate-gathering-mode-band-count { color: #fff; }
+
+    /* ADR-0059 decision 5: gatheringMode.shortlistToast -- appears
+       immediately after a shop is added to the gathering (never on
+       removal), auto-dismisses after a short delay unless the cap (5/5)
+       was just reached (see candidate.js's renderGatheringShortlistToast).
+       Fixed to the viewport bottom so it reads the same way regardless of
+       scroll position, mirroring .primary-nav-bar's own fixed-bottom
+       placement (offset above it at narrow widths so the two never
+       overlap). */
+    .candidate-gathering-shortlist-toast {
+      position: fixed; left: 0.75rem; right: 0.75rem; bottom: 0.75rem; z-index: 32;
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 0.5rem; box-sizing: border-box; min-height: 2.75rem;
+      padding: 0.6rem 0.85rem; border-radius: 0.5rem;
+      background: #14684a; color: #fff; font-size: 0.8125rem; font-weight: 650;
+      box-shadow: 0 0.5rem 1.5rem rgb(23 49 36 / 24%);
+    }
+    @media (max-width: 63.999rem) {
+      .candidate-gathering-shortlist-toast { bottom: 4rem; }
+    }
+    .candidate-gathering-shortlist-toast-return {
+      display: inline-flex; align-items: center; box-sizing: border-box; min-height: 2.75rem;
+      padding: 0 0.75rem; border-radius: 0.4rem; background: rgb(255 255 255 / 16%);
+      color: #fff; font: inherit; font-weight: 700; text-decoration: none;
+    }
+    .candidate-gathering-shortlist-toast-return:hover { background: rgb(255 255 255 / 26%); }
+    .candidate-gathering-shortlist-toast-return:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 
     /* gatheringMode.cardToggle: "この会に入れる"/"この会に入れました". */
     .candidate-gathering-toggle {
@@ -848,24 +903,13 @@
       }
       header[data-testid="authenticated-application-shell"] .app-header h1 { font-size: 1.08rem; }
       .candidate-account-note { width: 2.75rem; height: 2.75rem; background: transparent; }
-      .candidate-account-menu summary {
-        box-sizing: border-box; width: 2.75rem; min-height: 2.75rem; padding: 0;
-        justify-content: center; border: 0; font-size: 1.15rem;
-      }
-      .candidate-account-menu-label { display: none; }
-      /* ADR-0054 decision 1 (2026-09-12 human ruling, gatheringEntry.entry.
-         requirement's own "初見の人に伝わる情報がゼロ" report): this used
-         to hide .candidate-gathering-entry-label entirely at this width,
-         leaving only an emoji a first-time user cannot read as navigation.
-         The label text stays visible at every width now -- only the
-         surrounding padding/border shrink, mirroring
-         .candidate-account-menu summary's own compact-but-labelled style
-         at this same width (which never hid its own label). */
-      .gathering-primary-nav-link,
-      .candidate-gathering-entry {
-        box-sizing: border-box; min-height: 2.75rem; padding: 0 0.5rem;
-        gap: 0.25rem; font-size: 0.8125rem;
-      }
+      /* ADR-0059: [data-primary-nav-desktop] (the ≡ menu and the
+         candidate-gathering-entry chip) is removed outright by
+         initializePrimaryNav() at this width -- there is nothing left to
+         compact here (the old .candidate-account-menu/.gathering-primary-
+         nav-link narrow-width overrides ADR-0054 decision 1 needed are
+         retired along with those elements; the mobile bottom bar below
+         governs this width's own nav instead). */
       #candidate-app { gap: 0.75rem; }
       /* 第3束裁定 (2026-09-12, no Must in contracts/REVISION-PLAN.md 第3節
          -- rendered-geometry/implementation choice this file's own header
@@ -1241,48 +1285,128 @@
 
 {% block content %}
     {% comment %}
-      2026-09-13 integration fix (第1束裁定「上部に『ランチ候補をさがす』
-      『ランチ会』の2つの居場所を常設。スマホ幅でも文字を消さず短くする」,
-      ADR-0054 decision 1): this screen previously carried only
-      candidate-gathering-entry (labelled "会", not "ランチ会") and had no
-      persistent link of its own back to this same screen -- the human's
-      two-location requirement was only ever implemented on the gathering
-      app's own organizer-facing screens
-      (gathering/templates/gathering/organizer_primary_nav.html), whose own
-      comment already named this gap ("Coordination note for the
-      candidate-search/web developer"). This nav mirrors that partial's
-      markup/wording exactly (this codebase's existing convention: no
-      shared module system, every small building block is a duplicated
-      copy kept in sync by hand, e.g. this file's own candidate.js
-      utilities) -- candidate-gathering-entry itself keeps its existing
-      test id/attributes/badge unchanged, only its label text and DOM
-      position move (out of the header's own flex row below, which the
-      narrow-width media query forces to a single non-wrapping line --
-      adding a second nav there would have squeezed that row rather than
-      wrapping to its own line). Deliberately placed as its own block
-      *outside* <header>, not as a third flex child inside it, so it never
-      interacts with header[data-testid="authenticated-application-shell"]'s
-      own flex-wrap:nowrap narrow-width rule. "ランチ候補をさがす" links to
-      this same screen and carries aria-current="page" (a machine-readable,
-      non-prose "you are here" signal -- FR-034 forbids persuasive/
-      explanatory sentences in production screens, not a standard
-      current-page nav indicator).
+      ADR-0059 (2026-09-16 human decision, 束A "上部ナビと会への戻り道"):
+      replaces ADR-0054 decision 1's single nav with two mutually exclusive
+      render-mode shapes (renderModes.twoColumnLayout / mapPrimaryTouchLayout,
+      contracts/candidate-search-browser-interface.yaml's gatheringEntry
+      section) -- see the CSS block above (".primary-nav-*") for the full
+      renderModel/TDR-AUTH reasoning behind rendering both unconditionally
+      here and letting candidate.js's initializePrimaryNav() remove
+      whichever one the current viewport does not match. Both destinations
+      (menuDestinationSearch/-Gathering, mobileBarSearch/-Gathering) carry a
+      default data-primary-nav-current here (candidate.js overwrites it once
+      gathering mode is known -- see readGatheringIdFromUrl/
+      syncPrimaryNavGatheringLinks); the default assumes the ordinary,
+      non-gathering entry, since that is this route's own unparameterized
+      case. This nav mirrors gathering/templates/gathering/
+      organizer_primary_nav.html's own markup (this codebase's existing
+      no-shared-module-system convention, kept in sync by hand).
     {% endcomment %}
-    <nav class="gathering-primary-nav" aria-label="ランチ機能">
+    <div data-primary-nav-desktop class="primary-nav-desktop">
+      <details class="primary-nav-menu">
+        <summary
+          data-testid="candidate-primary-nav-menu-toggle"
+          data-candidate-control-category="button"
+          data-candidate-control-purpose="candidate-primary-nav-menu-toggle"
+          class="primary-nav-menu-toggle"
+        ><span aria-hidden="true">☰</span><span class="visually-hidden">メニュー</span></summary>
+        <div data-testid="candidate-primary-nav-menu-panel" class="primary-nav-menu-panel">
+          <a
+            href="{% url 'web:home' %}"
+            data-testid="candidate-primary-nav-menu-search"
+            data-primary-nav-current="true"
+            class="primary-nav-menu-link"
+          ><span aria-hidden="true">🔍</span>ランチ候補をさがす</a>
+          <a
+            href="{% url 'gathering:organizer-gathering-list' %}"
+            data-testid="candidate-primary-nav-menu-gathering"
+            data-primary-nav-current="false"
+            class="primary-nav-menu-link"
+          ><span aria-hidden="true">🍽</span>ランチ会</a>
+          <a
+            href="{% url 'authentication:password_change' %}"
+            data-testid="auth-password-change-open"
+            data-candidate-control-category="button"
+            data-candidate-control-purpose="auth-password-change-open"
+            class="primary-nav-menu-link"
+          >パスワード変更</a>
+          <form method="post" action="{% url 'authentication:logout' %}" data-testid="auth-sign-out-form" class="primary-nav-menu-form">
+            {% csrf_token %}
+            <button
+              type="submit"
+              data-testid="auth-sign-out"
+              data-candidate-control-category="button"
+              data-candidate-control-purpose="auth-sign-out"
+              class="primary-nav-menu-link"
+            >サインアウト</button>
+          </form>
+        </div>
+      </details>
+      {% comment %}
+        candidate-gathering-entry (the chip): JS-inserted only while
+        data-in-progress-gathering-count > 0 (candidate.js's
+        loadGatheringEntryBadge), per
+        gatheringEntry.entry.requirement's revised presence rule -- unlike
+        candidate-primary-nav-menu-toggle above, this element itself (not
+        only a nested badge) must be entirely absent from the DOM at count
+        zero, so it is never server-rendered here.
+      {% endcomment %}
+    </div>
+    <nav data-testid="candidate-primary-nav-bar" data-primary-nav-mobile class="primary-nav-bar" aria-label="ランチ機能">
       <a
         href="{% url 'web:home' %}"
-        class="gathering-primary-nav-link gathering-primary-nav-link--current"
-        aria-current="page"
-      ><span aria-hidden="true">🔍</span><span class="gathering-primary-nav-label">ランチ候補をさがす</span></a>
+        data-testid="candidate-primary-nav-search"
+        data-primary-nav-current="true"
+        class="primary-nav-bar-link"
+      ><span aria-hidden="true">🔍</span><span class="primary-nav-bar-label">さがす</span></a>
       <a
         href="{% url 'gathering:organizer-gathering-list' %}"
-        data-testid="candidate-gathering-entry"
-        class="candidate-gathering-entry"
-      ><span aria-hidden="true">🍽</span><span class="candidate-gathering-entry-label">ランチ会</span></a>
+        data-testid="candidate-primary-nav-gathering"
+        data-primary-nav-current="false"
+        class="primary-nav-bar-link"
+      ><span aria-hidden="true">🍽</span><span class="primary-nav-bar-label">ランチ会</span></a>
+      <button
+        type="button"
+        data-testid="candidate-primary-nav-account"
+        data-candidate-control-category="button"
+        data-candidate-control-purpose="auth-account-menu-toggle"
+        class="primary-nav-bar-link primary-nav-bar-account"
+        aria-haspopup="true"
+        aria-expanded="false"
+        aria-controls="primary-nav-account-sheet"
+      ><span aria-hidden="true">👤</span><span class="primary-nav-bar-label">アカウント</span></button>
     </nav>
+    {% comment %}
+      The mobile account bottom sheet: its own copy of auth-sign-out/
+      auth-password-change-open, disclosed by candidate-primary-nav-account
+      above (candidate.js toggles its `hidden` attribute; Esc closes it).
+      Kept as a plain hidden-by-default block, not a <details>, because its
+      trigger (a bottom-bar <button>, per gatheringEntry.mobileBarAccount's
+      own "unlike ... plain navigation elements" requirement) is a separate
+      element from this panel, not a native <summary>.
+    {% endcomment %}
+    <div id="primary-nav-account-sheet" data-primary-nav-mobile class="primary-nav-account-sheet" hidden>
+      <a
+        href="{% url 'authentication:password_change' %}"
+        data-testid="auth-password-change-open"
+        data-candidate-control-category="button"
+        data-candidate-control-purpose="auth-password-change-open"
+        class="primary-nav-account-sheet-link"
+      >パスワード変更</a>
+      <form method="post" action="{% url 'authentication:logout' %}" data-testid="auth-sign-out-form" class="primary-nav-account-sheet-form">
+        {% csrf_token %}
+        <button
+          type="submit"
+          data-testid="auth-sign-out"
+          data-candidate-control-category="button"
+          data-candidate-control-purpose="auth-sign-out"
+          class="primary-nav-account-sheet-link"
+        >サインアウト</button>
+      </form>
+    </div>
     <header data-testid="authenticated-application-shell">
       <div class="app-header">
-        <h1>ランチ候補</h1>
+        <h1>ランチ候補をさがす</h1>
         {% comment %}
           ADR-0013 point 1: shrunk from a full-width paragraph to a small,
           native-tooltip info marker. The element itself, its test id, and
@@ -1306,77 +1430,6 @@
           aria-label="管理者から案内された個別アカウントで利用してください。認証情報は共有しないでください。"
         >ⓘ</span>
       </div>
-      {% comment %}
-        ADR-0013 point 2: password-change/sign-out grouped behind a native
-        <details>/<summary> disclosure ("メニューバーとかハンバーガー
-        メニューとか"), using the new auth-account-menu-toggle purpose
-        (candidate-search-browser-interface.yaml v0.3). This is plain
-        server-rendered HTML with no JavaScript involved -- <details>'s
-        open/closed state is a browser-native, CSS-only mechanism -- so
-        both grouped controls exist in the server response from the first
-        response onward, satisfying authentication-browser-interface.yaml's
-        renderModel (controls must exist in server-rendered markup, not be
-        inserted only by client-side JS; closed <details> content still
-        satisfies "present" -- DOM existence, not visibility -- exactly as
-        the contract's own individualAccountGuidance note already
-        establishes for the element above). Known trade-off: the native
-        pattern does not auto-close on an outside click (no JS is used
-        here); it does close via the summary's own toggle and is fully
-        keyboard-operable (Enter/Space).
-      {% endcomment %}
-      <nav class="account-nav" aria-label="アカウント">
-        {% comment %}
-          Deliberately plain native semantics (no role="menu"/"menuitem"):
-          those ARIA widget roles imply arrow-key navigation this markup
-          does not implement (no JS here), which would advertise behavior
-          to assistive technology that does not exist. <details>/<summary>
-          is already a recognized, fully keyboard-operable native
-          disclosure pattern on its own.
-        {% endcomment %}
-        {% comment %}
-          candidate-gathering-entry (Handoff.dc.html 案B, human decision
-          2026-09-01, adr/0038; moved into .gathering-primary-nav above
-          2026-09-13, ADR-0054 decision 1): the candidate-search screen's
-          own entry point into the gathering feature. A plain <a href> --
-          neither a <button> nor an element carrying an interactive ARIA
-          role -- so it never falls inside unavailableControls.
-          allCandidateScreenFormControlsMustDeclarePurpose's scan (mirrors
-          candidate-origin-marker/candidate-map-open's existing
-          "display/navigation-only" style; contracts/candidate-search-
-          browser-interface.yaml's gatheringEntry.entry.requirement).
-          Activating it changes no proposal/selection/filter/origin/range
-          state (browserActions.openGatheringEntry) -- it is a pure
-          navigation to gathering-scheduling-browser-interface.yaml's
-          organizerGatheringList. The badge
-          (candidate-gathering-entry-badge) is added by candidate.js once
-          the in-progress count is fetched (gatheringEntry.crossContract
-          Reference) -- absent until then and whenever the count is 0.
-        {% endcomment %}
-        <details class="candidate-account-menu">
-          <summary
-            data-testid="auth-account-menu-toggle"
-            data-candidate-control-category="button"
-            data-candidate-control-purpose="auth-account-menu-toggle"
-          ><span aria-hidden="true">☰</span><span class="candidate-account-menu-label">アカウント</span></summary>
-          <div class="candidate-account-menu-panel">
-            <a
-              href="{% url 'authentication:password_change' %}"
-              data-testid="auth-password-change-open"
-              data-candidate-control-category="button"
-              data-candidate-control-purpose="auth-password-change-open"
-            >パスワード変更</a>
-            <form method="post" action="{% url 'authentication:logout' %}" data-testid="auth-sign-out-form">
-              {% csrf_token %}
-              <button
-                type="submit"
-                data-testid="auth-sign-out"
-                data-candidate-control-category="button"
-                data-candidate-control-purpose="auth-sign-out"
-              >サインアウト</button>
-            </form>
-          </div>
-        </details>
-      </nav>
     </header>
     <main>
       <div hidden>{% csrf_token %}</div>
@@ -1407,5 +1460,5 @@
       code (184px facts grid, no name-in-id-row) even though the server's
       own file already had this round's fixes.
     {% endcomment %}
-    <script src="{% static 'dining_radar/web/candidate.js' %}?v=20260913-last-shortlisted-shop-toggle"></script>
+    <script src="{% static 'dining_radar/web/candidate.js' %}?v=20260916-primary-nav-redesign"></script>
 {% endblock %}

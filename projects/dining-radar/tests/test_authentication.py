@@ -118,7 +118,12 @@ class AuthenticationFlowTests(TestCase):
         home = self.client.get(reverse("web:home"))
         password_change = self.client.get(reverse("authentication:password_change"))
 
-        self.assertContains(home, 'class="account-nav"')
+        # ADR-0059 (2026-09-16): the account controls now live inside the
+        # primary nav's desktop menu panel and mobile account sheet (see
+        # tests/test_static_assets.py's own PrimaryNavSourceTests), not a
+        # standalone `.account-nav` wrapper -- that class is retired along
+        # with the old `<details class="candidate-account-menu">` markup.
+        self.assertContains(home, 'class="primary-nav-menu-panel"')
         self.assertContains(password_change, 'class="app-shell"')
 
     def test_candidate_api_returns_safe_authentication_problem_for_anonymous_request(self):

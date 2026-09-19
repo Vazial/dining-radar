@@ -1904,16 +1904,18 @@
   }
 
   // contracts/candidate-search-browser-interface.yaml's gatheringEntry
-  // section (ADR-0054 decision 1): candidate-gathering-entry itself is
-  // plain, server-rendered HTML (organizer_dashboard.html) and therefore
-  // already present before this script runs. Only the badge is built here,
-  // once fetched (duplicated verbatim from
-  // web/static/dining_radar/web/candidate.js's own loadGatheringEntryBadge).
+  // section: gatheringEntry.mobileBar's own children are plain,
+  // server-rendered HTML (organizer_primary_nav.html) and therefore
+  // already present before this script runs. Only mobileBarGathering's own
+  // badgeCount attribute is set here, once fetched (duplicated verbatim
+  // from web/static/dining_radar/web/candidate.js's own
+  // loadGatheringEntryBadge; no shared module system exists in this
+  // codebase). Unlike candidate-search's own chip, this screen never
+  // builds candidate-gathering-entry at all -- ADR-0059 decision 2 removed
+  // it from every one of gathering-scheduling-browser-interface.yaml's
+  // organizer-facing screens (see organizer_primary_nav.html's own
+  // comment).
   function loadGatheringEntryBadge() {
-    var entry = document.querySelector('[data-testid="candidate-gathering-entry"]');
-    if (!entry) {
-      return;
-    }
     fetch("/gatherings/in-progress-count", { credentials: "same-origin" })
       .then(function (response) {
         return response.status === 200 ? response.json() : null;
@@ -1923,25 +1925,80 @@
           return;
         }
         var count = body.inProgressGatheringCount;
-        var badge = entry.querySelector('[data-testid="candidate-gathering-entry-badge"]');
+        var barGathering = document.querySelector('[data-testid="candidate-primary-nav-gathering"]');
+        if (!barGathering) {
+          return;
+        }
         if (count > 0) {
-          if (!badge) {
-            badge = el(
-              "span",
-              { "data-testid": "candidate-gathering-entry-badge", "class": "candidate-gathering-entry-badge" },
-              []
-            );
-            entry.appendChild(badge);
-          }
-          badge.setAttribute("data-in-progress-gathering-count", String(count));
-          badge.textContent = String(count);
-        } else if (badge) {
-          badge.remove();
+          barGathering.setAttribute("data-in-progress-gathering-count", String(count));
+        } else {
+          barGathering.removeAttribute("data-in-progress-gathering-count");
         }
       })
       .catch(function () {});
   }
 
+  // ADR-0059 decisions 1-2: renderModes.twoColumnLayout/
+  // mapPrimaryTouchLayout are mutually exclusive -- exactly one of
+  // [data-primary-nav-desktop] (the ≡ menu) and every
+  // [data-primary-nav-mobile] node (the bottom bar and its own account
+  // sheet) survives in the live DOM. Both are server-rendered
+  // unconditionally in organizer_primary_nav.html; this removes whichever
+  // one does not match the current viewport, once, at load (duplicated
+  // verbatim from candidate.js's own initializePrimaryNav -- see that
+  // function's own comment for the full renderModel/TDR-AUTH reasoning).
+  // The nav lives outside #gathering-app (this file's own render() rebuild
+  // root), so it is unaffected by, and never needs to cooperate with,
+  // restoreFocusFromDescriptor above.
+  function initializePrimaryNav() {
+    var isTwoColumn = window.matchMedia && window.matchMedia("(min-width: 64rem)").matches;
+    if (isTwoColumn) {
+      document.querySelectorAll("[data-primary-nav-mobile]").forEach(function (node) {
+        node.remove();
+      });
+    } else {
+      var desktopNav = document.querySelector("[data-primary-nav-desktop]");
+      if (desktopNav) {
+        desktopNav.remove();
+      }
+    }
+
+    var accountButton = document.querySelector('[data-testid="candidate-primary-nav-account"]');
+    var accountSheet = document.getElementById("primary-nav-account-sheet");
+    if (accountButton && accountSheet) {
+      accountButton.addEventListener("click", function () {
+        var willOpen = accountSheet.hasAttribute("hidden");
+        if (willOpen) {
+          accountSheet.removeAttribute("hidden");
+        } else {
+          accountSheet.setAttribute("hidden", "");
+        }
+        accountButton.setAttribute("aria-expanded", willOpen ? "true" : "false");
+      });
+    }
+    document.addEventListener("keydown", function (event) {
+      if (event.key !== "Escape" && event.key !== "Esc") {
+        return;
+      }
+      var openMenu = document.querySelector(".primary-nav-menu[open]");
+      if (openMenu) {
+        openMenu.removeAttribute("open");
+        var toggle = openMenu.querySelector('[data-testid="candidate-primary-nav-menu-toggle"]');
+        if (toggle) {
+          toggle.focus();
+        }
+      }
+      if (accountSheet && !accountSheet.hasAttribute("hidden")) {
+        accountSheet.setAttribute("hidden", "");
+        if (accountButton) {
+          accountButton.setAttribute("aria-expanded", "false");
+          accountButton.focus();
+        }
+      }
+    });
+  }
+
+  initializePrimaryNav();
   loadGathering();
   loadGatheringEntryBadge();
 })();
