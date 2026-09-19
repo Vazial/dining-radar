@@ -1573,8 +1573,12 @@
 }
 /* participantLinkCopy (ADR-0063 decision 3's own scope note: this control
    is not one of the 4 tab-gated targets) -- kept unconditionally visible
-   below the tab strip, on every tab, not just linksTab (tester finding,
-   TDR-GTH-36). */
+   regardless of which tab is active (tester finding, TDR-GTH-36). On the
+   shop tab (shops non-empty) and the links tab it shares an existing head
+   row instead (gth-inline-actions below / linksTab's own gth-pane-head-row)
+   -- this rule is this control's own standalone row on the remaining
+   tabs (schedule/answers, and shopTab before any shop is ever added),
+   which have no head row of their own to share it with. */
 .gth-shop-panel-link-copy {
   display: flex;
   justify-content: flex-end;
@@ -1583,6 +1587,20 @@
 }
 .gth-pane > .gth-shop-panel-link-copy {
   padding: 0;
+}
+/* **Fixed 2026-09-19 (coordinator finding, board S4 comparison)**: board
+   S4's own list-heading row ("票が多い順"/"店を絞りなおす") is one line;
+   participantLinkCopy used to stack a second row directly beneath it
+   instead. Groups it with 店を絞りなおす at the row's own trailing end so
+   the row stays the one line board draws (wraps onto its own second line
+   only if the row is too narrow to fit both, the same graceful-wrap
+   convention gth-pane-head-row's own flex-wrap already uses). */
+.gth-inline-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 /* Board D2 (ADR-0062 decision 2): the bottom-of-screen action bar every
    confirm-selection flow on this pane shares -- geometry only, the
@@ -1621,37 +1639,41 @@
   overflow-wrap: anywhere;
 }
 @media (max-width: 47.9375rem) {
-  /* Narrow layouts also have organizer_primary_nav.html's own real,
-     viewport-fixed mobile bottom bar (.primary-nav-bar, z-index: 30 --
-     above this pane's own z-index: 2/3 stack) below this pane -- board
-     D2's own request that gth-bottom-bar sit 「下部ナビのすぐ上」, not
-     underneath it. .primary-nav-bar's own rendered height: 3.25rem
-     (.primary-nav-bar-link's own min-height) plus its 1px top border,
-     rounded up to 3.5rem here for the same slack gth-bottom-bar's own
-     4.25rem above already allows. */
-  .gth-bottom-bar {
-    bottom: 3.5rem;
-  }
+  /* **Fixed 2026-09-19 (coordinator finding, board S4 comparison)**: this
+     rule used to *also* offset gth-bottom-bar by 3.5rem to clear
+     .primary-nav-bar (organizer_primary_nav.html's own real,
+     viewport-fixed mobile bottom bar, z-index: 30) -- but gth-shop-stage
+     above already reaches only to the viewport bottom minus that same
+     nav's own height (its own calc(100vh - 16rem) formula), so this
+     bar's own default bottom: 0 (unchanged from the base rule above)
+     already lands it flush with the stage's own bottom edge, which
+     itself already sits just above the nav. The removed 3.5rem was
+     double-reserving the same nav clearance twice, leaving a ~60px strip
+     of bare map between the bar and the nav instead of the bar sitting on
+     the stage's own floor the way board S4 draws it. */
   .gth-shop-panel {
     left: 0;
     right: 0;
     top: auto;
-    /* 3.5rem to clear .primary-nav-bar + 4.25rem to clear the
-       now-elevated gth-bottom-bar (both comments above). */
-    bottom: 7.75rem;
+    /* 4.25rem clears gth-bottom-bar's own rendered height (a .gth-btn's
+       2.75rem floor plus this bar's own 0.625rem top/bottom padding,
+       rounded up for border/line-height slack -- see gth-bottom-bar's own
+       comment above) -- gth-bottom-bar no longer carries its own separate
+       nav-clearance offset (fixed above), so this is the only clearance
+       this panel itself needs now. */
+    bottom: 4.25rem;
     width: auto;
     /* **Changed 2026-09-19 (board S4-SpSelect comparison, coordinator
-       finding)**: board S4's own sheet is 64% of its map area's height
-       (that board's own literal `height: 64%` on the sheet layer), not
-       50% -- 50% left only one shop row visible, cut off top and bottom,
-       instead of board's own "a full row plus the next one peeking".
-       This pane's own participantLinkCopy row (unconditionally present
-       per contract, absent from board's own drawing, see the rule below)
-       also competes for this same budget, so this round's own
-       real-render-checked value (70%) runs higher than board's own 64% --
-       ADR-0063 未決事項3 leaves this file's exact measurements to later
-       confirmation. */
-    max-height: 70%;
+       finding)**: reclaiming the double-counted 3.5rem above (previous
+       comment) moves this sheet's own floor down by that same amount, so
+       this percentage is re-tuned against the same real-render
+       measurement discipline as before -- board S4's own sheet is 64% of
+       its map area's height; this pane's own participantLinkCopy control
+       no longer adds a competing row of its own on the shop tab (merged
+       into that tab's existing head row instead, gth-inline-actions
+       below), so this value now sits close to board's own 64% rather
+       than needing to run higher. */
+    max-height: 58%;
     border-radius: 1.125rem 1.125rem 0 0;
     padding-top: 0.625rem;
   }

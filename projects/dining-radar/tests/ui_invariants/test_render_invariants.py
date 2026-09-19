@@ -2880,9 +2880,14 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         presenceRule ("Present while phase is SCHEDULING or
         SELECTING_SHOP") must hold regardless of which tab is currently
         selected (tester finding, TDR-GTH-36: it must be reachable from
-        the default shopTab, not only from linksTab)."""
+        the default shopTab, not only from linksTab). Checked once before
+        any shop is ever shortlisted (shopTab's own shopSelectionEntry-only
+        content) and once after (shopTab's own head-row-with-shops
+        content, coordinator finding: merged into the same row as 店を
+        絞りなおす, board S4 comparison) -- these are two different render
+        branches and either could independently regress."""
         self._sign_in_as_organizer()
-        self._create_gathering_via_ui("回答リンク発行ボタンの確認会")
+        gathering_id = self._create_gathering_via_ui("回答リンク発行ボタンの確認会")
         by_test_id(self.page, "gathering-candidate-date").click()
         by_test_id(self.page, "gathering-confirm-date-select").click()
         expect(by_test_id(self.page, "gathering-dashboard-confirmed-date")).to_be_visible()
@@ -2900,6 +2905,14 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         ):
             by_test_id(self.page, tab_test_id).click()
             expect(copy_control).to_be_visible()
+
+        by_test_id(self.page, "gathering-shop-select-tab-shop").click()
+        self._seed_one_shortlisted_shop(gathering_id)
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+        copy_control_with_shop = by_test_id(self.page, "gathering-participant-link-copy")
+        expect(copy_control_with_shop).to_be_visible()
+        self._assert_tabbable(copy_control_with_shop, "gathering-participant-link-copy")
 
     def test_gathering_dashboard_selected_shop_row_pins_without_reordering_the_list(
         self,

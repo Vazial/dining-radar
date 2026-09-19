@@ -1973,29 +1973,44 @@
   // decision 4's answersOpen/linksOpen precedent). shopTab's own content
   // depends on whether voting has started yet (shopSelectionEntry vs.
   // shortlistedShopVotes.list, both unaffected by this decision).
-  function renderShopSelectTabContent(shops, leaders, candidateDateList, candidateDateLeaders) {
+  function renderShopSelectTabContent(
+    shops,
+    leaders,
+    candidateDateList,
+    candidateDateLeaders,
+    linkCopyButton
+  ) {
+    // participantLinkCopy is NOT one of this panel's 4 tab-gated targets
+    // (ADR-0063 decision 3 names exactly shopSelectionEntry/
+    // shortlistedShopVotes.list, candidateDateList, responseTable, and
+    // participantLinkList -- participantLinkCopy is deliberately absent
+    // from that list) -- present regardless of which tab this function
+    // returns content for (tester finding, TDR-GTH-36), placed as its own
+    // compact row on the 3 tabs below that have no head row of their own
+    // to share with it.
+    var linkCopyRow = el("div", { class: "gth-shop-panel-link-copy" }, [linkCopyButton]);
     if (state.shopSelectTab === "schedule") {
-      return el("div", { class: "gth-shop-select-pane" }, [candidateDateList]);
+      return el("div", { class: "gth-shop-select-pane" }, [linkCopyRow, candidateDateList]);
     }
     if (state.shopSelectTab === "answers") {
-      return renderResponseTable(candidateDateLeaders);
+      return el("div", { class: "gth-shop-select-pane" }, [
+        linkCopyRow,
+        renderResponseTable(candidateDateLeaders),
+      ]);
     }
     if (state.shopSelectTab === "links") {
-      // participantLinkCopy is NOT one of this panel's 4 tab-gated targets
-      // (ADR-0063 decision 3 names exactly shopSelectionEntry/
-      // shortlistedShopVotes.list, candidateDateList, responseTable, and
-      // participantLinkList -- participantLinkCopy is deliberately absent
-      // from that list) -- only the list itself is this tab's own content;
-      // the copy control is rendered unconditionally elsewhere (tester
-      // finding, TDR-GTH-36).
       return el("div", { class: "gth-pane" }, [
-        el("div", { class: "gth-pane-head" }, ["発行済みリンク"]),
+        el("div", { class: "gth-pane-head-row" }, [
+          el("div", { class: "gth-pane-head" }, ["発行済みリンク"]),
+          linkCopyButton,
+        ]),
         renderParticipantLinkList(),
       ]);
     }
     // "shop" (default, board S4: 既定は「店」).
     if (shops.length === 0) {
       return el("div", { class: "gth-shop-select-pane" }, [
+        linkCopyRow,
         renderShopSelectionEntry("開いている店から選ぶ"),
       ]);
     }
@@ -2006,10 +2021,20 @@
         return renderShortlistedShopItem(shop, index, leaders);
       })
     );
+    // **Fixed 2026-09-19 (coordinator finding, board S4 comparison)**:
+    // board S4's own list heading is one row ("票が多い順"/"店を絞りなおす")
+    // -- participantLinkCopy used to sit in its own row directly below it,
+    // reading as two stacked rows instead of the board's one. Grouped with
+    // 店を絞りなおす in a shared gth-inline-actions wrapper on the row's
+    // own trailing end instead (geometry only -- neither control's own
+    // testId/purpose/presenceRule changes).
     return el("div", { class: "gth-shop-select-pane" }, [
       el("div", { class: "gth-pane-head-row" }, [
         el("span", { class: "gth-pane-sub" }, ["票が多い順"]),
-        renderShopSelectionEntry("店を絞りなおす", "gth-btn gth-btn-small"),
+        el("div", { class: "gth-inline-actions" }, [
+          renderShopSelectionEntry("店を絞りなおす", "gth-btn gth-btn-small"),
+          linkCopyButton,
+        ]),
       ]),
       list,
     ]);
@@ -2035,21 +2060,21 @@
     var leaders = votingStarted ? computeCurrentLeaderShopIds(shops) : {};
 
     var tabStrip = renderShopSelectTabs(shops.length);
+    // participantLinkCopy.presenceRule ("Present while phase is SCHEDULING
+    // or SELECTING_SHOP") is unconditional on this panel's own tab state --
+    // built once here (never inside a phase-specific branch) and threaded
+    // into renderShopSelectTabContent, which places it wherever the
+    // currently active tab's own content has room for it (tester finding,
+    // TDR-GTH-36: it must be reachable even while shopTab, the default, is
+    // showing).
+    var linkCopyButton = renderParticipantLinkCopy();
     var content = renderShopSelectTabContent(
       shops,
       leaders,
       candidateDateList,
-      candidateDateLeaders
+      candidateDateLeaders,
+      linkCopyButton
     );
-    // participantLinkCopy.presenceRule ("Present while phase is SCHEDULING
-    // or SELECTING_SHOP") is unconditional on this panel's own tab state --
-    // rendered once here, outside renderShopSelectTabContent, so it stays
-    // in the DOM regardless of which tab is currently selected (tester
-    // finding, TDR-GTH-36: it must be reachable even while shopTab, the
-    // default, is showing).
-    var persistentLinkCopy = el("div", { class: "gth-shop-panel-link-copy" }, [
-      renderParticipantLinkCopy(),
-    ]);
 
     if (!votingStarted) {
       // No shop ever shortlisted yet -- no map to float over (this
@@ -2057,7 +2082,7 @@
       // shortlistedShopVotes.list's own presenceRule, unaffected by this
       // decision). Plain, non-floating pane; shopTab's own content above
       // is just shopSelectionEntry.open ("開いている店から選ぶ").
-      return el("div", { class: "gth-pane" }, [tabStrip, persistentLinkCopy, content]);
+      return el("div", { class: "gth-pane" }, [tabStrip, content]);
     }
 
     var mapContainer = el(
@@ -2067,7 +2092,6 @@
     );
     var panel = el("div", { class: "gth-shop-panel" }, [
       tabStrip,
-      persistentLinkCopy,
       el("div", { class: "gth-shop-panel-body" }, [content]),
     ]);
     pendingShortlistedShopMap = { container: mapContainer, shops: shops, leaders: leaders, panel: panel };
