@@ -29,7 +29,7 @@ import json
 import re
 import secrets
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -39,6 +39,7 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from tests.acceptance.dsl.authentication_browser import AuthenticationBrowserDsl
 from tests.acceptance.dsl.browser_mechanics import HttpBrowser, assert_no_content
+from tests.acceptance.dsl.business_days import jst_now, resolve_business_day_iso
 from tests.acceptance.dsl.js_browser_mechanics import (
     CapturedApiResponse,
     assert_absent,
@@ -126,7 +127,11 @@ OK_TO_GO_COUNT_ATTR = "data-ok-to-go-count"
 # ParticipantView.totalActiveParticipantCount exactly.
 TOTAL_ACTIVE_PARTICIPANT_COUNT_ATTR = "data-total-active-participant-count"
 # data-current-leader (adr/0050 decision 5): "true" for exactly the first
-# item in shortlistedShopVotes.list's own orderingInvariant order.
+# item in shortlistedShopVotes.list's own orderingInvariant order. **Reused,
+# same attribute name, on gathering-candidate-date (ADR-0060 decision 7,
+# TDR-GTH-59..62) and participantAnswer.scheduleQuestion.tally (ADR-0060
+# decision 8, TDR-GTH-63) -- a different, two-level goingCount-then-maybeCount
+# cascade there, not this shop-side single-summed-value rule.**
 CURRENT_LEADER_ATTR = "data-current-leader"
 SHORTLIST_OPEN = "gathering-shortlist-open"
 FINALIZE_SHOP_SELECT = "gathering-finalize-shop-select"
@@ -257,6 +262,18 @@ GATHERING_CREATE_OPEN = "gathering-create-open"
 GATHERING_CREATE_NAME_INPUT = "gathering-create-name-input"
 GATHERING_CREATE_SUBMIT = "gathering-create-submit"
 GATHERING_CREATE_CANCEL = "gathering-create-cancel"
+# organizerGatheringCreate.review (ADR-0060 decision 5): "つくる" is now
+# open-then-confirm -- gathering-create-submit (unchanged test id/purpose)
+# moves inside gathering-create-review-dialog, reachable only through
+# gathering-create-review-open. gathering-create-candidate-date-remove-
+# selected (unchanged test id/purpose too) moves into this same dialog,
+# see GATHERING_CREATE_REMOVE_SELECTED below (already defined for the
+# calendar day-cell mapping, now re-scoped to this dialog).
+GATHERING_CREATE_REVIEW_OPEN = "gathering-create-review-open"
+GATHERING_CREATE_REVIEW_DIALOG = "gathering-create-review-dialog"
+GATHERING_CREATE_REVIEW_CANCEL = "gathering-create-review-cancel"
+GATHERING_CREATE_REVIEW_MONTH_PREVIOUS = "gathering-create-review-month-previous"
+GATHERING_CREATE_REVIEW_MONTH_NEXT = "gathering-create-review-month-next"
 GATHERING_ADD_CANDIDATE_DATE_FORM = "gathering-add-candidate-date-form"
 GATHERING_ADD_CANDIDATE_DATE_SUBMIT = "gathering-add-candidate-date-submit"
 GATHERING_ADD_CANDIDATE_DATE_CANCEL = "gathering-add-candidate-date-cancel"
@@ -277,6 +294,8 @@ GATHERING_ADD_CANDIDATE_DATE_DAY = "gathering-add-candidate-date-day"
 # Both calendars' day cells share the same attribute names (dayCell.attributes).
 CALENDAR_DAY_DATE_ATTR = "data-date"
 CALENDAR_DAY_SELECTED_ATTR = "data-selected"
+# data-holiday (ADR-0060 decision 2): "true"/"false", both calendars' dayCell.
+CALENDAR_DAY_HOLIDAY_ATTR = "data-holiday"
 # Populates the forward-declared dict above (ADR-0054 decision 3 / ADR-0056
 # decision 3): which screen's own month-next control to activate when a
 # given day-cell test id's target date is not yet on screen.
@@ -420,6 +439,14 @@ GATHERING_ALLOWED_PURPOSES = {
     "gathering-candidate-date-remove",
     "gathering-create-submit",
     "gathering-create-cancel",
+    # organizerGatheringCreate.review (ADR-0060 decision 5, 2026-09-16):
+    # "つくる" is now open-then-confirm -- gathering-create-submit above keeps
+    # its own purpose unchanged (only its DOM home moves), and these three are
+    # new: opening the review dialog, paging its own month state, and
+    # cancelling out of it without creating anything.
+    "gathering-create-review-open",
+    "gathering-create-review-month-navigate",
+    "gathering-create-review-cancel",
     # shopSelectionEntry (hoisted out of shortlistedShopVotes 2026-09-09,
     # adr/0049 decision 1) / finalize (open-then-confirm, ADR-0054 decision
     # 5, 2026-09-12) / participant shop-vote (adr/0042, browser-interface
@@ -516,23 +543,116 @@ GATHERING_DISCLOSURE_FORBIDDEN_TEST_IDS = [
 OPEN_SHOP_COUNT_BY_WEEKDAY = {0: 5, 1: 5, 2: 4, 3: 6, 4: 6, 5: 6, 6: 5}
 
 
-def next_weekday_iso(weekday: int, hour: int = 12) -> str:
-    """The next future occurrence (never "today") of ``weekday`` as an RFC3339 string,
-    for CandidateDateInput.startAt.
+# ADR-0060 (decision 1/2/4, TDR-GTH-57/58): CandidateDateInput.startAt must
+# now be a weekday that is not a Japan public holiday, enforced by both
+# createGathering and addCandidateDates. This suite's own Given-state
+# construction (GatheringSchedulingBrowserDsl.next_weekday_iso/
+# days_from_now_iso/two_business_days_in_the_month_after_iso below, used by
+# dozens of TDR-GTH-01..56 scenarios unrelated to this ADR) must not
+# accidentally pick a real weekend/holiday date, or those scenarios would
+# start failing purely from whichever real calendar date the suite happens to
+# run on. **2026-09-18 tester task (orchestrator instruction)**: rather than
+# reimplementing an approximation of Japan's public-holiday calendar inside
+# test code to avoid that collision (this file's own prior approach, which
+# risked silently drifting from whatever the product's bundled holiday data
+# actually enforces), these three methods now resolve a candidate date by
+# asking the product itself, through business_days.resolve_business_day_iso
+# (createGathering's own observable 400 CANDIDATE_DATE_NOT_A_BUSINESS_DAY
+# response) -- see that module's own docstring. They are instance methods
+# (not free functions) because resolving requires a real, signed-in-organizer
+# round trip; every call site already has ``self.dsl``/``self`` available at
+# the point it previously called the free function.
+#
+# **2026-09-19 CI fix, round-trip note**: every seed below picks its
+# wall-clock date/time by counting Japan calendar days (business_days.
+# jst_now) -- see that module's own docstring for why -- but then labels
+# the *result* with ``tzinfo=UTC`` rather than JST, keeping the same
+# wall-clock numbers unchanged (a relabel, never a conversion: ``.replace()``
+# does not shift a value the way ``.astimezone()`` would). This matches an
+# observed, contract-level round trip this suite's own assertions already
+# depend on throughout (createGathering/addCandidateDates always echo
+# ``candidateDates[].startAt`` back with the same wall-clock numbers the
+# client sent, labeled ``+00:00`` regardless of what offset the client
+# actually sent -- confirmed empirically this round: sending ``+09:00``
+# produced an exact-string-comparison failure against an echoed ``+00:00``
+# carrying the identical hour). Sending JST-computed wall-clock numbers
+# under a UTC label still lands on the intended Japan calendar day from the
+# server's own side (the same CANDIDATE_DATE_NOT_IN_FUTURE/weekend checks
+# this module's own docstring above describes): interpreting hour=12 as
+# real UTC and converting to Japan time only ever adds 9 hours, landing at
+# 21:00 the same calendar date, never past midnight into the next one.
+_FIXED_HOLIDAYS_MD = [
+    (1, 1),  # 元日
+    (2, 11),  # 建国記念の日
+    (2, 23),  # 天皇誕生日
+    (4, 29),  # 昭和の日
+    (5, 3),  # 憲法記念日
+    (5, 4),  # みどりの日
+    (5, 5),  # こどもの日
+    (8, 11),  # 山の日
+    (11, 3),  # 文化の日
+    (11, 23),  # 勤労感謝の日
+]
+
+
+def next_fixed_public_holiday_on_weekday_iso(hour: int = 12) -> str:
+    """次に来る、平日に当たる固定祝日 (TDR-GTH-58's Given: 「祝日にあたる平日の
+    日付」). Restricted to this file's own _FIXED_HOLIDAYS_MD table (deliberately
+    excludes the movable Happy-Monday/equinox holidays) -- this scenario only
+    needs one concrete, independently-verifiable holiday date, and a fixed
+    calendar date (元日など) is trivially correct for any year. Unlike
+    next_weekday_iso/days_from_now_iso below, this one *deliberately* returns
+    an actual holiday, unresolved -- it is TDR-GTH-58's own rejection subject,
+    not Given-state this suite needs to avoid colliding with. Real calendar
+    time only, never a faked server clock -- if a fixed holiday itself falls
+    on a weekend, it is skipped (TDR-GTH-57 already covers weekends; this
+    scenario is specifically about a holiday that is *also* a weekday).
     """
-    now = datetime.now(UTC)
+    today = jst_now().date()
+    year = today.year
+    while True:
+        for month, day in sorted(_FIXED_HOLIDAYS_MD):
+            candidate = date(year, month, day)
+            if candidate > today and candidate.weekday() < 5:
+                # tzinfo=UTC (a label, not a conversion) -- this module's own
+                # 2026-09-19 round-trip note above.
+                return datetime(
+                    candidate.year, candidate.month, candidate.day, hour, tzinfo=UTC
+                ).isoformat()
+        year += 1
+
+
+def _next_weekday_seed_iso(weekday: int, hour: int = 12) -> str:
+    """The pure, no-network half of next_weekday_iso below: the next future
+    occurrence (never "today") of ``weekday`` (Python's date.weekday():
+    Monday=0 ... Sunday=6), counted against jst_now() -- this product is
+    Japan-only (product-brief.md) and evaluates CandidateDateInput.startAt's
+    "today or earlier"/"weekend" checks against Japan calendar days, not
+    whichever timezone this suite's own process happens to run in (2026-09-19
+    CI fix: this module's own docstring has the full reproduction). Split out
+    from next_weekday_iso so this seed arithmetic can be checked in isolation
+    (jst_now patched, no Django test client/Playwright/live server needed).
+    """
+    now = jst_now()
     days_ahead = (weekday - now.weekday()) % 7 or 7
-    target = (now + timedelta(days=days_ahead)).replace(
-        hour=hour, minute=0, second=0, microsecond=0
+    # tzinfo=UTC (a label, not a conversion) -- this module's own 2026-09-19
+    # round-trip note above.
+    return (
+        (now + timedelta(days=days_ahead))
+        .replace(hour=hour, minute=0, second=0, microsecond=0, tzinfo=UTC)
+        .isoformat()
     )
-    return target.isoformat()
 
 
-def days_from_now_iso(days: int, hour: int = 12) -> str:
-    target = (datetime.now(UTC) + timedelta(days=days)).replace(
-        hour=hour, minute=0, second=0, microsecond=0
+def _days_from_now_seed_iso(days: int, hour: int = 12) -> str:
+    """The pure, no-network half of days_from_now_iso below: ``days`` Japan
+    calendar days from jst_now() (see _next_weekday_seed_iso above for why
+    Japan calendar days, not this process's own timezone or UTC)."""
+    return (
+        (jst_now() + timedelta(days=days))
+        .replace(hour=hour, minute=0, second=0, microsecond=0, tzinfo=UTC)
+        .isoformat()
     )
-    return target.isoformat()
 
 
 class GatheringSchedulingBrowserDsl:
@@ -667,6 +787,128 @@ class GatheringSchedulingBrowserDsl:
         iso = self._created_candidate_date_isos[index]
         return self._candidate_date_id_by_start_at[iso]
 
+    # Business-day candidate-date resolution (ADR-0060, business_days module's
+    # own docstring) -- every TDR-GTH Given-state builder needing "some future
+    # weekday" or "N days from now" candidate date goes through these three
+    # methods, never a locally reimplemented holiday calendar. -------------
+
+    def _probe_candidate_date_is_a_business_day(self, iso: str) -> bool:
+        """Asks gathering-scheduling-api.yaml itself whether ``iso`` would be
+        accepted as a CandidateDateInput.startAt, by actually creating a
+        throwaway single-candidate-date gathering and immediately, permanently
+        deleting it again (deleteGathering, adr/0050 decision 4) -- leaving no
+        state behind for the real scenario under test to trip over. Any
+        response other than 201 (accepted) or the documented 400
+        CANDIDATE_DATE_NOT_A_BUSINESS_DAY (rejected) is a genuine, unrelated
+        problem and fails immediately rather than being mistaken for "try the
+        next day".
+        """
+        probe_title = f"__business-day-probe-{secrets.token_hex(8)}"
+        response = self._api(
+            "POST",
+            "/gatherings",
+            {"title": probe_title, "candidateDates": [{"startAt": iso}]},
+            csrf=True,
+        )
+        if response.status == 201:
+            cleanup = self._api("DELETE", f"/gatherings/{response.payload['id']}", None, csrf=True)
+            self.assertions.assertEqual(
+                cleanup.status, 204, f"business-day probe cleanup: {cleanup.body}"
+            )
+            return True
+        if response.status == 400 and response.payload.get("code") == (
+            "CANDIDATE_DATE_NOT_A_BUSINESS_DAY"
+        ):
+            return False
+        self.assertions.fail(
+            f"business-day probe for {iso} got an unexpected "
+            f"{response.status} response: {response.body}"
+        )
+        raise AssertionError("unreachable")  # self.assertions.fail always raises
+
+    def next_weekday_iso(self, weekday: int, hour: int = 12) -> str:
+        """The next future occurrence (never "today") of ``weekday`` (Python's
+        date.weekday(): Monday=0 ... Sunday=6) as an RFC3339 string, resolved
+        to one gathering-scheduling-api.yaml will actually accept. For a
+        weekday value 0-4 (Monday-Friday), advances a full week at a time past
+        any occurrence the product itself rejects (step_days=7 preserves the
+        same day-of-week, so callers keying OPEN_SHOP_COUNT_BY_WEEKDAY by this
+        weekday are unaffected). Weekend values (5=Saturday, 6=Sunday) are
+        returned unresolved -- TDR-GTH-57 deliberately needs an actual weekend
+        date; it is that scenario's own rejection subject, not Given-state
+        this suite needs to avoid colliding with. Counted against Japan
+        calendar days (_next_weekday_seed_iso's own jst_now, not this
+        process's own local time/UTC) -- this product is Japan-only and
+        evaluates "today"/"weekend" against that same calendar, per this
+        module's own 2026-09-19 CI fix note.
+        """
+        seed_iso = _next_weekday_seed_iso(weekday, hour)
+        if weekday >= 5:
+            return seed_iso
+        return resolve_business_day_iso(
+            seed_iso, self._probe_candidate_date_is_a_business_day, step_days=7
+        )
+
+    def days_from_now_iso(self, days: int, hour: int = 12) -> str:
+        """``days`` calendar days from now for ``days <= 0`` (TDR-GTH-47 needs
+        an exact "today", unresolved, to test CANDIDATE_DATE_NOT_IN_FUTURE
+        regardless of which real weekday "today" happens to be -- it is that
+        scenario's own rejection subject). For ``days >= 1``, resolved to one
+        gathering-scheduling-api.yaml will actually accept, advancing one
+        calendar day at a time past any the product itself rejects -- a
+        1-day advance only ever moves a date later, so it cannot invert the
+        relative order between two different ``days`` values this suite's own
+        before/after-style assertions rely on (a real inversion would require
+        every one of ``business_days.MAX_BUSINESS_DAY_ADVANCES`` consecutive
+        days to be rejected, which fails loudly on its own). Counted against
+        Japan calendar days (_days_from_now_seed_iso's own jst_now), the same
+        2026-09-19 CI fix next_weekday_iso above documents.
+        """
+        seed_iso = _days_from_now_seed_iso(days, hour)
+        if days <= 0:
+            return seed_iso
+        return resolve_business_day_iso(
+            seed_iso, self._probe_candidate_date_is_a_business_day, step_days=1
+        )
+
+    def two_business_days_in_the_month_after_iso(
+        self, reference_iso: str, hour: int = 12
+    ) -> tuple[str, str]:
+        """Two business days sharing one calendar month strictly after
+        ``reference_iso``'s own month -- used by this suite's own
+        review-dialog month-paging Must test
+        (test_gth_create_review_dialog_pages_by_month_and_lets_the_organizer_
+        remove_a_day) to guarantee two selected days land on the *same*
+        dialog page while a third, earlier-month day lands on a different
+        one. Walks the target month day by day, asking
+        _probe_candidate_date_is_a_business_day the same way the two methods
+        above do (never a locally reimplemented holiday calendar) until 2
+        accepted days are found; bounded to that one month so a defect that
+        rejected an entire month fails loudly instead of spilling into the
+        next.
+        """
+        reference = datetime.fromisoformat(reference_iso)
+        if reference.month == 12:
+            first_of_target_month = reference.replace(
+                year=reference.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0
+            )
+        else:
+            first_of_target_month = reference.replace(
+                month=reference.month + 1, day=1, hour=0, minute=0, second=0, microsecond=0
+            )
+        found: list[str] = []
+        cursor = first_of_target_month
+        while len(found) < 2:
+            if cursor.month != first_of_target_month.month:
+                raise AssertionError(
+                    f"could not find 2 accepted business days within {first_of_target_month:%Y-%m}"
+                )
+            candidate_iso = cursor.replace(hour=hour, minute=0, second=0, microsecond=0).isoformat()
+            if self._probe_candidate_date_is_a_business_day(candidate_iso):
+                found.append(candidate_iso)
+            cursor = cursor + timedelta(days=1)
+        return found[0], found[1]
+
     # createGathering ---------------------------------------------------
 
     def prepare_new_gathering(self, title: str, candidate_date_isos: list[str]) -> None:
@@ -774,6 +1016,7 @@ class GatheringSchedulingBrowserDsl:
                     "maybe": int(node.get_attribute(MAYBE_COUNT_ATTR)),
                     "notGoing": int(node.get_attribute(NOT_GOING_COUNT_ATTR)),
                     "confirmed": node.get_attribute(CONFIRMED_ATTR) == "true",
+                    "currentLeader": node.get_attribute(CURRENT_LEADER_ATTR) == "true",
                 }
             )
         return result
@@ -819,10 +1062,6 @@ class GatheringSchedulingBrowserDsl:
         dates = self._read_candidate_dates()
         self.assertions.assertTrue(all(not date["confirmed"] for date in dates))
 
-    def assert_candidate_date_list_is_ordered_by_going_count_descending(self) -> None:
-        going_counts = [date["going"] for date in self._read_candidate_dates()]
-        self.assertions.assertEqual(going_counts, sorted(going_counts, reverse=True))
-
     def capture_candidate_date_order(self) -> list[str]:
         return [date["id"] for date in self._read_candidate_dates()]
 
@@ -830,15 +1069,17 @@ class GatheringSchedulingBrowserDsl:
         return [self._candidate_date_id_by_start_at[iso] for iso in sorted(start_at_isos)]
 
     def assert_candidate_date_order_matches_start_at_order(self, start_at_isos: list[str]) -> None:
-        """candidateDateList.orderingInvariant's tie-break (adr/0048, TDR-GTH-43):
-        every candidate date here ties at goingCount 0 (nobody has answered
-        yet), so the whole order collapses to startAt ascending. Checked
-        against the chronological order of the exact ISO strings this
-        scenario's own Given supplied -- not mere self-consistency against
-        the API's own claimed order the way TDR-GTH-08/37's near-order
-        checks work (this suite cannot recompute geography, but startAt is
-        data this suite itself chose, so it can independently recompute the
-        expected order).
+        """candidateDateList.orderingInvariant (**changed 2026-09-16, ADR-0060
+        decision 6, TDR-GTH-07**: startAt ascending is now the list's own
+        primary and only key, replacing adr/0048's goingCount-descending-then-
+        startAt-ascending rule -- this assertion's shape is unchanged, only
+        what it means changed, from "the tie-break TDR-GTH-43 exercises" to
+        "the ordering rule itself"). Checked against the chronological order
+        of the exact ISO strings this scenario's own Given supplied -- not
+        mere self-consistency against the API's own claimed order the way
+        TDR-GTH-08/37's near-order checks work (this suite cannot recompute
+        geography, but startAt is data this suite itself chose, so it can
+        independently recompute the expected order).
         """
         self.assertions.assertEqual(
             self.capture_candidate_date_order(),
@@ -858,6 +1099,20 @@ class GatheringSchedulingBrowserDsl:
         self.assertions.assertEqual(date["going"], going)  # type: ignore[index]
         self.assertions.assertEqual(date["maybe"], maybe)  # type: ignore[index]
         self.assertions.assertEqual(date["notGoing"], not_going)  # type: ignore[index]
+
+    def assert_candidate_date_current_leaders(self, expected_leader_ids: set[str]) -> None:
+        """candidateDateList.candidateDate's data-current-leader (ADR-0060
+        decision 7, TDR-GTH-59..62): exactly ``expected_leader_ids`` carry
+        data-current-leader="true" -- every other currently-present candidate
+        date carries "false". Checked as a set-equality against every
+        candidate date's own id, not a per-id lookup, so a currentLeader
+        wrongly left "true" on an *unexpected* candidate date (over-marking)
+        is caught the same way a missing one (under-marking) is.
+        """
+        actual_leader_ids = {
+            date["id"] for date in self._read_candidate_dates() if date["currentLeader"]
+        }
+        self.assertions.assertEqual(actual_leader_ids, expected_leader_ids)
 
     def assert_responded_summary(self, *, responded: int, anonymous: int) -> None:
         summary = self._read_responded_summary()
@@ -1331,13 +1586,70 @@ class GatheringSchedulingBrowserDsl:
             1
         )
 
+    def open_gathering_create_review_dialog(self) -> None:
+        """review.open.requiredOutcome (ADR-0060 decision 5): reveals
+        gathering-create-review-dialog. Calls no public operation --
+        createGathering has not been called yet.
+        """
+        by_test_id(self.page, GATHERING_CREATE_REVIEW_OPEN).click()
+        wait_for_at_least_one(self.page, GATHERING_CREATE_REVIEW_DIALOG)
+
+    def cancel_gathering_create_review_dialog(self) -> None:
+        """review.cancel.requiredOutcome: closes the dialog without calling
+        createGathering or changing any day cell's data-selected/the name
+        input's value.
+        """
+        by_test_id(self.page, GATHERING_CREATE_REVIEW_CANCEL).click()
+        assert_absent(self.assertions, self.page, GATHERING_CREATE_REVIEW_DIALOG)
+
+    def remove_selected_gathering_create_review_item(self, iso: str) -> None:
+        """review.dialog.item.requiredOutcome (ADR-0060 decision 5): removes
+        the one gathering-create-candidate-date-remove-selected instance
+        whose data-date matches ``iso`` -- only reachable while the dialog's
+        own monthNavigation is currently displaying that day's month (the
+        item's own presenceRule, narrowed from "regardless of which month"
+        to this dialog's own month-scoped state).
+        """
+        date_part = datetime.fromisoformat(iso).strftime("%Y-%m-%d")
+        item = self.page.locator(
+            f'[data-testid="{GATHERING_CREATE_REMOVE_SELECTED}"][{CALENDAR_DAY_DATE_ATTR}="{date_part}"]'
+        )
+        expect(item).to_have_count(1)
+        item.click()
+
+    def advance_gathering_create_review_month(self, *, forward: bool) -> None:
+        """review.dialog.monthNavigation.requiredOutcome: moves this dialog's
+        own displayed month to the nearest adjacent month containing at
+        least one still-selected day -- independent of
+        organizerGatheringCreate.calendar's own month state.
+        """
+        if forward:
+            test_id = GATHERING_CREATE_REVIEW_MONTH_NEXT
+        else:
+            test_id = GATHERING_CREATE_REVIEW_MONTH_PREVIOUS
+        by_test_id(self.page, test_id).click()
+
+    def confirm_gathering_create_review_dialog_via_browser(self) -> None:
+        """review.dialog.confirm.requiredOutcome's own click, without waiting
+        for a post-navigation readback -- kept separate from
+        create_prepared_gathering_via_browser below so a rejection-branch
+        caller (whole-batch DUPLICATE_CANDIDATE_DATE/CANDIDATE_DATE_NOT_IN_
+        FUTURE/CANDIDATE_DATE_NOT_A_BUSINESS_DAY) can observe the dialog
+        remaining present instead.
+        """
+        by_test_id(self.page, GATHERING_CREATE_SUBMIT).click()
+
     def create_prepared_gathering_via_browser(self) -> None:
         """TDR-GTH-01, driven end-to-end through organizerGatheringCreate
         (browser-interface.yaml v0.4: "Supports TDR-GTH-01 (now browser-
         verifiable)") instead of createGathering direct-API -- reviewer audit
         Major#2. **Rewritten 2026-09-09 (adr/0051 decision 1)**: fills the
         name, then selects one calendar day per prepared date (replacing the
-        retired per-row date inputs and addRow), then submits.
+        retired per-row date inputs and addRow), then submits. **Rewritten
+        again 2026-09-16 (ADR-0060 decision 5)**: "つくる" no longer calls
+        createGathering directly -- it opens gathering-create-review-dialog,
+        whose own gathering-create-submit (same test id/purpose, moved DOM
+        home) is what now actually creates the gathering.
 
         Clicking submit here also navigates (this implementation's own
         choice, within the contract's own "does not fix the immediate
@@ -1354,7 +1666,18 @@ class GatheringSchedulingBrowserDsl:
         self.open_gathering_create_from_header()
         self.fill_gathering_create_name(title)
         self.select_gathering_create_candidate_date_days(dates)
-        by_test_id(self.page, GATHERING_CREATE_SUBMIT).click()
+        self.open_gathering_create_review_dialog()
+        self.confirm_gathering_create_review_dialog_via_browser()
+        self.await_and_read_back_created_gathering(dates)
+
+    def await_and_read_back_created_gathering(self, created_date_isos: list[str]) -> dict:
+        """Shared post-confirm tail (extracted 2026-09-16, ADR-0060 decision 5):
+        waits for the post-create navigation, then reads the created gathering
+        back through the public getGathering operation (see
+        create_prepared_gathering_via_browser's own docstring for why -- a
+        real Playwright response body becomes unreadable once its page has
+        navigated away).
+        """
         wait_for_at_least_one(self.page, GATHERING_PHASE_INDICATOR)
         gathering_id = self._extract_gathering_id_from_dashboard_url()
         response = self._api("GET", f"/gatherings/{gathering_id}")
@@ -1362,11 +1685,45 @@ class GatheringSchedulingBrowserDsl:
         assert_matches_openapi_schema(
             response.payload, GATHERING_API_CONTRACT, "#/components/schemas/Gathering"
         )
-        self._created_candidate_date_isos.extend(dates)
+        self._created_candidate_date_isos.extend(created_date_isos)
         self._set_gathering(response.payload)
         self._created_gatherings.append(response.payload)
+        return response.payload
+
+    def gathering_create_review_dialog_selected_days(self) -> set[str]:
+        """review.dialog.item's own data-date (ADR-0060 decision 5): every
+        gathering-create-candidate-date-remove-selected instance currently in
+        the DOM -- scoped to whichever month this dialog's own monthNavigation
+        is currently displaying (narrowed 2026-09-16 from the pre-ADR-0060
+        "regardless of which month" cross-month read _selected_calendar_days
+        above still performs for addCandidateDateForm's own, unmoved
+        removeSelected).
+        """
+        items = self.page.locator(f'[data-testid="{GATHERING_CREATE_REMOVE_SELECTED}"]')
+        return {
+            require(
+                items.nth(index).get_attribute(CALENDAR_DAY_DATE_ATTR),
+                f"{GATHERING_CREATE_REMOVE_SELECTED} instance {index} has no "
+                f"{CALENDAR_DAY_DATE_ATTR}",
+            )
+            for index in range(items.count())
+        }
+
+    def assert_gathering_create_review_open_is_disabled(self) -> None:
+        """review.open.disabledState (**moved 2026-09-16 from gathering-
+        create-submit's own disabledState, ADR-0060 decision 5**): this
+        control, not confirm inside the dialog, now gates on an empty name
+        or fewer than 1 selected day.
+        """
+        expect(by_test_id(self.page, GATHERING_CREATE_REVIEW_OPEN)).to_be_disabled()
 
     def assert_gathering_create_submit_is_disabled(self) -> None:
+        """review.dialog.confirm.disabledState: gated on fewer than 1
+        remaining gathering-create-candidate-date-remove-selected instance
+        across every month the dialog can page to (every selected day was
+        removed from within the dialog) -- distinct from review.open's own
+        disabledState above, which gates reaching the dialog at all.
+        """
         expect(by_test_id(self.page, GATHERING_CREATE_SUBMIT)).to_be_disabled()
 
     def attempt_create_gathering_via_api_with_no_candidate_dates(
@@ -1410,15 +1767,20 @@ class GatheringSchedulingBrowserDsl:
     # TDR-GTH-20/23 already bypass a disabled control to prove server-side
     # enforcement. ---------------------------------------------------------
 
-    def attempt_create_gathering_via_api_with_a_past_candidate_date(
-        self, title: str, past_or_today_iso: str
+    def _attempt_create_gathering_via_api(
+        self, title: str, candidate_date_iso: str
     ) -> CapturedApiResponse:
         return self._api(
             "POST",
             "/gatherings",
-            {"title": title, "candidateDates": [{"startAt": past_or_today_iso}]},
+            {"title": title, "candidateDates": [{"startAt": candidate_date_iso}]},
             csrf=True,
         )
+
+    def attempt_create_gathering_via_api_with_a_past_candidate_date(
+        self, title: str, past_or_today_iso: str
+    ) -> CapturedApiResponse:
+        return self._attempt_create_gathering_via_api(title, past_or_today_iso)
 
     def assert_create_rejected_because_date_not_in_future(
         self, response: CapturedApiResponse
@@ -1431,6 +1793,38 @@ class GatheringSchedulingBrowserDsl:
         """
         self.assertions.assertEqual(response.status, 400)
         self.assertions.assertEqual(response.payload["code"], "CANDIDATE_DATE_NOT_IN_FUTURE")
+
+    # TDR-GTH-57/58 (new, ADR-0060 decision 1/2/4): 土日・祝日は候補日にでき
+    # ない. Bypasses the calendar entirely, the same technique as the
+    # TDR-GTH-47 block just above -- a Saturday/Sunday/holiday day cell
+    # carries the native disabled state (dayCell.disabledState) and can never
+    # itself be clicked, so this suite proves the server-side rejection
+    # directly (CANDIDATE_DATE_NOT_A_BUSINESS_DAY is "the authoritative
+    # enforcement", gathering-scheduling-api.yaml's own CandidateDateInput.
+    # startAt description). ---------------------------------------------------
+
+    def attempt_create_gathering_via_api_with_a_weekend_candidate_date(
+        self, title: str, weekend_iso: str
+    ) -> CapturedApiResponse:
+        return self._attempt_create_gathering_via_api(title, weekend_iso)
+
+    def attempt_create_gathering_via_api_with_a_holiday_candidate_date(
+        self, title: str, holiday_iso: str
+    ) -> CapturedApiResponse:
+        return self._attempt_create_gathering_via_api(title, holiday_iso)
+
+    def assert_create_rejected_because_not_a_business_day(
+        self, response: CapturedApiResponse
+    ) -> None:
+        """gathering-scheduling-api.yaml's createGathering documents
+        CANDIDATE_DATE_NOT_A_BUSINESS_DAY under its '400' response (ADR-0060
+        decision 4) -- one code for both a weekend (TDR-GTH-57) and a Japan
+        public holiday (TDR-GTH-58), the same "one code, the client
+        distinguishes the reason via disabledState/data-holiday" granularity
+        CANDIDATE_DATE_NOT_IN_FUTURE already established for today-vs-past.
+        """
+        self.assertions.assertEqual(response.status, 400)
+        self.assertions.assertEqual(response.payload["code"], "CANDIDATE_DATE_NOT_A_BUSINESS_DAY")
 
     # deleteGathering (TDR-GTH-48, adr/0050 decision 4) ----------------------
 
@@ -1929,8 +2323,8 @@ class GatheringSchedulingBrowserDsl:
         never promised). Picks the lexicographically smallest candidate for
         determinism across runs.
         """
-        open_ids = self._probe_open_shop_ids_on(next_weekday_iso(open_weekday))
-        closed_ids = self._probe_open_shop_ids_on(next_weekday_iso(closed_weekday))
+        open_ids = self._probe_open_shop_ids_on(self.next_weekday_iso(open_weekday))
+        closed_ids = self._probe_open_shop_ids_on(self.next_weekday_iso(closed_weekday))
         candidates = open_ids - closed_ids
         self.assertions.assertGreaterEqual(
             len(candidates),
@@ -2651,6 +3045,23 @@ class GatheringSchedulingBrowserDsl:
         self.assertions.assertEqual(tally.get_attribute("data-going-count"), str(going))
         self.assertions.assertEqual(tally.get_attribute("data-maybe-count"), str(maybe))
         self.assertions.assertEqual(tally.get_attribute("data-not-going-count"), str(not_going))
+
+    def assert_schedule_question_current_leader(
+        self, candidate_date_id: str, expected: bool
+    ) -> None:
+        """scheduleQuestion.tally's data-current-leader (ADR-0060 decision 8,
+        TDR-GTH-63): mirrors gathering-candidate-date's own data-current-
+        leader for this same candidate date -- no separate API field, this
+        participant-side value is computed from the same
+        ParticipantView.scheduleQuestions goingCount/maybeCount this suite's
+        organizer-side assertion already reads from CandidateDate.
+        """
+        question = self._schedule_question_locator(candidate_date_id)
+        tally = question.locator(f'[data-testid="{SCHEDULE_TALLY}"]')
+        expect(tally).to_have_count(1)
+        self.assertions.assertEqual(
+            tally.get_attribute(CURRENT_LEADER_ATTR), "true" if expected else "false"
+        )
 
     def assert_participant_header_phase(self, expected: str) -> None:
         header = assert_present(self.assertions, self.page, PARTICIPANT_HEADER)

@@ -140,6 +140,11 @@ _CANDIDATE_DATE_NOT_IN_FUTURE = (
     "CANDIDATE_DATE_NOT_IN_FUTURE",
     "Candidate dates must be tomorrow or later.",
 )
+_CANDIDATE_DATE_NOT_A_BUSINESS_DAY = (
+    400,
+    "CANDIDATE_DATE_NOT_A_BUSINESS_DAY",
+    "Candidate dates must be weekdays that are not public holidays.",
+)
 _GATHERING_NOT_IN_SELECTING_SHOP_PHASE = (
     409,
     "GATHERING_NOT_IN_SELECTING_SHOP_PHASE",
@@ -352,6 +357,8 @@ def gatherings(request):
         return _problem(*_DUPLICATE_CANDIDATE_DATE)
     except services.CandidateDateNotInFutureError:
         return _problem(*_CANDIDATE_DATE_NOT_IN_FUTURE)
+    except services.CandidateDateNotABusinessDayError:
+        return _problem(*_CANDIDATE_DATE_NOT_A_BUSINESS_DAY)
     return JsonResponse(serialize_gathering(gathering), status=201)
 
 
@@ -415,6 +422,8 @@ def candidate_dates(request, gathering_id):
         return _problem(*_DUPLICATE_CANDIDATE_DATE)
     except services.CandidateDateNotInFutureError:
         return _problem(*_CANDIDATE_DATE_NOT_IN_FUTURE)
+    except services.CandidateDateNotABusinessDayError:
+        return _problem(*_CANDIDATE_DATE_NOT_A_BUSINESS_DAY)
     return JsonResponse(serialize_gathering(gathering), status=201)
 
 
@@ -757,15 +766,33 @@ def organizer_gathering_list(request):
 def organizer_gathering_create(request):
     """The gathering-creation screen shell (``organizerGatheringCreate``, adr/0038).
 
-    Entry.dc.html E-2: name + one or more candidate dates.
+    Entry.dc.html E-2: name + one or more candidate dates. ``holiday_dates``
+    (ADR-0060 decision 1/2) is embedded via this template's own
+    ``json_script`` so the candidate-date calendar's client-side
+    ``data-holiday``/``disabledState`` reads the exact same bundled Japan
+    public holiday data the server-side ``CANDIDATE_DATE_NOT_A_BUSINESS_DAY``
+    rejection enforces.
     """
-    return render(request, "gathering/organizer_gathering_create.html")
+    return render(
+        request,
+        "gathering/organizer_gathering_create.html",
+        {"holiday_dates": services.bundled_holiday_isos()},
+    )
 
 
 @login_required
 def organizer_dashboard(request, gathering_id):
-    """The authenticated organizer-dashboard screen shell (``organizerDashboard``)."""
-    return render(request, "gathering/organizer_dashboard.html", {"gathering_id": gathering_id})
+    """The authenticated organizer-dashboard screen shell (``organizerDashboard``).
+
+    ``holiday_dates`` (ADR-0060 decision 1/2) is embedded the same way
+    ``organizer_gathering_create`` above embeds it, for this screen's own
+    ``addCandidateDateForm.calendar``.
+    """
+    return render(
+        request,
+        "gathering/organizer_dashboard.html",
+        {"gathering_id": gathering_id, "holiday_dates": services.bundled_holiday_isos()},
+    )
 
 
 def participant_answer(request, token):

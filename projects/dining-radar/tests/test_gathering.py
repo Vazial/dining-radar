@@ -16,7 +16,7 @@ import shutil
 import subprocess
 import unittest
 import uuid
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -25,7 +25,7 @@ from django.test import Client, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from dining_radar.gathering import serializers, services
+from dining_radar.gathering import holidays, serializers, services
 from dining_radar.gathering.models import (
     CandidateDate,
     Gathering,
@@ -39,6 +39,12 @@ from dining_radar.gathering.models import (
 )
 from dining_radar.recommendation.pipeline import NormalizedCandidate, Origin
 from dining_radar.suggestions import acceptance_state
+from tests.support.business_days import (
+    next_business_weekday_iso,
+    nth_business_datetime,
+    nth_business_day,
+    nth_business_day_iso,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 GATHERING_JS = (
@@ -84,16 +90,40 @@ PARTICIPANT_JS = (
 
 
 def _days_from_now_iso(days: int, *, hour: int = 12, minute: int = 0) -> str:
-    """An ISO-8601 date-time string ``days`` calendar days from now, JST.
+    """An ISO-8601 date-time string for the ``days``-th business day from now, JST.
 
     Used throughout this file's HTTP-body candidate-date fixtures instead of
     a hardcoded absolute date, so this suite stays valid against adr/0049
     decision 3's "明日以降のみ" rule (``CANDIDATE_DATE_NOT_IN_FUTURE``)
     regardless of when it actually runs. ``days`` must be at least 1 for the
     result to be accepted by that rule.
+
+    **2026-09-16 (ADR-0060 decision 4: CANDIDATE_DATE_NOT_A_BUSINESS_DAY)**:
+    counts forward by business days only, not a raw calendar-day offset --
+    see ``tests.support.business_days`` (this module's own function, this
+    file's thin wrapper around it) for the full rationale.
+
+    **2026-09-18**: this file's own business-day-counting body moved to
+    ``tests.support.business_days.nth_business_day_iso`` -- the same shared
+    helper ``tests/test_candidate_search.py`` and
+    ``tests/ui_invariants/test_render_invariants.py`` now use, so the
+    counting rule lives in exactly one place. This wrapper is kept (rather
+    than rewriting this file's ~90 existing ``_days_from_now_iso(...)``/
+    ``_next_business_datetime(...)``/``_next_weekday_iso(...)`` call sites)
+    purely so none of them need to change.
     """
-    target_date = (timezone.localtime(timezone.now()) + timedelta(days=days)).date()
-    return f"{target_date.isoformat()}T{hour:02d}:{minute:02d}:00+09:00"
+    return nth_business_day_iso(days, hour=hour, minute=minute)
+
+
+def _next_business_datetime(n: int = 1) -> datetime:
+    """The ``n``-th business day (Mon-Fri, non-Japan-public-holiday) from now,
+    as an aware ``datetime`` at local noon.
+
+    See ``_days_from_now_iso`` above's 2026-09-18 note: thin wrapper around
+    ``tests.support.business_days.nth_business_datetime``, kept under this
+    file's own established name so its existing call sites are unchanged.
+    """
+    return nth_business_datetime(n)
 
 
 def _next_weekday_iso(
@@ -107,17 +137,59 @@ def _next_weekday_iso(
     known synthetic open-shop population) and a date adr/0049 decision 3's
     future-only rule accepts -- computed relative to "now" rather than a
     hardcoded absolute date for the same reason ``_days_from_now_iso`` is.
+
+    **2026-09-16 (ADR-0060 decision 4)**: also skips a week forward whenever
+    the candidate date would be a Japan public holiday -- every call site in
+    this file only ever passes ``weekday=0`` (Monday), which can coincide
+    with a "happy Monday" national holiday (成人の日/海の日/敬老の日/
+    スポーツの日); this keeps the requested weekday exact while still
+    landing on a business day.
+
+    See ``_days_from_now_iso`` above's 2026-09-18 note: thin wrapper around
+    ``tests.support.business_days.next_business_weekday_iso``, kept under
+    this file's own established name so its existing call sites are
+    unchanged.
     """
-    base_date = (timezone.localtime(timezone.now()) + timedelta(days=min_days_ahead)).date()
-    delta = (weekday - base_date.weekday()) % 7
-    target_date = base_date + timedelta(days=delta)
-    return f"{target_date.isoformat()}T{hour:02d}:{minute:02d}:00+09:00"
+    return next_business_weekday_iso(
+        weekday, min_days_ahead=min_days_ahead, hour=hour, minute=minute
+    )
 
 
 def csrf_token_from(response) -> str:
     matched = re.search(rb'name="csrfmiddlewaretoken" value="([^"]+)"', response.content)
     assert matched is not None
     return matched.group(1).decode("ascii")
+
+
+# ADR-0060's own 帰結 note on test-support-api.yaml (no new decisive Given
+# seam was added for weekend/holiday rejection): "土日・祝日の判定はいずれも
+# 実時刻からの相対計算（次の土曜日・次の日曜日・年内の固定祝日の次回発生日）
+# で検証できる" -- the next Saturday, the next Sunday, and the next
+# occurrence of a fixed-date holiday (元日, always month=1/day=1) computed
+# relative to "now" rather than a hardcoded absolute date, the same
+# CANDIDATE_DATE_NOT_IN_FUTURE-safe technique ``_days_from_now_iso`` above
+# already uses.
+def _next_saturday_iso(*, hour: int = 12, minute: int = 0) -> str:
+    base = timezone.localtime(timezone.now()).date()
+    delta = (5 - base.weekday()) % 7 or 7  # date.weekday(): Saturday == 5
+    target_date = base + timedelta(days=delta)
+    return f"{target_date.isoformat()}T{hour:02d}:{minute:02d}:00+09:00"
+
+
+def _next_sunday_iso(*, hour: int = 12, minute: int = 0) -> str:
+    base = timezone.localtime(timezone.now()).date()
+    delta = (6 - base.weekday()) % 7 or 7  # date.weekday(): Sunday == 6
+    target_date = base + timedelta(days=delta)
+    return f"{target_date.isoformat()}T{hour:02d}:{minute:02d}:00+09:00"
+
+
+def _next_new_years_day_iso(*, hour: int = 12, minute: int = 0) -> str:
+    """The next occurrence of 元日 (always January 1st, a fixed-date national
+    holiday every year this module's bundled data covers)."""
+    today = timezone.localtime(timezone.now()).date()
+    year = today.year if date(today.year, 1, 1) > today else today.year + 1
+    target_date = date(year, 1, 1)
+    return f"{target_date.isoformat()}T{hour:02d}:{minute:02d}:00+09:00"
 
 
 class GatheringOrganizerTestCase(TestCase):
@@ -214,7 +286,7 @@ class CreateGatheringServiceTests(TestCase):
         gathering = services.create_gathering(
             self.user,
             "会",
-            [timezone.now() + timedelta(days=1), timezone.now() + timedelta(days=2)],
+            [_next_business_datetime(1), _next_business_datetime(2)],
         )
 
         self.assertEqual(gathering.phase, GatheringPhase.SCHEDULING)
@@ -222,18 +294,18 @@ class CreateGatheringServiceTests(TestCase):
         self.assertIsNone(gathering.confirmed_candidate_date_id)
 
     def test_issues_no_participant_links(self):
-        gathering = services.create_gathering(self.user, "会", [timezone.now() + timedelta(days=1)])
+        gathering = services.create_gathering(self.user, "会", [_next_business_datetime(1)])
 
         self.assertEqual(gathering.total_issued_participant_links, 0)
 
     def test_rejects_two_entries_sharing_the_exact_same_start_at(self):
-        start_at = timezone.now() + timedelta(days=1)
+        start_at = _next_business_datetime(1)
 
         with self.assertRaises(services.DuplicateCandidateDateError):
             services.create_gathering(self.user, "会", [start_at, start_at])
 
     def test_rejecting_duplicate_start_ats_creates_no_gathering(self):
-        start_at = timezone.now() + timedelta(days=1)
+        start_at = _next_business_datetime(1)
 
         with self.assertRaises(services.DuplicateCandidateDateError):
             services.create_gathering(self.user, "会", [start_at, start_at])
@@ -262,6 +334,63 @@ class CreateGatheringServiceTests(TestCase):
         with self.assertRaises(services.CandidateDateNotInFutureError):
             services.create_gathering(self.user, "会", [start_at, start_at])
 
+    # --- ADR-0060 decision 4 (2026-09-16): CANDIDATE_DATE_NOT_A_BUSINESS_DAY --
+
+    def test_rejects_a_saturday_candidate_date(self):
+        """TDR-GTH-57: a weekend candidate date is refused."""
+        with self.assertRaises(services.CandidateDateNotABusinessDayError):
+            services.create_gathering(
+                self.user, "会", [datetime.fromisoformat(_next_saturday_iso())]
+            )
+
+    def test_rejects_a_sunday_candidate_date(self):
+        """TDR-GTH-57: a weekend candidate date is refused."""
+        with self.assertRaises(services.CandidateDateNotABusinessDayError):
+            services.create_gathering(self.user, "会", [datetime.fromisoformat(_next_sunday_iso())])
+
+    def test_rejects_a_japan_public_holiday_candidate_date(self):
+        """TDR-GTH-58: a Japan public holiday candidate date (元日, a weekday
+        every year 2022-2036 does not put it on a Saturday/Sunday by
+        construction of this test's own relative computation -- see
+        ``_next_new_years_day_iso``) is refused even though it is not a
+        weekend."""
+        with self.assertRaises(services.CandidateDateNotABusinessDayError):
+            services.create_gathering(
+                self.user, "会", [datetime.fromisoformat(_next_new_years_day_iso())]
+            )
+
+    def test_rejecting_a_weekend_candidate_date_creates_no_gathering(self):
+        with self.assertRaises(services.CandidateDateNotABusinessDayError):
+            services.create_gathering(
+                self.user, "会", [datetime.fromisoformat(_next_saturday_iso())]
+            )
+
+        self.assertEqual(Gathering.objects.count(), 0)
+
+    def test_business_day_check_runs_before_the_duplicate_check(self):
+        """Two identical, weekend-dated entries report the business-day problem,
+        not the duplicate one (mirrors the future-date-runs-first ordering
+        above -- ADR-0060 decision 4's own check order)."""
+        start_at = datetime.fromisoformat(_next_saturday_iso())
+
+        with self.assertRaises(services.CandidateDateNotABusinessDayError):
+            services.create_gathering(self.user, "会", [start_at, start_at])
+
+    def test_future_date_check_runs_before_the_business_day_check(self):
+        """A past-dated weekend entry reports the future-date problem, not the
+        business-day one -- ``_reject_dates_not_in_future`` runs first."""
+        # The nearest Saturday strictly before "now" (never "today" itself,
+        # matching _reject_dates_not_in_future's own "today or earlier"
+        # rejection either way).
+        base = timezone.localtime(timezone.now()).date()
+        delta = (base.weekday() - 5) % 7 or 7
+        past_saturday = base - timedelta(days=delta)
+        naive_noon = datetime(past_saturday.year, past_saturday.month, past_saturday.day, 12)
+        start_at = timezone.make_aware(naive_noon)
+
+        with self.assertRaises(services.CandidateDateNotInFutureError):
+            services.create_gathering(self.user, "会", [start_at])
+
 
 class AddCandidateDatesServiceTests(TestCase):
     """``addCandidateDates`` (adr/0049 decision 3): batch, replacing the retired singular
@@ -269,13 +398,11 @@ class AddCandidateDatesServiceTests(TestCase):
 
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="svc-organizer-2")
-        self.gathering = services.create_gathering(
-            self.user, "会", [timezone.now() + timedelta(days=1)]
-        )
+        self.gathering = services.create_gathering(self.user, "会", [_next_business_datetime(1)])
 
     def test_adds_a_candidate_date_while_scheduling(self):
         _gathering, candidate_dates = services.add_candidate_dates(
-            self.user, self.gathering.id, [timezone.now() + timedelta(days=2)]
+            self.user, self.gathering.id, [_next_business_datetime(2)]
         )
 
         self.assertEqual(self.gathering.candidate_dates.count(), 2)
@@ -286,7 +413,7 @@ class AddCandidateDatesServiceTests(TestCase):
         _gathering, candidate_dates = services.add_candidate_dates(
             self.user,
             self.gathering.id,
-            [timezone.now() + timedelta(days=2), timezone.now() + timedelta(days=3)],
+            [_next_business_datetime(2), _next_business_datetime(3)],
         )
 
         self.assertEqual(self.gathering.candidate_dates.count(), 3)
@@ -297,22 +424,18 @@ class AddCandidateDatesServiceTests(TestCase):
         services.confirm_candidate_date(self.user, self.gathering.id, candidate_date.id)
 
         with self.assertRaises(services.GatheringNotInSchedulingPhaseError):
-            services.add_candidate_dates(
-                self.user, self.gathering.id, [timezone.now() + timedelta(days=2)]
-            )
+            services.add_candidate_dates(self.user, self.gathering.id, [_next_business_datetime(2)])
 
     def test_unknown_gathering_id_is_not_found(self):
         with self.assertRaises(services.GatheringNotFoundError):
-            services.add_candidate_dates(
-                self.user, uuid.uuid4(), [timezone.now() + timedelta(days=2)]
-            )
+            services.add_candidate_dates(self.user, uuid.uuid4(), [_next_business_datetime(2)])
 
     def test_another_organizers_gathering_is_not_found(self):
         other_user = get_user_model().objects.create_user(username="svc-other-organizer")
 
         with self.assertRaises(services.GatheringNotFoundError):
             services.add_candidate_dates(
-                other_user, self.gathering.id, [timezone.now() + timedelta(days=2)]
+                other_user, self.gathering.id, [_next_business_datetime(2)]
             )
 
     def test_rejects_a_start_at_already_on_this_gathering(self):
@@ -332,7 +455,7 @@ class AddCandidateDatesServiceTests(TestCase):
 
     def test_a_duplicate_within_the_same_batch_rejects_the_whole_batch(self):
         """adr/0049 decision 3: no partial success -- one duplicate rejects everything."""
-        new_date = timezone.now() + timedelta(days=2)
+        new_date = _next_business_datetime(2)
         before_count = self.gathering.candidate_dates.count()
 
         with self.assertRaises(services.DuplicateCandidateDateError):
@@ -351,10 +474,44 @@ class AddCandidateDatesServiceTests(TestCase):
             services.add_candidate_dates(
                 self.user,
                 self.gathering.id,
-                [timezone.now() + timedelta(days=2), timezone.now() - timedelta(days=1)],
+                [_next_business_datetime(2), timezone.now() - timedelta(days=1)],
             )
 
         self.assertEqual(self.gathering.candidate_dates.count(), before_count)
+
+    # --- ADR-0060 decision 4 (2026-09-16): CANDIDATE_DATE_NOT_A_BUSINESS_DAY --
+
+    def test_rejects_a_weekend_candidate_date(self):
+        """TDR-GTH-57, applied identically to addCandidateDates."""
+        with self.assertRaises(services.CandidateDateNotABusinessDayError):
+            services.add_candidate_dates(
+                self.user, self.gathering.id, [datetime.fromisoformat(_next_saturday_iso())]
+            )
+
+    def test_rejects_a_japan_public_holiday_candidate_date(self):
+        """TDR-GTH-58, applied identically to addCandidateDates."""
+        with self.assertRaises(services.CandidateDateNotABusinessDayError):
+            services.add_candidate_dates(
+                self.user, self.gathering.id, [datetime.fromisoformat(_next_new_years_day_iso())]
+            )
+
+    def test_one_weekend_date_in_a_batch_rejects_the_whole_batch(self):
+        before_count = self.gathering.candidate_dates.count()
+
+        with self.assertRaises(services.CandidateDateNotABusinessDayError):
+            services.add_candidate_dates(
+                self.user,
+                self.gathering.id,
+                [_next_business_datetime(2), datetime.fromisoformat(_next_saturday_iso())],
+            )
+
+        self.assertEqual(self.gathering.candidate_dates.count(), before_count)
+
+    def test_business_day_check_runs_before_the_duplicate_check(self):
+        start_at = datetime.fromisoformat(_next_saturday_iso())
+
+        with self.assertRaises(services.CandidateDateNotABusinessDayError):
+            services.add_candidate_dates(self.user, self.gathering.id, [start_at, start_at])
 
 
 class RemoveCandidateDateServiceTests(TestCase):
@@ -365,7 +522,7 @@ class RemoveCandidateDateServiceTests(TestCase):
         self.gathering = services.create_gathering(
             self.user,
             "会",
-            [timezone.now() + timedelta(days=1), timezone.now() + timedelta(days=2)],
+            [_next_business_datetime(1), _next_business_datetime(2)],
         )
         self.candidate_dates = list(self.gathering.candidate_dates.all())
 
@@ -444,9 +601,7 @@ class DeleteGatheringServiceTests(TestCase):
 
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="svc-organizer-delete")
-        self.gathering = services.create_gathering(
-            self.user, "会", [timezone.now() + timedelta(days=1)]
-        )
+        self.gathering = services.create_gathering(self.user, "会", [_next_business_datetime(1)])
 
     def test_deletes_a_scheduling_gathering(self):
         services.delete_gathering(self.user, self.gathering.id)
@@ -512,7 +667,7 @@ class ConfirmCandidateDateServiceTests(TestCase):
         self.gathering = services.create_gathering(
             self.user,
             "会",
-            [timezone.now() + timedelta(days=1), timezone.now() + timedelta(days=2)],
+            [_next_business_datetime(1), _next_business_datetime(2)],
         )
         self.candidate_dates = list(self.gathering.candidate_dates.all())
 
@@ -526,7 +681,7 @@ class ConfirmCandidateDateServiceTests(TestCase):
 
     def test_rejects_a_candidate_date_from_a_different_gathering(self):
         other_gathering = services.create_gathering(
-            self.user, "別の会", [timezone.now() + timedelta(days=1)]
+            self.user, "別の会", [_next_business_datetime(1)]
         )
         foreign_date = other_gathering.candidate_dates.first()
 
@@ -547,7 +702,7 @@ class CandidateDateTalliesServiceTests(TestCase):
         self.gathering = services.create_gathering(
             self.user,
             "会",
-            [timezone.now() + timedelta(days=1), timezone.now() + timedelta(days=2)],
+            [_next_business_datetime(1), _next_business_datetime(2)],
         )
         self.low, self.high = self.gathering.candidate_dates.all()
 
@@ -558,7 +713,12 @@ class CandidateDateTalliesServiceTests(TestCase):
             expires_at=timezone.now() + timedelta(days=90),
         )
 
-    def test_orders_going_count_descending(self):
+    def test_orders_by_start_at_ascending_regardless_of_going_count(self):
+        """ADR-0060 decision 6 (2026-09-16): startAt ascending, replacing the
+        retired goingCount-descending order (adr/0048) -- ``self.high`` has
+        strictly more GOING responses than ``self.low`` here, yet still
+        sorts *after* it, because ``self.high``'s own ``start_at`` is later.
+        """
         ScheduleResponse.objects.create(
             participant_link=self._link(),
             candidate_date=self.high,
@@ -578,13 +738,14 @@ class CandidateDateTalliesServiceTests(TestCase):
         tallies = services.candidate_dates_with_tallies(self.gathering)
 
         self.assertEqual(
-            [tally.candidate_date.id for tally in tallies], [self.high.id, self.low.id]
+            [tally.candidate_date.id for tally in tallies], [self.low.id, self.high.id]
         )
-        self.assertEqual(tallies[0].going_count, 2)
-        self.assertEqual(tallies[1].going_count, 1)
+        self.assertEqual(tallies[0].going_count, 1)
+        self.assertEqual(tallies[1].going_count, 2)
 
-    def test_ties_are_broken_by_start_at_ascending_not_creation_order(self):
-        """adr/0048: the tie-break is startAt ascending, not "creation order".
+    def test_orders_by_start_at_regardless_of_creation_order(self):
+        """ADR-0060 decision 6: startAt ascending is the *only* sort key (no
+        tie-break is needed -- startAt is unique per gathering).
 
         ``self.low``/``self.high`` are created in start_at-ascending order in
         ``setUp`` (so this alone would not distinguish the two bases). Here a
@@ -669,9 +830,7 @@ class CandidateDateTalliesServiceTests(TestCase):
 class ResponseSummaryServiceTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="svc-organizer-5")
-        self.gathering = services.create_gathering(
-            self.user, "会", [timezone.now() + timedelta(days=1)]
-        )
+        self.gathering = services.create_gathering(self.user, "会", [_next_business_datetime(1)])
         self.candidate_date = self.gathering.candidate_dates.first()
 
     def _link(self, display_name=None):
@@ -705,7 +864,7 @@ class ResponseSummaryServiceTests(TestCase):
 
     def test_a_link_with_multiple_responses_is_counted_once(self):
         other_date = CandidateDate.objects.create(
-            gathering=self.gathering, start_at=timezone.now() + timedelta(days=1)
+            gathering=self.gathering, start_at=_next_business_datetime(1)
         )
         link = self._link()
         ScheduleResponse.objects.create(
@@ -726,9 +885,7 @@ class ResponseSummaryServiceTests(TestCase):
 class ParticipantLinkLifecycleServiceTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="svc-organizer-6")
-        self.gathering = services.create_gathering(
-            self.user, "会", [timezone.now() + timedelta(days=1)]
-        )
+        self.gathering = services.create_gathering(self.user, "会", [_next_business_datetime(1)])
         self.candidate_date = self.gathering.candidate_dates.first()
 
     def test_issue_participant_links_increments_lifetime_and_active_counts(self):
@@ -845,7 +1002,7 @@ class ParticipantLinkScheduleResponsesServiceTests(TestCase):
         self.gathering = services.create_gathering(
             self.user,
             "会",
-            [timezone.now() + timedelta(days=1), timezone.now() + timedelta(days=2)],
+            [_next_business_datetime(1), _next_business_datetime(2)],
         )
         self.first_date, self.second_date = self.gathering.candidate_dates.all()
 
@@ -937,7 +1094,7 @@ class ListGatheringsServiceTests(TestCase):
         # (bypassing auto_now_add, which only governs the initial INSERT)
         # rather than relying on real wall-clock spacing between calls.
         now = timezone.now()
-        future = now + timedelta(days=1)
+        future = _next_business_datetime(1)
         first = services.create_gathering(self.user, "1つめ", [future])
         second = services.create_gathering(self.user, "2つめ", [future])
         Gathering.objects.filter(pk=first.pk).update(created_at=now - timedelta(seconds=1))
@@ -954,7 +1111,7 @@ class ListGatheringsServiceTests(TestCase):
         repeated reads.
         """
         now = timezone.now()
-        future = now + timedelta(days=1)
+        future = _next_business_datetime(1)
         first = services.create_gathering(self.user, "1つめ", [future])
         second = services.create_gathering(self.user, "2つめ", [future])
         Gathering.objects.filter(pk__in=[first.pk, second.pk]).update(created_at=now)
@@ -970,7 +1127,7 @@ class ListGatheringsServiceTests(TestCase):
         self.assertEqual(first_run, second_run)
 
     def test_includes_a_finalized_gathering(self):
-        gathering = services.create_gathering(self.user, "会", [timezone.now() + timedelta(days=1)])
+        gathering = services.create_gathering(self.user, "会", [_next_business_datetime(1)])
         gathering.phase = GatheringPhase.FINALIZED
         gathering.save(update_fields=["phase"])
 
@@ -979,7 +1136,7 @@ class ListGatheringsServiceTests(TestCase):
         self.assertEqual([g.id for g in result], [gathering.id])
 
     def test_never_includes_another_organizers_gathering(self):
-        services.create_gathering(self.other_user, "他人の会", [timezone.now() + timedelta(days=1)])
+        services.create_gathering(self.other_user, "他人の会", [_next_business_datetime(1)])
 
         self.assertEqual(services.list_gatherings(self.user), [])
 
@@ -993,26 +1150,22 @@ class CountInProgressGatheringsServiceTests(TestCase):
         self.assertEqual(services.count_in_progress_gatherings(self.user), 0)
 
     def test_counts_scheduling_and_selecting_shop(self):
-        services.create_gathering(self.user, "日程を聞き中", [timezone.now() + timedelta(days=1)])
-        selecting = services.create_gathering(
-            self.user, "店を選び中", [timezone.now() + timedelta(days=1)]
-        )
+        services.create_gathering(self.user, "日程を聞き中", [_next_business_datetime(1)])
+        selecting = services.create_gathering(self.user, "店を選び中", [_next_business_datetime(1)])
         selecting.phase = GatheringPhase.SELECTING_SHOP
         selecting.save(update_fields=["phase"])
 
         self.assertEqual(services.count_in_progress_gatherings(self.user), 2)
 
     def test_excludes_finalized(self):
-        gathering = services.create_gathering(
-            self.user, "確定", [timezone.now() + timedelta(days=1)]
-        )
+        gathering = services.create_gathering(self.user, "確定", [_next_business_datetime(1)])
         gathering.phase = GatheringPhase.FINALIZED
         gathering.save(update_fields=["phase"])
 
         self.assertEqual(services.count_in_progress_gatherings(self.user), 0)
 
     def test_never_counts_another_organizers_gathering(self):
-        services.create_gathering(self.other_user, "他人の会", [timezone.now() + timedelta(days=1)])
+        services.create_gathering(self.other_user, "他人の会", [_next_business_datetime(1)])
 
         self.assertEqual(services.count_in_progress_gatherings(self.user), 0)
 
@@ -1023,9 +1176,7 @@ class CountInProgressGatheringsServiceTests(TestCase):
 class ParticipantAccessServiceTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="svc-organizer-7")
-        self.gathering = services.create_gathering(
-            self.user, "会", [timezone.now() + timedelta(days=1)]
-        )
+        self.gathering = services.create_gathering(self.user, "会", [_next_business_datetime(1)])
         self.candidate_date = self.gathering.candidate_dates.first()
         _gathering, links = services.issue_participant_links(self.user, self.gathering.id, 1)
         self.link = links[0]
@@ -1153,7 +1304,7 @@ class TestSupportSeamServiceTests(TestCase):
         self.user = get_user_model().objects.create_user(username="svc-organizer-8")
 
     def test_reset_removes_every_gathering_and_cascades(self):
-        gathering = services.create_gathering(self.user, "会", [timezone.now() + timedelta(days=1)])
+        gathering = services.create_gathering(self.user, "会", [_next_business_datetime(1)])
         services.issue_participant_links(self.user, gathering.id, 1)
 
         services.reset_gathering_scheduling_state()
@@ -1313,7 +1464,7 @@ class GatheringSelectingShopServiceTestCase(TestCase):
 class ShopLookupForGatheringServiceTests(GatheringSelectingShopServiceTestCase):
     def test_empty_before_a_candidate_date_is_confirmed(self):
         scheduling_gathering = services.create_gathering(
-            self.user, "別の会", [timezone.now() + timedelta(days=1)]
+            self.user, "別の会", [_next_business_datetime(1)]
         )
 
         self.assertEqual(services.shop_lookup_for_gathering(scheduling_gathering), {})
@@ -1327,7 +1478,7 @@ class ShopLookupForGatheringServiceTests(GatheringSelectingShopServiceTestCase):
 class SetShortlistedShopsServiceTests(GatheringSelectingShopServiceTestCase):
     def test_rejected_while_still_scheduling(self):
         scheduling_gathering = services.create_gathering(
-            self.user, "別の会", [timezone.now() + timedelta(days=1)]
+            self.user, "別の会", [_next_business_datetime(1)]
         )
 
         with self.assertRaises(services.GatheringNotInSelectingShopPhaseError):
@@ -1472,7 +1623,7 @@ class SetShortlistedShopsServiceTests(GatheringSelectingShopServiceTestCase):
 class FinalizeGatheringServiceTests(GatheringSelectingShopServiceTestCase):
     def test_rejected_while_still_scheduling(self):
         scheduling_gathering = services.create_gathering(
-            self.user, "別の会", [timezone.now() + timedelta(days=1)]
+            self.user, "別の会", [_next_business_datetime(1)]
         )
 
         with self.assertRaises(services.GatheringNotInSelectingShopPhaseError):
@@ -2098,25 +2249,30 @@ class CreateGatheringApiTests(GatheringOrganizerTestCase):
         # something along parse -> store -> serialize path silently treated
         # the value as naive-then-localized instead of an already-aware
         # instant. This pins the exact reported input/output pair.
+        # 2026-11-10 is a plain Tuesday, neither a weekend nor a Japan public
+        # holiday per this product's own bundled data (fixed 2026-09-16,
+        # ADR-0060 decision 4: the original literal here, 2026-09-22, is the
+        # 国民の休日 gap day between 敬老の日 and 秋分の日 that year, which
+        # the new CANDIDATE_DATE_NOT_A_BUSINESS_DAY rejection now refuses).
         response = self.post_json(
             reverse("gathering:gatherings"),
             {
                 "title": "会",
-                "candidateDates": [{"startAt": "2026-09-22T12:00:00+00:00"}],
+                "candidateDates": [{"startAt": "2026-11-10T12:00:00+00:00"}],
             },
         )
 
         self.assertEqual(response.status_code, 201)
         returned = response.json()["candidateDates"][0]["startAt"]
         returned_instant = datetime.fromisoformat(returned)
-        expected_instant = datetime.fromisoformat("2026-09-22T12:00:00+00:00")
+        expected_instant = datetime.fromisoformat("2026-11-10T12:00:00+00:00")
         self.assertEqual(returned_instant, expected_instant)
         # Not just the same instant under a different offset label (Django's
         # own equality already normalizes that) -- pinned to the exact
         # literal offset too, since a "same instant, relabelled" round trip
         # would still surprise a caller expecting its own input echoed back
         # unchanged.
-        self.assertEqual(returned, "2026-09-22T12:00:00+00:00")
+        self.assertEqual(returned, "2026-11-10T12:00:00+00:00")
 
     def test_created_at_is_an_iso_datetime_close_to_now(self):
         before = timezone.now()
@@ -2137,6 +2293,26 @@ class CreateGatheringApiTests(GatheringOrganizerTestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "CANDIDATE_DATE_NOT_IN_FUTURE")
+
+    def test_a_weekend_candidate_date_is_rejected(self):
+        """TDR-GTH-57 (ADR-0060 decision 1/4), driven through the JSON API."""
+        response = self.post_json(
+            reverse("gathering:gatherings"),
+            {"title": "会", "candidateDates": [{"startAt": _next_saturday_iso()}]},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "CANDIDATE_DATE_NOT_A_BUSINESS_DAY")
+
+    def test_a_japan_public_holiday_candidate_date_is_rejected(self):
+        """TDR-GTH-58 (ADR-0060 decision 2/4), driven through the JSON API."""
+        response = self.post_json(
+            reverse("gathering:gatherings"),
+            {"title": "会", "candidateDates": [{"startAt": _next_new_years_day_iso()}]},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "CANDIDATE_DATE_NOT_A_BUSINESS_DAY")
 
     def test_duplicate_candidate_dates_within_the_same_request_are_rejected(self):
         duplicated = _days_from_now_iso(2)
@@ -2436,23 +2612,24 @@ class AddCandidateDatesApiTests(GatheringOrganizerTestCase):
         # CreateGatheringApiTests.test_a_utc_offset_start_at_round_trips_
         # through_the_same_instant, pinned against addCandidateDates too
         # (a distinct code path -- services.add_candidate_dates, not
-        # services.create_gathering).
+        # services.create_gathering). Same 2026-11-10 fix, same reason
+        # (2026-09-16, ADR-0060 decision 4).
         payload = self.create_gathering_via_api(
             candidate_dates=[{"startAt": _days_from_now_iso(2)}]
         )
 
         response = self.post_json(
             reverse("gathering:candidate-dates", kwargs={"gathering_id": payload["id"]}),
-            {"candidateDates": [{"startAt": "2026-09-22T12:00:00+00:00"}]},
+            {"candidateDates": [{"startAt": "2026-11-10T12:00:00+00:00"}]},
         )
 
         self.assertEqual(response.status_code, 201)
         added = next(
             cd
             for cd in response.json()["candidateDates"]
-            if cd["startAt"] == "2026-09-22T12:00:00+00:00"
+            if cd["startAt"] == "2026-11-10T12:00:00+00:00"
         )
-        self.assertEqual(added["startAt"], "2026-09-22T12:00:00+00:00")
+        self.assertEqual(added["startAt"], "2026-11-10T12:00:00+00:00")
 
     def test_rejected_after_confirming_a_date(self):
         payload = self.create_gathering_via_api(
@@ -2504,6 +2681,30 @@ class AddCandidateDatesApiTests(GatheringOrganizerTestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "CANDIDATE_DATE_NOT_IN_FUTURE")
+
+    def test_a_weekend_candidate_date_is_rejected(self):
+        """TDR-GTH-57 (ADR-0060 decision 1/4), applied identically to addCandidateDates."""
+        payload = self.create_gathering_via_api()
+
+        response = self.post_json(
+            reverse("gathering:candidate-dates", kwargs={"gathering_id": payload["id"]}),
+            {"candidateDates": [{"startAt": _next_sunday_iso()}]},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "CANDIDATE_DATE_NOT_A_BUSINESS_DAY")
+
+    def test_a_japan_public_holiday_candidate_date_is_rejected(self):
+        """TDR-GTH-58 (ADR-0060 decision 2/4), applied identically to addCandidateDates."""
+        payload = self.create_gathering_via_api()
+
+        response = self.post_json(
+            reverse("gathering:candidate-dates", kwargs={"gathering_id": payload["id"]}),
+            {"candidateDates": [{"startAt": _next_new_years_day_iso()}]},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "CANDIDATE_DATE_NOT_A_BUSINESS_DAY")
 
     def test_duplicate_candidate_date_is_rejected(self):
         shared = _days_from_now_iso(5)
@@ -4761,6 +4962,172 @@ class ParticipantEndpointGuardTests(GatheringOrganizerTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn(self.token.encode(), response.content)
+
+
+# --- dining_radar.gathering.holidays (ADR-0060 decision 2) ------------------
+
+
+class HolidayModuleTests(SimpleTestCase):
+    """This product's own bundled Japan public holiday data.
+
+    Every date asserted here is a fixed historical/future fact once inside
+    ``[MIN_YEAR, MAX_YEAR]`` (not "relative to today"), so hardcoding a
+    specific year is safe -- unlike ``CANDIDATE_DATE_NOT_IN_FUTURE``-safety,
+    which needs dates computed relative to "now" (see
+    ``_next_saturday_iso``/``_next_new_years_day_iso`` above, used by the
+    HTTP/service-level rejection tests instead).
+    """
+
+    def test_a_fixed_date_holiday_is_recognized(self):
+        self.assertTrue(holidays.is_public_holiday(date(2027, 1, 1)))  # 元日
+
+    def test_a_happy_monday_holiday_is_recognized(self):
+        # 成人の日 2027: 2027-01-01 is a Friday, so the first Monday of
+        # January 2027 is 2027-01-04, and the second is 2027-01-11.
+        self.assertTrue(holidays.is_public_holiday(date(2027, 1, 11)))
+        self.assertFalse(holidays.is_public_holiday(date(2027, 1, 4)))
+
+    def test_an_equinox_holiday_is_recognized(self):
+        # 秋分の日 2026, computed independently above (this file's own
+        # activeContext/ADR-0060 note): 2026-09-23.
+        self.assertTrue(holidays.is_public_holiday(date(2026, 9, 23)))
+
+    def test_a_citizens_holiday_gap_day_is_recognized(self):
+        # 国民の休日 2026: 2026-09-21 (敬老の日, Monday) and 2026-09-23
+        # (秋分の日) sandwich 2026-09-22 -- a day this product's own base
+        # rules do not otherwise name.
+        self.assertTrue(holidays.is_public_holiday(date(2026, 9, 21)))
+        self.assertTrue(holidays.is_public_holiday(date(2026, 9, 22)))
+        self.assertTrue(holidays.is_public_holiday(date(2026, 9, 23)))
+
+    def test_a_substitute_holiday_is_recognized(self):
+        # 勤労感謝の日 2025 falls on a Sunday (2025-11-23); its substitute
+        # holiday is the very next day.
+        self.assertEqual(date(2025, 11, 23).weekday(), 6)
+        self.assertTrue(holidays.is_public_holiday(date(2025, 11, 23)))
+        self.assertTrue(holidays.is_public_holiday(date(2025, 11, 24)))
+
+    def test_an_ordinary_weekday_is_not_a_holiday(self):
+        self.assertFalse(holidays.is_public_holiday(date(2027, 3, 2)))  # a plain Tuesday
+
+    def test_a_date_outside_the_bundled_range_is_never_a_holiday(self):
+        """Decision 2: "同梱データがカバーする年の範囲を超える日付は「祝日で
+        ない」として扱う" -- even a date that *would* be 元日 in some other
+        year is not a holiday once its year falls outside
+        ``[MIN_YEAR, MAX_YEAR]``."""
+        self.assertLess(date(1999, 1, 1).year, holidays.MIN_YEAR)
+        self.assertFalse(holidays.is_public_holiday(date(1999, 1, 1)))
+        self.assertGreater(date(2999, 1, 1).year, holidays.MAX_YEAR)
+        self.assertFalse(holidays.is_public_holiday(date(2999, 1, 1)))
+
+    def test_is_weekend_is_independent_of_holiday_ness(self):
+        # 2026-08-11 (山の日) is a Tuesday -- a weekday holiday, not a
+        # weekend, proving the two conditions are checked independently
+        # (ADR-0060 decision 1/2's own wording).
+        self.assertFalse(holidays.is_weekend(date(2026, 8, 11)))
+        self.assertTrue(holidays.is_public_holiday(date(2026, 8, 11)))
+        self.assertTrue(holidays.is_weekend(date(2026, 8, 15)))  # the following Saturday
+        self.assertFalse(holidays.is_public_holiday(date(2026, 8, 15)))
+
+    def test_is_business_day_excludes_both_weekends_and_holidays(self):
+        self.assertFalse(holidays.is_business_day(date(2026, 8, 11)))  # holiday weekday
+        self.assertFalse(holidays.is_business_day(date(2026, 8, 15)))  # weekend, non-holiday
+        self.assertTrue(holidays.is_business_day(date(2026, 8, 12)))  # a plain Wednesday
+
+    def test_all_holiday_isos_is_sorted_and_matches_is_public_holiday(self):
+        isos = holidays.all_holiday_isos()
+
+        self.assertEqual(isos, sorted(isos))
+        self.assertIn("2027-01-01", isos)
+        self.assertNotIn("1999-01-01", isos)
+        for iso in isos[:5] + isos[-5:]:
+            self.assertTrue(holidays.is_public_holiday(date.fromisoformat(iso)))
+
+
+class HolidayRangeCoversAtLeastOneYearAheadTests(SimpleTestCase):
+    """The safety net ADR-0060's own 未決事項1 asks for: this module's
+    bundled range must always cover at least "today + 1 year" -- if this
+    ever fails, ``holidays.MAX_YEAR`` needs a human update (this module's own
+    docstring documents the operational process)."""
+
+    def test_max_year_covers_at_least_one_year_from_today(self):
+        one_year_ahead = date.today() + timedelta(days=366)
+
+        self.assertGreaterEqual(holidays.MAX_YEAR, one_year_ahead.year)
+
+
+class BusinessDayFixtureBuilderDateIndependenceTests(SimpleTestCase):
+    """``tests.support.business_days``'s own safety net.
+
+    This is the single shared "N-th business day from now"/"next business
+    weekday" fixture-date builder every date-sensitive suite in this project
+    now uses instead of a raw ``timezone.now() + timedelta(days=N)`` (this
+    file's own ``_days_from_now_iso``/``_next_business_datetime``/
+    ``_next_weekday_iso`` above are thin wrappers around it;
+    tests/test_candidate_search.py's ``GatheringModeCandidateProposalsApiTests``
+    and tests/ui_invariants/test_render_invariants.py's
+    ``_next_monday_iso``/``_create_selecting_shop_gathering_via_api`` call it
+    directly). 2026-09-18's own round found this the hard way: a bare
+    ``timezone.now() + timedelta(days=1)`` in test_candidate_search.py, run
+    on a Friday, landed on 2026-09-19 (Saturday), and a bare "next Monday"
+    calendar-weekday computation in test_render_invariants.py landed on
+    2026-09-21 (敬老の日) -- both rejected with 400
+    (``CANDIDATE_DATE_NOT_A_BUSINESS_DAY``, ADR-0060 decision 4) though
+    neither call site's own test was about that rule at all.
+
+    Rather than trust "whatever day this suite happens to run on" to keep
+    exercising that risk, this freezes ``django.utils.timezone.now`` (this
+    file's own established ``mock.patch.object`` idiom, applied to
+    ``timezone.now`` specifically since that is the one function every
+    builder above calls to find "today") to three instants a raw
+    weekend-crossing offset is especially likely to trip on: this same week
+    (2026-09-18, immediately preceding the Saturday/敬老の日/国民の休日/
+    秋分の日 run above), the New Year holiday, and Golden Week -- and asserts
+    every builder still returns a real, future, ``holidays.is_business_day``
+    date (or, for ``next_business_weekday_iso``, the specific requested
+    weekday) regardless.
+    """
+
+    def _assert_business_day_fixtures_hold(self, frozen_now):
+        with mock.patch("django.utils.timezone.now", return_value=frozen_now):
+            today = timezone.localtime(frozen_now).date()
+
+            first_business_day = nth_business_day(1)
+            third_business_day = nth_business_day(3)
+            self.assertGreater(first_business_day, today)
+            self.assertTrue(holidays.is_business_day(first_business_day))
+            self.assertGreater(third_business_day, first_business_day)
+            self.assertTrue(holidays.is_business_day(third_business_day))
+
+            first_business_day_iso = nth_business_day_iso(1)
+            self.assertTrue(
+                holidays.is_business_day(date.fromisoformat(first_business_day_iso.split("T")[0]))
+            )
+
+            first_business_datetime = nth_business_datetime(1)
+            self.assertTrue(timezone.is_aware(first_business_datetime))
+            self.assertGreater(first_business_datetime.date(), today)
+            self.assertTrue(holidays.is_business_day(first_business_datetime.date()))
+
+            monday_iso = next_business_weekday_iso(0)
+            monday_date = date.fromisoformat(monday_iso.split("T")[0])
+            self.assertEqual(monday_date.weekday(), 0)  # date.weekday(): Monday == 0
+            self.assertGreater(monday_date, today)
+            self.assertTrue(holidays.is_business_day(monday_date))
+
+    def test_holds_this_week_2026_09_18(self):
+        """The exact week this round's own two flakes occurred (see class
+        docstring): "tomorrow" from a Friday lands on a Saturday, and "next
+        Monday" lands on 敬老の日."""
+        self._assert_business_day_fixtures_hold(timezone.make_aware(datetime(2026, 9, 18, 9, 0, 0)))
+
+    def test_holds_over_the_new_years_holiday_run(self):
+        self._assert_business_day_fixtures_hold(
+            timezone.make_aware(datetime(2026, 12, 28, 9, 0, 0))
+        )
+
+    def test_holds_over_golden_week(self):
+        self._assert_business_day_fixtures_hold(timezone.make_aware(datetime(2027, 4, 28, 9, 0, 0)))
 
 
 # --- serializers: the live-projection fallback (developer discretion, FR-028) --

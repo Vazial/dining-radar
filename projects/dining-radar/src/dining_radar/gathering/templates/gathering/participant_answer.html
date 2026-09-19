@@ -127,6 +127,12 @@
 
       .gth-tally { display: flex; gap: 0.75rem; font-size: 0.72rem; color: #4b564e; }
       .gth-tally b { font-weight: 700; color: #17201b; }
+      /* ADR-0060 decision 8: the same most-likely-to-win印 the organizer
+         dashboard's own gathering-candidate-date carries (data-current-
+         leader), mirrored here from this participant's own
+         goingCount/maybeCount (no API change). */
+      .gth-tally--leader { color: #8a6d00; }
+      .gth-tally--leader b { color: #8a6d00; }
 
       .gth-open-label { font-size: 0.75rem; font-weight: 500; color: #77827a; }
       .gth-open-date { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.01em; }
@@ -457,6 +463,6 @@
     {% comment %}
       Cache-busting query string on participant.js (FR-025).
     {% endcomment %}
-    <script src="{% static 'dining_radar/gathering/participant.js' %}?v=20260913-bucket245-redesign"></script>
+    <script src="{% static 'dining_radar/gathering/participant.js' %}?v=20260917-adr0060-holiday-review"></script>
   </body>
 </html>

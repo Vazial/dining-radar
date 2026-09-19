@@ -1,17 +1,16 @@
 import json
 import re
 import uuid
-from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
-from django.utils import timezone
 
 from dining_radar.gathering import services as gathering_services
 from dining_radar.gathering.models import GatheringPhase
 from dining_radar.suggestions import acceptance_state
+from tests.support.business_days import nth_business_datetime
 
 
 def csrf_token_from(response) -> str:
@@ -678,9 +677,7 @@ class GatheringModeCandidateProposalsApiTests(TestCase):
 
     def _selecting_shop_gathering(self, organizer=None):
         organizer = organizer or self.user
-        gathering = gathering_services.create_gathering(
-            organizer, "会", [timezone.now() + timedelta(days=1)]
-        )
+        gathering = gathering_services.create_gathering(organizer, "会", [nth_business_datetime(1)])
         candidate_date = gathering.candidate_dates.first()
         return gathering_services.confirm_candidate_date(organizer, gathering.id, candidate_date.id)
 
@@ -699,9 +696,7 @@ class GatheringModeCandidateProposalsApiTests(TestCase):
         self.assertEqual(response.json()["code"], "GATHERING_NOT_FOUND")
 
     def test_still_scheduling_is_a_safe_409(self):
-        gathering = gathering_services.create_gathering(
-            self.user, "会", [timezone.now() + timedelta(days=1)]
-        )
+        gathering = gathering_services.create_gathering(self.user, "会", [nth_business_datetime(1)])
 
         response = self.post_proposal({"gatheringId": str(gathering.id)})
 

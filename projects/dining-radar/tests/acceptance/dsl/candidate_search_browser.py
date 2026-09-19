@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, timedelta
 from itertools import product
 from pathlib import Path
 
@@ -19,6 +19,7 @@ from playwright.sync_api import Locator, Page, expect
 
 from tests.acceptance.dsl.authentication_browser import AuthenticationBrowserDsl
 from tests.acceptance.dsl.browser_mechanics import HttpBrowser, assert_no_content
+from tests.acceptance.dsl.business_days import jst_now, resolve_business_day_iso
 from tests.acceptance.dsl.js_browser_mechanics import (
     CapturedApiResponse,
     assert_absent,
@@ -437,11 +438,32 @@ def next_weekday_iso(weekday: int, hour: int = 12) -> str:
     duplicated here rather than imported, mirroring this pair of DSL files'
     existing precedent of each owning its own small Given-state utilities
     rather than cross-importing between the two sibling suites.
+
+    **2026-09-19 CI fix**: counted against Japan calendar days (jst_now, not
+    this process's own local time/UTC) -- this product is Japan-only
+    (product-brief.md) and evaluates CandidateDateInput.startAt's "today or
+    earlier" rejection against that same calendar, per business_days.py's
+    own docstring (the exact CI reproduction: a UTC-midnight-crossing seed
+    computed during the 9 UTC hours already tomorrow in Japan lands on a
+    date the product itself still calls "today", rejecting it with
+    CANDIDATE_DATE_NOT_IN_FUTURE before this call's own createGathering
+    retry ever reaches the weekend/holiday check).
+
+    **Round-trip note**: the wall-clock date/time is picked by counting
+    Japan calendar days, but the *result* is labeled ``tzinfo=UTC`` (a
+    relabel via ``.replace()``, never a conversion) -- createGathering/
+    addCandidateDates echo ``candidateDates[].startAt`` back with the same
+    wall-clock numbers sent, always under a ``+00:00`` label regardless of
+    what offset the client actually sent (confirmed empirically: sending
+    ``+09:00`` broke this suite's own exact-string Given/Then comparisons
+    against an echoed ``+00:00``), and hour=12 keeps this safely on the
+    same calendar date even if the server instead reads the label at face
+    value and converts +9 hours (never crossing midnight).
     """
-    now = datetime.now(UTC)
+    now = jst_now()
     days_ahead = (weekday - now.weekday()) % 7 or 7
     target = (now + timedelta(days=days_ahead)).replace(
-        hour=hour, minute=0, second=0, microsecond=0
+        hour=hour, minute=0, second=0, microsecond=0, tzinfo=UTC
     )
     return target.isoformat()
 
@@ -651,20 +673,60 @@ class CandidateSearchBrowserDsl:
         mirroring gathering_scheduling_browser.py's identical helper for the
         sibling TDR-GTH-44/45 scenarios). Omitted, this keeps the prior
         arbitrary "+3 days" default TDR-CS-17/18 do not depend on.
+
+        **2026-09-18 tester task**: neither this method's own "+3 days"
+        default nor next_weekday_iso below know whether the date they picked
+        is a weekend or Japan public holiday -- gathering-scheduling-api.yaml
+        rejects either with 400 CANDIDATE_DATE_NOT_A_BUSINESS_DAY (ADR-0060).
+        Rather than reimplementing that same holiday calendar locally here
+        (business_days.py's own docstring explains why not), this create call
+        is retried against the actual product response: on a rejection for
+        exactly that reason, it advances a week (holding the caller's chosen
+        weekday fixed, matching every caller's own weekday-population-count
+        dependency, gathering_scheduling_browser.py's identical
+        next_weekday_iso/step_days=7 precedent) and creates again -- the
+        eventual accepted create call *is* this Given's real state, not a
+        throwaway probe.
+
+        **2026-09-19 CI fix**: the "+3 days" default is counted against
+        Japan calendar days (jst_now), the same reason next_weekday_iso above
+        was fixed (this product is Japan-only and evaluates "today or
+        earlier" against that calendar, not this process's own local
+        time/UTC) -- labeled ``tzinfo=UTC`` (a relabel, not a conversion),
+        the same round-trip note next_weekday_iso above documents.
         """
-        start_at = (
-            datetime.fromisoformat(candidate_date_iso)
+        seed_iso = (
+            candidate_date_iso
             if candidate_date_iso is not None
-            else (datetime.now(UTC) + timedelta(days=3)).replace(
-                hour=12, minute=0, second=0, microsecond=0
+            else (jst_now() + timedelta(days=3))
+            .replace(hour=12, minute=0, second=0, microsecond=0, tzinfo=UTC)
+            .isoformat()
+        )
+        accepted_response: CapturedApiResponse | None = None
+
+        def _attempt_create(iso: str) -> bool:
+            nonlocal accepted_response
+            response = self._gathering_api(
+                "POST",
+                "/gatherings",
+                {"title": title, "candidateDates": [{"startAt": iso}]},
+                csrf=True,
             )
-        )
-        create_response = self._gathering_api(
-            "POST",
-            "/gatherings",
-            {"title": title, "candidateDates": [{"startAt": start_at.isoformat()}]},
-            csrf=True,
-        )
+            if response.status == 201:
+                accepted_response = response
+                return True
+            if response.status == 400 and response.payload.get("code") == (
+                "CANDIDATE_DATE_NOT_A_BUSINESS_DAY"
+            ):
+                return False
+            self.assertions.fail(
+                f"createGathering for {iso} got an unexpected {response.status} "
+                f"response: {response.body}"
+            )
+            raise AssertionError("unreachable")  # self.assertions.fail always raises
+
+        resolve_business_day_iso(seed_iso, _attempt_create, step_days=7)
+        create_response = require(accepted_response, "createGathering never returned 201")
         self.assertions.assertEqual(create_response.status, 201, create_response.body)
         gathering = create_response.payload
         candidate_date_id = gathering["candidateDates"][0]["id"]

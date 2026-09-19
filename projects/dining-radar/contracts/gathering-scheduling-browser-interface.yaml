@@ -678,11 +678,43 @@
 #   により、`gathering-shortlist-open`からこの画面へ渡った後の戻り方は変わるが、この契約自身の
 #   `organizerDashboard`の観測面・操作は無変更——戻り方の変更は候補検索側の契約だけで完結する。
 #
+# 2026-09-16 追補19 (architect、ADR-0060。実機フィードバック第2便・束B（会を作る・日を決める、
+# 2026-09-16人間裁定）。contractVersionを0.21.0から0.22.0へ上げる):
+# - **候補日カレンダーの土日・祝日を押せなくした**（決定1・2）: organizerGatheringCreate.calendar.
+#   dayCell / addCandidateDateForm.calendar.dayCell の disabledState へ、土曜・日曜、および新規
+#   属性 data-holiday が true である日（この製品が初めて内部に持つ、同梱・年1回以上更新の日本の
+#   祝日データ、外部サービスは呼ばない）への条件を追加した。ADR-0035決定6が定める店の開閉判定
+#   （regularHolidayの曜日照合）はこの決定の対象外であり無変更。
+# - **会をつくる画面を1列にし、「つくる」をモーダルを開く操作へ格下げした**（決定5）:
+#   organizerGatheringCreate へ新規 review（open/dialog/item/monthNavigation/confirm/cancel）を
+#   追加した。既存の gathering-create-submit は同じ testId/purpose のまま review.confirm（モーダル
+#   内の「このN件でつくる」）へ住み処を移し、押せない条件（名前が空・0件）は新設
+#   gathering-create-review-open へ移した。gathering-create-candidate-date-remove-selected は
+#   calendar から削除し、review.item として同じ testId・書き換えた要件でモーダルの中へ移した——
+#   「どの月を表示していても選んだ日1つにつき1つ」という原文を、モーダル自身の独立した月ページング
+#   （新設purpose gathering-create-review-month-navigate、外側カレンダーの
+#   gathering-create-candidate-date-month-navigate とは別の状態を動かす）に応じて絞り込む形へ
+#   書き換えた（全月分をDOMに隠して残す代替案は不採用、監査済みのキーボード到達性・44px下限の
+#   注意と矛盾するため）。
+# - **候補日一覧の並びを日付順へ変えた**（決定6）: candidateDateList.orderingInvariant /
+#   participantAnswer.scheduleQuestion.orderingInvariant を、adr/0048のgoingCount降順・startAt
+#   昇順タイブレークから、startAt昇順単独（タイブレーク不要——同一会内でstartAtは常に一意）へ
+#   書き換えた。
+# - **最有力の候補日を示す値と、幹事の人×日の表の列構造を新設した**（決定7）:
+#   candidateDateList.candidateDate へ data-current-leader（真偽値、goingCount→maybeCountの
+#   2段カスケード、0件は除外・同点は全員true）を追加した。organizerDashboard.responseTable へ
+#   header/headerCell（列見出し、候補日順にDOM順を固定）と leaderSummary（表の上の「有力」バッジ、
+#   最有力の候補日のIDだけを持つ）を新設した。
+# - **参加者の日程回答画面にも同じ最有力の印を出した**（決定8）: scheduleQuestion.tally へ
+#   data-current-leader を追加した（APIの変更は不要、既存のgoingCount/maybeCountから計算する）。
+# - 候補日の個数を表す言葉づかい（「N件」）はこの契約が元々固定していなかった可視文言の範囲に留まり、
+#   非拘束の注記として要所へ添えた（決定9）。
+#
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.21.0'
+contractVersion: '0.22.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -1274,7 +1306,7 @@ browserControlSurface:
     requiredTestIds:
       nameInput: gathering-create-name-input
       calendar: gathering-create-candidate-date-calendar
-      submit: gathering-create-submit
+      reviewOpen: gathering-create-review-open
       cancel: gathering-create-cancel
     nameInput:
       testId: gathering-create-name-input
@@ -1307,11 +1339,15 @@ browserControlSurface:
         week-start convention, markup, or specific library, mirroring
         addCandidateDateForm.calendar.note above -- library selection
         remains developer's choice (adr/0049 decision 3, adr/0051 decision
-        1). It fixes only the day-cell surface below, monthNavigation/
-        removeSelected below (added 2026-09-12, ADR-0054 decision 3 /
+        1). It fixes only the day-cell surface below (including its
+        weekend/holiday exclusion, added 2026-09-16, ADR-0060 decision 1/2),
+        monthNavigation below (added 2026-09-12, ADR-0054 decision 3 /
         ADR-0056 decision 3), rangeSelection below (added 2026-09-12,
-        ADR-0054 decision 3), and submit.requiredOutcome's consumption of
-        the resulting selected-day set.
+        ADR-0054 decision 3), and review.confirm.requiredOutcome's
+        consumption of the resulting selected-day set. **The selected-day
+        list this note previously named here as "removeSelected below"
+        moved out of this calendar block entirely on 2026-09-16 (ADR-0060
+        decision 5) -- see review.dialog.item below.**
       monthNavigation:
         description: >-
           Added 2026-09-12 (ADR-0054 decision 3 / ADR-0056 decision 3,
@@ -1334,35 +1370,10 @@ browserControlSurface:
           including for a selected day in a month not currently shown (see
           removeSelected below for how such a day can still be
           deselected).
-      removeSelected:
-        testId: gathering-create-candidate-date-remove-selected
-        purpose: gathering-create-candidate-date-remove-selected
-        description: >-
-          Added 2026-09-12 (ADR-0056 decision 3). A second input path to
-          deselect an already-selected day, alongside re-activating that
-          same day's gathering-create-candidate-date-day cell directly --
-          this path does not require navigating to the month that day
-          belongs to first.
-        cardinality: zero-or-more-elements-sharing-this-test-id
-        attributes:
-          date: data-date
-        requirement: >-
-          One instance per day currently carrying data-selected="true",
-          regardless of which month is currently displayed. This
-          instance's own data-date carries the same ISO-8601 value, same
-          format, as dayCell.attributes.date above for the day it
-          corresponds to (added 2026-09-13, spec .spec/11-b, closing
-          独立監査 audit-gathering-redesign-steps.md's Minor finding on
-          TDR-GTH-46's fragility: without this attribute, only the
-          instance count was readable here, so testers navigated back to
-          each selected day's own month to read its data-date from
-          dayCell instead -- a detour this contract did not guarantee a
-          month-navigation floor for).
-        requiredOutcome: >-
-          Activating the instance for a given day makes that day's
-          gathering-create-candidate-date-day data-selected "false" (the
-          same effect as re-activating that cell directly) and removes
-          this instance from the DOM. Calls no public operation.
+      # removeSelected moved 2026-09-16 to review.dialog.item below
+      # (ADR-0060 decision 5, same testId gathering-create-candidate-date-
+      # remove-selected, requirement rewritten for the dialog's own month
+      # paging) -- see that entry's description for why.
       rangeSelection:
         description: >-
           Added 2026-09-12 (ADR-0054 decision 3, human decision). An
@@ -1390,6 +1401,7 @@ browserControlSurface:
         attributes:
           date: data-date
           selected: data-selected
+          holiday: data-holiday
         requirement: >-
           Same shape as addCandidateDateForm.calendar.dayCell above:
           data-date is an ISO-8601 date string (YYYY-MM-DD, no time
@@ -1403,18 +1415,38 @@ browserControlSurface:
           screens render separate DOM elements (an independent creation
           screen versus an inline dashboard form) whose post-submit
           behavior differs (this screen's submit creates the gathering and
-          leaves the screen per submit.requiredOutcome below;
+          leaves the screen per review.confirm.requiredOutcome below;
           addCandidateDateForm's submit stays open for another entry), so
           sharing one test id across both would attach two different
           requiredOutcome contracts to the same observed element.
+          **data-holiday added 2026-09-16 (ADR-0060 decision 2)**:
+          "true"/"false", equal to whether this cell's data-date is a
+          Japan public holiday per this product's own bundled holiday data
+          (never fetched from an external service at request time; the
+          product does not judge holidays anywhere else -- see
+          gathering-scheduling-api.yaml's CandidateDateInput.startAt for
+          the authoritative server-side rejection this attribute mirrors).
+          Independent of the day-of-week -- a day may be a weekday holiday
+          (data-holiday="true", not a weekend) or a weekend non-holiday
+          (data-holiday="false").
         disabledState: >-
           Carries the native disabled state for any day whose data-date is
           today or earlier by the server's clock (adr/0049 decision 3's
           "明日以降のみ" rule, mirrored client-side here exactly as
           addCandidateDateForm.calendar.dayCell.disabledState mirrors it
           there; the API's CANDIDATE_DATE_NOT_IN_FUTURE rejection remains
-          the authoritative enforcement, TDR-GTH-47). A disabled day cell
-          can never carry data-selected="true".
+          the authoritative enforcement, TDR-GTH-47). **Also carries the
+          native disabled state for any day that is a Saturday or Sunday,
+          or whose data-holiday above is "true" (added 2026-09-16, ADR-0060
+          decision 1/2, human decision: 土日は地色は残すが押せない、祝日も
+          押せず「祝」の印を持つ -- this partially reverses ADR-0054
+          decision 3's "土日に地色を敷いて押せる", keeping only the coloring,
+          not the clickability; ADR-0035 decision 6's shop-open-day
+          matching, a separate feature, is unchanged by this). The API's
+          new CANDIDATE_DATE_NOT_A_BUSINESS_DAY rejection remains the
+          authoritative enforcement, TDR-GTH-57/58.** A disabled day cell
+          can never carry data-selected="true", regardless of which of
+          these conditions caused the disabling.
         select:
           purpose: gathering-create-candidate-date-day-select
           requiredOutcome: >-
@@ -1424,44 +1456,187 @@ browserControlSurface:
             public operation (createGathering has not been called yet).
             submit.disabledState below reflects the current count of
             "true" day cells.
-    submit:
-      testId: gathering-create-submit
-      purpose: gathering-create-submit
-      disabledState: >-
-        Carries the native disabled state whenever gathering-create-name-
-        input is empty, or fewer than 1 gathering-create-candidate-date-day
-        currently has data-selected="true" (ADR-0035 decision 1's "候補日
-        1つ以上" requirement / D10, mirrored client-side the same way
-        addCandidateDateForm.submit.disabledState mirrors
-        AddCandidateDatesRequest's minItems: 1, adr/0051 decision 2 --
-        the API itself is the authoritative enforcement, this disabledState
-        is a UX affordance, not a substitute for server-side validation).
-        Same disable-at-the-boundary convention as confirmDate.disabledState.
-      requiredOutcome: >-
-        Activating it (while not disabled) calls createGathering with
-        title (consumed from gathering-create-name-input) and
-        candidateDates built from every gathering-create-candidate-date-day
-        whose data-selected is "true" (each producing one
-        CandidateDateInput; this contract does not fix or require a way to
-        edit each selected day's time-of-day separately from the
-        calendar's own default, adr/0049 decision 3's "12:00始まり" UI aid
-        -- same non-fixed treatment as
-        addCandidateDateForm.submit.requiredOutcome's identical clause).
-        On success, the new gathering subsequently appears in
-        organizerGatheringList.list (createdAt descending places it first),
-        and the browser navigates to browserEntry.organizerDashboard for
-        the newly created gathering (**fixed 2026-09-12, ADR-0054 decision
-        2, human decision** -- this contract previously did not fix the
-        immediate post-submit destination; the organizer proceeds directly
-        to issuing participant links from the dashboard they land on). On
-        a whole-batch DUPLICATE_CANDIDATE_DATE rejection
-        (adr/0038, two selected days sharing the same date-time value), the
-        screen remains on organizerGatheringCreate with every day cell's
-        data-selected unchanged and the name input's value intact -- no
-        gathering is created. On a whole-batch CANDIDATE_DATE_NOT_IN_FUTURE
-        rejection (TDR-GTH-47), the same: the screen remains present with
-        every day cell's data-selected unchanged and the name input's value
-        intact, and no gathering is created.
+    review:
+      description: >-
+        Added 2026-09-16 (ADR-0060 decision 5, human decision: 「つくる」を
+        押すとモーダルが開き、そこで確認してから作る). Replaces this
+        screen's single-activation gathering-create-submit (which
+        previously called createGathering directly) with an open-then-
+        confirm shape -- not the same open/confirmDialog/confirm/cancel
+        naming this file already uses for gathering-delete-*/gathering-
+        finalize-* (ADR-0054 decision 5), because those two guard an
+        irreversible operation with a single confirmation screen, while
+        this dialog additionally lets the organizer remove individual
+        selected days before confirming (see item/monthNavigation below) --
+        a review surface, not a plain yes/no confirmation.
+      requiredTestIds:
+        open: gathering-create-review-open
+        dialog: gathering-create-review-dialog
+        confirm: gathering-create-submit
+        cancel: gathering-create-review-cancel
+      open:
+        testId: gathering-create-review-open
+        purpose: gathering-create-review-open
+        disabledState: >-
+          Carries the native disabled state whenever gathering-create-name-
+          input is empty, or fewer than 1 gathering-create-candidate-date-day
+          currently has data-selected="true" (ADR-0035 decision 1's "候補日
+          1つ以上" requirement / D10, mirrored client-side the same way
+          addCandidateDateForm.submit.disabledState mirrors
+          AddCandidateDatesRequest's minItems: 1, adr/0051 decision 2 --
+          the API itself is the authoritative enforcement, this disabledState
+          is a UX affordance, not a substitute for server-side validation).
+          **Moved 2026-09-16 from gathering-create-submit's own disabledState
+          (ADR-0060 decision 5)** -- this control, not confirm below, is now
+          the one gating on name/day-count, because confirm below is only
+          ever reachable after this control's activation has already passed
+          this same check once.
+        requiredOutcome: >-
+          Activating it (while not disabled) reveals gathering-create-
+          review-dialog. Calls no public operation -- createGathering has
+          not been called yet. An implementation may show a running count
+          of currently-selected days near this control (e.g. "選んだ日
+          20件", ADR-0060 decision 9); this contract does not fix that
+          wording, only the underlying gathering-create-candidate-date-day
+          selection state it would be drawn from.
+      dialog:
+        testId: gathering-create-review-dialog
+        presenceRule: >-
+          Absent until gathering-create-review-open is activated. Present
+          after activation, until either a successful confirm (see below,
+          which also leaves this screen entirely per confirm.requiredOutcome)
+          or cancel (see below) makes it absent again.
+        item:
+          testId: gathering-create-candidate-date-remove-selected
+          purpose: gathering-create-candidate-date-remove-selected
+          description: >-
+            **This element and its testId/purpose are unchanged from their
+            original 2026-09-12 addition (ADR-0056 decision 3); only their
+            home in the DOM and cardinality/requirement change, 2026-09-16
+            (ADR-0060 decision 5).** Until this decision this was an
+            always-all-visible sidebar list, independent of any month
+            paging ("regardless of which month is currently displayed"). It
+            now lives exclusively inside this dialog and is paged by
+            monthNavigation below, one month at a time. Keeping every
+            month's rows hidden-but-present in the DOM instead (so the
+            original "regardless of which month" wording could stay
+            literally true) was considered and rejected -- an unreachable-
+            but-present operational control is the same class of gap this
+            contract's keyboard-reachability and 44px-floor attention
+            already treats as a defect elsewhere (adr/0020).
+          cardinality: zero-or-more-elements-sharing-this-test-id
+          attributes:
+            date: data-date
+          requirement: >-
+            One instance per day currently carrying gathering-create-
+            candidate-date-day's data-selected="true" **whose month is the
+            one this dialog's own monthNavigation below is currently
+            displaying** (narrowed 2026-09-16, ADR-0060 decision 5, from
+            this element's original "regardless of which month is currently
+            displayed" scope -- that original scope described the outer
+            calendar's own month state above, which this element's presence
+            still does not depend on; what changed is that this element now
+            has its own, additional month-scoping state it did not have
+            before). This instance's own data-date carries the same
+            ISO-8601 value, same format, as dayCell.attributes.date for the
+            day it corresponds to (unchanged from this element's original
+            2026-09-13 addition).
+          requiredOutcome: >-
+            Activating the instance for a given day makes that day's
+            gathering-create-candidate-date-day data-selected "false" (the
+            same effect as re-activating that cell directly) and removes
+            this instance from the DOM. Calls no public operation. This
+            contract does not fix this dialog's behavior when the instance
+            removed was the last one in the currently-displayed month (e.g.
+            whether the dialog advances to an adjacent month with remaining
+            items, or shows an empty state for the current month) -- only
+            confirm.disabledState below's day-count gate is fixed.
+        monthNavigation:
+          description: >-
+            Added 2026-09-16 (ADR-0060 decision 5). An independent paging
+            state, scoped to this dialog alone -- distinct from
+            organizerGatheringCreate.calendar.monthNavigation above, which
+            moves a different state (which month's day cells the calendar
+            itself renders for selection). Moving this dialog's month
+            forward or backward never changes calendar.monthNavigation's
+            own state, and vice versa. Initial position is the earliest
+            month containing a currently-selected day.
+          previous:
+            testId: gathering-create-review-month-previous
+            purpose: gathering-create-review-month-navigate
+          next:
+            testId: gathering-create-review-month-next
+            purpose: gathering-create-review-month-navigate
+          requiredOutcome: >-
+            Activating either control moves this dialog's own currently-
+            displayed month to the nearest adjacent month (earlier for
+            previous, later for next) that contains at least one day
+            currently carrying data-selected="true" -- a month with no
+            selected day is skipped entirely, never shown. Calls no public
+            operation. Changes only which item instances above are present;
+            never changes any day cell's data-selected value. This contract
+            does not fix how this dialog indicates the current position
+            among the months with selected days (e.g. dots, per designer's
+            board) -- a rendering detail, not a Must. Nor does it fix the
+            exact scroll behavior when a single month has enough selected
+            days to overflow the dialog's visible area (designer's board
+            keeps the month-navigation controls and the dialog's footer
+            fixed while only the item list scrolls) -- a layout detail.
+        confirm:
+          testId: gathering-create-submit
+          purpose: gathering-create-submit
+          description: >-
+            **Moved 2026-09-16 into this dialog (ADR-0060 decision 5)** --
+            same test id and purpose this control has always had; only its
+            home in the DOM, presenceRule, and disabledState change. Prior
+            to this decision this control sat directly on
+            organizerGatheringCreate and was reachable unconditionally; see
+            open.requiredOutcome above for what replaced that reachability.
+          presenceRule: >-
+            Present only while gathering-create-review-dialog is present.
+          disabledState: >-
+            Carries the native disabled state whenever fewer than 1
+            gathering-create-candidate-date-remove-selected instance
+            currently exists across every month this dialog can page to
+            (i.e. every selected day was removed from within this dialog) --
+            the API itself (createGathering's minItems: 1) is the
+            authoritative enforcement, this disabledState is a UX
+            affordance. An implementation may label this control with the
+            current count (e.g. "この20件でつくる", ADR-0060 decision 9);
+            this contract does not fix that wording, only the underlying
+            selected-day count it would be drawn from.
+          requiredOutcome: >-
+            Activating it (while not disabled) calls createGathering with
+            title (consumed from gathering-create-name-input) and
+            candidateDates built from every gathering-create-candidate-date-
+            day whose data-selected is "true" (each producing one
+            CandidateDateInput; this contract does not fix or require a way
+            to edit each selected day's time-of-day separately from the
+            calendar's own default, adr/0049 decision 3's "12:00始まり" UI
+            aid -- same non-fixed treatment as addCandidateDateForm.submit.
+            requiredOutcome's identical clause). On success, the new
+            gathering subsequently appears in organizerGatheringList.list
+            (createdAt descending places it first), and the browser
+            navigates to browserEntry.organizerDashboard for the newly
+            created gathering (ADR-0054 decision 2, unchanged by this
+            round's move into this dialog). On a whole-batch
+            DUPLICATE_CANDIDATE_DATE rejection (adr/0038), a whole-batch
+            CANDIDATE_DATE_NOT_IN_FUTURE rejection (TDR-GTH-47), or a
+            whole-batch CANDIDATE_DATE_NOT_A_BUSINESS_DAY rejection (new
+            2026-09-16, ADR-0060 decision 4, TDR-GTH-57/58): this dialog
+            remains present with every gathering-create-candidate-date-
+            remove-selected instance unchanged, every day cell's
+            data-selected unchanged, and the name input's value intact --
+            no gathering is created.
+        cancel:
+          testId: gathering-create-review-cancel
+          purpose: gathering-create-review-cancel
+          requiredOutcome: >-
+            Activating it makes gathering-create-review-dialog absent.
+            Calls no public operation. Does not change any day cell's
+            data-selected value or the name input's value -- the organizer
+            returns to organizerGatheringCreate exactly as it was before
+            gathering-create-review-open was activated.
     cancel:
       testId: gathering-create-cancel
       purpose: gathering-create-cancel
@@ -1545,17 +1720,20 @@ browserControlSurface:
       testId: gathering-candidate-date-list
       orderingInvariant: >-
         DOM order of gathering-candidate-date children equals
-        Gathering.candidateDates' order (goingCount descending, ties broken
-        by startAt ascending, adr/0048, gathering-scheduling-api.yaml) at
-        all times. **Fixed 2026-09-06 (adr/0048)**: this entry previously
-        described the tie-break as "implementation-chosen stable", which a
-        production defect exposed as non-deterministic in practice --
-        candidate dates submitted in the same createGathering call could
-        share an identical creation timestamp, so the implementation's own
-        stable-sort guarantee had nothing stable to sort by, and the
-        rendered order varied across otherwise-identical acceptance runs.
-        No control in this list may claim the forbidden
-        manual-ordering purpose (see unavailableControls above).
+        Gathering.candidateDates' order (startAt ascending, 開催日の早い順,
+        gathering-scheduling-api.yaml) at all times. **Changed 2026-09-16
+        (ADR-0060 decision 6, human decision: 候補日の並びを日付順へ)**: this
+        entry previously ordered by goingCount descending with startAt
+        ascending as a tie-break (adr/0048, fixing a 2026-09-06 production
+        defect where the tie-break was undocumented and non-deterministic).
+        This round replaces goingCount as the primary key with startAt
+        itself. No tie-break is needed for this key -- within a given
+        gathering, startAt is always unique among currently-present
+        candidate dates (DUPLICATE_CANDIDATE_DATE rejects any addition that
+        would duplicate an existing candidate date's startAt), so two
+        elements sharing this order key can never occur. No control in this
+        list may claim the forbidden manual-ordering purpose (see
+        unavailableControls above).
       candidateDate:
         testId: gathering-candidate-date
         attributes:
@@ -1565,6 +1743,7 @@ browserControlSurface:
           notGoingCount: data-not-going-count
           isConfirmed: data-confirmed
           tentativelySelected: data-tentative-selected
+          currentLeader: data-current-leader
         requirement: >-
           One element per CandidateDate, each attribute an exact-match
           projection of the same-named CandidateDate field (data-confirmed
@@ -1580,7 +1759,28 @@ browserControlSurface:
           three phases (Final.dc.html A③'s "日程の記録" panel is this same
           element, frozen as a record once FINALIZED, adr/0042) -- only the
           tentative-select interactivity retires (see
-          tentativeSelectionAndPreview.trigger below).
+          tentativeSelectionAndPreview.trigger below). **data-current-leader
+          added 2026-09-16 (ADR-0060 decision 7, human decision: "○が多い日
+          を優先。同票なら△が多いほう。それでも同票ならすべてつける")**:
+          for a candidate date whose goingCount + maybeCount + notGoingCount
+          equals 0 (nobody has responded to this date at all),
+          data-current-leader is unconditionally "false" (same 0-response
+          exclusion gathering-shortlisted-shop-item's own data-current-
+          leader established, ADR-0055 decision 6). Among candidate dates
+          whose responded count is not 0: find the maximum goingCount among
+          them. If exactly one candidate date carries that maximum
+          goingCount, its data-current-leader is "true" and every other
+          candidate date's is "false". If more than one candidate date
+          ties on that maximum goingCount, narrow to whichever of those
+          tied candidate dates has the maximum maybeCount among just that
+          tied subset; if exactly one remains, only that one carries
+          data-current-leader="true"; if more than one remains (tied on
+          both goingCount and maybeCount), every one of those remaining
+          tied candidate dates carries data-current-leader="true". This is
+          a two-level cascade (goingCount first, maybeCount only ever
+          consulted to break a goingCount tie, never combined with it) --
+          distinct from gathering-shortlisted-shop-item's own single summed
+          value (wantToGoCount + okToGoCount, ADR-0055 decision 6).
       removeCandidateDate:
         testId: gathering-candidate-date-remove
         purpose: gathering-candidate-date-remove
@@ -1730,6 +1930,7 @@ browserControlSurface:
             attributes:
               date: data-date
               selected: data-selected
+              holiday: data-holiday
             requirement: >-
               data-date is an ISO-8601 date string (YYYY-MM-DD, no time
               component) identifying the calendar day this cell represents.
@@ -1739,7 +1940,11 @@ browserControlSurface:
               data-selected="true" (multi-select, TDR-GTH-46 -- the
               population of *how many* may be simultaneously selected is
               not capped by this contract, mirroring addCandidateDates'
-              own uncapped `candidateDates` array).
+              own uncapped `candidateDates` array). **data-holiday added
+              2026-09-16 (ADR-0060 decision 2)**: same meaning as
+              organizerGatheringCreate.calendar.dayCell.attributes.holiday
+              above -- this product's own bundled Japan public holiday
+              data, never an external service call.
             disabledState: >-
               Carries the native disabled state for any day whose data-date
               is today or earlier by the server's clock (adr/0049 decision
@@ -1747,8 +1952,16 @@ browserControlSurface:
               CANDIDATE_DATE_NOT_IN_FUTURE rejection remains the
               authoritative enforcement -- this disabledState is a UX
               affordance only, same disable-at-the-boundary convention as
-              gathering-create-submit.disabledState). A disabled day cell
-              can never carry data-selected="true".
+              review.confirm.disabledState). **Also carries the native
+              disabled state for any day that is a Saturday or Sunday, or
+              whose data-holiday above is "true" (added 2026-09-16,
+              ADR-0060 decision 1/2) -- same rule and same rationale as
+              organizerGatheringCreate.calendar.dayCell.disabledState
+              above. The API's new CANDIDATE_DATE_NOT_A_BUSINESS_DAY
+              rejection remains the authoritative enforcement,
+              TDR-GTH-57/58.** A disabled day cell can never carry
+              data-selected="true", regardless of which of these
+              conditions caused the disabling.
             select:
               purpose: gathering-add-candidate-date-day-select
               requiredOutcome: >-
@@ -2433,12 +2646,48 @@ browserControlSurface:
         place those two are joined.
       requiredTestIds:
         table: gathering-response-table
+        header: gathering-response-table-header
+        leaderSummary: gathering-response-table-leader-summary
       presenceRule: >-
         Present whenever organizerDashboard.participantLinkList is present
         (i.e. unconditionally, all three phases, mirroring that list's own
         presence).
       table:
         testId: gathering-response-table
+        header:
+          testId: gathering-response-table-header
+          description: >-
+            Added 2026-09-16 (ADR-0060 decision 7, human decision: 日付の順
+            のまま、いちばん有力な日の列を塗る). Until this decision this
+            table had no element representing a column at all -- cells only
+            carried data-candidate-date-id, and this contract explicitly did
+            not fix column order or layout (see scope below, unchanged).
+            This header makes "column" a real, orderable DOM concept for
+            the first time.
+          headerCell:
+            testId: gathering-response-table-header-cell
+            cardinality: one-per-currently-present-CandidateDate
+            attributes:
+              candidateDateId: data-candidate-date-id
+            orderingInvariant: >-
+              DOM order of gathering-response-table-header-cell children
+              equals candidateDateList.orderingInvariant's own order
+              (startAt ascending, ADR-0060 decision 6) -- this is what fixes
+              「候補日は日付の順に並ぶ」for this table's own column
+              structure, not only for candidateDateList above.
+            requirement: >-
+              One header cell per CandidateDate currently in
+              Gathering.candidateDates (the same set candidateDateList
+              renders). This element does not itself carry a
+              data-current-leader attribute -- whether the column this
+              header cell represents is the leading candidate date is read
+              from the corresponding gathering-candidate-date element's own
+              data-current-leader (same data-candidate-date-id value, see
+              candidateDateList.candidateDate above), not duplicated here
+              (architect design judgment, ADR-0060 -- avoids two sources of
+              truth for the same fact, the same reasoning ADR-0059 decision
+              6 applied to this file's relationship with the shared
+              navigation elements).
         row:
           testId: gathering-response-table-row
           cardinality: zero-or-more-elements-sharing-this-test-id
@@ -2473,6 +2722,31 @@ browserControlSurface:
               simply not laid out) -- it fixes only which (row, candidate
               date) pairs have a cell and what that cell's
               data-response-status is.
+      leaderSummary:
+        testId: gathering-response-table-leader-summary
+        purpose: gathering-response-table-leader-summary
+        description: >-
+          Added 2026-09-16 (ADR-0060 decision 7, human decision: 表の上に
+          「有力 ◯/◯（◯）」を出す). This element declares no activatable
+          behavior -- it is purely observational; the purpose entry above
+          exists only so tooling that scans by purpose can find it.
+        cardinality: zero-or-more-elements-sharing-this-test-id
+        attributes:
+          candidateDateId: data-candidate-date-id
+        requirement: >-
+          One instance per CandidateDate currently carrying
+          data-current-leader="true" on its own gathering-candidate-date
+          element (candidateDateList.candidateDate above, ADR-0060 decision
+          7) -- zero instances when no candidate date has any response yet
+          (TDR-GTH-59), more than one instance when tied (TDR-GTH-62). The
+          specific counts a visible "有力 ◯/◯（◯）" badge would show
+          (行ける人数・たぶんの人数・全体人数) are not duplicated onto this
+          element -- they are already fixed elsewhere (this candidate
+          date's own data-going-count/data-maybe-count, and
+          gathering-unanswered-summary's data-active-issued-links for the
+          total). This contract does not fix this badge's exact wording
+          (ADR-0060 decision 9, the "N件" convention) or visual position,
+          only which candidate date(s) it names.
       scope: >-
         This table carries schedule responses only (ADR-0056 decision 1's
         own scope limit) -- it does not carry shop votes. Whether a future
@@ -2675,20 +2949,21 @@ browserControlSurface:
         2026-09-04, adr/0043, after the two entries were found to
         contradict each other post-FINALIZED).
       orderingInvariant: >-
-        Added 2026-09-06 (adr/0048) -- this contract had never fixed the
-        order ParticipantView.scheduleQuestions renders in, even though
-        cardinality below permits a progressive, one-at-a-time flow whose
-        very first reachable element depends on that order. The order in
-        which each gathering-schedule-question becomes reachable (whether
-        all render simultaneously or one at a time) equals
-        ParticipantView.scheduleQuestions' order -- goingCount descending,
-        ties broken by startAt ascending (gathering-scheduling-api.yaml).
-        This was a real, observed production defect, not a theoretical
-        gap: candidate dates created in the same createGathering call could
-        tie on both goingCount and the implementation's prior, undocumented
-        tie-break, so which candidate date's question a participant reached
-        first varied across otherwise-identical acceptance runs of the same
-        gathering.
+        Added 2026-09-06 (adr/0048), **changed 2026-09-16 (ADR-0060 decision
+        6, human decision: 候補日の並びを日付順へ)**. The order in which each
+        gathering-schedule-question becomes reachable (whether all render
+        simultaneously or one at a time) equals ParticipantView.
+        scheduleQuestions' order -- startAt ascending (開催日の早い順,
+        gathering-scheduling-api.yaml), the same order and the same
+        no-tie-break-needed reasoning candidateDateList.orderingInvariant
+        above now uses (startAt is unique among a gathering's currently-
+        present candidate dates, so two elements sharing this order key can
+        never occur). This entry previously ordered by goingCount
+        descending with startAt ascending as a tie-break, fixing a
+        2026-09-06 production defect (candidate dates sharing an
+        undocumented, non-deterministic tie-break); that defect-fix
+        reasoning is superseded by this round's switch of the primary key
+        itself.
       cardinality: >-
         This contract does not fix whether every CandidateDate renders
         simultaneously or progressively (a wizard-style one-at-a-time flow,
@@ -2740,6 +3015,7 @@ browserControlSurface:
           goingCount: data-going-count
           maybeCount: data-maybe-count
           notGoingCount: data-not-going-count
+          currentLeader: data-current-leader
         presenceRule: >-
           **Changed 2026-09-09 (adr/0050 decision 2, 2026-09-08/09 human
           decision: "約束は覆してもよい")**: always present within a given
@@ -2755,7 +3031,20 @@ browserControlSurface:
           converge on a date the group is already leaning toward. Its
           three attributes mirror the organizer-facing
           gathering-candidate-date's goingCount/maybeCount/notGoingCount for
-          the same candidate date exactly, unconditionally.
+          the same candidate date exactly, unconditionally. **Added
+          2026-09-16 (ADR-0060 decision 8, human decision: 参加者の画面にも
+          有力の印を出す)**: data-current-leader mirrors gathering-candidate-
+          date's own data-current-leader (candidateDateList.candidateDate
+          above, ADR-0060 decision 7) exactly -- computed by the same
+          two-level cascade (goingCount, then maybeCount as a tie-break
+          only; 0件は除外・同点はすべてtrue) across this participant's own
+          full ParticipantView.scheduleQuestions array, which already
+          carries every candidate date's goingCount/maybeCount (no API
+          change needed, the same no-new-field reasoning ADR-0056 decision 6
+          used mirroring data-added-after-voting-started to the participant
+          side). Presentation (emphasis, position) is left provisional
+          pending a human decision when a later round redesigns this
+          screen (ADR-0060 未決事項4).
     answerLater:
       testId: gathering-participant-answer-later
       purpose: gathering-participant-answer-later
