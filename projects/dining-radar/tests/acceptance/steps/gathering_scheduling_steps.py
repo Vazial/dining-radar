@@ -797,3 +797,19 @@ class GatheringSchedulingSteps:
 
     def participant_link_issuance_closed_badge_is_shown(self) -> None:
         self.dsl.assert_participant_link_issuance_closed_badge_is_shown()
+
+    # organizerDashboard.headingBar (ADR-0063決定2, TDR-GTH-67) --------------
+
+    def dashboard_shows_the_gathering_name(self, expected_title: str) -> None:
+        self.dsl.assert_dashboard_shows_the_gathering_name(expected_title)
+
+    def dashboard_shows_the_confirmed_date(self, expected_iso: str) -> None:
+        self.dsl.assert_dashboard_shows_the_confirmed_date(expected_iso)
+
+    def phase_indicator_is_absent(self) -> None:
+        self.dsl.assert_phase_indicator_is_absent()
+
+    # organizerDashboard.shopSelectionPanel (ADR-0063決定3) ------------------
+
+    def selecting_shop_tab_panel_is_functional(self, context_label: str) -> None:
+        self.dsl.assert_selecting_shop_tab_panel_is_functional(context_label)

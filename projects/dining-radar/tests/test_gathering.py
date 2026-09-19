@@ -5924,14 +5924,27 @@ class Adr0062ShortlistedShopVotesPresenceRuleSourceTests(SimpleTestCase):
     """ADR-0062 decision 4 (board D4): shortlistedShopVotes.presenceRule
     narrows to "votingStartedAt non-null AND finalizedShopId null" --
     gathering-shortlisted-shop-list/-item must not remain present once
-    FINALIZED."""
+    FINALIZED.
 
-    def test_the_render_gate_checks_finalized_shop_id_is_null(self):
+    **Superseded 2026-09-19 (ADR-0063 decision 3)**: the render gate that
+    used to combine both conditions in one expression is now
+    shopSelectionPanel's own single "phase is SELECTING_SHOP" gate --
+    finalizedShopId is always null while phase is SELECTING_SHOP (the state
+    machine only sets it when phase advances to FINALIZED), so this remains
+    the exact same guarantee (the map/list become absent once FINALIZED),
+    expressed through the new, contract-literal presenceRule instead.
+    """
+
+    def test_the_render_gate_checks_the_phase_is_selecting_shop(self):
         source = GATHERING_JS.read_text(encoding="utf-8")
 
+        start = source.index("function render() {")
+        end = source.index("root.appendChild(", start)
+        body = source[start:end]
+
         self.assertIn(
-            "state.gathering.votingStartedAt !== null && state.gathering.finalizedShopId === null",
-            source,
+            'if (phase === "SELECTING_SHOP") {\n      sections.push(renderShopSelectionPanel(',
+            body,
         )
 
 

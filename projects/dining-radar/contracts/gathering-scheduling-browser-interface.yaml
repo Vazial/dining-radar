@@ -799,11 +799,47 @@
 #   続ける（変わらない）。candidateDateList.candidateDate・scheduleQuestion.tallyそれぞれの
 #   data-current-leaderはこの追補の対象外で無変更。
 #
+# 2026-09-19 追補24 (architect、ADR-0063。人間裁定（2026-09-19チャット選択肢UI、板
+#   E:/AWS/dsg-out/party2/d7/S4-SpSelect.dc.html・S4-PcSelect.dc.html）: 店を選び中の
+#   幹事ダッシュボードを、ADR-0062決定4が確定後に確立した骨組み（見出しの下から地図いっぱい、
+#   一覧は地図の上に浮かせる）へ揃える。contractVersionを0.24.2から0.25.0へ上げる):
+# - **局面の札(gathering-phase-indicator)をこの局面だけ落とす**（決定1）:
+#   phaseIndicatorAttributesのpresenceRuleを、SCHEDULING・FINALIZEDでは出現しSELECTING_SHOP
+#   でだけ出現しない、という条件付きへ書き換えた。participantAnswer.headerAttributesは無変更
+#   （TDR-GTH-11がこの局面の遷移を参加者側から検証できる、という既存の理由はそのまま成立する）。
+# - **見出しに会の名前と決まった開催日時を新設した**（決定2、新規`organizerDashboard.headingBar`、
+#   `gathering-dashboard-title`/`gathering-dashboard-confirmed-date`）: 前者は
+#   `organizerGatheringList.list.item`が既に使う`data-gathering-title`と同じ属性名・同じ値
+#   （新しいAPIフィールドではない）、後者は`finalizeConfirmDialog.date`・
+#   `finalizedSummary.decisionBanner`が既に使う`data-confirmed-candidate-date`と同じ属性名・
+#   同じ値をこの局面向けに投影したものである。新規シナリオTDR-GTH-67で検証する。
+#   「この会を削除」ボタン(`gathering-delete-open`、既存)をこの見出し行へ置くという要望は、
+#   この要素の`presenceRule`/`requiredOutcome`が元から固定していないgeometry（見出し行という
+#   コンテナの選択）にすぎないため、契約変更なしで閉じる——`ADR-0062`決定2と同じ扱い。
+# - **一覧の上端に4件のタブを新設した**（決定3、新規`organizerDashboard.shopSelectionPanel`）:
+#   `gathering-shop-select-tab-shop`（既定選択）/`-schedule`/`-answers`/`-links`。それぞれ
+#   `shopSelectionEntry`/`shortlistedShopVotes.list`、`candidateDateList`、`responseTable`、
+#   `participantLinkList`の可視性を切り替えるだけで、いずれの要素の`presenceRule`も変えない
+#   ——`ADR-0062`決定4の`answersOpen`/`linksOpen`がFINALIZED局面に対して確立したのと同じ
+#   「存在は変わらず、見えるかどうかだけが入口の状態に依存する」設計をSELECTING_SHOP局面へ広げた。
+#   `respondedSummary`/`unansweredSummary`自身は無変更のまま——タブのラベル（例「回答 7/9人」）
+#   はこの2要素の既存の値から導出する非拘束の可視文言であり、新しい属性は増やさない。
+# - **選んだ店の行の貼り付き・地図ピンの2規則を明文化した**（決定4）: `shortlistedShopVotes.list`の
+#   `orderingInvariant`（票の多い順、無変更）に、選択中の項目をCSSで画面上端へ貼り付ける実装は
+#   このDOM順を変えない、という注記を追加した。`item.detailFields.map.marker`の`requirement`に、
+#   このマーカーの大きさ・色が、同じ`data-shop-id`で相関する項目自身の`data-current-leader`
+#   （いちばん人気、緑）と`data-finalize-selected`（幹事が選んでいる、スミ色・大きさ）という
+#   既存の2つの独立した属性から導出できる、という注記を追加した——新しい属性は増やさない。
+# - `allowedPurposes`へ4件を追加した: gathering-shop-select-tab-shop,
+#   gathering-shop-select-tab-schedule, gathering-shop-select-tab-answers,
+#   gathering-shop-select-tab-links（allowedPurposesNoteAdr0063参照）。
+# - `profiles.localAcceptance.verifiesScenarios`へTDR-GTH-67を追加した。
+#
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.24.2'
+contractVersion: '0.25.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -850,7 +886,7 @@ profiles:
        TDR-GTH-48, TDR-GTH-49, TDR-GTH-50, TDR-GTH-51, TDR-GTH-52,
        TDR-GTH-53, TDR-GTH-54, TDR-GTH-55, TDR-GTH-56, TDR-GTH-57,
        TDR-GTH-58, TDR-GTH-59, TDR-GTH-60, TDR-GTH-61, TDR-GTH-62,
-       TDR-GTH-63, TDR-GTH-64, TDR-GTH-65, TDR-GTH-66]
+       TDR-GTH-63, TDR-GTH-64, TDR-GTH-65, TDR-GTH-66, TDR-GTH-67]
     verifiesScenariosNoteAdr0062: >-
       TDR-GTH-57 through TDR-GTH-64 were added to gathering-scheduling.
       feature by ADR-0060/ADR-0061 but never registered in this array --
@@ -859,6 +895,9 @@ profiles:
       ADR-0062 (architect technical judgment, no new human decision,
       meta/adr/0064's convention). TDR-GTH-65/66 are this round's own new
       scenarios (ADR-0062 decision 4).
+    verifiesScenariosNoteAdr0063: >-
+      TDR-GTH-67 is this round's own new scenario (ADR-0063 decision 2,
+      organizerDashboard.headingBar's new name/confirmed-date content).
     notVerifiedHere:
       - scenario: TDR-GTH-13
         reason: >-
@@ -1182,7 +1221,9 @@ unavailableControls:
      gathering-participant-link-issue-dialog-copy,
      gathering-participant-link-issue-dialog-close,
      gathering-participant-day-list-open, gathering-participant-day-list-close,
-     gathering-decision-answers-open, gathering-decision-links-open]
+     gathering-decision-answers-open, gathering-decision-links-open,
+     gathering-shop-select-tab-shop, gathering-shop-select-tab-schedule,
+     gathering-shop-select-tab-answers, gathering-shop-select-tab-links]
   allowedPurposesNote2026_09_12: >-
     Eight purposes added, one removed (this file's own 2026-09-12 revision,
     ADR-0054/ADR-0055/ADR-0056, contracts/REVISION-PLAN.md 2節). Added:
@@ -1291,6 +1332,19 @@ unavailableControls:
     answersOpen/linksOpen below, the entrance to responseTable/
     participantLinkList once phase is FINALIZED). Not a new business
     decision.
+  allowedPurposesNoteAdr0063: >-
+    Four purposes added (ADR-0063, 2026-09-19, board S4-SpSelect/
+    S4-PcSelect, human decision: 店を選び中の幹事ダッシュボードに4件の
+    タブを新設する). Added: gathering-shop-select-tab-shop
+    (default-selected), gathering-shop-select-tab-schedule,
+    gathering-shop-select-tab-answers, gathering-shop-select-tab-links
+    (organizerDashboard.shopSelectionPanel below, the entrance to
+    shopSelectionEntry/shortlistedShopVotes.list, candidateDateList,
+    responseTable, and participantLinkList respectively while phase is
+    SELECTING_SHOP -- the same disclosure-gate pattern
+    allowedPurposesNoteAdr0062Addendum above already established for
+    finalizedSummary.answersOpen/linksOpen, applied here to a four-way
+    tab group instead of a two-way pair).
   forbiddenPurposes:
     - manual-ordering
     - secondary-condition
@@ -1822,18 +1876,32 @@ browserControlSurface:
       values: [SCHEDULING, SELECTING_SHOP, FINALIZED]
       requirement: >-
         Exact string match with the current Gathering.phase
-        (gathering-scheduling-api.yaml). Present unconditionally whenever the
-        organizer dashboard renders. Corresponds to the phase progress
-        display Organizer.dc.html's dw-ph header and Flow.dc.html's 会の状態
-        row both show; this element is what carries that concept into the
-        approved screens actually observed by this contract (F itself has no
-        observable surface -- see this file's header comment). Amended
-        2026-09-01 (D10, adr/0038): the value set was already exactly these
-        three values (no DRAFT) from drafting time; D10 confirms this was
-        correct rather than changing it. Amended 2026-09-03 (P6, adr/0041):
-        this value set does not gain a fourth value when voting starts --
-        see shopSelectionEntry/shortlistedShopVotes below for how that
-        sub-state is represented instead.
+        (gathering-scheduling-api.yaml). Present while phase is SCHEDULING or
+        FINALIZED; absent while phase is SELECTING_SHOP (**changed
+        2026-09-19, ADR-0063 decision 1** -- from drafting time through
+        contractVersion 0.24.2 this element was present unconditionally
+        whenever the organizer dashboard rendered). Corresponds to the phase
+        progress display Organizer.dc.html's dw-ph header and Flow.dc.html's
+        会の状態 row both show; this element is what carries that concept
+        into the approved screens actually observed by this contract (F
+        itself has no observable surface -- see this file's header comment).
+        Amended 2026-09-01 (D10, adr/0038): the value set was already
+        exactly these three values (no DRAFT) from drafting time; D10
+        confirms this was correct rather than changing it. Amended
+        2026-09-03 (P6, adr/0041): this value set does not gain a fourth
+        value when voting starts -- see shopSelectionEntry/
+        shortlistedShopVotes below for how that sub-state is represented
+        instead. **Amended 2026-09-19 (ADR-0063 decision 1, human decision,
+        board S4-SpSelect/S4-PcSelect: 店を選び中の局面の札は画面から落とす,
+        the SELECTING_SHOP-phase organizer dashboard instead adopts
+        headingBar below)**: this element becomes absent for the one phase
+        the human's board removes it from; it remains present, unchanged,
+        for SCHEDULING and FINALIZED. This does not affect
+        participantAnswer.headerAttributes below, which keeps its own
+        unconditional presence across all three phases and remains the
+        source TDR-GTH-11 (and any scenario needing to observe the
+        SELECTING_SHOP phase from the organizer side without this element)
+        reads instead.
     denominatorAttributes:
       description: >-
         D2 (2026-08-30): two distinct denominators must be separately
@@ -1878,6 +1946,53 @@ browserControlSurface:
           data-total-issued-links directly (that would reintroduce the
           pre-amendment bug of counting a revoked link as still
           unanswered).
+    headingBar:
+      description: >-
+        Added 2026-09-19 (architect, ADR-0063 decision 2, board
+        S4-SpSelect/S4-PcSelect). Present exactly while phase is
+        SELECTING_SHOP (same condition as shopSelectionEntry below) --
+        the map-first layout this phase now adopts (ADR-0063 decision 1)
+        replaces phaseIndicatorAttributes' own badge, absent for this one
+        phase, with this heading. Supports TDR-GTH-67.
+      requiredTestIds:
+        title: gathering-dashboard-title
+        confirmedDate: gathering-dashboard-confirmed-date
+      title:
+        testId: gathering-dashboard-title
+        formControl: false
+        attributes:
+          title: data-gathering-title
+        requirement: >-
+          Present whenever headingBar itself is present. data-gathering-
+          title equals Gathering.title exactly -- the same attribute name
+          and value organizerGatheringList.list.item already establishes
+          above (no new API field; this is that same value projected onto
+          organizerDashboard for the first time).
+      confirmedDate:
+        testId: gathering-dashboard-confirmed-date
+        formControl: false
+        attributes:
+          confirmedCandidateDate: data-confirmed-candidate-date
+        requirement: >-
+          Present whenever headingBar itself is present. data-confirmed-
+          candidate-date equals the startAt of the gathering-candidate-date
+          whose data-confirmed is "true" (candidateDateList.candidateDate
+          below), the same ISO-8601 date-time string
+          organizerGatheringList.list.item's own data-confirmed-candidate-
+          date and shortlistedShopVotes.finalizeConfirmDialog.date's own
+          data-confirmed-candidate-date already use for the identical fact
+          -- always present here (never absent the way the list item's own
+          instance can be, since reaching SELECTING_SHOP phase requires
+          confirmDate to have already succeeded).
+      deleteButtonPlacement: >-
+        The organizer's request to place deleteGathering.open
+        (gathering-delete-open, existing, unconditional across all three
+        phases) as a text button directly in this same heading row, not
+        nested inside any menu, is geometry this contract does not fix
+        (the container element gathering-delete-open renders inside has
+        never been part of this contract's Must set) -- closed without a
+        contract change, the same way ADR-0062 decision 2 closed the
+        「決める」button's own placement request.
     candidateDateList:
       testId: gathering-candidate-date-list
       orderingInvariant: >-
@@ -2350,7 +2465,18 @@ browserControlSurface:
           value. No control in this list may claim the
           forbidden manual-ordering purpose (already generalized to cover
           this list without a contract edit, ADR-0036 design judgment 3 /
-          this file's forbiddenPurposesNote).
+          this file's forbiddenPurposesNote). **Extended 2026-09-19
+          (ADR-0063 decision 4, human decision, board S4: 選んでいる店の行を
+          一覧の先頭に貼り付ける、残りは票が多い順のまま)**: an
+          implementation may visually pin the item whose
+          data-finalize-selected is "true" to the top of the viewport
+          (e.g. CSS position: sticky) without changing this DOM order --
+          this orderingInvariant continues to govern the actual DOM order
+          (and therefore any rank number an implementation derives from
+          list position) regardless of which item is currently pinned on
+          screen; visual pinning is geometry this contract does not fix
+          (the same convention ADR-0059/ADR-0060 already apply to
+          scroll/sticky behavior elsewhere in this file).
         item:
           testId: gathering-shortlisted-shop-item
           cardinality: zero-to-five-elements-sharing-this-test-id
@@ -2504,7 +2630,27 @@ browserControlSurface:
                 requirement: >-
                   One marker per gathering-shortlisted-shop-item currently
                   rendered, correlated by data-shop-id. Positioned from
-                  ShortlistedShop.location. Display-only.
+                  ShortlistedShop.location. Display-only. **Extended
+                  2026-09-19 (ADR-0063 decision 4, human decision, board
+                  S4: 地図のピンも同じ規則で、選んだ店のピンだけ大きくする。
+                  緑=票が多いこと、スミ色=幹事が選んでいること)**: this
+                  marker's visual size and color are driven by the
+                  correlated gathering-shortlisted-shop-item's own
+                  data-current-leader (いちばん人気, green, ADR-0055
+                  decision 6) and data-finalize-selected (幹事が選んでいる,
+                  charcoal and larger, shortlistedShopVotes.list.item.
+                  finalizeSelect above) attributes -- the same
+                  data-shop-id correlation this marker already carries
+                  above is sufficient; no new attribute is added to this
+                  marker itself. This contract forbids conflating the two
+                  signals into a single visual state (a shop can be the
+                  vote leader without being the organizer's currently
+                  finalize-selected pick, and vice versa) but does not fix
+                  the exact colors, the size multiplier, or whether they
+                  are expressed via marker icon vs. marker size vs. both
+                  -- that remains implementation choice, the same
+                  non-binding-visual convention this file applies
+                  elsewhere to color/geometry.
             providerPageLink:
               testId: gathering-shortlisted-shop-page-link
               formControl: false
@@ -2632,6 +2778,84 @@ browserControlSurface:
           shop-item's data-finalize-selected is unaffected (the organizer's
           pending selection survives cancellation, so re-opening
           gathering-finalize-open shows the same selection).
+    shopSelectionPanel:
+      description: >-
+        Added 2026-09-19 (architect, ADR-0063 decision 3, board
+        S4-SpSelect/S4-PcSelect, human decision: 一覧の上端にタブを置き、
+        「店」「日程」「回答」「リンク」を切り替える。既定は「店」). Present
+        exactly while phase is SELECTING_SHOP (same condition as
+        shopSelectionEntry above) -- the tally row (respondedSummary/
+        unansweredSummary above) and the schedule panel (candidateDateList
+        above) this file previously left floating above the map for this
+        phase move behind this tab group; finalizedSummary below already
+        has its own, differently-shaped answersOpen/linksOpen pair for the
+        FINALIZED phase, unaffected by this section.
+      requiredTestIds:
+        shopTab: gathering-shop-select-tab-shop
+        scheduleTab: gathering-shop-select-tab-schedule
+        answersTab: gathering-shop-select-tab-answers
+        linksTab: gathering-shop-select-tab-links
+      presenceRule: >-
+        Present exactly while phase is SELECTING_SHOP (mirrors
+        shopSelectionEntry.presenceRule above).
+      tabGroup: >-
+        The four tabs below are mutually exclusive (a single tablist);
+        exactly one carries aria-selected="true" at any time, and shopTab
+        starts selected (board S4: 既定は「店」). This contract does not
+        name a distinct render mode for narrow viewports here (this
+        file's existing no-renderModes convention) -- unlike
+        finalizedSummary.answersOpen/linksOpen below, which fork into a
+        tab-shaped and a disclosure-row-shaped presentation depending on
+        viewport, board S4 draws one tab strip for both PC and mobile
+        widths.
+      shopTab:
+        testId: gathering-shop-select-tab-shop
+        purpose: gathering-shop-select-tab-shop
+        requiredOutcome: >-
+          Activating it makes shopSelectionEntry above and
+          shortlistedShopVotes.list above (whichever currently applies --
+          shortlistedShopVotes is itself absent before the first shop is
+          ever added, see its own presenceRule above) currently visible,
+          and every other tab below's aria-selected false. Calls no
+          public operation -- it only discloses content this contract
+          already requires elsewhere; neither element's own presenceRule
+          changes.
+      scheduleTab:
+        testId: gathering-shop-select-tab-schedule
+        purpose: gathering-shop-select-tab-schedule
+        requiredOutcome: >-
+          Activating it makes candidateDateList above currently visible,
+          and every other tab's aria-selected false. Calls no public
+          operation -- candidateDateList's own presenceRule (unconditional
+          across all three phases) is unchanged; only whether it is
+          currently visible while phase is SELECTING_SHOP now depends on
+          this tab's own aria-selected state.
+      answersTab:
+        testId: gathering-shop-select-tab-answers
+        purpose: gathering-shop-select-tab-answers
+        requiredOutcome: >-
+          Activating it makes responseTable below currently visible, and
+          every other tab's aria-selected false. Calls no public
+          operation -- mirrors finalizedSummary.answersOpen's own
+          relationship to responseTable exactly, applied here to the
+          SELECTING_SHOP phase. respondedSummary/unansweredSummary above
+          remain unconditionally present regardless of this tab's state
+          (this decision does not gate them) -- board S4's own tab label
+          ("回答 7/9人") is non-binding visible wording this contract does
+          not fix (ADR-0060 decision 9 precedent), derived from these two
+          elements' existing data-responded-count/data-active-issued-links
+          without a new attribute.
+      linksTab:
+        testId: gathering-shop-select-tab-links
+        purpose: gathering-shop-select-tab-links
+        requiredOutcome: >-
+          Activating it makes participantLinkList below currently
+          visible, and every other tab's aria-selected false. Calls no
+          public operation -- mirrors finalizedSummary.linksOpen's own
+          relationship to participantLinkList exactly, applied here to
+          the SELECTING_SHOP phase. participantLinkList's own
+          presenceRule (unconditional across all three phases) is
+          unchanged.
     confirmDate:
       testId: gathering-confirm-date-select
       purpose: gathering-confirm-date-select

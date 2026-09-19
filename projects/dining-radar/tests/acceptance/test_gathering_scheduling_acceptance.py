@@ -1852,6 +1852,100 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.finalized_answers_and_links_entrance_is_functional("スマホ幅")
         self.steps.screen_has_no_forbidden_controls_or_disclosures()
 
+    # TDR-GTH-67 (new, ADR-0063決定2, 2026-09-19人間裁定「見出しのすぐ下から
+    # 地図いっぱい」。見出しに会の名前と決まった開催日時を示す) --------------
+
+    def test_tdr_gth_67_organizer_dashboard_heading_shows_name_and_confirmed_date(
+        self,
+    ) -> None:
+        """新設 organizerDashboard.headingBar（ADR-0063決定2, 2026-09-19）:
+        店を選んでいる間だけ、会の名前と確定した開催日時が見出しに示される。
+        """
+        self._sign_in()
+        thursday = self.dsl.next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会67", [thursday])
+        confirmed_date_iso = self.dsl.gathering["candidateDates"][0]["startAt"]
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.dashboard_shows_the_gathering_name("会67")
+        self.steps.dashboard_shows_the_confirmed_date(confirmed_date_iso)
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+
+    def test_gth_phase_indicator_is_absent_while_selecting_shop(self) -> None:
+        """専用シナリオの無い契約Must（ADR-0063決定1, 2026-09-19、観測面
+        0.25.0）。organizerDashboard.phaseIndicatorAttributesに専用の
+        TDR-GTH-*シナリオは無い（契約自身の注記）ので、
+        test_gth_response_table_leader_summary_is_absent_once_the_date_is_
+        decidedと同じ「専用シナリオの無い契約Must」の扱いでここで直接検査
+        する——店を選び中の間は局面の札(gathering-phase-indicator)そのもの
+        が不在になることを、TDR-GTH-67と同じGivenから確かめる。
+        """
+        self._sign_in()
+        thursday = self.dsl.next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会追補24a", [thursday])
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.phase_indicator_is_absent()
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+
+    def test_gth_selecting_shop_tab_panel_is_functional(self) -> None:
+        """専用シナリオの無い契約Must（ADR-0063決定3, 2026-09-19、観測面
+        0.25.0）。organizerDashboard.shopSelectionPanelに専用のTDR-GTH-*
+        シナリオは無い（契約自身の注記）ので、
+        test_gth_organizer_decision_answers_and_links_entrance_is_functional
+        と同じ「専用シナリオの無い契約Must」の扱いでPC幅・スマホ幅の両方を
+        検査する——この契約はこの4タブをPC・スマホで分岐させない
+        （no-renderModes流儀）ため、finalizedSummary.answersOpen/linksOpen
+        の時とは異なり同じ検査関数を両幅でそのまま再利用する。
+        """
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = self.dsl.next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会追補24b", [thursday])
+        shop_a = self.steps.open_shop_ids_for_the_confirmed_date()[0]
+        self.steps.organizer_shortlists_shops_via_api([shop_a])
+        self.steps.organizer_opens_the_dashboard()
+
+        self.steps.organizer_uses_a_desktop_viewport()
+        self.dsl.page.reload()
+        self.steps.selecting_shop_tab_panel_is_functional("PC幅")
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+
+        self.steps.organizer_uses_a_narrow_viewport()
+        self.dsl.page.reload()
+        self.steps.selecting_shop_tab_panel_is_functional("スマホ幅")
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+
+    def test_gth_finalize_selection_does_not_change_the_vote_ordered_dom_position(
+        self,
+    ) -> None:
+        """専用シナリオの無い契約Must（ADR-0063決定4, 2026-09-19、観測面
+        0.25.0）。shortlistedShopVotes.list.orderingInvariantへの非拘束の
+        注記——選択中の項目を実装がCSSで画面上端へ視覚的に貼り付けても、
+        DOM順（＝票の順位）は変わらない——を、TDR-GTH-40と同じ
+        shortlisted_shop_list_is_ordered_by_combined_tier_descendingを
+        選択の前後で2回呼んで直接検査する。票の少ない方の店(shop_behind)を
+        幹事が確定の選択に選んでも、DOM順が票の多い方(shop_leader)を先頭に
+        保ったままであることを確かめる——実装がDOM自体を並べ替えていれば、
+        2回目の呼び出しが失敗する。
+        """
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        thursday = self.dsl.next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会追補24c", [thursday])
+        shop_leader, shop_behind = self.steps.open_shop_ids_for_the_confirmed_date()[:2]
+        self.steps.organizer_shortlists_shops_via_api([shop_leader, shop_behind])
+        link_one = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_one)
+        self.steps.participant_answers_shop_votes(
+            {shop_leader: "WANT_TO_GO", shop_behind: "OK_TO_GO"}
+        )
+        link_two = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_two)
+        self.steps.participant_answers_shop_vote(shop_leader, "WANT_TO_GO")
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.shortlisted_shop_list_is_ordered_by_combined_tier_descending()
+        self.steps.organizer_selects_a_shop_for_finalize(shop_behind)
+        self.steps.shortlisted_shop_list_is_ordered_by_combined_tier_descending()
+
     # TDR-GTH-64 (new, ADR-0061決定2, 2026-09-17人間裁定「束Cレイアウト案F2
     # 『空いた所にだれが何と答えたかを名前つきで並べる』」) ------------------
 
