@@ -31,7 +31,10 @@ from dining_radar.recommendation.pipeline import (
 )
 from dining_radar.suggestions import acceptance_state
 from dining_radar.suggestions.errors import CandidateSourceUnavailableError
-from dining_radar.suggestions.hotpepper_source import fetch_real_candidates
+from dining_radar.suggestions.hotpepper_source import (
+    configured_search_origin,
+    fetch_real_candidates,
+)
 
 from . import holidays, tokens
 from .models import (
@@ -968,16 +971,11 @@ class ParticipantShopVoteOption:
     not_going_count: int
     responded_participant_count: int
     your_vote: str | None
-    # ``ParticipantShopVoteOption.addedAfterVotingStarted`` (ADR-0056 decision
-    # 6, 2026-09-13 addendum 9): true exactly when this shop's own `added_at`
-    # is strictly later than `Gathering.votingStartedAt` -- the identical
-    # computation the organizer-facing `data-added-after-voting-started`
-    # attribute performs, so both surfaces say "あとから入りました" for the
-    # same shop at the same time. Computed once here (never null -- this
-    # dataclass is only ever built once voting has started, so
-    # `votingStartedAt` is always non-null) rather than exposing `added_at`/
-    # `voting_started_at` themselves to the participant-facing schema.
-    added_after_voting_started: bool
+    # ``added_after_voting_started`` (ADR-0056 decision 6, 2026-09-13
+    # addendum 9) was retired 2026-09-17 (ADR-0062 decision 1, human
+    # decision, board D1: 「あとから入りました」は出さない) -- neither this
+    # screen nor the organizer-facing shortlist reads the signal any longer,
+    # so this dataclass no longer computes or carries it.
 
 
 def participant_shop_vote_options(
@@ -997,7 +995,6 @@ def participant_shop_vote_options(
         for tally in shortlisted_shops_with_tallies(link.gathering, shop_lookup, origin)
     }
     submission = ShopVoteSubmission.objects.filter(participant_link=link).first()
-    voting_started_at = link.gathering.voting_started_at
     options = []
     for shop in shortlisted_shops_nearest_first(link.gathering, shop_lookup, origin):
         tally = tallies_by_shop_id[shop.shop_id]
@@ -1013,7 +1010,6 @@ def participant_shop_vote_options(
                 not_going_count=tally.not_going_count,
                 responded_participant_count=tally.responded_participant_count,
                 your_vote=your_vote,
-                added_after_voting_started=shop.added_at > voting_started_at,
             )
         )
     return options
@@ -1119,6 +1115,29 @@ def bundled_holiday_isos() -> list[str]:
     here, not in the view layer).
     """
     return holidays.all_holiday_isos()
+
+
+def organizer_search_origin(
+    organizer: AbstractBaseUser, gathering_id: object
+) -> dict[str, float] | None:
+    """This organizer's own configured search origin, embedded into
+    ``organizer_dashboard.html`` (ADR-0062 decision 4) for
+    ``finalizedSummary.decisionBanner.map``'s origin marker -- drawn only on
+    this page's own map, never sent to an external routing service.
+    Unconditional on this gathering's phase. ``None`` if it does not
+    resolve for this organizer, or the origin itself is unconfigured.
+    """
+    try:
+        get_gathering(organizer, gathering_id)
+    except GatheringNotFoundError:
+        return None
+    if acceptance_state.active_mode() is not None:
+        origin = acceptance_state.active_search_origin()
+    else:
+        origin = configured_search_origin()
+    if origin is None:
+        return None
+    return {"latitude": origin.latitude, "longitude": origin.longitude}
 
 
 # --- test-support-api.yaml seams (acceptance-only; guarded by callers) -----

@@ -1857,6 +1857,77 @@ class FinalizeGatheringServiceTests(GatheringSelectingShopServiceTestCase):
         self.assertEqual(gathering.finalized_shop_id, self.open_shop_ids[1])
 
 
+class OrganizerSearchOriginServiceTests(GatheringSelectingShopServiceTestCase):
+    """``services.organizer_search_origin`` (ADR-0062 decision 4): the
+    organizer's own configured search origin, embedded into
+    ``organizer_dashboard.html`` for ``finalizedSummary.decisionBanner.map``'s
+    own origin marker -- not a ``gathering-scheduling-api.yaml`` field (that
+    schema's own ``additionalProperties: false`` is unchanged by ADR-0062's
+    own diff). Unconditional on this gathering's own phase --
+    ``test_the_configured_origin_is_present_before_any_shop_is_shortlisted``
+    below is the regression case: ADR-0062 moved shop selection into this
+    same dashboard page (map + floating panel), so the organizer can shortlist
+    shops -- setting ``votingStartedAt`` -- without ever leaving or reloading
+    the page this value is embedded into."""
+
+    def test_the_configured_origin_is_present_before_any_shop_is_shortlisted(self):
+        _shop_lookup, origin = self.shop_lookup_and_origin()
+
+        result = services.organizer_search_origin(self.user, self.gathering.id)
+
+        self.assertEqual(result, {"latitude": origin.latitude, "longitude": origin.longitude})
+
+    def test_the_configured_origin_remains_available_once_finalized(self):
+        services.set_shortlisted_shops(self.user, self.gathering.id, [self.open_shop_ids[0]])
+        services.finalize_gathering(self.user, self.gathering.id, self.open_shop_ids[0])
+        _shop_lookup, origin = self.shop_lookup_and_origin()
+
+        result = services.organizer_search_origin(self.user, self.gathering.id)
+
+        self.assertEqual(result, {"latitude": origin.latitude, "longitude": origin.longitude})
+
+    def test_none_for_a_gathering_this_organizer_does_not_own(self):
+        other_user = get_user_model().objects.create_user(username="svc-shortlist-other")
+
+        self.assertIsNone(services.organizer_search_origin(other_user, self.gathering.id))
+
+    def test_none_for_an_unresolvable_gathering_id(self):
+        self.assertIsNone(services.organizer_search_origin(self.user, uuid.uuid4()))
+
+    def test_none_when_the_search_origin_is_unconfigured(self):
+        """Outside the acceptance profile, with no ``HOTPEPPER_SEARCH_
+        LATITUDE``/``_LONGITUDE`` configured (this test's own environment,
+        matching ``HotpepperSourceTests``'s identical precedent in
+        ``test_suggestions.py``)."""
+        acceptance_state.reset_mode()
+
+        self.assertIsNone(services.organizer_search_origin(self.user, self.gathering.id))
+
+    def test_no_provider_fetch_when_reading_the_origin_outside_acceptance_mode(self):
+        """Real-machine-class regression guard (the same latency defect PR
+        #196 fixed for ``serialize_participant_view``): this value is a
+        configured coordinate, not a search result -- reading it must never
+        trigger a real Hot Pepper search."""
+        acceptance_state.reset_mode()
+        env = {
+            "HOTPEPPER_API_KEY": "synthetic-key",
+            "HOTPEPPER_SEARCH_LATITUDE": "35.6812",
+            "HOTPEPPER_SEARCH_LONGITUDE": "139.7671",
+        }
+        with (
+            mock.patch.dict(os.environ, env),
+            mock.patch(
+                "dining_radar.gathering.services.fetch_real_candidates"
+            ) as fetch_real_candidates_mock,
+            mock.patch("dining_radar.suggestions.hotpepper_source.fetch_shops") as fetch_shops_mock,
+        ):
+            result = services.organizer_search_origin(self.user, self.gathering.id)
+
+        fetch_real_candidates_mock.assert_not_called()
+        fetch_shops_mock.assert_not_called()
+        self.assertEqual(result, {"latitude": 35.6812, "longitude": 139.7671})
+
+
 class SetShopVotesServiceTests(GatheringSelectingShopServiceTestCase):
     def test_rejected_before_any_shop_has_been_shortlisted(self):
         link = self.issue_link()
@@ -2179,39 +2250,12 @@ class ParticipantShopVoteOptionsServiceTests(GatheringSelectingShopServiceTestCa
         }
         self.assertEqual(resolved[self.open_shop_ids[1]].your_vote, ShopVoteStatus.WANT_TO_GO.value)
 
-    def test_added_after_voting_started_is_false_for_a_shop_present_from_the_start(self):
-        """ADR-0056 decision 6, 2026-09-13 addendum 9: mirrors the organizer-facing
-        data-added-after-voting-started signal exactly."""
-        services.set_shortlisted_shops(self.user, self.gathering.id, [self.open_shop_ids[0]])
-        link = self.issue_link()
-        shop_lookup, origin = self.shop_lookup_and_origin()
-
-        options = services.participant_shop_vote_options(link, shop_lookup, origin)
-
-        self.assertFalse(options[0].added_after_voting_started)
-
-    def test_added_after_voting_started_is_true_for_a_shop_added_by_a_later_replacement(self):
-        services.set_shortlisted_shops(self.user, self.gathering.id, [self.open_shop_ids[0]])
-        link = self.issue_link()
-        voting_started_at = Gathering.objects.get(id=self.gathering.id).voting_started_at
-
-        services.set_shortlisted_shops(self.user, self.gathering.id, self.open_shop_ids[0:2])
-        # Force the newly added shop's added_at strictly after
-        # voting_started_at -- back-to-back calls can tie on a coarse system
-        # clock (the same Windows-observed hazard adr/0048 documents
-        # elsewhere in this module), and this test needs a strict "later
-        # than" relationship for its own assertion.
-        ShortlistedShop.objects.filter(
-            gathering=self.gathering, shop_id=self.open_shop_ids[1]
-        ).update(added_at=voting_started_at + timedelta(seconds=1))
-
-        shop_lookup, origin = self.shop_lookup_and_origin()
-        options = {
-            option.shortlisted_shop.shop_id: option
-            for option in services.participant_shop_vote_options(link, shop_lookup, origin)
-        }
-        self.assertFalse(options[self.open_shop_ids[0]].added_after_voting_started)
-        self.assertTrue(options[self.open_shop_ids[1]].added_after_voting_started)
+    # test_added_after_voting_started_is_false_for_a_shop_present_from_the_start /
+    # test_added_after_voting_started_is_true_for_a_shop_added_by_a_later_replacement
+    # (ADR-0056 decision 6, 2026-09-13 addendum 9) removed 2026-09-17 (ADR-0062
+    # decision 1, human decision, board D1: 「あとから入りました」は出さな
+    # い) -- ``ParticipantShopVoteOption.added_after_voting_started`` no
+    # longer exists.
 
 
 class ShortlistedShopsNearestFirstServiceTests(GatheringSelectingShopServiceTestCase):
@@ -3565,7 +3609,6 @@ class SetShopVotesApiTests(GatheringSelectingShopApiTestCase):
                 "walkingTimeMinutes",
                 "providerPageUrl",
                 "yourVote",
-                "addedAfterVotingStarted",
                 "tally",
             },
         )
@@ -3747,50 +3790,11 @@ class SetShopVotesApiTests(GatheringSelectingShopApiTestCase):
         self.assertEqual(response.status_code, 400)
 
 
-class AddedAfterVotingStartedApiTests(GatheringSelectingShopApiTestCase):
-    """``ParticipantShopVoteOption.addedAfterVotingStarted`` (ADR-0056 decision 6,
-    2026-09-13 addendum 9)."""
-
-    def test_false_for_a_shop_present_when_voting_started(self):
-        self.put_shortlisted_shops([self.open_shop_ids[0]])
-        token = self.issue_token()
-
-        response = Client().get(reverse("gathering:participant-view", kwargs={"token": token}))
-
-        option = response.json()["shopVoteQuestions"][0]
-        self.assertEqual(option["shopId"], self.open_shop_ids[0])
-        self.assertFalse(option["addedAfterVotingStarted"])
-
-    def test_true_for_a_shop_added_by_a_later_shortlist_replacement(self):
-        self.put_shortlisted_shops([self.open_shop_ids[0]])
-        token = self.issue_token()
-        voting_started_at = Gathering.objects.get(id=self.gathering_id).voting_started_at
-
-        self.put_shortlisted_shops(self.open_shop_ids[0:2])
-        # Force the newly added shop's added_at strictly after
-        # voting_started_at -- see the equivalent service-level test's
-        # comment (ParticipantShopVoteOptionsServiceTests) for why this
-        # cannot be left to two back-to-back real-clock calls.
-        ShortlistedShop.objects.filter(
-            gathering_id=self.gathering_id, shop_id=self.open_shop_ids[1]
-        ).update(added_at=voting_started_at + timedelta(seconds=1))
-
-        response = Client().get(reverse("gathering:participant-view", kwargs={"token": token}))
-        options = {o["shopId"]: o for o in response.json()["shopVoteQuestions"]}
-        self.assertFalse(options[self.open_shop_ids[0]]["addedAfterVotingStarted"])
-        self.assertTrue(options[self.open_shop_ids[1]]["addedAfterVotingStarted"])
-
-    def test_does_not_expose_added_at_or_voting_started_at(self):
-        """architect design judgment (ADR-0056 decision 6): the participant-facing
-        schema exposes only the derived boolean, never the two timestamps
-        themselves."""
-        self.put_shortlisted_shops([self.open_shop_ids[0]])
-        token = self.issue_token()
-
-        response = Client().get(reverse("gathering:participant-view", kwargs={"token": token}))
-
-        self.assertNotIn("addedAt", json.dumps(response.json()["shopVoteQuestions"]))
-        self.assertNotIn("votingStartedAt", json.dumps(response.json()))
+# AddedAfterVotingStartedApiTests (``ParticipantShopVoteOption
+# .addedAfterVotingStarted``, ADR-0056 decision 6, 2026-09-13 addendum 9)
+# removed 2026-09-17 (ADR-0062 decision 1, human decision, board D1:
+# 「あとから入りました」は出さない) -- the field itself is retired from
+# gathering-scheduling-api.yaml (v0.17.0 -> v0.18.0).
 
 
 class FinalizedParticipantViewApiTests(GatheringSelectingShopApiTestCase):
@@ -5205,6 +5209,92 @@ class OrganizerEndpointGuardTests(GatheringOrganizerTestCase):
         self.assertEqual(response.status_code, 404)
 
 
+class OrganizerDashboardSearchOriginPageTests(GatheringSelectingShopApiTestCase):
+    """``organizer_dashboard.html``'s own ``gathering-search-origin``
+    ``json_script`` embedding (ADR-0062 decision 4) -- the HTTP-level
+    counterpart of ``OrganizerSearchOriginServiceTests`` above.
+
+    **``test_the_configured_origin_is_embedded_when_the_dashboard_is_opened_
+    on_an_unvoted_gathering`` is the regression test**: ADR-0062 moved shop
+    selection into this same dashboard page (map + floating panel), so the
+    organizer can shortlist shops -- setting ``votingStartedAt`` -- entirely
+    within the one page load this value is embedded into, never a fresh
+    request. Gating the embedded value on any phase-derived condition
+    (this or ``FINALIZED``) therefore risks embedding ``null`` on the one
+    request a real browser makes."""
+
+    def _embedded_search_origin(self, gathering_id) -> object:
+        response = self.client.get(
+            reverse("gathering:organizer-dashboard", kwargs={"gathering_id": gathering_id})
+        )
+        self.assertEqual(response.status_code, 200)
+        match = re.search(
+            r'<script id="gathering-search-origin"[^>]*>(.*?)</script>',
+            response.content.decode("utf-8"),
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match, "gathering-search-origin json_script not found")
+        return json.loads(match.group(1))
+
+    def test_the_configured_origin_is_embedded_when_the_dashboard_is_opened_on_an_unvoted_gathering(
+        self,
+    ):
+        origin = self._embedded_search_origin(self.gathering_id)
+
+        self.assertIsInstance(origin, dict)
+        self.assertEqual(set(origin), {"latitude", "longitude"})
+
+    def test_no_provider_fetch_when_opening_the_dashboard_outside_acceptance_mode(self):
+        """Real-machine-class regression guard (the same latency defect PR
+        #196 fixed for ``serialize_participant_view``): opening this page
+        must never trigger a real Hot Pepper search just to draw the
+        decision map's origin pin."""
+        acceptance_state.reset_mode()
+        env = {
+            "HOTPEPPER_API_KEY": "synthetic-key",
+            "HOTPEPPER_SEARCH_LATITUDE": "35.6812",
+            "HOTPEPPER_SEARCH_LONGITUDE": "139.7671",
+        }
+        with (
+            mock.patch.dict(os.environ, env),
+            mock.patch(
+                "dining_radar.gathering.services.fetch_real_candidates"
+            ) as fetch_real_candidates_mock,
+            mock.patch("dining_radar.suggestions.hotpepper_source.fetch_shops") as fetch_shops_mock,
+        ):
+            origin = self._embedded_search_origin(self.gathering_id)
+
+        fetch_real_candidates_mock.assert_not_called()
+        fetch_shops_mock.assert_not_called()
+        self.assertEqual(origin, {"latitude": 35.6812, "longitude": 139.7671})
+
+    def test_the_configured_origin_remains_embedded_once_finalized(self):
+        self.put_shortlisted_shops([self.open_shop_ids[0]])
+        self.post_finalize(self.open_shop_ids[0])
+
+        origin = self._embedded_search_origin(self.gathering_id)
+
+        self.assertIsInstance(origin, dict)
+        self.assertEqual(set(origin), {"latitude", "longitude"})
+
+    def test_null_for_a_gathering_this_organizer_does_not_own(self):
+        other_client = Client()
+        other_client.force_login(self.other_user)
+
+        response = other_client.get(
+            reverse("gathering:organizer-dashboard", kwargs={"gathering_id": self.gathering_id})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        match = re.search(
+            r'<script id="gathering-search-origin"[^>]*>(.*?)</script>',
+            response.content.decode("utf-8"),
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match)
+        self.assertIsNone(json.loads(match.group(1)))
+
+
 class ParticipantEndpointGuardTests(GatheringOrganizerTestCase):
     def setUp(self):
         super().setUp()
@@ -5784,6 +5874,126 @@ class GatheringListAlwaysPresentSourceTests(SimpleTestCase):
         )
 
 
+class Adr0062ShortlistedShopDetailFieldsSourceTests(SimpleTestCase):
+    """ADR-0062 decision 1 (board D1): organizerDashboard.shortlistedShopVotes
+    .list.item.detailFields grows the five ジャンル・徒歩・席・禁煙・予算
+    fields, and 「あとから入りました」(data-added-after-voting-started,
+    ADR-0056 decision 6) is retired from both this screen and
+    participant.js's own shopVoteQuestion. Guarded at the source level --
+    a Django-test-client reproduction never executes this JS-rendered
+    surface (mirrors this file's other JS-adjacent SourceTests classes)."""
+
+    def test_added_after_voting_started_is_retired_from_gathering_js(self):
+        source = GATHERING_JS.read_text(encoding="utf-8")
+
+        self.assertNotIn("data-added-after-voting-started", source)
+        self.assertNotIn("shopAddedAfterVotingStarted", source)
+        self.assertNotIn("gth-shop-added-after-badge", source)
+
+    def test_added_after_voting_started_is_retired_from_participant_js(self):
+        source = PARTICIPANT_JS.read_text(encoding="utf-8")
+
+        self.assertNotIn("data-added-after-voting-started", source)
+        self.assertNotIn("addedAfterVotingStarted", source)
+        self.assertNotIn("gth-vote-added-badge", source)
+
+    def test_the_five_detail_field_test_ids_are_all_present(self):
+        source = GATHERING_JS.read_text(encoding="utf-8")
+
+        for test_id in (
+            "gathering-shortlisted-shop-walking-time",
+            "gathering-shortlisted-shop-genre",
+            "gathering-shortlisted-shop-capacity-tier",
+            "gathering-shortlisted-shop-non-smoking",
+            "gathering-shortlisted-shop-dinner-budget",
+        ):
+            self.assertIn(test_id, source)
+
+    def test_walking_time_text_carries_both_the_approximation_marker_and_the_word(self):
+        """board D1: 「◯分」→「徒歩◯分」."""
+        source = GATHERING_JS.read_text(encoding="utf-8")
+
+        start = source.index("function renderShortlistedShopDetailFields(shop, withTestIds) {")
+        end = source.index("function renderShortlistedShopItem(shop, index, leaders) {", start)
+        body = source[start:end]
+
+        self.assertIn('"徒歩 約" + shop.walkingTimeMinutes + "分"', body)
+
+
+class Adr0062ShortlistedShopVotesPresenceRuleSourceTests(SimpleTestCase):
+    """ADR-0062 decision 4 (board D4): shortlistedShopVotes.presenceRule
+    narrows to "votingStartedAt non-null AND finalizedShopId null" --
+    gathering-shortlisted-shop-list/-item must not remain present once
+    FINALIZED."""
+
+    def test_the_render_gate_checks_finalized_shop_id_is_null(self):
+        source = GATHERING_JS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "state.gathering.votingStartedAt !== null && state.gathering.finalizedShopId === null",
+            source,
+        )
+
+
+class Adr0062FinalizeConfirmDialogSourceTests(SimpleTestCase):
+    """ADR-0062 decision 3 (board D3): the 3-row before/after changesTable
+    is retired outright, replaced by a 2-element confirmSummary
+    (date/shop only)."""
+
+    def test_the_retired_changes_table_test_ids_are_gone(self):
+        source = GATHERING_JS.read_text(encoding="utf-8")
+
+        for retired_test_id in (
+            "gathering-finalize-confirm-changes",
+            "gathering-finalize-confirm-changes-row",
+        ):
+            self.assertNotIn(retired_test_id, source)
+
+    def test_the_new_confirm_summary_test_ids_are_present(self):
+        source = GATHERING_JS.read_text(encoding="utf-8")
+
+        self.assertIn("gathering-finalize-confirm-date", source)
+        self.assertIn("gathering-finalize-confirm-shop", source)
+        self.assertIn('"もどる"', source)
+
+
+class Adr0062DecisionBannerSourceTests(SimpleTestCase):
+    """ADR-0062 decision 4 (board D4): the confirmed-organizer dashboard's
+    decisionBanner gains a name, map, and provider-page link, mirroring
+    participantAnswer.finalizedView.decision's own shape for the first
+    time on the organizer side."""
+
+    def test_the_new_decision_banner_test_ids_are_present(self):
+        source = GATHERING_JS.read_text(encoding="utf-8")
+
+        for test_id in (
+            "gathering-decision-shop-map",
+            "gathering-decision-shop-map-marker",
+            "gathering-decision-shop-map-origin-marker",
+            "gathering-decision-shop-page-link",
+        ):
+            self.assertIn(test_id, source)
+        self.assertIn('"data-finalized-shop-name"', source)
+
+    def test_the_decision_map_requires_exactly_two_markers_no_line_no_ring(self):
+        source = GATHERING_JS.read_text(encoding="utf-8")
+
+        start = source.index(
+            "function initializeOrganizerDecisionMap(container, shop, searchOrigin, panel) {"
+        )
+        end = source.index("var pendingDecisionMap = null;", start)
+        body = source[start:end]
+
+        self.assertIn("data-overlay-marker-count", body)
+        self.assertIn("data-overlay-line-count", body)
+        self.assertIn("data-overlay-ring-count", body)
+        # No routed line/ring is ever added -- only markers -- so the
+        # overlay counts this function itself computes always settle at
+        # "2"/"0"/"0" once both markers are drawn.
+        self.assertNotIn("L.polyline(", body)
+        self.assertNotIn("L.circle(", body)
+
+
 # --- date-display formatting (human 2026-09-04: raw ISO strings were unreadable) --
 
 _DATE_FORMAT_SNIPPET_BEGIN = "// --- shared-date-formatting BEGIN"
@@ -5885,7 +6095,12 @@ class GatheringDateTimeFormattingSourceTests(SimpleTestCase):
         self.assertNotIn("[candidateDate.startAt]", gathering_source)
         self.assertNotIn("[confirmed ? confirmed.startAt", gathering_source)
         self.assertIn("formatGatheringDateTime(candidateDate.startAt)", gathering_source)
-        self.assertIn("formatGatheringDateTime(confirmed.startAt)", gathering_source)
+        # Board D4 (ADR-0062 decision 4): the decision panel's own date
+        # splits into a big date + separate time (formatGatheringDate/
+        # formatGatheringTime), not the combined formatGatheringDateTime
+        # gathering-candidate-date above still uses.
+        self.assertIn("formatGatheringDate(confirmed.startAt)", gathering_source)
+        self.assertIn("formatGatheringTime(confirmed.startAt)", gathering_source)
 
         participant_source = PARTICIPANT_JS.read_text(encoding="utf-8")
         self.assertNotIn("[question.startAt]", participant_source)
@@ -6346,3 +6561,20 @@ class FocusRestoreAcrossRerenderExecutionTests(SimpleTestCase):
                 """,
             )
             self.assertEqual(output, '{"index":1,"first":0,"second":1}', path.name)
+
+
+class Adr0060Addendum23LeaderSummaryPresenceRuleSourceTests(SimpleTestCase):
+    """ADR-0060 addendum 23 (2026-09-19, contract 0.24.2): leaderSummary
+    (the "有力" row) is a picking aid, of no use once a date is already
+    decided -- present only while phase is SCHEDULING; absent in
+    SELECTING_SHOP/FINALIZED regardless of any tied data-current-leader."""
+
+    def test_leader_summary_is_gated_on_the_scheduling_phase(self):
+        source = GATHERING_JS.read_text(encoding="utf-8")
+
+        start = source.index("function renderResponseTable(leaders) {")
+        end = source.index("var rows = state.participantLinks.map(", start)
+        body = source[start:end]
+
+        self.assertIn('state.gathering.phase === "SCHEDULING"', body)
+        self.assertIn("var leaderSummary = null;", body)

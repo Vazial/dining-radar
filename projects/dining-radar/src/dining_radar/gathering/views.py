@@ -786,12 +786,19 @@ def organizer_dashboard(request, gathering_id):
 
     ``holiday_dates`` (ADR-0060 decision 1/2) is embedded the same way
     ``organizer_gathering_create`` above embeds it, for this screen's own
-    ``addCandidateDateForm.calendar``.
+    ``addCandidateDateForm.calendar``. ``search_origin`` (ADR-0062 decision
+    4) is embedded the same way for ``finalizedSummary.decisionBanner.map``'s
+    own origin marker -- see ``services.organizer_search_origin`` for why
+    this is unconditional rather than gated on this gathering's phase.
     """
     return render(
         request,
         "gathering/organizer_dashboard.html",
-        {"gathering_id": gathering_id, "holiday_dates": services.bundled_holiday_isos()},
+        {
+            "gathering_id": gathering_id,
+            "holiday_dates": services.bundled_holiday_isos(),
+            "search_origin": services.organizer_search_origin(request.user, gathering_id),
+        },
     )
 
 

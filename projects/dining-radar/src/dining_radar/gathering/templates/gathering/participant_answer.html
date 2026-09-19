@@ -366,20 +366,14 @@
       .gth-vote-tally { display: flex; gap: 0.6rem; color: #4b564e; font-size: 0.6875rem; }
       .gth-vote-tally b { color: #b4531c; font-weight: 700; }
 
-      /* ADR-0056 decision 6, 2026-09-13: 「あとから入りました」(a fact about
-         when the shop was added) and "did this participant answer" (a fact
-         about this participant's own vote) are two independent marks -- the
-         badge below reads only the former; the card's own border below
-         reads only the latter. Neither substitutes for the other. */
+      /* ADR-0056 decision 6 (2026-09-13) introduced a separate
+         「あとから入りました」badge here, retired 2026-09-17 (ADR-0062
+         decision 1, human decision, board D1: 「あとから入りました」は出さ
+         ない) -- .gth-vote-added-badge is removed along with it. The card's
+         own border below is unaffected: it reads only "did this participant
+         answer" (data-your-vote non-"UNANSWERED"), independent of the
+         retired signal. */
       .gth-vote-name-row { display: flex; align-items: center; gap: 0.4rem; }
-      .gth-vote-added-badge {
-        font-size: 0.625rem;
-        font-weight: 700;
-        color: #b4531c;
-        background: #fbe9de;
-        border-radius: 999px;
-        padding: 0.1rem 0.5rem;
-      }
       .gth-vote-row--answered { border-color: #14614a; border-width: 1.5px; }
 
       /* ADR-0056 decision 9, 第4束裁定: the bar's own total length is fixed

@@ -39,12 +39,13 @@
  *     provider-page-link (ADR-0055 decision 5 / ADR-0056 decision 5,
  *     reversing this file's own 2026-09-05 exclusion), fixes
  *     data-current-leader for the 0-vote and tied cases (ADR-0055 decision
- *     6), and carries data-added-after-voting-started (ADR-0056 decision 6,
- *     computed client-side from fields already present on the response --
- *     no API change needed for this organizer-facing half).
+ *     6). A same-round addition, an 「あとから入りました」badge computed
+ *     client-side (ADR-0056 decision 6), was itself retired 2026-09-17
+ *     (ADR-0062 decision 1, board D1) -- see this section's own further
+ *     history below.
  *   - finalizeSubmit is replaced by a 4-part open/confirm-dialog/confirm/
  *     cancel flow, the same shape deleteGathering already used (ADR-0054
- *     decision 5), with a 3-row before/after table (ADR-0056 decision 11).
+ *     decision 5).
  *   - participantLinkList.item.revoke is now present only for an unanswered,
  *     unrevoked row (ADR-0055 decision 2, overturning this contract's own
  *     disable-at-the-boundary convention for this one control) and the
@@ -58,6 +59,18 @@
  *     implemented in parallel); this file reads `link.scheduleResponses ||
  *     []` defensively so the table renders correctly (as all-empty rows)
  *     until that lands, rather than throwing.
+ *
+ * **2026-09-17 (ADR-0062, human decision, board D1〜D4)**: shortlistedShopVotes
+ * .list.item.detailFields grows five fields (walking time/genre/capacity/
+ * non-smoking/dinner-budget) and drops its 「あとから入りました」badge;
+ * shortlistedShopVotes now fills its own pane (gth-shop-stage) with the
+ * shared map full-bleed and the shop list floating over it, and the confirm/
+ * finalize actions move to a bottom-of-pane bar (gth-bottom-bar); the
+ * finalize-confirm dialog's 3-row before/after table is replaced by a
+ * 2-element confirmSummary (date/shop only), rendered as a viewport-centered
+ * modal; and finalizedSummary.decisionBanner gains the decided shop's own
+ * name/map/provider-page link while shortlistedShopVotes.list/item stop
+ * being present once FINALIZED.
  *
  * data-issued-link-url (participantLinkCopy.requiredOutcome /
  * participantLinkList.item.recopy.requiredOutcome) is likewise tracked in
@@ -82,6 +95,18 @@
 
   var gatheringId = root.getAttribute("data-gathering-id");
 
+  // ADR-0062 decision 4: this organizer's own configured search origin, for
+  // finalizedSummary.decisionBanner.map's own origin marker only -- read
+  // once at load from the same json_script embedding holiday_dates above
+  // already uses (organizer_dashboard.html/services.organizer_search_origin
+  // own docstring explain why). `null` (unresolvable, or the provider
+  // population is currently unavailable) simply omits the origin marker
+  // below rather than failing anything.
+  var organizerSearchOriginNode = document.getElementById("gathering-search-origin");
+  var organizerSearchOrigin = organizerSearchOriginNode
+    ? JSON.parse(organizerSearchOriginNode.textContent)
+    : null;
+
   // product-brief.md §2's three-phase state machine (adr/0038 D10) --
   // display labels only; the machine-observed data-gathering-phase
   // attribute always carries the raw enum value unchanged (ADR-0020
@@ -97,6 +122,16 @@
   // also used by web/static/dining_radar/web/candidate.js -- duplicated here
   // (no shared module system exists in this codebase).
   var VOTE_LABELS = { WANT_TO_GO: "行きたい", OK_TO_GO: "行ってもいい", NOT_GOING: "むり" };
+
+  // ADR-0062 decision 1 (2026-09-17, board D1): the same coarse tier
+  // vocabularies participant.js's own renderShopVoteDetailFields already
+  // uses for shopVoteQuestion.detailFields -- duplicated here (no shared
+  // module system exists in this codebase) so this screen's own
+  // shortlistedShopVotes.item.detailFields.capacityTier/nonSmokingStatus/
+  // dinnerBudgetTier read identically to the participant-facing equivalent.
+  var CAPACITY_TIER_LABELS = { SMALL: "少なめ", MEDIUM: "標準", LARGE: "多め" };
+  var NON_SMOKING_LABELS = { FULL: "全席禁煙", PARTIAL: "一部禁煙", NONE: "禁煙席なし" };
+  var BUDGET_TIER_LABELS = { LOW: "低", MID: "中", HIGH: "高" };
 
   // 2026-09-13 addition (ADR-0056 decision 1): schedule-response display
   // labels for organizerDashboard.responseTable -- the same three-value
@@ -150,10 +185,19 @@
     // gathering-finalize-confirm-dialog is currently revealed (client-side
     // only -- opening it calls no public operation).
     finalizeConfirmOpen: false,
+    // Explicit open/close focus management for gathering-finalize-confirm-
+    // dialog -- the same pendingIssueDialogFocus precedent above, added
+    // 2026-09-17 (ADR-0062 decision 3, board D3: 小窓は開いたらフォーカス
+    // を中へ、Esc/もどるで閉じたら元のボタンへ戻す).
+    pendingFinalizeConfirmFocus: null,
     // adr/0050 decision 4, deleteGathering: whether gathering-delete-
     // confirm-dialog is currently revealed (client-side only -- opening it
     // calls no public operation).
     deleteConfirmOpen: false,
+    // Board D4: desktop starts with 回答 alone open (tab pattern); mobile
+    // starts both closed (disclosure pattern) -- read once, at load.
+    decisionAnswersOpen: isDesktopDecisionLayout(),
+    decisionLinksOpen: false,
   };
 
   // The self-made calendar instance backing addCandidateDateForm.calendar --
@@ -166,6 +210,12 @@
   // (gathering-shortlisted-shop-map) -- built once per render() that shows
   // it, torn down before the next.
   var activeShortlistedShopMap = null;
+
+  // ADR-0062 decision 4 (2026-09-17): the Leaflet map instance backing
+  // finalizedSummary.decisionBanner's own map (gathering-decision-shop-map)
+  // -- the same destroy-before-recreate precedent as
+  // activeShortlistedShopMap above.
+  var activeDecisionMap = null;
 
   function csrfToken() {
     var field = document.querySelector('input[name="csrfmiddlewaretoken"]');
@@ -231,6 +281,13 @@
     var day = date.getUTCDate();
     var weekday = WEEKDAY_LABELS_JA[date.getUTCDay()];
     return month + "/" + day + "（" + weekday + "）";
+  }
+
+  // Board D4's split display ("10/8 (木)" big, "12:00 から" small) needs a
+  // time-only half; same UTC-safe accessors as formatGatheringDateTime.
+  function formatGatheringTime(isoString) {
+    var date = new Date(isoString);
+    return pad2(date.getUTCHours()) + ":" + pad2(date.getUTCMinutes());
   }
 
   function el(tag, attrs, children) {
@@ -1095,6 +1152,7 @@
       return;
     }
     state.finalizeConfirmOpen = true;
+    state.pendingFinalizeConfirmFocus = "open";
     render();
   }
 
@@ -1103,6 +1161,7 @@
     // without calling finalizeGathering. Every shop's own
     // data-finalize-selected is unaffected.
     state.finalizeConfirmOpen = false;
+    state.pendingFinalizeConfirmFocus = "close";
     render();
   }
 
@@ -1461,12 +1520,107 @@
   // ADR-0055 decision 5 / ADR-0056 decision 5 (2026-09-12): this view now
   // also shows a shared map plus each shop's name/walking-time/provider-page
   // link -- reversing this file's own 2026-09-05 exclusion.
+  //
+  // ADR-0062 decision 1 (2026-09-17, board D1): this row's own
+  // detailFields grow to the full ジャンル・席・禁煙・予算・徒歩の目安
+  // five-field set below (mirroring participant.js's own
+  // renderShopVoteDetailFields, except genre -- see this section's own
+  // gathering-shortlisted-shop-genre span, required only on this screen).
+  // The now-retired 「あとから入りました」badge (ADR-0056 decision 6) and
+  // its own per-shop "added after voting started" helper function are
+  // removed the same round.
 
-  function shopAddedAfterVotingStarted(shop) {
-    if (!state.gathering.votingStartedAt) {
-      return false;
+  // **Fixed 2026-09-19 (board party2/d2/D1-a-* comparison, real-machine
+  // finding)**: board D1 shows this row's five detailFields as one line,
+  // joined by "・", each self-describing what it names ("席 標準"/"予算
+  // 低"), not five space-separated bare words -- an earlier revision
+  // rendered genre/capacityTier/dinnerBudgetTier without their own label,
+  // indistinguishable from each other at a glance. genre/nonSmokingStatus
+  // still carry no prefix (board: "和食"/"全席禁煙" alone -- the value
+  // itself already names what it is); capacityTier/dinnerBudgetTier gain
+  // "席 "/"予算 " (board's own literal wording -- not "予算感", this
+  // file's own earlier prefix). "情報なし" for an absent value matches
+  // this product's existing candidate-search-browser-interface.yaml
+  // convention (web/static/dining_radar/web/candidate.js's own fieldRow
+  // default) unchanged by this fix. testId/data attributes are unchanged
+  // -- only visible text and DOM position move (developer discretion,
+  // this contract fixes neither).
+  // withTestIds=false lets decisionBanner's own row (board D4) reuse this
+  // markup without misreporting itself as the FINALIZED-absent list's child.
+  function renderShortlistedShopDetailFields(shop, withTestIds) {
+    var declareTestId = withTestIds !== false;
+    function fieldAttrs(testId) {
+      var attrs = { class: "gth-shop-detail" };
+      if (declareTestId) {
+        attrs["data-testid"] = testId;
+      }
+      return attrs;
     }
-    return new Date(shop.addedAt).getTime() > new Date(state.gathering.votingStartedAt).getTime();
+    var fields = [
+      el("span", fieldAttrs("gathering-shortlisted-shop-genre"), [shop.genre]),
+      el("span", fieldAttrs("gathering-shortlisted-shop-walking-time"), [
+        "徒歩 約" + shop.walkingTimeMinutes + "分",
+      ]),
+      el("span", fieldAttrs("gathering-shortlisted-shop-capacity-tier"), [
+        "席 " + (shop.capacityTier ? CAPACITY_TIER_LABELS[shop.capacityTier] : "情報なし"),
+      ]),
+      el("span", fieldAttrs("gathering-shortlisted-shop-non-smoking"), [
+        shop.nonSmokingStatus ? NON_SMOKING_LABELS[shop.nonSmokingStatus] : "情報なし",
+      ]),
+      el("span", fieldAttrs("gathering-shortlisted-shop-dinner-budget"), [
+        "予算 " + (shop.dinnerBudgetTier ? BUDGET_TIER_LABELS[shop.dinnerBudgetTier] : "情報なし"),
+      ]),
+    ];
+    // "・" separators between fields only (board's own literal wording) --
+    // aria-hidden, purely visual punctuation, not read out by a screen
+    // reader between fields it already announces as separate elements.
+    var withSeparators = [];
+    fields.forEach(function (field, index) {
+      if (index > 0) {
+        withSeparators.push(
+          el("span", { class: "gth-shop-detail-sep", "aria-hidden": "true" }, ["・"])
+        );
+      }
+      withSeparators.push(field);
+    });
+    return withSeparators;
+  }
+
+  // Board D1's own vote presentation for this row: a fixed-length bar
+  // (this shop's own respondedParticipantCount as the denominator -- D7's
+  // per-shop denominator, item.attributes.respondedCount above, the same
+  // basis this row's own tallyRow text used before this fix) plus ○N/△N/
+  // ×N counts, not the "行きたい N" word-labeled line participant.js's
+  // shopVoteQuestion uses elsewhere (a deliberate difference: board D1
+  // draws this row this way, participant.js's own board draws that screen
+  // differently -- this fix does not touch participant.js).
+  function renderShortlistedShopVoteRow(shop) {
+    var total = shop.respondedParticipantCount;
+    function segment(count, modifierClass) {
+      var width = total > 0 ? Math.max(0, Math.min(100, (count / total) * 100)) : 0;
+      return el(
+        "span",
+        { class: "gth-shop-vote-bar-seg " + modifierClass, style: "width:" + width + "%" },
+        []
+      );
+    }
+    var bar = el("span", { class: "gth-shop-vote-bar" }, [
+      segment(shop.wantToGoCount, "gth-shop-vote-bar-seg--want"),
+      segment(shop.okToGoCount, "gth-shop-vote-bar-seg--ok"),
+      segment(shop.notGoingCount, "gth-shop-vote-bar-seg--not"),
+    ]);
+    return el("div", { class: "gth-shop-vote-row" }, [
+      bar,
+      el("span", { class: "gth-shop-vote-count gth-shop-vote-count--want" }, [
+        "○" + String(shop.wantToGoCount),
+      ]),
+      el("span", { class: "gth-shop-vote-count gth-shop-vote-count--ok" }, [
+        "△" + String(shop.okToGoCount),
+      ]),
+      el("span", { class: "gth-shop-vote-count gth-shop-vote-count--not" }, [
+        "×" + String(shop.notGoingCount),
+      ]),
+    ]);
   }
 
   function renderShortlistedShopItem(shop, index, leaders) {
@@ -1484,49 +1638,27 @@
       // okToGoCount (leaders, computed once per render by
       // computeCurrentLeaderShopIds).
       "data-current-leader": leaders[shop.shopId] ? "true" : "false",
-      // ADR-0056 decision 6: computed client-side from addedAt/
-      // votingStartedAt, both already present on this response -- no API
-      // change needed for this organizer-facing half.
-      "data-added-after-voting-started": shopAddedAfterVotingStarted(shop) ? "true" : "false",
       class: "gth-shop-row gth-shop-row--vote",
     };
     if (leaders[shop.shopId]) {
       attrs.class += " gth-shop-row--leader";
     }
-    var tallyRow = el("div", { class: "gth-shop-tally-row" }, [
-      el("span", {}, [VOTE_LABELS.WANT_TO_GO + " ", el("b", {}, [String(shop.wantToGoCount)])]),
-      el("span", {}, [VOTE_LABELS.OK_TO_GO + " ", el("b", {}, [String(shop.okToGoCount)])]),
-      el("span", {}, [VOTE_LABELS.NOT_GOING + " ", el("b", {}, [String(shop.notGoingCount)])]),
-      el("span", {}, [String(shop.respondedParticipantCount) + "人中"]),
-    ]);
-    var detailRow = el("div", { class: "gth-shop-detail-row" }, [
-      el("span", { class: "gth-shop-detail" }, [String(shop.walkingTimeMinutes) + "分"]),
-      el(
-        "a",
-        {
-          "data-testid": "gathering-shortlisted-shop-page-link",
-          href: shop.providerPageUrl,
-          target: "_blank",
-          rel: "noopener noreferrer",
-          class: "gth-shop-link",
-        },
-        ["店のページを見る"]
-      ),
-    ]);
-    if (shopAddedAfterVotingStarted(shop)) {
-      detailRow.insertBefore(
-        el("span", { class: "gth-shop-added-after-badge" }, ["あとから入りました"]),
-        detailRow.firstChild
-      );
-    }
-    var children = [
-      el("span", { class: "gth-shop-rank" }, [String(index + 1)]),
-      el("div", { class: "gth-shop-body" }, [
-        el("span", { class: "gth-shop-name" }, [shop.name]),
-        tallyRow,
-        detailRow,
-      ]),
-    ];
+    var detailRow = el(
+      "div",
+      { class: "gth-shop-detail-row" },
+      renderShortlistedShopDetailFields(shop)
+    );
+    // **Fixed 2026-09-19**: board D1's own row order, left to right, is
+    // [finalize-select radio][numbered rank][name+badge/vote/detail
+    // body][page-link], radio/rank top-aligned with the body's own first
+    // line (gth-shop-row's own align-items: flex-start, not the previous
+    // center -- see that rule's own comment for why) -- an earlier
+    // revision pushed the radio to the row's own trailing end (after
+    // body) instead, leaving it detached from the row's visible content
+    // on both narrow and wide layouts, and buried the page link inside
+    // the wrapping detail line instead of this row's own right-hand
+    // column.
+    var children = [];
     if (state.gathering.phase === "SELECTING_SHOP") {
       var selected = state.finalizeSelectedShopId === shop.shopId;
       var radio = el(
@@ -1547,7 +1679,66 @@
       });
       children.push(radio);
     }
+    children.push(el("span", { class: "gth-shop-rank" }, [String(index + 1)]));
+    children.push(
+      el("div", { class: "gth-shop-body" }, [
+        el("div", { class: "gth-shop-name-row" }, [
+          el("span", { class: "gth-shop-name" }, [shop.name]),
+          leaders[shop.shopId]
+            ? el("span", { class: "gth-shop-leader-badge" }, ["いちばん人気"])
+            : null,
+        ]),
+        renderShortlistedShopVoteRow(shop),
+        detailRow,
+      ])
+    );
+    children.push(
+      el(
+        "a",
+        {
+          "data-testid": "gathering-shortlisted-shop-page-link",
+          href: shop.providerPageUrl,
+          target: "_blank",
+          rel: "noopener noreferrer",
+          class: "gth-shop-link",
+        },
+        // Board's own shorter label -- frees width for gth-shop-body on
+        // narrow layouts (this contract does not fix this link's text).
+        ["店のページ"]
+      )
+    );
     return el("div", attrs, children);
+  }
+
+  // Board D4's decided-shop row: same parts as renderShortlistedShopItem,
+  // minus finalizeSelect (nothing left to choose) and its own testId (that
+  // list is FINALIZED-absent, so this row cannot reuse it either).
+  function renderDecisionShopRow(shop) {
+    return el("div", { class: "gth-shop-row gth-shop-row--vote" }, [
+      el("span", { class: "gth-shop-rank" }, ["1"]),
+      el("div", { class: "gth-shop-body" }, [
+        el("div", { class: "gth-shop-name-row" }, [
+          el("span", { class: "gth-shop-name" }, [shop.name]),
+        ]),
+        renderShortlistedShopVoteRow(shop),
+        el(
+          "div",
+          { class: "gth-shop-detail-row" },
+          renderShortlistedShopDetailFields(shop, false)
+        ),
+      ]),
+      el(
+        "a",
+        {
+          "data-testid": "gathering-decision-shop-page-link",
+          href: shop.providerPageUrl,
+          target: "_blank",
+          rel: "noopener noreferrer",
+          class: "gth-shop-link",
+        },
+        ["店のページ"]
+      ),
+    ]);
   }
 
   function initializeShortlistedShopMap(container, shops) {
@@ -1558,7 +1749,15 @@
     if (!window.L || !container || shops.length === 0) {
       return;
     }
-    var map = window.L.map(container, { attributionControl: false });
+    // **Fixed 2026-09-19 (board comparison finding)**: Leaflet's own
+    // default zoom control sits top-left, exactly where gth-shop-panel
+    // also floats (ADR-0062 decision 1) -- covering this pane's own
+    // "店の候補" heading. Moved to top-right (an empty corner on every
+    // board frame, party2/d2/D1-a-*), the same corner this map's own
+    // attribution credit would otherwise use if it were enabled (it is
+    // not, per this file's existing attributionControl: false).
+    var map = window.L.map(container, { attributionControl: false, zoomControl: false });
+    window.L.control.zoom({ position: "topright" }).addTo(map);
     window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
     }).addTo(map);
@@ -1590,10 +1789,23 @@
 
   var pendingShortlistedShopMap = null;
 
+  // **Restructured 2026-09-17 (ADR-0062 decision 1, human decision, board
+  // D1: 「地図いっぱい・一覧を浮かせる」)**: this pane's own map now fills
+  // the pane (gth-shop-stage below is position:relative, the map is
+  // position:absolute inset:0 within it), with the shop list rendered as a
+  // panel floating over the map's own top-left corner on wide layouts (PC)
+  // or rising from the bottom on narrow ones (mobile) -- board D1's own
+  // "PCは左に浮かせた一覧パネル、スマホは下のシート" split, handled entirely
+  // by organizer.css's own media query (this contract does not fix
+  // renderModes for this file). Paying the cost board D1's own note names:
+  // the panel's own footprint can hide pins directly underneath it.
   function renderShortlistedShopVotes() {
     var phase = state.gathering.phase;
     var shops = state.gathering.shortlistedShops;
     var leaders = computeCurrentLeaderShopIds(shops);
+    var respondedCount = shops.reduce(function (max, shop) {
+      return Math.max(max, shop.respondedParticipantCount);
+    }, 0);
     var list = el(
       "div",
       { "data-testid": "gathering-shortlisted-shop-list", class: "gth-shop-list" },
@@ -1608,48 +1820,88 @@
     );
     pendingShortlistedShopMap = { container: mapContainer, shops: shops };
 
-    var paneChildren = [
-      el("div", { class: "gth-pane-head" }, [
-        "お店の候補",
-        el("span", { class: "gth-pane-sub" }, [
-          "並び: 「行きたい」＋「行ってもいい」の合計が多い順",
+    // **Fixed 2026-09-19 (real render-invariant finding, L5)**: board D1/D2
+    // show exactly two children in gth-bottom-bar (status text + the one
+    // primary button) -- shopSelectionEntry.open ("店を絞りなおす") never
+    // appears there. An earlier revision added it to the bar as a third
+    // child anyway; at narrow widths the two buttons alone left the status
+    // text (no white-space:nowrap, unlike a button) only ~70px of flex
+    // space, wrapping it across 8+ lines and inflating the bar to ~290px
+    // tall -- three times this file's own reserved clearance below,
+    // reproducing the exact defect this fix closes (a shop row's own
+    // finalizeSelect radio hidden under the inflated bar). Moved into the
+    // panel's own head row instead (shopSelectionEntry.open's own
+    // presenceRule -- present throughout SELECTING_SHOP -- is unaffected,
+    // only its position on screen changes, geometry this contract does not
+    // fix).
+    var panel = el("div", { class: "gth-shop-panel" }, [
+      el("div", { class: "gth-pane-head-row" }, [
+        el("div", { class: "gth-pane-head" }, [
+          "店の候補 " + shops.length + "件",
+          el("span", { class: "gth-pane-sub" }, ["回答 " + respondedCount + "人"]),
         ]),
+        phase === "SELECTING_SHOP"
+          ? renderShopSelectionEntry("店を絞りなおす", "gth-btn gth-btn-small")
+          : null,
       ]),
-      mapContainer,
       list,
-    ];
+    ]);
+
+    var stageChildren = [mapContainer, panel];
 
     if (phase === "SELECTING_SHOP") {
-      var actions = [renderShopSelectionEntry("店を絞りなおす", "gth-btn")];
-      if (shops.length > 0) {
-        var finalizeOpen = el(
-          "button",
-          {
-            type: "button",
-            "data-testid": "gathering-finalize-open",
-            "data-gathering-control-purpose": "gathering-finalize-open",
-            disabled: !state.finalizeSelectedShopId,
-            class: "gth-btn gth-btn-primary",
-          },
-          ["日と店を確定する"]
-        );
-        finalizeOpen.addEventListener("click", openFinalizeGathering);
-        actions.push(finalizeOpen);
-      }
-      paneChildren.push(el("div", { class: "gth-pane-actions" }, actions));
+      var selectedShop = shops.filter(function (shop) {
+        return shop.shopId === state.finalizeSelectedShopId;
+      })[0];
+      var status = el("div", { class: "gth-bottom-bar-status" }, [
+        selectedShop ? selectedShop.name + " を選んでいます" : "確定する店を選んでください",
+      ]);
+      var finalizeOpen = el(
+        "button",
+        {
+          type: "button",
+          "data-testid": "gathering-finalize-open",
+          "data-gathering-control-purpose": "gathering-finalize-open",
+          disabled: !state.finalizeSelectedShopId,
+          class: "gth-btn gth-btn-primary",
+        },
+        ["この店で確定"]
+      );
+      finalizeOpen.addEventListener("click", openFinalizeGathering);
+      // Board D2 (ADR-0062 decision 2, contract-unchanged: the existing
+      // disabledState above already satisfies "選ぶ前は押せない", only the
+      // bottom-bar position is new): 画面の下に貼り付けた帯.
+      stageChildren.push(el("div", { class: "gth-bottom-bar" }, [status, finalizeOpen]));
 
       if (state.finalizeConfirmOpen) {
-        paneChildren.push(renderFinalizeConfirmDialog(shops));
+        // gth-modal-backdrop: a plain, purposeless scrim behind the
+        // viewport-centered dialog (board D3) -- outside
+        // forbiddenFormControlCategories' scan, no test id/purpose of its
+        // own, the same precedent gathering_create.js's own review-dialog
+        // scrim already establishes.
+        stageChildren.push(el("div", { class: "gth-modal-backdrop" }, []));
+        stageChildren.push(renderFinalizeConfirmDialog(shops));
       }
     }
 
-    return el("div", { class: "gth-pane" }, paneChildren);
+    return el("div", { class: "gth-pane gth-pane--flush" }, [
+      el("div", { class: "gth-shop-stage" }, stageChildren),
+    ]);
   }
 
-  // ADR-0054 decision 5 / ADR-0056 decision 11: the same open-then-confirm
-  // shape deleteGathering already uses, with a 3-row before/after table
-  // instead of persuasive prose (ADR-0055 decision 3's "no persuasive prose
-  // in production screens" principle does not forbid a factual table).
+  // **Replaced 2026-09-17 (ADR-0062 decision 3, human decision, board D3:
+  // 「日時とお店があればいい。参加者は書かなくていい」)**: the 3-row
+  // before/after changes table this dialog used to show (ADR-0054 decision
+  // 5 / ADR-0056 decision 11) is retired outright, its own test id along
+  // with it -- replaced by confirmSummary, exactly two facts (date/shop),
+  // neither carrying a "before" state (this dialog only ever opens from
+  // SELECTING_SHOP, where "before" was always the fixed, uninformative
+  // string "未確定"). Still the same open-then-confirm shape
+  // deleteGathering already uses (ADR-0054 decision 5) -- only this
+  // dialog's own inner content changes. Board D3: PC is a centered small
+  // window (gth-confirm-dialog--modal below), mobile rises from the bottom
+  // (handled entirely by organizer.css's own media query, no JS branch
+  // needed -- this contract does not fix renderModes for this file).
   function renderFinalizeConfirmDialog(shops) {
     var confirmedDate = state.gathering.candidateDates.filter(function (candidateDate) {
       return candidateDate.isConfirmed;
@@ -1657,39 +1909,32 @@
     var selectedShop = shops.filter(function (shop) {
       return shop.shopId === state.finalizeSelectedShopId;
     })[0];
-    var dateAndShopAfter =
-      (confirmedDate ? formatGatheringDate(confirmedDate.startAt) : "―") +
-      " ・ " +
-      (selectedShop ? selectedShop.name : state.finalizeSelectedShopId);
 
-    // 2026-09-13 integration fix (contract 0.17.0 -> 0.18.0 addendum 15,
-    // ADR-0055 decision 3's factual table narrowed 2026-09-13): a tester
-    // found this table could only be checked as "some non-empty text exists
-    // somewhere" -- never "there are three rows" or "each row is the row it
-    // claims to be". Each row now carries
-    // gathering-finalize-confirm-changes-row with a data-change-subject
-    // (one of the contract's fixed subjectValues) plus exactly one
-    // gathering-finalize-confirm-changes-row-before/-after cell -- label
-    // text itself remains an implementation choice, only the row's own
-    // identity and cell shape are now machine-observable.
-    function changeRow(subject, label, before, after) {
-      return el("div", { "data-testid": "gathering-finalize-confirm-changes-row", "data-change-subject": subject, class: "gth-changes-row" }, [
-        el("span", { class: "gth-changes-label" }, [label]),
-        el("span", { "data-testid": "gathering-finalize-confirm-changes-row-before", class: "gth-changes-before" }, [before]),
-        el("span", { class: "gth-changes-arrow", "aria-hidden": "true" }, ["→"]),
-        el("span", { "data-testid": "gathering-finalize-confirm-changes-row-after", class: "gth-changes-after" }, [after]),
+    function summaryRow(label, value) {
+      return el("div", { class: "gth-confirm-summary-row" }, [
+        el("span", { class: "gth-confirm-summary-label" }, [label]),
+        el("span", { class: "gth-confirm-summary-value" }, [value]),
       ]);
     }
 
-    var changesTable = el(
+    var dateField = el(
       "div",
-      { "data-testid": "gathering-finalize-confirm-changes", class: "gth-changes-table" },
-      [
-        changeRow("participant-link-issuance", "回答リンク", "発行・取り消しができる", "どちらもできなくなる"),
-        changeRow("participant-screen", "参加者の画面", "日程・投票に答えられる", "決定と、店ごとの票だけを見る"),
-        changeRow("date-and-shop", "日と店", "未確定", dateAndShopAfter),
-      ]
+      {
+        "data-testid": "gathering-finalize-confirm-date",
+        "data-confirmed-candidate-date": confirmedDate ? confirmedDate.startAt : undefined,
+      },
+      [summaryRow("日時", confirmedDate ? formatGatheringDateTime(confirmedDate.startAt) : "―")]
     );
+    var shopField = el(
+      "div",
+      {
+        "data-testid": "gathering-finalize-confirm-shop",
+        "data-shop-id": state.finalizeSelectedShopId,
+        "data-shop-name": selectedShop ? selectedShop.name : undefined,
+      },
+      [summaryRow("お店", selectedShop ? selectedShop.name : state.finalizeSelectedShopId)]
+    );
+    var confirmSummary = el("div", { class: "gth-confirm-summary" }, [dateField, shopField]);
 
     var confirmButton = el(
       "button",
@@ -1710,48 +1955,367 @@
         "data-gathering-control-purpose": "gathering-finalize-cancel",
         class: "gth-btn",
       },
-      ["やめる"]
+      // Board D3: 「もどる」/「確定する」 (this contract does not fix
+      // either button's visible text -- gathering-finalize-cancel/
+      // -confirm's own testId/purpose are unchanged).
+      ["もどる"]
     );
     cancelButton.addEventListener("click", cancelFinalizeGathering);
 
-    return el(
+    var dialog = el(
       "div",
-      { "data-testid": "gathering-finalize-confirm-dialog", class: "gth-confirm-dialog gth-confirm-dialog--finalize" },
-      [changesTable, el("div", { class: "gth-inline-form-row" }, [confirmButton, cancelButton])]
+      {
+        "data-testid": "gathering-finalize-confirm-dialog",
+        class: "gth-confirm-dialog gth-confirm-dialog--finalize gth-confirm-dialog--modal",
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-label": "この内容で確定しますか",
+        tabindex: "-1",
+      },
+      [
+        el("p", { class: "gth-confirm-dialog-title" }, ["この内容で確定しますか"]),
+        confirmSummary,
+        el("div", { class: "gth-inline-form-row" }, [cancelButton, confirmButton]),
+      ]
     );
+
+    // モーダルは開いたらフォーカスを中へ、Esc で閉じる、閉じたら発行ボタン
+    // (gathering-finalize-open)へ戻す -- identical keyboard shape to
+    // gathering-participant-link-issue-dialog (ADR-0061 decision 1) and
+    // gathering-create-review-dialog (ADR-0060 decision 5): Esc cancels
+    // without finalizing; Tab/Shift+Tab cycle within the dialog only while
+    // it is present.
+    dialog.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" || event.key === "Esc") {
+        event.preventDefault();
+        cancelFinalizeGathering();
+        return;
+      }
+      if (event.key === "Tab") {
+        trapTabWithinDialog(event, dialog);
+      }
+    });
+
+    return dialog;
   }
 
   // --- adr/0042: finalizedSummary (Final.dc.html A③) -----------------------
+  // **Restructured 2026-09-17 (ADR-0062 decision 4, human decision, board
+  // D4: PC案1「パネルに全部」・スマホ案2ベースで畳む、店を選び中と同じ骨組み
+  // =地図いっぱい+浮かせたパネル)**: decisionBanner now carries the decided
+  // shop's own name directly (data-finalized-shop-name) plus its own map
+  // (gathering-decision-shop-map, mirroring participantAnswer.finalizedView
+  // .decision.map's exact shape/scope) and provider-page link
+  // (gathering-decision-shop-page-link) -- the same "参加者に先に開いた観測
+  // 面を、後から幹事にも同じ形で開く" precedent ADR-0056 decision 10
+  // established for the participant side.
 
-  function renderFinalizedSummary() {
+  // Same overlay-counting technique as participant.js's own
+  // initializeDecisionMap (module docstring there explains the full
+  // rationale: map.eachLayer, not a hand-kept counter, so an untagged
+  // marker/line/ring added by any future code path is still caught).
+  function initializeOrganizerDecisionMap(container, shop, searchOrigin, panel) {
+    if (activeDecisionMap) {
+      activeDecisionMap.remove();
+      activeDecisionMap = null;
+    }
+    if (!window.L || !container) {
+      return;
+    }
+    // zoomControl: false + topright (real-machine finding): Leaflet's own
+    // default top-left control sat directly under gth-decision-panel.
+    var map = window.L.map(container, { attributionControl: false, zoomControl: false });
+    window.L.control.zoom({ position: "topright" }).addTo(map);
+    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+    }).addTo(map);
+    var shopLatLng = [shop.location.latitude, shop.location.longitude];
+    var boundsLatLngs = [shopLatLng];
+    if (searchOrigin) {
+      boundsLatLngs.push([searchOrigin.latitude, searchOrigin.longitude]);
+    }
+    // Keeps both pins clear of panel's own footprint (PC: left side only,
+    // not its height too) plus a name-tag-width margin on the far side.
+    // maxZoom keeps two close points from zooming in past readable.
+    var fitOptions = { padding: [24, 24], maxZoom: 16 };
+    if (panel) {
+      var panelRect = panel.getBoundingClientRect();
+      var containerRect = container.getBoundingClientRect();
+      if (isDesktopDecisionLayout()) {
+        fitOptions = {
+          paddingTopLeft: [Math.max(24, panelRect.right - containerRect.left + 16), 24],
+          paddingBottomRight: [160, 24],
+          maxZoom: 16,
+        };
+      } else {
+        fitOptions = {
+          paddingTopLeft: [24, 24],
+          paddingBottomRight: [24, Math.max(24, containerRect.bottom - panelRect.top + 16)],
+          maxZoom: 16,
+        };
+      }
+    }
+    map.fitBounds(window.L.latLngBounds(boundsLatLngs), fitOptions);
+
+    function countOverlaysByType() {
+      var counts = { marker: 0, line: 0, ring: 0 };
+      map.eachLayer(function (layer) {
+        if (layer instanceof window.L.Marker) {
+          counts.marker += 1;
+        } else if (layer instanceof window.L.CircleMarker) {
+          counts.ring += 1;
+        } else if (layer instanceof window.L.Polyline) {
+          counts.line += 1;
+        }
+      });
+      return counts;
+    }
+    function refreshOverlayCountAttributes() {
+      var counts = countOverlaysByType();
+      container.setAttribute("data-overlay-marker-count", String(counts.marker));
+      container.setAttribute("data-overlay-line-count", String(counts.line));
+      container.setAttribute("data-overlay-ring-count", String(counts.ring));
+    }
+    map.on("layeradd layerremove", refreshOverlayCountAttributes);
+
+    // Board D4's checkmark pin (a distinct icon class from the plain
+    // numbered dot above). bindTooltip's label is a separate Leaflet layer
+    // type, so it does not affect overlayMarkerCount.
+    var shopIcon = window.L.divIcon({
+      className: "gathering-decision-shop-map-marker-icon",
+      html: '<span class="gathering-decision-shop-map-marker-visual">✓</span>',
+      iconSize: [28, 28],
+      iconAnchor: [14, 14],
+    });
+    var shopMarker = window.L.marker(shopLatLng, { icon: shopIcon, keyboard: false });
+    shopMarker.addTo(map);
+    shopMarker.bindTooltip(shop.name, {
+      permanent: true,
+      direction: "right",
+      offset: [10, 0],
+      className: "gth-map-label",
+    });
+    var shopMarkerEl = shopMarker.getElement();
+    if (shopMarkerEl) {
+      shopMarkerEl.setAttribute("data-testid", "gathering-decision-shop-map-marker");
+      shopMarkerEl.setAttribute("data-shop-id", shop.shopId);
+    }
+    if (searchOrigin) {
+      var originIcon = window.L.divIcon({
+        className: "gathering-search-origin-marker-icon",
+        html: '<span class="gathering-search-origin-marker-visual"></span>',
+        iconSize: [20, 20],
+        iconAnchor: [10, 10],
+      });
+      var originMarker = window.L.marker([searchOrigin.latitude, searchOrigin.longitude], {
+        icon: originIcon,
+        keyboard: false,
+        alt: "集まる場所",
+      });
+      originMarker.addTo(map);
+      originMarker.bindTooltip("集まる場所", {
+        permanent: true,
+        direction: "right",
+        offset: [8, 0],
+        className: "gth-map-label",
+      });
+      var originEl = originMarker.getElement();
+      if (originEl) {
+        originEl.setAttribute("data-testid", "gathering-decision-shop-map-origin-marker");
+        originEl.setAttribute("aria-label", "集まる場所");
+      }
+    }
+    // No line between the two markers and no walking-radius ring
+    // (ADR-0056 decision 10's rationale, applied here to the organizer's
+    // own finalized map for the first time, ADR-0062 decision 4): this
+    // product does not query a routing service and does not assert a
+    // walking path it cannot back with real routing data.
+    refreshOverlayCountAttributes();
+    activeDecisionMap = map;
+  }
+
+  var pendingDecisionMap = null;
+
+  // Board D4's PC/mobile split for the answers/links groups -- read fresh
+  // on every render(), not cached, so a viewport change still picks it up.
+  function isDesktopDecisionLayout() {
+    return Boolean(window.matchMedia && window.matchMedia("(min-width: 48rem)").matches);
+  }
+
+  function toggleDecisionAnswers() {
+    if (isDesktopDecisionLayout()) {
+      state.decisionAnswersOpen = true;
+      state.decisionLinksOpen = false;
+    } else {
+      state.decisionAnswersOpen = !state.decisionAnswersOpen;
+    }
+    render();
+  }
+
+  function toggleDecisionLinks() {
+    if (isDesktopDecisionLayout()) {
+      state.decisionLinksOpen = true;
+      state.decisionAnswersOpen = false;
+    } else {
+      state.decisionLinksOpen = !state.decisionLinksOpen;
+    }
+    render();
+  }
+
+  // Board D4: PC groups responseTable/participantLinkPane behind two
+  // mutually-exclusive tabs (回答 open first); mobile behind two
+  // independent disclosure rows (both closed first) -- presentation only,
+  // neither testId's own presenceRule changes.
+  // statsRow/schedulePane move here from above the map (board G1/G2) --
+  // their own testIds' presenceRule is unchanged, only where they render.
+  function renderDecisionAnswersLinksGroups(candidateDateLeaders, statsRow, schedulePane) {
+    var desktop = isDesktopDecisionLayout();
+    var answersLabel = "回答 " + state.gathering.respondedParticipantCount + "人";
+    var linksLabel = "回答リンク " + state.gathering.activeParticipantLinkCount + "本";
+
+    function groupButton(testId, label, open, onToggle) {
+      var children = [label];
+      if (!desktop) {
+        children.push(el("span", { class: "gth-decision-chevron", "aria-hidden": "true" }, ["›"]));
+      }
+      var button = el(
+        "button",
+        {
+          type: "button",
+          "data-testid": testId,
+          class: desktop ? "gth-decision-tab" : "gth-decision-disclosure",
+          "data-gathering-control-purpose": testId,
+        },
+        children
+      );
+      if (desktop) {
+        button.setAttribute("role", "tab");
+        button.setAttribute("aria-selected", open ? "true" : "false");
+      } else {
+        button.setAttribute("aria-expanded", open ? "true" : "false");
+      }
+      button.addEventListener("click", onToggle);
+      return button;
+    }
+
+    var answersButton = groupButton(
+      "gathering-decision-answers-open",
+      answersLabel,
+      state.decisionAnswersOpen,
+      toggleDecisionAnswers
+    );
+    var linksButton = groupButton(
+      "gathering-decision-links-open",
+      linksLabel,
+      state.decisionLinksOpen,
+      toggleDecisionLinks
+    );
+    // issuanceClosed's badge sits beside this entrance, not inside its
+    // gated content -- its own presenceRule is unconditional on phase.
+    var linksEntrance = el("div", { class: "gth-decision-links-entrance" }, [
+      linksButton,
+      renderParticipantLinkIssuanceClosedBadge(),
+    ]);
+
+    if (desktop) {
+      var activePane = state.decisionLinksOpen
+        ? [renderParticipantLinkPane()]
+        : [statsRow, schedulePane, renderResponseTable(candidateDateLeaders)];
+      return el("div", { class: "gth-decision-groups" }, [
+        el("div", { class: "gth-decision-tabs", role: "tablist" }, [answersButton, linksEntrance]),
+        el("div", { class: "gth-decision-tabpanel" }, activePane),
+      ]);
+    }
+
+    var children = [answersButton];
+    if (state.decisionAnswersOpen) {
+      children.push(
+        el("div", { class: "gth-decision-disclosure-panel" }, [
+          statsRow,
+          schedulePane,
+          renderResponseTable(candidateDateLeaders),
+        ])
+      );
+    }
+    children.push(linksEntrance);
+    if (state.decisionLinksOpen) {
+      children.push(
+        el("div", { class: "gth-decision-disclosure-panel" }, [renderParticipantLinkPane()])
+      );
+    }
+    return el("div", { class: "gth-decision-groups" }, children);
+  }
+
+  // Board D4: map fills the whole stage behind a floating panel, the same
+  // gth-shop-stage/gth-shop-map pattern SELECTING_SHOP already uses.
+  function renderFinalizedSummary(candidateDateLeaders, statsRow, schedulePane) {
     var confirmed = state.gathering.candidateDates.filter(function (candidateDate) {
       return candidateDate.isConfirmed;
     })[0];
     var finalizedShop = state.gathering.shortlistedShops.filter(function (shop) {
       return shop.shopId === state.gathering.finalizedShopId;
     })[0];
-    return el(
+
+    var panelChildren = [
+      el("div", { class: "gth-decision-head" }, [
+        el("span", { class: "gth-decision-badge" }, ["決まりました"]),
+        confirmed
+          ? el("span", { class: "gth-decision-going" }, [
+              "行ける ",
+              el("b", {}, [String(confirmed.goingCount)]),
+              "人",
+            ])
+          : null,
+      ]),
+    ];
+    if (confirmed) {
+      panelChildren.push(
+        el("div", { class: "gth-decision-datetime" }, [
+          el("b", { class: "gth-decision-date-big" }, [formatGatheringDate(confirmed.startAt)]),
+          el("span", { class: "gth-decision-time" }, [
+            formatGatheringTime(confirmed.startAt) + " から",
+          ]),
+        ])
+      );
+    }
+
+    var mapContainer = null;
+    if (finalizedShop) {
+      panelChildren.push(renderDecisionShopRow(finalizedShop));
+      mapContainer = el(
+        "div",
+        { "data-testid": "gathering-decision-shop-map", class: "gth-shop-map" },
+        []
+      );
+    }
+    panelChildren.push(renderDecisionAnswersLinksGroups(candidateDateLeaders, statsRow, schedulePane));
+
+    var panel = el(
       "div",
       {
         "data-testid": "gathering-decision-banner",
         "data-confirmed-candidate-date": confirmed ? confirmed.startAt : undefined,
         "data-finalized-shop-id": state.gathering.finalizedShopId,
-        class: "gth-decision",
+        "data-finalized-shop-name": finalizedShop
+          ? finalizedShop.name
+          : state.gathering.finalizedShopId,
+        class: "gth-decision-panel",
       },
-      [
-        el("span", { class: "gth-decision-badge" }, ["決まりました"]),
-        el("div", { class: "gth-decision-body" }, [
-          el("div", { class: "gth-decision-row" }, [
-            el("span", { class: "gth-decision-label" }, ["日時"]),
-            el("b", {}, [confirmed ? formatGatheringDateTime(confirmed.startAt) : "―"]),
-          ]),
-          el("div", { class: "gth-decision-row" }, [
-            el("span", { class: "gth-decision-label" }, ["お店"]),
-            el("b", {}, [finalizedShop ? finalizedShop.name : state.gathering.finalizedShopId]),
-          ]),
-        ]),
-      ]
+      panelChildren
     );
+
+    // panel is measured once laid out, so fitBounds can keep both pins
+    // clear of whichever corner/edge it currently covers.
+    if (finalizedShop) {
+      pendingDecisionMap = { container: mapContainer, shop: finalizedShop, panel: panel };
+    } else {
+      pendingDecisionMap = null;
+    }
+
+    var stageChildren = mapContainer ? [mapContainer, panel] : [panel];
+    return el("div", { class: "gth-pane gth-pane--flush" }, [
+      el("div", { class: "gth-decision-stage" }, stageChildren),
+    ]);
   }
 
   // Minimal Tab-cycling focus trap while gathering-participant-link-issue-
@@ -1957,6 +2521,32 @@
     );
   }
 
+  // Extracted so FINALIZED can nest this same pane inside the decision
+  // panel's own answers/links groups (renderDecisionAnswersLinksGroups)
+  // instead of rendering it as a separate top-level section.
+  function renderParticipantLinkPane() {
+    var linkPaneHeadChildren = [el("div", { class: "gth-pane-head" }, ["発行済みリンク"])];
+    if (state.gathering.phase !== "FINALIZED") {
+      linkPaneHeadChildren.push(renderParticipantLinkCopy());
+    }
+    // issuanceClosed's badge is not nested here once FINALIZED -- see
+    // renderParticipantLinkIssuanceClosedBadge's own call site instead.
+    return el("div", { class: "gth-pane" }, [
+      el("div", { class: "gth-pane-head-row" }, linkPaneHeadChildren),
+      renderParticipantLinkList(),
+    ]);
+  }
+
+  // Marks that issuance itself has ended, distinct from participantLinkCopy's
+  // plain absence -- always visible once FINALIZED, unlike its own list.
+  function renderParticipantLinkIssuanceClosedBadge() {
+    return el(
+      "span",
+      { "data-testid": "gathering-participant-link-issuance-closed", class: "gth-badge-muted" },
+      ["発行はおわり"]
+    );
+  }
+
   // ADR-0056 decision 1: one row per participant link, one cell per
   // candidate date that link answered -- reads
   // ParticipantLinkSummary.scheduleResponses (v0.12.0). Read defensively
@@ -1989,33 +2579,35 @@
       { "data-testid": "gathering-response-table-header", class: "gth-response-header" },
       headerCells
     );
-    // ADR-0060 decision 7: one instance per CandidateDate currently carrying
-    // data-current-leader="true" -- zero when no one has responded yet,
-    // more than one when tied.
-    var leaderSummaryItems = state.gathering.candidateDates
-      .filter(function (candidateDate) {
-        return Boolean(leaders[candidateDate.id]);
-      })
-      .map(function (candidateDate) {
-        return el("span", {
-          "data-testid": "gathering-response-table-leader-summary",
-          "data-candidate-date-id": candidateDate.id,
-          class: "gth-response-leader-summary-item",
-        }, [
-          formatGatheringDate(candidateDate.startAt) + " 行ける " + candidateDate.goingCount + "/" +
-            state.gathering.activeParticipantLinkCount,
-        ]);
-      });
-    var leaderSummaryChildren = [el("span", { class: "gth-response-leader-summary-label" }, ["有力"])].concat(
-      leaderSummaryItems.length > 0
-        ? leaderSummaryItems
-        : [el("span", { class: "gth-response-leader-summary-empty" }, ["まだありません"])]
-    );
-    var leaderSummary = el(
-      "div",
-      { class: "gth-response-leader-summary" },
-      leaderSummaryChildren
-    );
+    // Only while phase is SCHEDULING (the row exists to help pick a date;
+    // once one is picked, absent regardless of any leader still tied).
+    var leaderSummary = null;
+    if (state.gathering.phase === "SCHEDULING") {
+      var leaderSummaryItems = state.gathering.candidateDates
+        .filter(function (candidateDate) {
+          return Boolean(leaders[candidateDate.id]);
+        })
+        .map(function (candidateDate) {
+          return el("span", {
+            "data-testid": "gathering-response-table-leader-summary",
+            "data-candidate-date-id": candidateDate.id,
+            class: "gth-response-leader-summary-item",
+          }, [
+            formatGatheringDate(candidateDate.startAt) + " 行ける " + candidateDate.goingCount + "/" +
+              state.gathering.activeParticipantLinkCount,
+          ]);
+        });
+      var leaderSummaryChildren = [el("span", { class: "gth-response-leader-summary-label" }, ["有力"])].concat(
+        leaderSummaryItems.length > 0
+          ? leaderSummaryItems
+          : [el("span", { class: "gth-response-leader-summary-empty" }, ["まだありません"])]
+      );
+      leaderSummary = el(
+        "div",
+        { class: "gth-response-leader-summary" },
+        leaderSummaryChildren
+      );
+    }
     var rows = state.participantLinks.map(function (link) {
       var responses = link.scheduleResponses || [];
       var cells = responses.map(function (entry) {
@@ -2159,21 +2751,35 @@
       activeShortlistedShopMap.remove();
       activeShortlistedShopMap = null;
     }
+    if (activeDecisionMap) {
+      activeDecisionMap.remove();
+      activeDecisionMap = null;
+    }
     pendingShortlistedShopMap = null;
+    pendingDecisionMap = null;
     root.innerHTML = "";
     if (!state.gathering) {
       return;
     }
     var phase = state.gathering.phase;
 
-    var header = el("div", { class: "gth-header" }, [
+    // Board D4: FINALIZED keeps only the title row above the map --
+    // statsRow/schedulePane below move inside the answers entrance.
+    var headerChildren = [
       el("div", { class: "gth-header-row" }, [
         el("div", { class: "gth-title" }, [state.gathering.title]),
         renderDeleteGathering(),
       ]),
       renderPhaseIndicator(),
-      el("div", { class: "gth-stats-row" }, [renderResponseSummary(), renderUnansweredSummary()]),
+    ];
+    var statsRow = el("div", { class: "gth-stats-row" }, [
+      renderResponseSummary(),
+      renderUnansweredSummary(),
     ]);
+    if (phase !== "FINALIZED") {
+      headerChildren.push(statsRow);
+    }
+    var header = el("div", { class: "gth-header" }, headerChildren);
 
     var candidateDateLeaders = computeCandidateDateLeaders(state.gathering.candidateDates);
     var candidateDateListChildren = state.gathering.candidateDates.map(function (candidateDate) {
@@ -2198,7 +2804,10 @@
     }
     var schedulePane = el("div", { class: "gth-pane" }, schedulePaneChildren);
 
-    var sections = [header, schedulePane];
+    var sections = [header];
+    if (phase !== "FINALIZED") {
+      sections.push(schedulePane);
+    }
 
     if (phase === "SELECTING_SHOP" && state.gathering.votingStartedAt === null) {
       sections.push(
@@ -2209,39 +2818,28 @@
       );
     }
 
-    if (state.gathering.votingStartedAt !== null) {
+    // **Changed 2026-09-17 (ADR-0062 decision 4, human decision, board D4:
+    // 「決まった店と集まる場所だけ」)**: shortlistedShopVotes.presenceRule
+    // narrows from "votingStartedAt non-null, any phase" to "votingStartedAt
+    // non-null AND finalizedShopId null" -- gathering-shortlisted-shop-list/
+    // -item no longer remain present once FINALIZED as a frozen "vote
+    // record" panel; see finalizedSummary.decisionBanner below for what
+    // replaces that record.
+    if (state.gathering.votingStartedAt !== null && state.gathering.finalizedShopId === null) {
       sections.push(renderShortlistedShopVotes());
     }
 
+    // Board D4: FINALIZED nests responseTable/participantLinkList inside
+    // the decision panel's own answers/links groups, not as separate
+    // sections -- neither testId's presenceRule changes.
     if (phase === "FINALIZED") {
-      sections.push(renderFinalizedSummary());
-    }
-
-    // ADR-0056 decision 1: always present, alongside (not replacing) the
-    // per-candidate-date tally above and the link-management list below.
-    sections.push(renderResponseTable(candidateDateLeaders));
-
-    var linkPaneHeadChildren = [el("div", { class: "gth-pane-head" }, ["発行済みリンク"])];
-    if (phase !== "FINALIZED") {
-      linkPaneHeadChildren.push(renderParticipantLinkCopy());
+      sections.push(renderFinalizedSummary(candidateDateLeaders, statsRow, schedulePane));
     } else {
-      // ADR-0056 decision 11: a short badge marking that issuance itself
-      // has ended on purpose, distinct from participantLinkCopy's own
-      // plain absence (which by itself carried no such signal).
-      linkPaneHeadChildren.push(
-        el(
-          "span",
-          { "data-testid": "gathering-participant-link-issuance-closed", class: "gth-badge-muted" },
-          ["発行はおわり"]
-        )
-      );
+      // ADR-0056 decision 1: always present, alongside (not replacing) the
+      // per-candidate-date tally above and the link-management list below.
+      sections.push(renderResponseTable(candidateDateLeaders));
+      sections.push(renderParticipantLinkPane());
     }
-    sections.push(
-      el("div", { class: "gth-pane" }, [
-        el("div", { class: "gth-pane-head-row" }, linkPaneHeadChildren),
-        renderParticipantLinkList(),
-      ])
-    );
 
     root.appendChild(el("div", { class: "gth-dash" }, sections));
 
@@ -2249,6 +2847,14 @@
       initializeShortlistedShopMap(
         pendingShortlistedShopMap.container,
         pendingShortlistedShopMap.shops
+      );
+    }
+    if (pendingDecisionMap) {
+      initializeOrganizerDecisionMap(
+        pendingDecisionMap.container,
+        pendingDecisionMap.shop,
+        organizerSearchOrigin,
+        pendingDecisionMap.panel
       );
     }
     restoreFocusFromDescriptor(root, focusDescriptor);
@@ -2274,6 +2880,26 @@
         issueOpenButtonNode.focus({ preventScroll: true });
       }
       state.pendingIssueDialogFocus = null;
+    }
+
+    // Explicit open/close focus management for gathering-finalize-confirm-
+    // dialog (ADR-0062 decision 3, board D3) -- the same shape as
+    // gathering-participant-link-issue-dialog's own pendingIssueDialogFocus
+    // just above.
+    if (state.pendingFinalizeConfirmFocus === "open") {
+      var finalizeConfirmDialogNode = root.querySelector(
+        '[data-testid="gathering-finalize-confirm-dialog"]'
+      );
+      if (finalizeConfirmDialogNode) {
+        finalizeConfirmDialogNode.focus({ preventScroll: true });
+      }
+      state.pendingFinalizeConfirmFocus = null;
+    } else if (state.pendingFinalizeConfirmFocus === "close") {
+      var finalizeOpenButtonNode = root.querySelector('[data-testid="gathering-finalize-open"]');
+      if (finalizeOpenButtonNode) {
+        finalizeOpenButtonNode.focus({ preventScroll: true });
+      }
+      state.pendingFinalizeConfirmFocus = null;
     }
   }
 

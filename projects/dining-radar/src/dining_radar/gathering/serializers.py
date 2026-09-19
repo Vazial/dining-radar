@@ -223,13 +223,6 @@ def serialize_participant_shop_vote_option(
     entry = {
         **_live_projected_display_fields(shop_lookup.get(shop.shop_id), shop.shop_id, origin),
         "yourVote": option.your_vote,
-        # Added 2026-09-13 (ADR-0056 decision 6, addendum 9): server-computed
-        # boolean mirroring the organizer-facing
-        # data-added-after-voting-started signal -- addedAt/votingStartedAt
-        # themselves are never exposed to this unauthenticated, signed-link
-        # participant (see services.ParticipantShopVoteOption's own
-        # docstring).
-        "addedAfterVotingStarted": option.added_after_voting_started,
     }
     # Always present (adr/0050 decision 2, 2026-09-08/09 human decision:
     # reverses this schema's original "answer first, then see others" gating
@@ -304,9 +297,9 @@ def serialize_schedule_question(
     already carries (adr/0050 decision 2), extended here from counts to
     per-participant identity. This schema exposes no identifier for a
     respondent beyond their self-reported name -- never a linkId or token
-    (the same minimum-disclosure judgment
-    ``ParticipantShopVoteOption.addedAfterVotingStarted`` already applies to
-    a signed-link participant).
+    (the same minimum-disclosure judgment this file once applied to the
+    now-retired ``ParticipantShopVoteOption.addedAfterVotingStarted``,
+    ADR-0062 decision 1).
     """
     candidate_date = tally.candidate_date
     your_response = services.participant_schedule_status(link, candidate_date)

@@ -176,17 +176,10 @@
   border-color: #14614a;
 }
 
-/* Native checkbox/radio: the first of these in this whole product
-   (base.html's own blanket `input { width:100%; min-height:2.75rem; ... }`
-   rule -- meant for text inputs -- would otherwise render a full-width,
-   deformed checkbox/radio). Sized to the same 44px tap-target minimum as
-   every button on this screen (larger than the design canvases' own 24px
-   `.cb` icon, a deliberate adaptation for an unambiguous tap target given
-   this pass may not add a wrapping <label> to grow the hit area without
-   changing DOM structure). `accent-color` tints the native control green
-   without needing a custom-drawn replacement. */
-.gth-checkbox,
-.gth-radio {
+/* Native checkbox (base.html's own blanket `input { width:100%; ... }`
+   rule would otherwise deform it): 44px tap target, accent-color tints
+   it without a custom-drawn replacement. */
+.gth-checkbox {
   width: 2.75rem;
   height: 2.75rem;
   min-width: 2.75rem;
@@ -194,6 +187,42 @@
   accent-color: #14614a;
   cursor: pointer;
   flex-shrink: 0;
+}
+/* Board draws a ~28px ring, not a 44px circle -- keep the input's own box
+   at 2.75rem (tap target) and shrink only the visible ::before ring. */
+.gth-radio {
+  appearance: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  min-width: 2.75rem;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  position: relative;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.gth-radio::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 1.75rem;
+  height: 1.75rem;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 1.5px solid #a7b0a8;
+  background: #fff;
+  box-sizing: border-box;
+}
+.gth-radio:checked::before {
+  border: 7px solid #14614a;
+}
+.gth-radio:focus-visible {
+  outline: 2px solid #14614a;
+  outline-offset: 2px;
 }
 
 .gth-error,
@@ -541,6 +570,38 @@
   color: #4b564e;
 }
 
+/* --- gathering-finalize-confirm-dialog, centered small window (ADR-0062
+   decision 3, board D3): unlike .gth-delete/.gth-issue above (anchored
+   under their own opening button), this dialog is a viewport-centered
+   modal on every width -- board D3-a-SpConfirm's own mobile frame is the
+   same centered card as D3-a-PcConfirm, not a bottom sheet.
+   .gth-modal-backdrop is this dialog's own dim scrim (a plain, purposeless
+   `<div>`, outside forbiddenFormControlCategories' scan, the same
+   precedent gathering-create-review-dialog's own scrim already
+   establishes). */
+.gth-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(23, 32, 27, 0.38);
+  z-index: 29;
+}
+.gth-confirm-dialog--modal {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 30;
+  width: min(28rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+}
+.gth-confirm-dialog-title {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: #17201b;
+}
+
 /* --- gathering-participant-link-issue-dialog (ADR-0061 decision 1): the
    small window that opens once "リンクを発行" issues a new link. Shares
    .gth-confirm-dialog's own visual container (position: absolute, anchored
@@ -563,41 +624,35 @@
   word-break: break-all;
 }
 
-/* --- gathering-finalize-confirm-changes (ADR-0056 decision 11): a factual
-   3-row before/after table, not persuasive prose (ADR-0055 decision 3's
-   "no persuasive prose in production screens" principle). */
-.gth-changes-table {
+/* --- gathering-finalize-confirm-dialog's own confirmSummary (ADR-0062
+   decision 3, board D3): two rows (日時・お店), replacing the retired
+   3-row before/after gathering-finalize-confirm-changes table (ADR-0056
+   decision 11) -- board D3-a's own 96px-label-column layout. */
+.gth-confirm-summary {
   display: flex;
   flex-direction: column;
   border: 1px solid #dfe4de;
   border-radius: 0.5rem;
   overflow: hidden;
 }
-.gth-changes-row {
+.gth-confirm-summary-row {
   display: grid;
-  grid-template-columns: minmax(0, 5.5rem) minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center;
-  gap: 0.375rem;
+  grid-template-columns: minmax(0, 5.5rem) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.625rem;
   padding: 0.5rem 0.625rem;
   border-top: 1px solid #edf0eb;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
 }
-.gth-changes-row:first-child {
+.gth-confirm-summary-row:first-child {
   border-top: 0;
 }
-.gth-changes-label {
-  font-weight: 700;
-  color: #17201b;
-}
-.gth-changes-before {
+.gth-confirm-summary-label {
   color: #77827a;
 }
-.gth-changes-arrow {
-  color: #a7b0a8;
-}
-.gth-changes-after {
-  font-weight: 600;
-  color: #14614a;
+.gth-confirm-summary-value {
+  font-weight: 700;
+  color: #17201b;
   overflow-wrap: anywhere;
 }
 
@@ -1063,15 +1118,34 @@
   flex-direction: column;
   gap: 0.5rem;
 }
+/* **Fixed 2026-09-19 (board party2/d2/D1-a-* comparison, real-machine
+   finding)**: this row is a flex item of gth-shop-list (a column flex
+   container, min-height: 0/overflow-y: auto below, the usual "scroll
+   once content overflows" pattern) -- without flex-shrink: 0, the
+   default flex-shrink: 1 let the *list* squeeze every row below its own
+   natural content height whenever five rows' combined natural height
+   exceeded the panel's own max-height, instead of leaving each row at
+   its full natural size and letting the list's own overflow-y: auto
+   scroll the remainder (this row's own detailFields line, wrapping to a
+   second line for a shop with several long field values, was the most
+   visible casualty -- its own second line rendered outside this row's
+   now-too-short box, "潰れた行に見える" the coordinator's own board
+   comparison flagged). align-items: flex-start (not the previous
+   center) keeps a row whose body wraps taller than its rank/radio
+   column from centering those two vertically past the row's own real
+   content instead of alongside its top line, matching every board frame
+   (party2/d2/D1-a-*): radio and rank sit level with the shop name's own
+   line, not centered against the row's full wrapped height. */
 .gth-shop-row {
   background: #fff;
   border: 1px solid #dfe4de;
   border-radius: 0.625rem;
   box-sizing: border-box;
   min-height: 3rem;
+  flex-shrink: 0;
   padding: 0.4rem 0.6rem;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.65rem;
 }
 .gth-shop-row--on {
@@ -1085,6 +1159,12 @@
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
+}
+.gth-shop-name-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 .gth-shop-name {
   font-weight: 700;
@@ -1129,16 +1209,6 @@
   font-weight: 700;
 }
 
-.gth-decision {
-  background: #fff;
-  border: 1.6px solid #14614a;
-  border-radius: 0.75rem;
-  padding: 0.9rem 1rem;
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
 .gth-decision-badge {
   align-self: flex-start;
   font-size: 0.6875rem;
@@ -1149,36 +1219,330 @@
   padding: 0.2rem 0.75rem;
   white-space: nowrap;
 }
-.gth-decision-body {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 1.5rem;
-}
-.gth-decision-row {
+/* Board D4: floats over a full-bleed map, the same gth-shop-stage shape
+   SELECTING_SHOP's own gth-shop-panel already uses. */
+.gth-decision-panel {
+  position: absolute;
+  left: 1rem;
+  top: 1rem;
+  max-height: calc(100% - 2rem);
+  width: min(28rem, calc(100% - 2rem));
+  background: #fff;
+  border-radius: 0.875rem;
+  box-shadow: 0 0.375rem 1.25rem rgba(23, 32, 27, 0.18);
   display: flex;
   flex-direction: column;
-  gap: 0.1rem;
-  font-size: 0.75rem;
+  gap: 0.75rem;
+  overflow-y: auto;
+  padding: 1rem;
+  z-index: 2;
 }
-.gth-decision-label {
+.gth-decision-head {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex-wrap: wrap;
+}
+.gth-decision-going {
+  font-size: 0.8125rem;
+  color: #4b564e;
+}
+.gth-decision-going b {
+  color: #17201b;
+}
+.gth-decision-datetime {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.gth-decision-date-big {
+  font-size: 1.375rem;
+  color: #17201b;
+}
+.gth-decision-time {
+  font-size: 0.875rem;
+  color: #4b564e;
+}
+/* Board D4's tabs (PC)/disclosure rows (mobile) -- which shape renders is
+   decided in JS, not a media query, since the two behave differently. */
+.gth-decision-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border-top: 1px solid #edf0eb;
+  padding-top: 0.75rem;
+  min-height: 0;
+}
+.gth-decision-tabs {
+  display: flex;
+  gap: 0.375rem;
+}
+/* issuanceClosed's own badge, unconditional once FINALIZED -- sits beside
+   linksOpen's own button/row rather than inside its gated content. */
+.gth-decision-links-entrance {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.gth-decision-links-entrance .gth-decision-tab {
+  flex: 1 1 auto;
+}
+.gth-decision-links-entrance .gth-decision-disclosure {
+  flex: 1 1 auto;
+  width: auto;
+}
+.gth-decision-tab {
+  flex: 1 1 auto;
+  min-height: 2.75rem;
+  padding: 0 0.75rem;
+  border: 1px solid #dfe4de;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #4b564e;
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+.gth-decision-tab[aria-selected="true"] {
+  border-color: #14614a;
+  color: #14614a;
+  background: #f7fbf8;
+}
+.gth-decision-tabpanel {
+  min-height: 0;
+  overflow-y: auto;
+}
+.gth-decision-disclosure {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0 0.75rem;
+  border: 1px solid #dfe4de;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #17201b;
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+.gth-decision-disclosure[aria-expanded="true"] .gth-decision-chevron {
+  transform: rotate(90deg);
+}
+.gth-decision-chevron {
   color: #77827a;
 }
-.gth-decision-row b {
-  font-size: 1.0625rem;
-  color: #17201b;
-  overflow-wrap: anywhere;
+.gth-decision-disclosure-panel {
+  border: 1px solid #edf0eb;
+  border-radius: 0.5rem;
+  padding: 0.5rem;
+  overflow-x: auto;
+}
+.gth-decision-tab:focus-visible,
+.gth-decision-disclosure:focus-visible {
+  outline: 2px solid #14614a;
+  outline-offset: 2px;
+}
+@media (max-width: 47.9375rem) {
+  .gth-decision-panel {
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 3.5rem;
+    max-height: 50%;
+    width: auto;
+    border-radius: 1.125rem 1.125rem 0 0;
+    padding-top: 0.625rem;
+  }
+  /* Board's own sheet handle -- purely decorative, no testid/purpose. */
+  .gth-decision-panel::before {
+    content: "";
+    align-self: center;
+    width: 2.25rem;
+    height: 0.25rem;
+    border-radius: 999px;
+    background: #c6cfc6;
+    margin-bottom: 0.375rem;
+    flex-shrink: 0;
+  }
 }
 
 /* --- shop map + detail fields + three-tier tallies (adr/0044/0045/0046) -- */
 
+/* ADR-0062 decision 1 (board D1): 「地図いっぱい・一覧を浮かせる」 -- this
+   pane drops its usual padding (gth-pane--flush) so gth-shop-stage's own
+   map can run edge-to-edge; gth-shop-panel floats over its top-left
+   corner. */
+.gth-pane--flush {
+  padding: 0;
+  overflow: hidden;
+}
+.gth-shop-stage {
+  position: relative;
+  min-height: 26rem;
+  height: 32rem;
+}
+/* Board's own FINALIZED frame (real-machine finding): the map fills from
+   right below the heading to the viewport bottom, not a fixed height --
+   own class so SELECTING_SHOP's gth-shop-stage above is unaffected. */
+.gth-decision-stage {
+  position: relative;
+  min-height: 26rem;
+  height: calc(100vh - 18rem);
+}
+@media (max-width: 47.9375rem) {
+  .gth-decision-stage {
+    height: calc(100vh - 16rem);
+  }
+}
+/* An explicit z-index makes this establish its own stacking context, so
+   Leaflet's own panes (up to z-index 700) stay contained beneath it
+   instead of comparing directly against gth-shop-panel's z-index. */
 .gth-shop-map {
-  width: 100%;
-  height: 12.5rem;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
   box-sizing: border-box;
-  border: 1px solid #dfe4de;
-  border-radius: 0.625rem;
+  border: 0;
+  border-radius: 0;
   overflow: hidden;
   background: #eaf0ea;
+}
+/* 2026-09-19 fix (real render-invariant finding, L5): gth-bottom-bar's own
+   rendered height is a button (.gth-btn's 2.75rem floor) plus its own
+   0.625rem top/bottom padding -- 4.25rem, rounded up for the border/
+   line-height slack. gth-shop-panel's own `bottom` offset below must clear
+   that whole height, or the bar (a later sibling painted on top,
+   z-index: 3) physically covers -- and intercepts every pointer event
+   aimed at -- whatever row that overlap lands on (gathering-finalize-
+   shop-select's own row, real-machine measurement: Playwright's
+   scrollIntoView left that row's bottom edge flush with the bar, "the
+   div.gth-bottom-bar subtree intercepts pointer events"). This is
+   .gth-bottom-bar's own height, not a copy of some other rule's number --
+   kept as a plain literal per this file's existing no-custom-properties
+   convention, cross-referenced here and at .gth-bottom-bar/.gth-shop-panel
+   itself so the three stay in sync if the bar's own padding/button floor
+   ever changes. */
+.gth-shop-panel {
+  position: absolute;
+  left: 1rem;
+  top: 1rem;
+  /* **Fixed 2026-09-19 (board comparison finding)**: `bottom` (a second,
+     opposite offset alongside `top`) forces an absolutely-positioned box
+     to stretch to fill the gap between them regardless of its own
+     content -- for a one- or two-shop shortlist this stretched a mostly-
+     empty panel down the whole pane, unlike every board frame
+     (party2/d2/D1-a-*), whose own list panel hugs its rows and only grows
+     tall enough to need scrolling once five rows do not fit. `max-height`
+     alone (no `bottom`) keeps the same "clear gth-bottom-bar" ceiling
+     (1rem original gap + 4.25rem to clear the bar, see that rule's own
+     comment) as a cap, not a forced stretch -- gth-shop-panel .gth-shop-
+     list's own flex:1 1 auto/min-height:0/overflow-y:auto (below) still
+     scrolls once actual content exceeds this cap. */
+  max-height: calc(100% - 5.25rem);
+  width: min(28rem, calc(100% - 2rem));
+  background: #fff;
+  border-radius: 0.875rem;
+  box-shadow: 0 0.375rem 1.25rem rgba(23, 32, 27, 0.18);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 2;
+}
+.gth-shop-panel .gth-pane-head {
+  padding: 0.625rem 0.75rem 0.5rem;
+}
+.gth-shop-panel .gth-shop-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 0.625rem 0.625rem;
+  gap: 0.5rem;
+}
+/* Board D2 (ADR-0062 decision 2): the bottom-of-screen action bar every
+   confirm-selection flow on this pane shares -- geometry only, the
+   disabledState Must itself is unchanged (finalizeOpen's own `disabled`
+   attribute above). Own rendered height: 4.25rem (see gth-shop-panel's own
+   comment above -- a .gth-btn's 2.75rem floor plus this rule's own
+   0.625rem top/bottom padding). */
+.gth-bottom-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  box-sizing: border-box;
+  background: #fff;
+  border-top: 1px solid #d9e0d8;
+  box-shadow: 0 -0.25rem 0.75rem rgba(23, 32, 27, 0.08);
+  display: flex;
+  align-items: center;
+  /* Board D2 (party2/d2/D2-a-*) shows exactly two children here (status
+     text + the one primary button) and lays them out with
+     justify-content: space-between -- shopSelectionEntry.open ("店を絞り
+     なおす") is not one of them (moved to gth-shop-panel's own head row,
+     see renderShortlistedShopVotes' own 2026-09-19 comment: three flex
+     children here left the status text too little width, wrapping it
+     across many lines and ballooning this bar's own height well past the
+     clearance below). */
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.625rem 1.25rem;
+  z-index: 3;
+}
+.gth-bottom-bar-status {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #17201b;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 47.9375rem) {
+  /* Narrow layouts also have organizer_primary_nav.html's own real,
+     viewport-fixed mobile bottom bar (.primary-nav-bar, z-index: 30 --
+     above this pane's own z-index: 2/3 stack) below this pane -- board
+     D2's own request that gth-bottom-bar sit 「下部ナビのすぐ上」, not
+     underneath it. .primary-nav-bar's own rendered height: 3.25rem
+     (.primary-nav-bar-link's own min-height) plus its 1px top border,
+     rounded up to 3.5rem here for the same slack gth-bottom-bar's own
+     4.25rem above already allows. */
+  .gth-bottom-bar {
+    bottom: 3.5rem;
+  }
+  .gth-shop-panel {
+    left: 0;
+    right: 0;
+    top: auto;
+    /* 3.5rem to clear .primary-nav-bar + 4.25rem to clear the
+       now-elevated gth-bottom-bar (both comments above). */
+    bottom: 7.75rem;
+    width: auto;
+    /* Board's own mobile frame (party2/d2/D1-a-SpShops) leaves the map's
+       upper half visible above this sheet, not just a sliver. */
+    max-height: 50%;
+    border-radius: 1.125rem 1.125rem 0 0;
+    padding-top: 0.625rem;
+  }
+  /* Board's own sheet handle -- purely decorative, no testid/purpose. */
+  .gth-shop-panel::before {
+    content: "";
+    align-self: center;
+    width: 2.25rem;
+    height: 0.25rem;
+    border-radius: 999px;
+    background: #c6cfc6;
+    margin-bottom: 0.375rem;
+    flex-shrink: 0;
+  }
+  /* Narrow layouts need every spare pixel back for gth-shop-body. */
+  .gth-shop-row {
+    gap: 0.4rem;
+    padding: 0.375rem 0.5rem;
+  }
 }
 
 .gathering-open-shop-map-marker-icon,
@@ -1202,20 +1566,63 @@
   align-items: center;
   justify-content: center;
 }
+/* Board's own white ring for the decided-shop map's meeting-point pin
+   (only this map uses this icon class in organizer.css). */
 .gathering-search-origin-marker-visual {
   display: block;
-  width: 0.75rem;
-  height: 0.75rem;
+  width: 0.875rem;
+  height: 0.875rem;
   border-radius: 50%;
-  background: #b4531c;
-  border: 2px solid #fff;
-  box-shadow: 0 0 0 1px #b4531c;
+  background: #fff;
+  border: 2px solid #4b564e;
+  box-shadow: 0 0 0 1px #4b564e;
 }
 
+/* Board's own checkmark for the decided shop -- distinct from the plain
+   numbered dot above (a different phase's own marker). */
+.gathering-decision-shop-map-marker-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.gathering-decision-shop-map-marker-visual {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  background: #14614a;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #14614a;
+  color: #fff;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1;
+}
+/* Board's own plain name-tag beside each pin -- Leaflet's default tooltip
+   is already close (white pill, drop shadow); this only tunes size and
+   drops the default pointer arrow board's own labels do not show. */
+.gth-map-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #17201b;
+  border-radius: 999px;
+  padding: 0.25rem 0.625rem;
+}
+.gth-map-label::before {
+  display: none;
+}
+
+/* **Fixed 2026-09-19 (board party2/d2/D1-a-* comparison)**: board's own
+   detail line joins its five fields with "・" (gth-shop-detail-sep
+   below), not bare whitespace -- this rule's own gap now only spaces the
+   separator from its neighbors (the separator's own text already reads
+   as punctuation, so the gap shrinks from the old space-only scheme). */
 .gth-shop-detail-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem 0.75rem;
+  gap: 0.2rem;
   align-items: center;
 }
 .gth-shop-detail {
@@ -1223,12 +1630,23 @@
   color: #4b564e;
   white-space: nowrap;
 }
+.gth-shop-detail-sep {
+  font-size: 0.6875rem;
+  color: #a7b0a8;
+}
 /* A real, clickable <a> (a genuine activatable control), raised to this
    file's own stated 44px floor for the same reason .gth-btn-small was
-   (2026-09-08 human report). */
+   (2026-09-08 human report). **Fixed 2026-09-19**: this row's own
+   right-hand column (gth-shop-row's own last child, board D1's own
+   right-aligned "店のページ" column) -- previously nested inside
+   gth-shop-detail-row instead, where it could wrap into the detail
+   line's own flow and overlap whichever field followed it. flex-shrink:
+   0 keeps it from being squeezed by gth-shop-body's own flex: 1 1 auto
+   now that both share gth-shop-row as a direct flex parent. */
 .gth-shop-link {
   display: inline-flex;
   align-items: center;
+  flex-shrink: 0;
   min-height: 2.75rem;
   padding: 0 0.75rem;
   border: 1px solid #14614a;
@@ -1242,23 +1660,76 @@
 .gth-shop-link:hover {
   background: #f7fbf8;
 }
-
-.gth-shop-tally-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem 0.9rem;
-  font-size: 0.75rem;
-  color: #4b564e;
+@media (max-width: 47.9375rem) {
+  /* gth-shop-body needs every spare pixel at this width -- see
+     gth-shop-row's own equivalent trim above. */
+  .gth-shop-link {
+    padding: 0 0.5rem;
+  }
 }
-.gth-shop-tally-row b {
-  color: #17201b;
+
+/* **Fixed 2026-09-19 (board party2/d2/D1-a-* comparison)**: replaces the
+   retired gth-shop-tally-row's word-labeled line ("行きたい 0")
+   with board's own fixed-length bar + ○/△/× counts -- the same shape
+   participant.js's own renderShopVoteBar/renderShopVoteTally draw for
+   the participant-facing vote screen, duplicated here (this file's
+   existing no-shared-module convention) with this row's own class names
+   and this row's own denominator (respondedParticipantCount, D7's
+   per-shop denominator -- board's own bar is scaled per shop, not to the
+   gathering's total active participant count the way ADR-0056 decision 9
+   scales the participant-facing bar). */
+.gth-shop-vote-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.gth-shop-vote-bar {
+  display: flex;
+  flex: 1 1 6rem;
+  max-width: 9rem;
+  height: 0.5rem;
+  border-radius: 0.1875rem;
+  overflow: hidden;
+  background: #e7ebe6;
+}
+.gth-shop-vote-bar-seg {
+  display: block;
+  height: 100%;
+}
+.gth-shop-vote-bar-seg--want {
+  background: #14614a;
+}
+.gth-shop-vote-bar-seg--ok {
+  background: #e3a77f;
+}
+.gth-shop-vote-bar-seg--not {
+  background: #c6cfc6;
+}
+.gth-shop-vote-count {
+  font-size: 0.75rem;
   font-weight: 700;
+  white-space: nowrap;
+}
+.gth-shop-vote-count--want {
+  color: #14614a;
+}
+.gth-shop-vote-count--ok {
+  color: #b4531c;
+}
+.gth-shop-vote-count--not {
+  color: #a7b0a8;
+  font-weight: 500;
 }
 
 .gth-link-list {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  /* Zero issued links renders zero children -- a bare flex container then
+     has no box at all, which a disclosure/tab entrance's own visibility
+     check (this pane can be the one thing revealed) cannot tell apart
+     from actually hidden. */
+  min-height: 1px;
 }
 .gth-link-row {
   display: flex;
@@ -1334,14 +1805,19 @@
   background: #f7fbf8;
   box-shadow: inset 3px 0 0 #14614a;
 }
-.gth-shop-added-after-badge {
+/* ADR-0062 decision 1 (board D1's own "いちばん人気" tag): replaces the
+   now-retired .gth-shop-added-after-badge (「あとから入りました」, ADR-0056
+   decision 6, removed 2026-09-17) -- same visual slot next to the shop
+   name, different meaning (driven by the same data-current-leader this
+   list's own leader highlight above already reads, never a new attribute). */
+.gth-shop-leader-badge {
   display: inline-flex;
   align-items: center;
   height: 1.25rem;
   padding: 0 0.5rem;
   border-radius: 999px;
-  background: #eaf0ea;
-  color: #14614a;
+  background: #14614a;
+  color: #fff;
   font-size: 0.625rem;
   font-weight: 700;
   white-space: nowrap;

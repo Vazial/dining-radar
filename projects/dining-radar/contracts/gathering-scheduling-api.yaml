@@ -519,10 +519,19 @@
 #   answerLater/peekResultsの全廃）・決定5（確定後の店の情報を消す）は、いずれもこのAPIファイル
 #   自体のスキーマ・エンドポイントを変更しない**（決定1・3・5はブラウザ契約側の観測面・操作の
 #   組み替えにとどまる）——本ファイルの変更は決定2の`respondents`追加のみである。
+#
+# 2026-09-17追補（architect、実機フィードバック第2便・束D、ADR-0062決定1、人間裁定「あとから
+# 入りました」は出さない・依頼文「参加者側・APIの値も不要なら消す」。0.17.0 -> 0.18.0）:
+# - `ParticipantShopVoteOption.addedAfterVotingStarted`を削除した。この値を読むDOM観測は
+#   gathering-scheduling-browser-interface.yaml側になくなった（organizerDashboard.
+#   shortlistedShopVotes.list.item・participantAnswer.shopVoteQuestionの両方から
+#   data-added-after-voting-startedが同じ回で退役したため）。ShortlistedShop/
+#   LiveProjectedShopは元々この値を持たない(組織者側は同値をShortlistedShop.addedAtと
+#   Gathering.votingStartedAtから直接計算していた)ため、この2スキーマへの変更はない。
 openapi: 3.0.3
 info:
   title: Dining Radar Gathering Scheduling API
-  version: 0.17.0
+  version: 0.18.0
   description: >-
     Lets an authenticated organizer list their gatherings, create a gathering
     with candidate dates, add further candidate dates in a batch while
@@ -2981,7 +2990,7 @@ components:
       required:
         [shopId, name, genre, capacityTier, nonSmokingStatus,
          dinnerBudgetTier, location, walkingTimeMinutes, providerPageUrl,
-         yourVote, tally, addedAfterVotingStarted]
+         yourVote, tally]
       additionalProperties: false
       description: >-
         One currently shortlisted shop, from this participant's point of
@@ -2999,8 +3008,10 @@ components:
         deliberately extended here (adr/0045), and this same file adds
         `ParticipantView.searchOrigin` alongside this field.
         `addedAfterVotingStarted` was added 2026-09-13 (ADR-0056 decision 6)
-        -- see that property's own description below for why this schema
-        previously had no value this attribute could be built from.
+        and retired 2026-09-17 (ADR-0062 decision 1, human decision, board
+        D1: 「あとから入りました」は出さない) -- no DOM observation reads
+        it any longer on either the organizer- or participant-facing
+        screen.
       properties:
         shopId:
           type: string
@@ -3044,37 +3055,6 @@ components:
             submitted ShopVoteStatus value and stays non-null unless this
             shop is later removed and re-added by the organizer (which
             resets addedAt and therefore can make this null again).
-        addedAfterVotingStarted:
-          type: boolean
-          description: >-
-            Added 2026-09-13 (ADR-0056 decision 6), closing a gap this
-            file's 2026-09-12 addendum 8 reported to the human rather than
-            worked around: that revision gave the organizer-facing
-            gathering-shortlisted-shop-item a data-added-after-voting-started
-            signal (ShortlistedShop.addedAt compared against
-            Gathering.votingStartedAt, both already present on the
-            organizer-facing schema), but this participant-facing schema
-            exposed neither an addedAt-equivalent value nor
-            Gathering.votingStartedAt, so no participant-side counterpart
-            could be projected without an API addition. True exactly when
-            this shop's ShortlistedShop.addedAt (never itself exposed here)
-            is strictly later than Gathering.votingStartedAt for this same
-            gathering -- the identical computation the organizer-facing
-            attribute performs, so both surfaces say "あとから入りました"
-            for the same shop at the same time (ADR-0056 decision 6: 幹事・
-            参加者に同じ言葉で出す). Server-computed and returned as a
-            plain boolean rather than exposing `addedAt`/`votingStartedAt`
-            themselves to this participant (architect design judgment,
-            choosing between the two shapes ADR-0056 decision 6 left open):
-            this product keeps a signed-link participant's -- an
-            unauthenticated recipient of a shared URL -- disclosure to the
-            minimum a screen needs (product-brief.md §5), and this same
-            schema already follows this shape for `yourVote`, which is
-            likewise computed from `addedAt` without exposing `addedAt`
-            itself. Never null -- every shop this schema describes already
-            exists only once ParticipantView.shopVoteQuestions is non-null
-            (Gathering.votingStartedAt non-null, see that field's own
-            presenceRule), so this value is always computable.
         tally:
           type: object
           required: [wantToGoCount, okToGoCount, notGoingCount, respondedParticipantCount]

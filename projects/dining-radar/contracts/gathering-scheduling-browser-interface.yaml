@@ -679,6 +679,18 @@
 #   `organizerDashboard`の観測面・操作は無変更——戻り方の変更は候補検索側の契約だけで完結する。
 #
 # 2026-09-17 追補20 (architect、ADR-0061。実機フィードバック第2便・束C（参加者を呼ぶ・答える、
+# 2026-09-17追補16 (architect、実機フィードバック第2便・束D、ADR-0062、人間裁定「幹事の投票中
+# 一覧に店の詳細を足す」「確定の確認を日時・お店の2行へ縮める」「確定後の幹事画面を決まった店
+# だけの表示にする」。contractVersionを0.23.0から0.24.0へ上げる):
+# - organizerDashboard.shortlistedShopVotes.list.item.detailFieldsへwalkingTime/genre/
+#   capacityTier/nonSmokingStatus/dinnerBudgetTierの5フィールドを追加し(決定1)、
+#   data-added-after-voting-startedを幹事・参加者双方から削除した(決定1、ADR-0056決定6の幹事側を
+#   覆す)。shortlistedShopVotes.finalizeConfirmDialog.changesTable(3行の変化前後表)を全廃し、
+#   date/shopの2要素へ置き換えた(決定3、ADR-0054決定5・ADR-0056決定11を覆す)。
+#   shortlistedShopVotes.presenceRuleをFINALIZED時absentへ書き換え、finalizedSummary.
+#   decisionBannerへfinalizedShopName/map/providerPageLinkを追加した(決定4、ADR-0061決定5と
+#   対になる幹事側の簡素化)。profiles.localAcceptance.verifiesScenariosへTDR-GTH-57〜66を追加
+#   した(決定5、TDR-GTH-57〜64はADR-0060/ADR-0061が登録し忘れていたものの是正)。
 # 2026-09-17人間裁定）。contractVersionを0.22.0から0.23.0へ上げる):
 # - **回答リンクの発行を2段の操作へ分けた**（決定1）: participantLinkCopy.requiredOutcomeから
 #   クリップボード書き込みのMust（ADR-0058）を外し、新設 issueDialog（小窓）へ移した。小窓は
@@ -753,11 +765,45 @@
 # - `allowedPurposes`へ2件を追加した: gathering-participant-day-list-open,
 #   gathering-participant-day-list-close（allowedPurposesNoteAdr0061Addendum参照）。
 #
+# 2026-09-19 追補22 (architect、orchestratorの確認（ADR-0062未決事項2「確定後パネルのPC/スマホ
+#   折りたたみの実測はorchestratorの領分」）を受けて起草。確定後の幹事ダッシュボード（追補20/
+#   ADR-0062決定4が新設したfinalizedSummary）が回答表・発行済みリンクへ渡る入口（PCのタブ・
+#   スマホの開閉行）に目印を持たず、描画不変量（ADR-0020決定4の(c)キーボード到達・(e)44px）で
+#   測れない状態にあった——orchestratorが2026-09-19に確認し、目印を付けて契約へ載せると決めた
+#   （束Cの追補21、日の一覧の開閉と同じ扱い）。新しい業務判断ではない。contractVersionを
+#   0.24.0から0.24.1へ上げる):
+# - `organizerDashboard.finalizedSummary`へ`answersOpen`（testId/purpose:
+#   gathering-decision-answers-open）・`linksOpen`（testId/purpose:
+#   gathering-decision-links-open）を新設した。PCのタブ形の提示では相互排他の2つのタブ
+#   （aria-selectedで状態を表す、回答のタブが最初に選ばれている）、スマホの開閉行の提示では
+#   独立して開閉する2つの行（aria-expandedで状態を表す、両方とも最初は閉じている）——この
+#   契約は依然どちらの提示になるかを画面幅で固定しない（既存のno-renderModes流儀）。
+# - `responseTable`/`participantLinkList`自体のpresenceRuleは変えない（3局面ともDOM上に
+#   存在し続ける）——変わるのは、FINALIZED局面で「見えるか」がanswersOpen/linksOpenの状態に
+#   依存するようになったことだけ。`unchangedRecords`の該当箇所（「この契約はディスクロージャ
+#   トグルを導入しない」としていた記述）を書き換えた。
+# - `allowedPurposes`へ2件を追加した: gathering-decision-answers-open,
+#   gathering-decision-links-open（allowedPurposesNoteAdr0062Addendum参照）。
+#
+# 2026-09-19 追補23 (architect、ADR-0060決定7の追補。orchestratorが2026-09-19に、幹事の
+#   回答表の「有力」バッジ（responseTable.leaderSummary）が、日が決まった後
+#   （SELECTING_SHOP・FINALIZED）にも出続け、日程を決めるための補助であるはずのこの行を
+#   見て判断することが無い局面で表示され続けると確認し、presenceRuleをSCHEDULING局面だけへ
+#   狭めると決めた——新しい業務判断ではなく、決定7の運用範囲を明確にする技術的判断。
+#   contractVersionを0.24.1から0.24.2へ上げる):
+# - `responseTable.leaderSummary`へ`presenceRule`を新設した（これまでresponseTable自身の
+#   presenceRuleを継承するのみで、この要素自身のpresenceRuleは無かった）: phaseがSCHEDULING
+#   の間だけ出現し、SELECTING_SHOP・FINALIZEDでは、いずれかの候補日が
+#   data-current-leader="true"を持っていても出現しない。responseTable自身
+#   （table/header/row/cell）のpresenceRuleは変えない——表そのものは3局面ともDOM上に存在し
+#   続ける（変わらない）。candidateDateList.candidateDate・scheduleQuestion.tallyそれぞれの
+#   data-current-leaderはこの追補の対象外で無変更。
+#
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.23.1'
+contractVersion: '0.24.2'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -802,7 +848,17 @@ profiles:
        TDR-GTH-38, TDR-GTH-39, TDR-GTH-40, TDR-GTH-41, TDR-GTH-42,
        TDR-GTH-43, TDR-GTH-44, TDR-GTH-45, TDR-GTH-46, TDR-GTH-47,
        TDR-GTH-48, TDR-GTH-49, TDR-GTH-50, TDR-GTH-51, TDR-GTH-52,
-       TDR-GTH-53, TDR-GTH-54, TDR-GTH-55, TDR-GTH-56]
+       TDR-GTH-53, TDR-GTH-54, TDR-GTH-55, TDR-GTH-56, TDR-GTH-57,
+       TDR-GTH-58, TDR-GTH-59, TDR-GTH-60, TDR-GTH-61, TDR-GTH-62,
+       TDR-GTH-63, TDR-GTH-64, TDR-GTH-65, TDR-GTH-66]
+    verifiesScenariosNoteAdr0062: >-
+      TDR-GTH-57 through TDR-GTH-64 were added to gathering-scheduling.
+      feature by ADR-0060/ADR-0061 but never registered in this array --
+      the same class of registration miss ADR-0061 decision 6 found and
+      closed for allowedPurposes, found here independently while drafting
+      ADR-0062 (architect technical judgment, no new human decision,
+      meta/adr/0064's convention). TDR-GTH-65/66 are this round's own new
+      scenarios (ADR-0062 decision 4).
     notVerifiedHere:
       - scenario: TDR-GTH-13
         reason: >-
@@ -1050,7 +1106,22 @@ unavailableControls:
      gathering-participant-decision-map,
      gathering-participant-decision-map-marker,
      gathering-participant-decision-origin-marker,
-     gathering-participant-decision-page-link]
+     gathering-participant-decision-page-link,
+     gathering-decision-shop-page-link]
+  formControlExemptTestIdsNoteAdr0062: >-
+    One display-only element added (ADR-0062 decision 4, 2026-09-17):
+    gathering-decision-shop-page-link (organizerDashboard.finalizedSummary.
+    decisionBanner.providerPageLink), a plain `<a href>` anchor outside
+    forbiddenFormControlCategories' scan, the same precedent
+    gathering-participant-decision-page-link already establishes for the
+    participant's own finalized-view page link. gathering-decision-
+    shop-map/-map-marker/-map-origin-marker are plain `<div>`/SVG elements
+    outside forbiddenFormControlCategories' scan the same way
+    gathering-shortlisted-shop-map/-map-marker already are, and carry no
+    purpose either -- but this project's convention only lists anchor
+    elements in this specific array (formControlExemptTestIdsNote above
+    already explains why plain map/marker `<div>`s need no entry here at
+    all), so only the page-link entry is added.
   formControlExemptTestIdsNote2026_09_12: >-
     Seven display-only elements added (this file's own 2026-09-12
     revision, ADR-0055 decision 5 / ADR-0056 decision 5 and ADR-0056
@@ -1110,7 +1181,8 @@ unavailableControls:
      gathering-participant-day-navigate,
      gathering-participant-link-issue-dialog-copy,
      gathering-participant-link-issue-dialog-close,
-     gathering-participant-day-list-open, gathering-participant-day-list-close]
+     gathering-participant-day-list-open, gathering-participant-day-list-close,
+     gathering-decision-answers-open, gathering-decision-links-open]
   allowedPurposesNote2026_09_12: >-
     Eight purposes added, one removed (this file's own 2026-09-12 revision,
     ADR-0054/ADR-0055/ADR-0056, contracts/REVISION-PLAN.md 2節). Added:
@@ -1208,6 +1280,17 @@ unavailableControls:
     decision -- the same architect-technical-judgment gap-closing
     allowedPurposesNoteAdr0061 above already performed once for
     gathering-create-review-open/-cancel/-month-navigate.
+  allowedPurposesNoteAdr0062Addendum: >-
+    Two purposes added (2026-09-19 追補22, orchestrator's confirmation of
+    ADR-0062 未決事項2 -- an entrance with no testId/purpose cannot be
+    measured against ADR-0020 decision 4's tap-target/keyboard-
+    reachability invariants, the same reasoning allowedPurposesNoteAdr0061
+    Addendum above already applied once for gathering-participant-day-
+    list-open/-close). Added: gathering-decision-answers-open,
+    gathering-decision-links-open (organizerDashboard.finalizedSummary.
+    answersOpen/linksOpen below, the entrance to responseTable/
+    participantLinkList once phase is FINALIZED). Not a new business
+    decision.
   forbiddenPurposes:
     - manual-ordering
     - secondary-condition
@@ -2226,11 +2309,24 @@ browserControlSurface:
       requiredTestIds:
         list: gathering-shortlisted-shop-list
       presenceRule: >-
-        Present whenever Gathering.votingStartedAt is non-null (regardless
-        of phase -- list/item remain present, without finalizeSelect, once
-        phase is FINALIZED; see finalizedSummary below). Absent before the
-        first successful setShortlistedShops call (see shopSelectionEntry
-        above for the only entry point into making that first call).
+        Present whenever Gathering.votingStartedAt is non-null AND
+        Gathering.finalizedShopId is null (i.e. phase is SELECTING_SHOP;
+        absent again once phase is FINALIZED). **Changed 2026-09-17
+        (ADR-0062 decision 4, human decision, board D4: 「決まった店と集まる
+        場所だけ」)**: until this decision, list/item remained present
+        without finalizeSelect once FINALIZED, as a frozen "vote record"
+        panel (adr/0042). The human has now seen the finalized organizer
+        dashboard in its real-machine board form and chosen the same
+        simplification ADR-0061 decision 5 made for the participant's
+        equivalent screen -- only the decided shop remains, not the other
+        four shops' names/tallies. See finalizedSummary.decisionBanner below
+        for the decided shop's own name/map/page-link, which do not
+        duplicate this list's data but are populated from the same
+        Gathering.shortlistedShops entry (matched by shopId ==
+        finalizedShopId) this list itself has always read. Absent before
+        the first successful setShortlistedShops call (see
+        shopSelectionEntry above for the only entry point into making that
+        first call).
       list:
         testId: gathering-shortlisted-shop-list
         orderingInvariant: >-
@@ -2267,7 +2363,6 @@ browserControlSurface:
             notGoingCount: data-not-going-count
             respondedCount: data-responded-count
             currentLeader: data-current-leader
-            addedAfterVotingStarted: data-added-after-voting-started
           requirement: >-
             One element per Gathering.shortlistedShops entry.
             **data-shop-name/data-walking-time-minutes added 2026-09-12**
@@ -2311,30 +2406,23 @@ browserControlSurface:
             of finalizeSelect below (the shop the organizer is currently
             choosing to finalize) -- the two need not agree, since votes
             and the organizer's own decision are separate signals.
-            **data-added-after-voting-started added 2026-09-12** (ADR-0056
-            decision 6): "true" when ShortlistedShop.addedAt is strictly
-            later than Gathering.votingStartedAt for this same gathering
-            (both values already present in the API response this
-            dashboard already reads -- no API change needed for this,
-            organizer-facing half of the attribute); "false" otherwise,
-            including for every shop present since voting first started
-            (D7). **Mirrored to the participant side 2026-09-13** (ADR-0056
-            decision 6, gathering-scheduling-api.yaml v0.12.0): this
-            section's 2026-09-12 text reported to the human that no
-            participant-facing counterpart could be projected, because
-            ParticipantShopVoteOption then exposed neither an
-            addedAt-equivalent value nor Gathering.votingStartedAt to the
-            participant; gathering-scheduling-api.yaml now adds
-            `ParticipantShopVoteOption.addedAfterVotingStarted` (a plain
-            boolean, computed the same way, never exposing
-            addedAt/votingStartedAt themselves to the participant), and
-            participantAnswer.shopVoteQuestion below now carries the
-            matching `data-added-after-voting-started` attribute (in
-            shopVoteQuestion.attributes, alongside data-shop-id/
-            data-your-vote) -- see that attribute's own requirement text
-            for the participant-facing projection of this same value. See
-            detailFields below for the map/provider-page-link surfaces
-            this section's own description above introduces.
+            **data-added-after-voting-started retired 2026-09-17** (ADR-0062
+            decision 1, human decision, board D1: 「あとから入りました」は
+            出さない). This attribute (added 2026-09-12, ADR-0056 decision
+            6, and mirrored to the participant side 2026-09-13 the same
+            decision) is removed from this element -- the human, looking at
+            the real-machine board for this row, judged the badge
+            unnecessary; the mirrored participant-facing attribute and the
+            underlying `ParticipantShopVoteOption.addedAfterVotingStarted`
+            API field are retired the same round (see
+            participantAnswer.shopVoteQuestion.attributes below and
+            gathering-scheduling-api.yaml's own ADR-0062 diff). This also
+            closes the pending question activeContext.md had recorded
+            ("会モードの候補画面のカードに「あとから入りました」の印を出す
+            か") -- the answer is no, on neither screen. See detailFields
+            below for the map/provider-page-link/walking-time/genre/
+            capacity/non-smoking/dinner-budget surfaces this section's own
+            description above introduces.
           detailFields:
             description: >-
               Added 2026-09-12 (ADR-0055 decision 5 / ADR-0056 decision 5,
@@ -2348,7 +2436,52 @@ browserControlSurface:
               organizer screen where the search origin is already disclosed
               elsewhere, so the constraint here narrows the map's role to
               "shops' own relative position" rather than protecting
-              non-disclosure.
+              non-disclosure. **Extended 2026-09-17 (ADR-0062 decision 1,
+              human decision, board D1 lists ジャンル・席・禁煙・予算・
+              徒歩約◯分 among this row's visible fields)**: walkingTime/
+              genre/capacityTier/nonSmokingStatus/dinnerBudgetTier below are
+              this round's own additions, mirroring
+              participantAnswer.shopVoteQuestion.detailFields' equivalent
+              fields exactly for capacityTier/nonSmokingStatus/
+              dinnerBudgetTier -- except genre, which this view now
+              requires where the participant-facing view still does not (a
+              deliberate, scoped-to-this-round asymmetry; see ADR-0062
+              "検討した代替案").
+            walkingTime:
+              testId: gathering-shortlisted-shop-walking-time
+              formControl: false
+              requirement: >-
+                Visible text must include both an approximation marker
+                (mirrors candidate-search-browser-interface.yaml's
+                walkingTimeEstimateWording, adr/0025 decision 2) and the
+                word 徒歩, e.g. 「徒歩 約12分」 (human decision 2026-09-17,
+                board D1: 「◯分」→「徒歩◯分」). This is a content
+                requirement layered on the same value item.attributes.
+                walkingTimeMinutes (data-walking-time-minutes) above
+                already fixes -- this element carries no data attribute of
+                its own, only the visible-text constraint (same division of
+                labor candidate-search-browser-interface.yaml's own
+                walkingTimeEstimateWording establishes between a raw
+                attribute and the wording decorating it).
+            genre:
+              testId: gathering-shortlisted-shop-genre
+              formControl: false
+            capacityTier:
+              testId: gathering-shortlisted-shop-capacity-tier
+              formControl: false
+            nonSmokingStatus:
+              testId: gathering-shortlisted-shop-non-smoking
+              formControl: false
+            dinnerBudgetTier:
+              testId: gathering-shortlisted-shop-dinner-budget
+              formControl: false
+            requirement: >-
+              Each of genre/capacityTier/nonSmokingStatus/dinnerBudgetTier
+              above has its test id present for every
+              gathering-shortlisted-shop-item currently rendered (no
+              data-value-state attribute required -- same convention
+              participantAnswer.shopVoteQuestion.detailFields already uses
+              for its own capacityTier/nonSmokingStatus/dinnerBudgetTier).
             map:
               testId: gathering-shortlisted-shop-map
               formControl: false
@@ -2388,8 +2521,14 @@ browserControlSurface:
             attribute: data-finalize-selected
             presenceRule: >-
               Present while phase is SELECTING_SHOP; absent once phase is
-              FINALIZED (Final.dc.html A③'s vote-record panel has no radio
-              controls -- "会を進める操作はありません").
+              FINALIZED -- moot once FINALIZED regardless, since the whole
+              gathering-shortlisted-shop-list/-item this control lived
+              inside is itself absent by then (**changed 2026-09-17,
+              ADR-0062 decision 4** -- see shortlistedShopVotes.
+              presenceRule above; superseding this line's earlier
+              "Final.dc.html A③'s vote-record panel has no radio controls"
+              framing, which assumed the list/item remained present
+              without this control).
             requiredOutcome: >-
               Activating it makes this item's data-finalize-selected "true"
               and every other gathering-shortlisted-shop-item's
@@ -2426,65 +2565,49 @@ browserControlSurface:
           Absent until gathering-finalize-open is activated. Present after
           activation. Absent again after gathering-finalize-cancel is
           activated, or after a successful gathering-finalize-confirm.
-        changesTable:
-          testId: gathering-finalize-confirm-changes
+        confirmSummary:
           description: >-
-            Added 2026-09-12 (ADR-0054 decision 5 / ADR-0056 decision 11,
-            human decision: shown as a table of before/after values, not
-            prose -- ADR-0055 decision 3's "no persuasive prose in
-            production screens" principle applies here without
-            contradicting it, since this is a factual table, not a
-            sentence arguing for the action).
-          rows: [participant-link-issuance, participant-screen, date-and-shop]
-          row:
-            testId: gathering-finalize-confirm-changes-row
-            cardinality: exactly-three-per-gathering-finalize-confirm-changes
+            **Replaced 2026-09-17 (ADR-0062 decision 3, human decision, board
+            D3: 「日時とお店があればいい。参加者は書かなくていい」)**: this
+            dialog no longer shows a three-row before/after changes table
+            (ADR-0054 decision 5 / ADR-0056 decision 11, this file's own
+            gathering-finalize-confirm-changes) -- it shows the two facts
+            board D3 asked for and nothing else: the candidate date about to
+            be confirmed, and the shop about to be finalized. Neither the
+            participant-link-issuance nor participant-screen rows' before/
+            after prose survives this decision, nor does any "before" state
+            for date/shop (this dialog opens only from SELECTING_SHOP, where
+            no date/shop has been finalized yet, so a "before" state was
+            always the fixed string "未確定" -- board D3 judged this fixed,
+            uninformative value not worth a row).
+          date:
+            testId: gathering-finalize-confirm-date
+            formControl: false
             attributes:
-              subject: data-change-subject
-            subjectValues: [participant-link-issuance, participant-screen, date-and-shop]
-            before:
-              testId: gathering-finalize-confirm-changes-row-before
-              formControl: false
-            after:
-              testId: gathering-finalize-confirm-changes-row-after
-              formControl: false
-          requirement: >-
-            **Narrowed 2026-09-13 (a tester found this table could only be
-            checked as "some non-empty text exists somewhere", never "there
-            are three rows" or "each row is the row it claims to be")**:
-            exactly three gathering-finalize-confirm-changes-row elements
-            are present, one per subjectValues entry above, each carrying a
-            data-change-subject attribute equal to that subject exactly (no
-            two rows share the same value, so the observed set of values
-            equals the full subjectValues set). Each row contains exactly
-            one gathering-finalize-confirm-changes-row-before and exactly
-            one gathering-finalize-confirm-changes-row-after, each with
-            non-empty visible text -- this contract fixes the existence and
-            non-emptiness of the two cells, not their wording or layout.
-            The three subjects' own meaning is unchanged: participant-link-
-            issuance (before: new links can still be issued via gathering-
-            participant-link-copy, and unanswered links can still be
-            revoked via gathering-participant-link-revoke; after: neither
-            is possible, per this contract's own existing presenceRule for
-            each of those two controls), participant-screen (before: the
-            participant sees gathering-schedule-question/gathering-shop-
-            vote-question and may still answer schedule questions and cast
-            shop votes; after: gathering-schedule-question and gathering-
-            participant-progress are gone and answering/voting controls are
-            gone, but gathering-shop-vote-question's own vote tally remains
-            visible per shopVoteQuestion.presenceRule's 2026-09-13 fix
-            above, ADR-0055 decision 8 -- this row's "after" no longer
-            claims the participant sees "only" gathering-participant-
-            decision, which contradicted that fix), and date-and-shop
-            (before: no candidate date/shop is confirmed as final; after:
-            the specific confirmed candidate date and finalized shop this
-            confirmation dialog was opened with). No allowedPurposes/
-            formControlExemptTestIds entry is needed for row/before/after --
-            all three are display-only elements outside
-            forbiddenFormControlCategories' scan, the same reasoning this
-            file already applies to its other display-only additions (e.g.
-            shopVoteQuestion.tally's data-total-active-participant-count
-            above).
+              confirmedCandidateDate: data-confirmed-candidate-date
+            requirement: >-
+              Present whenever gathering-finalize-confirm-dialog is present.
+              data-confirmed-candidate-date equals the same confirmed
+              candidate date confirmDate.requiredOutcome already fixed when
+              phase advanced past SCHEDULING (unchanged by this dialog --
+              confirming a date and finalizing a shop are different
+              operations, ADR-0041 P6).
+          shop:
+            testId: gathering-finalize-confirm-shop
+            formControl: false
+            attributes:
+              shopId: data-shop-id
+              name: data-shop-name
+            requirement: >-
+              Present whenever gathering-finalize-confirm-dialog is present.
+              Equals the gathering-shortlisted-shop-item that carried
+              data-finalize-selected="true" at the moment gathering-
+              finalize-open was activated (the same item finalizeConfirm
+              below will call finalizeGathering with) -- shopId/name mirror
+              that item's own data-shop-id/data-shop-name exactly. This
+              contract does not define behavior for changing the pending
+              selection while this dialog is itself open, since no control
+              for doing so exists within the dialog.
       finalizeConfirm:
         testId: gathering-finalize-confirm
         purpose: gathering-finalize-confirm
@@ -2770,7 +2893,10 @@ browserControlSurface:
       presenceRule: >-
         Present whenever organizerDashboard.participantLinkList is present
         (i.e. unconditionally, all three phases, mirroring that list's own
-        presence).
+        presence) -- this governs the table/header/row/cell structure
+        below, which stays unconditional. **Changed 2026-09-19 (追補23)**:
+        leaderSummary below no longer shares this unconditional rule -- see
+        its own narrower presenceRule there.
       table:
         testId: gathering-response-table
         header:
@@ -2844,6 +2970,21 @@ browserControlSurface:
       leaderSummary:
         testId: gathering-response-table-leader-summary
         purpose: gathering-response-table-leader-summary
+        presenceRule: >-
+          Added 2026-09-19 (追補23, ADR-0060 decision 7の追補、human decision:
+          最有力の候補日を強調するのは日程を決めるための補助であり、日が
+          決まった後はこの行を見て判断することが無い). Present only while
+          phase is SCHEDULING; absent once phase is SELECTING_SHOP or
+          FINALIZED, regardless of whether any candidate date still carries
+          data-current-leader="true" on its own gathering-candidate-date
+          element -- narrower than responseTable's own presenceRule above,
+          which keeps the table/header/row/cell structure present across
+          all three phases unchanged. Does not change
+          candidateDateList.candidateDate's own data-current-leader
+          (candidateDateList above) or participantAnswer.scheduleQuestion.
+          tally's own data-current-leader (below) -- both remain exactly
+          as ADR-0060 decisions 7/8 fixed them, unaffected by this
+          decision.
         description: >-
           Added 2026-09-16 (ADR-0060 decision 7, human decision: 表の上に
           「有力 ◯/◯（◯）」を出す). This element declares no activatable
@@ -2865,7 +3006,12 @@ browserControlSurface:
           gathering-unanswered-summary's data-active-issued-links for the
           total). This contract does not fix this badge's exact wording
           (ADR-0060 decision 9, the "N件" convention) or visual position,
-          only which candidate date(s) it names.
+          only which candidate date(s) it names. (追補23) This element's
+          cardinality/requirement above are evaluated only while
+          presenceRule above holds (phase is SCHEDULING) -- once phase is
+          SELECTING_SHOP or FINALIZED this element has zero instances
+          regardless of any candidate date's own data-current-leader
+          value.
       scope: >-
         This table carries schedule responses only (ADR-0056 decision 1's
         own scope limit) -- it does not carry shop votes. Whether a future
@@ -2935,48 +3081,231 @@ browserControlSurface:
           unaffected.
     finalizedSummary:
       description: >-
-        The FINALIZED-phase view of the same organizer dashboard
-        (Final.dc.html A③). Closes the "FINALIZED局面の観測面ギャップ"
-        activeContext.md had recorded since the first slice (adr/0042).
+        The FINALIZED-phase view of the same organizer dashboard. Closed
+        the "FINALIZED局面の観測面ギャップ" activeContext.md had recorded
+        since the first slice (adr/0042). **Restructured 2026-09-17
+        (ADR-0062 decision 4, human decision, board D4: PC案1「パネルに
+        全部」・スマホ案2ベースで畳む、店を選び中と同じ骨組み=地図いっぱい+
+        浮かせたパネル)**: until this decision this section's only new
+        observation surface was decisionBanner (confirmedCandidateDate/
+        finalizedShopId), leaning on shortlistedShopVotes.list/item
+        remaining present as a frozen "vote record" panel for the decided
+        shop's own name/map/link. The human has now seen this screen in
+        its real-machine board form and chosen the same simplification
+        ADR-0061 decision 5 made for the participant's equivalent screen.
+        decisionBanner below now carries the decided shop's own name
+        directly, and gains its own map/page-link (mirroring
+        participantAnswer.finalizedView.decision's shape exactly, adr/0056
+        decision 10's precedent applied to the organizer for the first
+        time).
       requiredTestIds:
         decisionBanner: gathering-decision-banner
+        decidedShopMap: gathering-decision-shop-map
+        decidedShopPageLink: gathering-decision-shop-page-link
       presenceRule: Present exactly when phase is FINALIZED.
       decisionBanner:
         testId: gathering-decision-banner
         attributes:
           confirmedCandidateDate: data-confirmed-candidate-date
           finalizedShopId: data-finalized-shop-id
+          finalizedShopName: data-finalized-shop-name
         requirement: >-
           data-confirmed-candidate-date equals the startAt of the
           gathering-candidate-date whose data-confirmed is "true"
           (unchanged since SELECTING_SHOP). data-finalized-shop-id equals
-          Gathering.finalizedShopId exactly. This contract does not require
-          a regular-holiday attribute here -- LiveProjectedShop carries no
+          Gathering.finalizedShopId exactly. **data-finalized-shop-name
+          added 2026-09-17 (ADR-0062 decision 4)**: equals the name field of
+          the Gathering.shortlistedShops entry whose shopId equals
+          finalizedShopId, exactly -- the same array
+          shortlistedShopVotes.list.item already reads while phase is
+          SELECTING_SHOP (item.attributes.name, data-shop-name); this
+          contract does not require the API response to stop returning the
+          other four entries once FINALIZED, only that this dashboard's own
+          gathering-shortlisted-shop-list/-item DOM elements become absent
+          (see shortlistedShopVotes.presenceRule above) -- decisionBanner's
+          own attributes are computed from the same already-available data,
+          not from a new API field. This contract does not require a
+          regular-holiday attribute here -- LiveProjectedShop carries no
           such field (architect decision, adr/0046, 2026-09-05): Final.dc.
           html's decided-shop banner shows "定休 日曜・祝日", but
           regularHoliday exists nowhere in gathering-scheduling-api.yaml's
           shop projections (ShortlistedShop/ParticipantShopVoteOption/
-          LiveProjectedShop all omit it, and PickFive.dc.html's own
-          2026-09-04 revision deliberately dropped it from its list for the
-          same reason -- "この一覧はすでに『開いている店』だけ"). Adding it
-          would require an API schema change this round's browser-
-          interface-only scope does not include; this contract does not
-          require an implementation to render that line.
+          LiveProjectedShop all omit it). Adding it would require an API
+          schema change this round's browser-interface-only scope does not
+          include; this contract does not require an implementation to
+          render that line.
+        map:
+          testId: gathering-decision-shop-map
+          formControl: false
+          presenceRule: >-
+            Present whenever gathering-decision-banner itself is present
+            (i.e. whenever phase is FINALIZED).
+          scope: >-
+            Shows exactly two points: the finalized shop's own pin (marker
+            below) and this organizer's own configured search origin
+            (originMarker below) -- mirrors participantAnswer.finalizedView.
+            decision.map's own scope and rationale exactly (adr/0056
+            decision 10): draws no line connecting them and no
+            walking-radius ring, since this product does not query a
+            routing service and does not assert a walking path it cannot
+            back with real routing data.
+          attributes:
+            overlayMarkerCount: data-overlay-marker-count
+            overlayLineCount: data-overlay-line-count
+            overlayRingCount: data-overlay-ring-count
+          requirement: >-
+            Same three-attribute shape and the same MUST-equal-"2"/"0"/"0"
+            rule participantAnswer.finalizedView.decision.map.requirement
+            already fixes for the participant side (2026-09-13, closing
+            独立監査 audit-gathering-redesign-steps.md's Major 1 the same
+            way) -- applied here to the organizer's own finalized map for
+            the first time.
+          marker:
+            testId: gathering-decision-shop-map-marker
+            formControl: false
+            attributes:
+              shopId: data-shop-id
+            requirement: >-
+              Positioned from the finalized Gathering.shortlistedShops
+              entry's location. Display-only.
+          originMarker:
+            testId: gathering-decision-shop-map-origin-marker
+            formControl: false
+            requirement: >-
+              Positioned from the organizer's own configured search
+              origin. Display-only. A distinct test id from
+              gathering-shortlisted-shop-map-marker (unavailableControls.
+              forbiddenTestIds forbids reusing that one) and from every
+              participant-facing origin marker this file or
+              candidate-search-browser-interface.yaml defines -- this is a
+              separate element on a separate screen.
+        providerPageLink:
+          testId: gathering-decision-shop-page-link
+          formControl: false
+          requirement: >-
+            An `<a href>` whose href equals the finalized
+            Gathering.shortlistedShops entry's providerPageUrl. Implemented
+            as a plain anchor -- outside forbiddenFormControlCategories'
+            scan (unavailableControls.formControlExemptTestIds), the same
+            precedent gathering-participant-decision-page-link already
+            establishes.
+      answersOpen:
+        description: >-
+          Added 2026-09-19 (orchestrator's own confirmation of this ADR's
+          未決事項2, the same escalation path ADR-0059 decision 5/ADR-0060
+          decision 5 already used for geometry this contract otherwise
+          leaves open -- applied here because an entrance with no
+          testId/purpose cannot be measured against ADR-0020 決定4's
+          tap-target/keyboard-reachability invariants, the same reason
+          addendum 21 above named dayList.sheetOpen/sheetClose). The
+          entrance to organizerDashboard.responseTable above, paired with
+          linksOpen below.
+        testId: gathering-decision-answers-open
+        purpose: gathering-decision-answers-open
+        presenceRule: >-
+          Present exactly when finalizedSummary itself is present (i.e.
+          whenever phase is FINALIZED), same condition as linksOpen below.
+        requirement: >-
+          On the tab-shaped presentation (board G1, PC), this and
+          linksOpen below are two mutually exclusive tabs; exactly one
+          carries aria-selected="true" at any time, and this one starts
+          selected (板G1: 回答のタブが最初に選ばれている). On the
+          disclosure-row-shaped presentation (board G2, narrow viewport),
+          this is one of two independent rows (paired with linksOpen
+          below) that each carry aria-expanded reflecting their own
+          open/closed state independently of the other; this one starts
+          aria-expanded="false" (板G2: 「回答を見る N人」の行は最初は閉じて
+          いる). This contract does not name these two presentations as
+          render modes and does not fix which viewport width selects
+          which one (this file's existing no-renderModes convention,
+          ADR-0062 decision 4's own 検討した代替案).
+        requiredOutcome: >-
+          Activating it makes organizerDashboard.responseTable above
+          currently visible (on the tab-shaped presentation this also
+          makes linksOpen's own aria-selected false and
+          organizerDashboard.participantLinkList above currently not
+          visible; on the disclosure-row-shaped presentation it affects
+          only this row's own aria-expanded and does not change linksOpen
+          below). Calls no public operation -- it only discloses the
+          already-required responseTable above; responseTable's own
+          presenceRule/fields (above) are unchanged by this control's
+          existence.
+      linksOpen:
+        description: >-
+          Added 2026-09-19, same origin as answersOpen above. The entrance
+          to organizerDashboard.participantLinkList above, symmetric with
+          answersOpen above.
+        testId: gathering-decision-links-open
+        purpose: gathering-decision-links-open
+        presenceRule: >-
+          Present exactly when finalizedSummary itself is present (i.e.
+          whenever phase is FINALIZED), same condition as answersOpen
+          above.
+        requirement: >-
+          On the tab-shaped presentation (board G1, PC), this and
+          answersOpen above are two mutually exclusive tabs; exactly one
+          carries aria-selected="true" at any time, and answersOpen above
+          -- not this one -- starts selected (板G1: 回答のタブが最初に選ば
+          れている). On the disclosure-row-shaped presentation (board G2,
+          narrow viewport), this is one of two independent rows (paired
+          with answersOpen above) that each carry aria-expanded reflecting
+          their own open/closed state independently of the other; this
+          one starts aria-expanded="false" (板G2: 「回答リンク N本」の行も
+          最初は閉じている).
+        requiredOutcome: >-
+          Activating it makes organizerDashboard.participantLinkList
+          above currently visible (on the tab-shaped presentation this
+          also makes answersOpen's own aria-selected false and
+          organizerDashboard.responseTable above currently not visible;
+          on the disclosure-row-shaped presentation it affects only this
+          row's own aria-expanded and does not change answersOpen above).
+          Calls no public operation -- it only discloses the already-
+          required participantLinkList above; participantLinkList's own
+          presenceRule/fields (above) are unchanged by this control's
+          existence.
       unchangedRecords: >-
         gathering-phase-indicator, gathering-responded-summary,
         gathering-unanswered-summary, gathering-candidate-date-list/
-        gathering-candidate-date (schedule record), and
+        gathering-candidate-date (schedule record), organizerDashboard.
+        responseTable, and organizerDashboard.participantLinkList all
+        remain present once FINALIZED, continuing to reflect their same
+        fields. **Changed 2026-09-17 (ADR-0062 decision 4)**:
         gathering-shortlisted-shop-list/gathering-shortlisted-shop-item
-        (vote record, minus finalizeSelect -- see shortlistedShopVotes
-        above, now exposing the three-tier
-        wantToGoCount/okToGoCount/notGoingCount/respondedCount attributes)
-        all remain present once FINALIZED, continuing to reflect their same
-        fields (Final.dc.html: "日程の記録"/"票の記録" panels are the same
-        data, frozen as a record). This contract does not require these
-        values to stop changing on the server side; it requires only that
-        no organizer-facing control remains that could cause them to
-        change (see the various presenceRule entries above this section
-        removing every remaining operational control once FINALIZED).
+        (the former "vote record") no longer remain present once
+        FINALIZED -- see shortlistedShopVotes.presenceRule above;
+        decisionBanner above's own name/map/page-link now carry the record
+        of "which shop won" that this list used to carry. This contract
+        does not require these values to stop changing on the server side;
+        it requires only that no organizer-facing control remains that
+        could cause them to change (see the various presenceRule entries
+        above this section removing every remaining operational control
+        once FINALIZED). "行ける N人" (board D4's headline count) is not a
+        new attribute -- it is the same gathering-candidate-date whose
+        data-confirmed is "true"'s own data-going-count (ADR-0060 decision
+        7), already required above, read directly rather than duplicated
+        onto decisionBanner (architect design judgment, same
+        no-duplication reasoning ADR-0059 decision 6 and ADR-0060 decision
+        7 already apply elsewhere in this file). Likewise, "回答◯人"/
+        "回答リンク◯本" (the two tabs board D4's panel groups the
+        remaining sections under) read gathering-responded-summary.
+        data-responded-count and gathering-unanswered-summary.
+        data-active-issued-links respectively -- both already required
+        above, unchanged by this decision. **Changed 2026-09-19 (追補22,
+        orchestrator's confirmation of this ADR's own 未決事項2)**: this
+        contract now names the entrance to each of responseTable/
+        participantLinkList above -- answersOpen/linksOpen above --
+        because an entrance with no testId/purpose cannot be measured
+        against ADR-0020 決定4's tap-target/keyboard-reachability
+        invariants (the same reasoning addendum 21 above already applied
+        to dayList.sheetOpen/sheetClose). Neither responseTable's nor
+        participantLinkList's own presenceRule changes (both remain
+        unconditionally present in the DOM across all three phases, as
+        fixed above) -- only whether either is currently *visible* once
+        phase is FINALIZED now depends on answersOpen/linksOpen's own
+        aria-selected/aria-expanded state (see those two above); before
+        FINALIZED, neither entrance control exists (their own
+        presenceRule above), and both sections remain directly visible
+        exactly as before, unaffected by this decision.
       linkManagement: >-
         See participantLinkCopy.presenceRule and participantLinkList.item.
         recopy/revoke above for the read-only-except-recopy rule this
@@ -3491,7 +3820,6 @@ browserControlSurface:
       attributes:
         shopId: data-shop-id
         yourVote: data-your-vote
-        addedAfterVotingStarted: data-added-after-voting-started
       yourVoteValues: ['WANT_TO_GO', 'OK_TO_GO', 'NOT_GOING', 'UNANSWERED']
       requirement: >-
         **Fixed 2026-09-05 (adr/0044)**: this contract previously exposed a
@@ -3511,34 +3839,16 @@ browserControlSurface:
         their DOM representation here, same convention as
         organizerDashboard's preview) -- see detailFields below for the
         fields TDR-GTH-39 does assert. **data-added-after-voting-started
-        added 2026-09-13** (ADR-0056 decision 6, gathering-scheduling-
-        api.yaml v0.12.0, closing the gap this contract's 2026-09-12
-        addendum 10 reported to the human rather than worked around):
-        mirrors ParticipantShopVoteOption.addedAfterVotingStarted exactly
-        -- "true" for a shop added after voting started, "false"
-        otherwise, the same "あとから入りました" signal
-        organizerDashboard.shortlistedShopVotes.list.item's own
-        data-added-after-voting-started already shows the organizer,
-        computed identically but never exposing this participant's own
-        addedAt/votingStartedAt values (ADR-0056 decision 6: 幹事・参加者に
-        同じ言葉で出す). This attribute is independent of both
-        data-your-vote above (whether *this participant* has answered this
-        shop) and gathering-shop-vote-tally's data-responded-count below
-        (D7's per-shop denominator -- how many participants' answers this
-        shop's tally currently counts, scoped by the same addedAt this
-        attribute reads but never itself exposed) -- a shop can be
-        data-added-after-voting-started="true" while already having a
-        non-"UNANSWERED" data-your-vote and a non-zero data-responded-count
-        (this participant answered promptly after the shop was added), so
-        no one of these three marks may be derived from, or substituted
-        for, either of the other two (human ruling: 「印は2つに分ける。
-        札は『あとから入ったか』だけ、カードの縁は『自分が答えたか』だけ。
-        1つの印に2つの意味を持たせない」). No allowedPurposes/
-        formControlExemptTestIds entry is needed for this attribute -- it
-        is a display-only attribute on an already-declared element
-        (gathering-shop-vote-question), not a new testId of its own, the
-        same reason the organizer-facing data-added-after-voting-started
-        needed neither when it was added.
+        retired 2026-09-17** (ADR-0062 decision 1, human decision, board
+        D1: 「あとから入りました」は出さない): this attribute (added
+        2026-09-13, ADR-0056 decision 6, mirroring
+        organizerDashboard.shortlistedShopVotes.list.item's own attribute
+        of the same name) is removed from this element the same round its
+        organizer-facing counterpart is retired -- see that element's own
+        requirement text above for the human decision this closes.
+        `ParticipantShopVoteOption.addedAfterVotingStarted` is retired from
+        gathering-scheduling-api.yaml the same round, since no DOM
+        observation reads it any longer.
       detailFields:
         description: >-
           Added 2026-09-05 (adr/0044, TDR-GTH-39: "位置を示す地図と、徒歩の

@@ -337,3 +337,15 @@ architectが人間へ確認する（下記「未決事項」）。
    しない。
 6. 寸法・実測（モーダルのタップ対象44px下限、スクロール領域の高さ等）は`meta/adr/0059`決定5
    どおりorchestratorの領分。
+
+## 追補（2026-09-19）
+
+orchestratorの確認を受け、`leaderSummary`（決定7が新設した表の上の「有力」バッジ）の
+`presenceRule`を狭めた——会の日程が決まるまで（`SCHEDULING`局面）だけ出し、日が決まった後
+（`SELECTING_SHOP`・`FINALIZED`）は出さない。人間裁定Q5の趣旨「最有力の候補日を強調したい」は
+日程を決めるための補助であり、日が決まった後はこの行を見て判断することが無い——新しい業務判断
+ではなく、決定7の運用範囲を明確にする技術的判断としてorchestratorが2026-09-19に確認した。決定
+7・8が新設した`data-current-leader`（`candidateDateList.candidateDate`・
+`scheduleQuestion.tally`双方）自体はこの追補の対象外であり無変更。
+`contracts/gathering-scheduling-browser-interface.yaml`のcontractVersionを0.24.1から0.24.2へ
+上げる（追補23）。
