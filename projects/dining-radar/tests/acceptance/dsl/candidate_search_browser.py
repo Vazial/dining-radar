@@ -353,6 +353,19 @@ GATHERING_TOGGLE_DISABLED_REASON_LAST_SHOP = "last-shop"
 CANDIDATE_CARD_GATHERING_LAST_SHOP_NOTICE = "candidate-card-gathering-last-shop-notice"
 GATHERING_SHORTLIST_OPEN = "gathering-shortlist-open"
 GATHERING_PHASE_INDICATOR = "gathering-phase-indicator"
+# gathering-scheduling-browser-interface.yaml's own organizerDashboard.
+# respondedSummary test id, read as a raw string here rather than imported
+# (mirrors this section's own established module-boundary precedent,
+# GATHERING_PHASE_INDICATOR immediately above). **Added 2026-09-19
+# (ADR-0063 decision 1)**: GATHERING_PHASE_INDICATOR above becomes absent
+# exactly while phase is SELECTING_SHOP -- the one phase this file's own
+# open_gathering_mode_from_dashboard/_assert_navigated_to_this_gathering_
+# dashboard below always land on (shopSelectionEntry.open/gatheringMode are
+# only ever reached during that phase) -- so neither may keep waiting on it
+# as their own dashboard-has-rendered signal. respondedSummary remains
+# present unconditionally across all three phases (gathering_scheduling_
+# browser.py's own identical 2026-09-19 comment), hence this substitute.
+GATHERING_RESPONDED_SUMMARY = "gathering-responded-summary"
 # ADR-0059 (2026-09-16, 束A「上部ナビと会への戻り道」): gatheringMode.
 # shortlistToast -- appears immediately after a successful add (never a
 # removal), shares the same shortlistedCount/maxShortlisted attribute names
@@ -815,7 +828,7 @@ class CandidateSearchBrowserDsl:
         interface.yaml), landing on this file's own gatheringMode screen.
         """
         self.page.goto(f"{self.base_url}/gatherings/{gathering_id}/")
-        wait_for_at_least_one(self.page, GATHERING_PHASE_INDICATOR)
+        wait_for_at_least_one(self.page, GATHERING_RESPONDED_SUMMARY)
         self.initial = capture_candidate_proposal_response(
             self.page, lambda: by_test_id(self.page, GATHERING_SHORTLIST_OPEN).first.click()
         )
@@ -857,7 +870,7 @@ class CandidateSearchBrowserDsl:
         wait_for_at_least_one(self.page, GATHERING_LIST_SCREEN)
 
     def _assert_navigated_to_this_gathering_dashboard(self, gathering_id: str) -> None:
-        wait_for_at_least_one(self.page, GATHERING_PHASE_INDICATOR)
+        wait_for_at_least_one(self.page, GATHERING_RESPONDED_SUMMARY)
         self.assertions.assertIn(f"/gatherings/{gathering_id}/", self.page.url)
 
     def assert_desktop_chip_returns_to_this_gathering(self, gathering_id: str) -> None:

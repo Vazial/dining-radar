@@ -64,6 +64,16 @@ GATHERING_API_CONTRACT = PROJECT_ROOT / "contracts" / "gathering-scheduling-api.
 # organizerDashboard test ids / attributes (gathering-scheduling-browser-interface.yaml)
 GATHERING_PHASE_INDICATOR = "gathering-phase-indicator"
 GATHERING_PHASE_ATTR = "data-gathering-phase"
+# organizerDashboard.headingBar (ADR-0063決定2, 2026-09-19, TDR-GTH-67):
+# present exactly while phase is SELECTING_SHOP -- the same one phase
+# phaseIndicatorAttributes above just became absent for (decision 1). Its
+# own testId's presence therefore also doubles as this suite's organizer-
+# side substitute for reading "is this SELECTING_SHOP" when the indicator
+# itself is absent (_read_gathering_phase_from_dom below, 未決事項1).
+GATHERING_DASHBOARD_TITLE = "gathering-dashboard-title"
+GATHERING_DASHBOARD_TITLE_ATTR = "data-gathering-title"
+GATHERING_DASHBOARD_CONFIRMED_DATE = "gathering-dashboard-confirmed-date"
+GATHERING_DASHBOARD_CONFIRMED_DATE_ATTR = "data-confirmed-candidate-date"
 RESPONDED_SUMMARY = "gathering-responded-summary"
 RESPONDED_COUNT_ATTR = "data-responded-count"
 ANONYMOUS_RESPONDED_COUNT_ATTR = "data-anonymous-responded-count"
@@ -217,6 +227,16 @@ GATHERING_DECISION_SHOP_PAGE_LINK = "gathering-decision-shop-page-link"
 # below for the shape-detecting check this ambiguity requires.
 GATHERING_DECISION_ANSWERS_OPEN = "gathering-decision-answers-open"
 GATHERING_DECISION_LINKS_OPEN = "gathering-decision-links-open"
+# organizerDashboard.shopSelectionPanel (ADR-0063決定3, 2026-09-19, observation
+# 0.25.0): the SELECTING_SHOP-phase analogue of finalizedSummary.answersOpen/
+# linksOpen above -- a single 4-way tablist (no renderModes fork, unlike the
+# pair above) gating shopSelectionEntry/shortlistedShopVotes.list,
+# candidateDateList, responseTable, and participantLinkList respectively.
+# shopTab starts selected (board S4: 既定は「店」).
+GATHERING_SHOP_SELECT_TAB_SHOP = "gathering-shop-select-tab-shop"
+GATHERING_SHOP_SELECT_TAB_SCHEDULE = "gathering-shop-select-tab-schedule"
+GATHERING_SHOP_SELECT_TAB_ANSWERS = "gathering-shop-select-tab-answers"
+GATHERING_SHOP_SELECT_TAB_LINKS = "gathering-shop-select-tab-links"
 # participantLinkList.issuanceClosed (ADR-0056 decision 11).
 PARTICIPANT_LINK_ISSUANCE_CLOSED = "gathering-participant-link-issuance-closed"
 # organizerDashboard.responseTable (ADR-0056 decision 1, TDR-GTH-49).
@@ -559,6 +579,12 @@ GATHERING_ALLOWED_PURPOSES = {
     # shaped presentations (allowedPurposesNoteAdr0062Addendum).
     "gathering-decision-answers-open",
     "gathering-decision-links-open",
+    # shopSelectionPanel (ADR-0063決定3, 2026-09-19, observation 0.25.0,
+    # allowedPurposesNoteAdr0063) -- the SELECTING_SHOP-phase 4-way tablist.
+    "gathering-shop-select-tab-shop",
+    "gathering-shop-select-tab-schedule",
+    "gathering-shop-select-tab-answers",
+    "gathering-shop-select-tab-links",
 }
 # unavailableControls.valueEntryControlTestIds (ADR-0039, v0.4): native
 # input/textarea value-entry controls exempt from purpose declaration --
@@ -1102,7 +1128,14 @@ class GatheringSchedulingBrowserDsl:
 
     def open_organizer_dashboard(self) -> None:
         self.page.goto(f"{self.base_url}/gatherings/{self.gathering_id}/")
-        wait_for_at_least_one(self.page, GATHERING_PHASE_INDICATOR)
+        # Readiness signal **changed 2026-09-19 (ADR-0063 decision 1)**: was
+        # GATHERING_PHASE_INDICATOR, which this contract round makes absent
+        # for exactly the SELECTING_SHOP phase -- waiting on it here would
+        # hang forever for any gathering already in that phase. respondedSummary
+        # remains present unconditionally across all three phases (this
+        # file's own header-comment note, unchanged by this round), so it is
+        # a phase-agnostic "the dashboard has rendered" signal instead.
+        wait_for_at_least_one(self.page, RESPONDED_SUMMARY)
 
     def _candidate_date_locator(self, candidate_date_id: str) -> Locator:
         return self.page.locator(
@@ -1110,10 +1143,31 @@ class GatheringSchedulingBrowserDsl:
         )
 
     def _read_gathering_phase_from_dom(self) -> str:
-        node = assert_present(self.assertions, self.page, GATHERING_PHASE_INDICATOR)
-        return node.get_attribute(GATHERING_PHASE_ATTR)
+        """**Amended 2026-09-19 (ADR-0063 decision 1)**: phaseIndicatorAttributes'
+        own presenceRule now excludes SELECTING_SHOP, so this reader can no
+        longer assert_present it unconditionally -- every existing caller
+        (before/after phase comparisons around a click, assert_gathering_phase)
+        needs this to keep working across all three phases, not only
+        SCHEDULING/FINALIZED. Falls back to organizerDashboard.headingBar's
+        own presenceRule ("present exactly while phase is SELECTING_SHOP",
+        decision 2) as the organizer-side substitute the contract's own
+        words license for this one phase (未決事項1) -- headingBar carries
+        no phase value itself, but among the three phases only SELECTING_SHOP
+        both hides the indicator and shows headingBar, so its presence alone
+        identifies the phase unambiguously.
+        """
+        indicator = self.page.locator(f'[data-testid="{GATHERING_PHASE_INDICATOR}"]')
+        if indicator.count() > 0:
+            return indicator.first.get_attribute(GATHERING_PHASE_ATTR)
+        assert_present(self.assertions, self.page, GATHERING_DASHBOARD_TITLE)
+        return "SELECTING_SHOP"
 
     def _read_candidate_dates(self) -> list[dict[str, object]]:
+        # shopSelectionPanel.scheduleTab (ADR-0063決定3): a no-op before
+        # SELECTING_SHOP or before this panel lands -- symmetric with the
+        # answers/links-tab guards _read_response_table/
+        # _read_participant_link_items carry.
+        self.ensure_selecting_shop_schedule_tab_is_open()
         nodes = wait_for_at_least_one(self.page, CANDIDATE_DATE)
         result = []
         for index in range(nodes.count()):
@@ -1151,6 +1205,9 @@ class GatheringSchedulingBrowserDsl:
         # FINALIZED or before this addendum lands -- see
         # recopy_participant_link_at's own identical guard above.
         self.ensure_finalized_links_are_open()
+        # shopSelectionPanel.linksTab (ADR-0063決定3): the SELECTING_SHOP-
+        # phase counterpart, a no-op outside that phase.
+        self.ensure_selecting_shop_links_tab_is_open()
         nodes = wait_for_at_least_one(self.page, PARTICIPANT_LINK_ITEM)
         result = []
         for index in range(nodes.count()):
@@ -1170,6 +1227,42 @@ class GatheringSchedulingBrowserDsl:
 
     def assert_gathering_phase(self, expected_phase: str) -> None:
         self.assertions.assertEqual(self._read_gathering_phase_from_dom(), expected_phase)
+
+    # organizerDashboard.headingBar (ADR-0063決定2, 2026-09-19, TDR-GTH-67) --
+
+    def assert_dashboard_shows_the_gathering_name(self, expected_title: str) -> None:
+        """headingBar.title.requirement: data-gathering-title equals
+        Gathering.title exactly -- the same value organizerGatheringList.
+        list.item's own data-gathering-title already carries, projected onto
+        organizerDashboard for the first time.
+        """
+        node = assert_present(self.assertions, self.page, GATHERING_DASHBOARD_TITLE)
+        self.assertions.assertEqual(
+            node.get_attribute(GATHERING_DASHBOARD_TITLE_ATTR), expected_title
+        )
+
+    def assert_dashboard_shows_the_confirmed_date(self, expected_iso: str) -> None:
+        """headingBar.confirmedDate.requirement: data-confirmed-candidate-date
+        equals the confirmed candidate date's own startAt -- always present
+        here (reaching SELECTING_SHOP requires confirmDate to have already
+        succeeded).
+        """
+        node = assert_present(self.assertions, self.page, GATHERING_DASHBOARD_CONFIRMED_DATE)
+        self.assertions.assertEqual(
+            node.get_attribute(GATHERING_DASHBOARD_CONFIRMED_DATE_ATTR), expected_iso
+        )
+
+    def assert_phase_indicator_is_absent(self) -> None:
+        """phaseIndicatorAttributes.presenceRule (**changed 2026-09-19,
+        ADR-0063 decision 1**): absent while phase is SELECTING_SHOP -- no
+        dedicated TDR-GTH-6x scenario names this Must (the contract's own
+        note, same "専用シナリオの無い契約Must" treatment as responseTable.
+        leaderSummary's own 追補23 above), so this is checked directly
+        rather than folded into TDR-GTH-67's own headingBar-only Then
+        clauses. Checked as a real DOM-attachment fact (assert_absent's own
+        to_have_count(0)), not merely non-visible.
+        """
+        assert_absent(self.assertions, self.page, GATHERING_PHASE_INDICATOR)
 
     def assert_no_candidate_date_confirmed(self) -> None:
         dates = self._read_candidate_dates()
@@ -1277,6 +1370,9 @@ class GatheringSchedulingBrowserDsl:
         # finalizedSummary.answersOpen (ADR-0062 追補22): no-op before
         # FINALIZED or before this addendum lands.
         self.ensure_finalized_answers_are_open()
+        # shopSelectionPanel.answersTab (ADR-0063決定3): the SELECTING_SHOP-
+        # phase counterpart, a no-op outside that phase.
+        self.ensure_selecting_shop_answers_tab_is_open()
         rows = wait_for_at_least_one(self.page, RESPONSE_TABLE_ROW)
         result: dict[str, dict[str, str]] = {}
         for row_index in range(rows.count()):
@@ -1661,7 +1757,10 @@ class GatheringSchedulingBrowserDsl:
             f'[data-testid="{GATHERING_LIST_ITEM}"][{GATHERING_ID_ATTR}="{gathering_id}"]'
         )
         by_test_id(item, GATHERING_LIST_ITEM_OPEN).click()
-        wait_for_at_least_one(self.page, GATHERING_PHASE_INDICATOR)
+        # See open_organizer_dashboard's own 2026-09-19 comment (ADR-0063
+        # decision 1): RESPONDED_SUMMARY, not GATHERING_PHASE_INDICATOR, is
+        # this file's phase-agnostic dashboard-rendered signal.
+        wait_for_at_least_one(self.page, RESPONDED_SUMMARY)
 
     def assert_dashboard_is_shown_for(self, gathering_id: str, expected_phase: str) -> None:
         """TDR-GTH-21's Then ("その会のダッシュボードが表示される") requires the
@@ -1809,9 +1908,13 @@ class GatheringSchedulingBrowserDsl:
         back through the public getGathering operation (see
         create_prepared_gathering_via_browser's own docstring for why -- a
         real Playwright response body becomes unreadable once its page has
-        navigated away).
+        navigated away). A freshly created gathering is always SCHEDULING
+        (GATHERING_PHASE_INDICATOR is present there regardless), but this
+        waits on RESPONDED_SUMMARY instead -- the same phase-agnostic signal
+        open_organizer_dashboard uses (ADR-0063 decision 1 comment there) --
+        for consistency with every other dashboard-render wait in this file.
         """
-        wait_for_at_least_one(self.page, GATHERING_PHASE_INDICATOR)
+        wait_for_at_least_one(self.page, RESPONDED_SUMMARY)
         gathering_id = self._extract_gathering_id_from_dashboard_url()
         response = self._api("GET", f"/gatherings/{gathering_id}")
         self._assert_api_ok(response, 200, "getGathering (post-create readback)")
@@ -2186,6 +2289,9 @@ class GatheringSchedulingBrowserDsl:
         # a no-op before FINALIZED or before this addendum lands (TDR-GTH-36
         # exercises this exact path, recopy after finalize).
         self.ensure_finalized_links_are_open()
+        # shopSelectionPanel.linksTab (ADR-0063決定3): the SELECTING_SHOP-
+        # phase counterpart, a no-op outside that phase.
+        self.ensure_selecting_shop_links_tab_is_open()
         item = wait_for_at_least_one(self.page, PARTICIPANT_LINK_ITEM).nth(index)
         recopy = by_test_id(item, PARTICIPANT_LINK_RECOPY)
         expect(recopy).to_be_enabled()
@@ -2204,6 +2310,11 @@ class GatheringSchedulingBrowserDsl:
         return url
 
     def revoke_participant_link_at(self, index: int) -> None:
+        # shopSelectionPanel.linksTab (ADR-0063決定3): participantLinkList
+        # (this control's own container) is no longer directly visible by
+        # default once SELECTING_SHOP -- a no-op outside that phase, mirrors
+        # recopy_participant_link_at's own identical guard above.
+        self.ensure_selecting_shop_links_tab_is_open()
         item = wait_for_at_least_one(self.page, PARTICIPANT_LINK_ITEM).nth(index)
         revoke = by_test_id(item, PARTICIPANT_LINK_REVOKE)
         expect(revoke).to_be_enabled()
@@ -2290,9 +2401,14 @@ class GatheringSchedulingBrowserDsl:
 
     def confirm_tentatively_selected_date(self) -> None:
         by_test_id(self.page, CONFIRM_DATE_SELECT).click()
-        expect(by_test_id(self.page, GATHERING_PHASE_INDICATOR)).to_have_attribute(
-            GATHERING_PHASE_ATTR, "SELECTING_SHOP"
-        )
+        # **Changed 2026-09-19 (ADR-0063 decision 1)**: gathering-phase-
+        # indicator becomes absent exactly while SELECTING_SHOP, the phase
+        # this transition reaches -- waiting for it to carry that value
+        # would now wait forever. headingBar (decision 2, present exactly
+        # while phase is SELECTING_SHOP) is this suite's organizer-side
+        # substitute for confirming the transition landed (see
+        # _read_gathering_phase_from_dom's own identical 2026-09-19 comment).
+        wait_for_at_least_one(self.page, GATHERING_DASHBOARD_TITLE)
 
     def attempt_confirm_candidate_date_via_api(self, candidate_date_id: str) -> CapturedApiResponse:
         return self._api(
@@ -4026,6 +4142,45 @@ class GatheringSchedulingBrowserDsl:
         if self._read_disclosure_state(control.first) != "true":
             control.first.click()
 
+    # organizerDashboard.shopSelectionPanel (ADR-0063決定3, 2026-09-19,
+    # observation 0.25.0) -- the SELECTING_SHOP-phase analogue of
+    # finalizedSummary.answersOpen/linksOpen above. A single 4-way tablist
+    # (always aria-selected, never aria-expanded -- no disclosure-row shape
+    # to detect here, unlike the pair above), so its own guard only checks
+    # aria-selected. No dedicated TDR-GTH-6x scenario names this Must (the
+    # contract's own note) -- verified directly the same way
+    # assert_finalized_answers_and_links_entrance_is_functional below is. ---
+
+    def _ensure_selecting_shop_tab_is_open(self, tab_test_id: str) -> None:
+        control = self.page.locator(f'[data-testid="{tab_test_id}"]')
+        if control.count() == 0:
+            return
+        if control.first.get_attribute("aria-selected") != "true":
+            control.first.click()
+
+    def ensure_selecting_shop_schedule_tab_is_open(self) -> None:
+        """Idempotent Given-state helper for callers that need
+        candidateDateList visible once SELECTING_SHOP -- a no-op before that
+        phase or before this panel lands (shopTab, not this tab, is
+        board S4's own default selection)."""
+        self._ensure_selecting_shop_tab_is_open(GATHERING_SHOP_SELECT_TAB_SCHEDULE)
+
+    def ensure_selecting_shop_answers_tab_is_open(self) -> None:
+        """Symmetric with ensure_selecting_shop_schedule_tab_is_open above --
+        used by callers that need responseTable visible once SELECTING_SHOP."""
+        self._ensure_selecting_shop_tab_is_open(GATHERING_SHOP_SELECT_TAB_ANSWERS)
+
+    def ensure_selecting_shop_links_tab_is_open(self) -> None:
+        """Symmetric with ensure_selecting_shop_schedule_tab_is_open above --
+        used by callers (e.g. revoke_participant_link_at below) that need to
+        interact with participantLinkList once SELECTING_SHOP. Before this
+        panel existed, participantLinkList was directly visible in this
+        phase (no entrance to open) -- ADR-0062's own finalizedSummary.
+        linksOpen guard only ever covered the later FINALIZED phase, so this
+        SELECTING_SHOP-phase click has no equivalent guard to extend; this
+        is a new one, not a rename."""
+        self._ensure_selecting_shop_tab_is_open(GATHERING_SHOP_SELECT_TAB_LINKS)
+
     def assert_finalized_answers_and_links_entrance_is_functional(self, context_label: str) -> None:
         """answersOpen/linksOpen.requirement (ADR-0062 追補22): self-detects
         which of the two shapes is currently rendered (see
@@ -4087,6 +4242,70 @@ class GatheringSchedulingBrowserDsl:
             # independent rows: opening links does not close the answers row
             expect(answers_open).to_have_attribute("aria-expanded", "true")
             expect(by_test_id(self.page, RESPONSE_TABLE)).to_be_visible()
+
+    def assert_selecting_shop_tab_panel_is_functional(self, context_label: str) -> None:
+        """shopSelectionPanel.tabGroup/shopTab/scheduleTab/answersTab/
+        linksTab.requiredOutcome (ADR-0063決定3): no dedicated TDR-GTH-6x
+        scenario names this Must (the contract's own note) -- same "専用
+        シナリオの無い契約Must" treatment as
+        assert_finalized_answers_and_links_entrance_is_functional above.
+        Unlike that pair, this is always a single 4-way tablist -- this
+        contract does not fork it by viewport (board S4 draws one tab strip
+        for PC and mobile alike, unlike finalizedSummary's own tab-shaped/
+        disclosure-row-shaped split) -- exactly one tab carries
+        aria-selected="true" at a time, and shopTab starts selected.
+        Assumes the caller has already shortlisted at least one shop, so
+        shortlistedShopVotes.list (not shopSelectionEntry) is the shop
+        tab's own target here.
+        """
+        shop_tab = assert_present(self.assertions, self.page, GATHERING_SHOP_SELECT_TAB_SHOP)
+        schedule_tab = assert_present(
+            self.assertions, self.page, GATHERING_SHOP_SELECT_TAB_SCHEDULE
+        )
+        answers_tab = assert_present(self.assertions, self.page, GATHERING_SHOP_SELECT_TAB_ANSWERS)
+        links_tab = assert_present(self.assertions, self.page, GATHERING_SHOP_SELECT_TAB_LINKS)
+
+        def assert_selected(tab: Locator, expected: str) -> None:
+            self.assertions.assertEqual(tab.get_attribute("aria-selected"), expected, context_label)
+
+        assert_selected(shop_tab, "true")
+        assert_selected(schedule_tab, "false")
+        assert_selected(answers_tab, "false")
+        assert_selected(links_tab, "false")
+        expect(by_test_id(self.page, SHORTLISTED_SHOP_LIST)).to_be_visible()
+        expect(by_test_id(self.page, CANDIDATE_DATE_LIST)).not_to_be_visible()
+        expect(by_test_id(self.page, RESPONSE_TABLE)).not_to_be_visible()
+        expect(by_test_id(self.page, PARTICIPANT_LINK_LIST)).not_to_be_visible()
+
+        schedule_tab.click()
+        expect(schedule_tab).to_have_attribute("aria-selected", "true")
+        expect(shop_tab).to_have_attribute("aria-selected", "false")
+        assert_selected(answers_tab, "false")
+        assert_selected(links_tab, "false")
+        expect(by_test_id(self.page, CANDIDATE_DATE_LIST)).to_be_visible()
+        expect(by_test_id(self.page, SHORTLISTED_SHOP_LIST)).not_to_be_visible()
+        expect(by_test_id(self.page, RESPONSE_TABLE)).not_to_be_visible()
+        expect(by_test_id(self.page, PARTICIPANT_LINK_LIST)).not_to_be_visible()
+
+        answers_tab.click()
+        expect(answers_tab).to_have_attribute("aria-selected", "true")
+        expect(schedule_tab).to_have_attribute("aria-selected", "false")
+        assert_selected(shop_tab, "false")
+        assert_selected(links_tab, "false")
+        expect(by_test_id(self.page, RESPONSE_TABLE)).to_be_visible()
+        expect(by_test_id(self.page, CANDIDATE_DATE_LIST)).not_to_be_visible()
+        expect(by_test_id(self.page, SHORTLISTED_SHOP_LIST)).not_to_be_visible()
+        expect(by_test_id(self.page, PARTICIPANT_LINK_LIST)).not_to_be_visible()
+
+        links_tab.click()
+        expect(links_tab).to_have_attribute("aria-selected", "true")
+        expect(answers_tab).to_have_attribute("aria-selected", "false")
+        assert_selected(shop_tab, "false")
+        assert_selected(schedule_tab, "false")
+        expect(by_test_id(self.page, PARTICIPANT_LINK_LIST)).to_be_visible()
+        expect(by_test_id(self.page, RESPONSE_TABLE)).not_to_be_visible()
+        expect(by_test_id(self.page, CANDIDATE_DATE_LIST)).not_to_be_visible()
+        expect(by_test_id(self.page, SHORTLISTED_SHOP_LIST)).not_to_be_visible()
 
     def use_organizer_desktop_viewport(self) -> None:
         """Reuses candidate_search_browser.py's own desktop-two-column width
