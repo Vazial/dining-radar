@@ -284,7 +284,12 @@
       .gth-day-sheet {
         position: fixed;
         inset: auto 0 0 0;
+        /* clamp() (item 3): a bare 70vh alone shrinks unusably short on a
+           landscape phone and grows needlessly tall on a long one. 100dvh
+           (100vh fallback first) as the basis tracks the *visible*
+           viewport. */
         max-height: 70vh;
+        max-height: clamp(14rem, 70dvh, 32rem);
         box-sizing: border-box;
         background: #fff;
         border-radius: 0.875rem 0.875rem 0 0;

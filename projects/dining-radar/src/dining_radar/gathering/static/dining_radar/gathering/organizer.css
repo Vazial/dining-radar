@@ -65,6 +65,69 @@
   width: min(100% - 2rem, 60rem);
 }
 
+/* Height chain (body -> ... -> gth-shop-stage/gth-decision-stage), scoped
+   to the dashboard only (:has(#gathering-app) -- organizerGatheringList/
+   -Create are ordinary scrolling forms, unaffected). 100dvh (100vh
+   fallback first) tracks the *visible* viewport so gth-shop-stage/gth-
+   decision-stage below can flex:1 into whatever space the heading/tabs
+   actually leave, instead of those two rules' former calc(100vh - Nrem)
+   (a guessed, hand-measured chrome height that had to carry a separate
+   number for mobile too -- see those rules' own history). */
+body:has(#gathering-app) {
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+body:has(#gathering-app) .app-shell,
+body:has(#gathering-app) .app-card,
+body:has(#gathering-app) main {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+#gathering-app {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* .primary-nav-bar (below) is position:fixed to the viewport bottom
+   whenever it survives initializePrimaryNav()'s own render-mode removal
+   (widths under 64rem) -- this chain's own 100dvh has no other way to know
+   to leave it room, now that gth-shop-stage/gth-decision-stage fill all the
+   way to body's own bottom edge (their own rule, above/below). Without
+   this, gth-bottom-bar's finalize button (or a mobile gth-shop-panel/
+   gth-decision-panel sheet's own bottom) would render underneath this
+   fixed bar and lose its pointer events to it (z-index: 30, higher than
+   either). Mirrors web/templates/web/home.html's own identical
+   body { padding-bottom } precedent for the same nav bar. */
+@media (max-width: 63.999rem) {
+  body:has(#gathering-app) {
+    padding-bottom: 3.75rem;
+  }
+}
+/* Real-measurement finding (ADR-0065 decision 3): on a genuinely short
+   viewport (844x390 landscape) app-shell/app-card's own padding (base.html,
+   ~64px + 20px combined) plus the fixed chrome above left so little of
+   body's own 100dvh for gth-shop-stage/gth-decision-stage that
+   gth-bottom-bar's own fixed 4.25rem-clearance math went negative --
+   forcing gth-shop-panel's own max-height: calc(100% - 5.25rem) to 0 and
+   gth-bottom-bar itself to overflow above the stage's own top edge (a
+   functional break, not just a crushed map: gth-bottom-bar then intercepts
+   pointer events aimed at whatever sits above it instead of the stage's own
+   floor). Reclaims that padding at short heights only -- normal-height
+   phones matching the approved board reference are unaffected. */
+@media (max-height: 37.5rem) {
+  body:has(#gathering-app) .app-shell {
+    padding-top: 0.5rem;
+  }
+  body:has(#gathering-app) .app-card {
+    padding: 0.5rem 0.75rem;
+  }
+}
+
 /* --- shared buttons/inputs (both gathering- and gth- prefixes) --------- */
 
 .gathering-btn,
@@ -413,8 +476,13 @@
   flex-direction: column;
   background: #fff;
   max-width: 32rem;
+  /* dvh (100vh-fallback-first idiom, item 1) so this dialog's own 4/92
+     split still sums to a whole visible viewport on a browser whose
+     address-bar chrome makes dvh differ from vh. */
   margin: 4vh auto;
+  margin: 4dvh auto;
   max-height: 92vh;
+  max-height: 92dvh;
   border-radius: 0.875rem;
   border: 1px solid #dfe4de;
   box-shadow: 0 1rem 2.5rem rgba(23, 32, 27, 0.25);
@@ -496,6 +564,8 @@
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .gth-header {
@@ -593,7 +663,12 @@
   right: 0;
   top: calc(100% + 0.5rem);
   z-index: 5;
-  width: max(16rem, 100%);
+  /* min()'s own calc(100vw - 2rem) ceiling: this dialog's trigger already
+     anchors right: 0 (so it grows leftward/inward, not past the edge like
+     gth-issue's own pre-fix left: 0 did) -- this ceiling is a defensive
+     bound for an extreme-narrow viewport, not a fix for an observed
+     overflow here. */
+  width: min(max(16rem, 100%), calc(100vw - 2rem));
 }
 .gth-confirm-dialog--danger {
   border-top: 3px solid #8a3b2c;
@@ -629,7 +704,11 @@
   transform: translate(-50%, -50%);
   z-index: 30;
   width: min(28rem, calc(100vw - 2rem));
+  /* 100dvh (with a 100vh fallback first, for browsers without dvh) tracks
+     the *visible* viewport, so this modal's own ceiling does not overrun a
+     mobile browser's address-bar chrome. */
   max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
   overflow-y: auto;
 }
 .gth-confirm-dialog-title {
@@ -647,12 +726,54 @@
 .gth-issue {
   position: relative;
 }
+/* **Fixed** (real-measurement finding: this dialog overflowed ~160px past
+   the right viewport edge at 320-1024px widths): every caller places
+   participantLinkCopy (this wrapper's own button) at the *trailing* end of
+   its row (gth-shop-panel-link-copy/gth-inline-actions's own
+   justify-content: flex-end, the links-tab head row's own trailing child).
+   width: max(20rem, 100%) forced a 320px-wide box regardless of where that
+   trailing position landed -- anchoring it to grow from the trigger's own
+   edge (left: 0, the original rule, or right: 0, a first attempt at this
+   fix) both still overflow: .gth-issue itself is only as wide as the
+   button, so a viewport-wide box anchored to either of its own edges can
+   push past the *opposite* screen edge just as easily once that narrow
+   trigger sits anywhere but flush against that edge (real-measurement
+   finding: right: 0 alone still produced a negative x at 320px width,
+   moving the same overflow to the left instead of removing it). Switched
+   to position: fixed with both left/right insets below 47.9375rem (this
+   file's own existing mobile breakpoint) -- the containing block becomes
+   the viewport itself, not .gth-issue, so this box's own width and position
+   no longer depend on where its own narrow trigger happens to sit. */
 .gth-issue .gth-confirm-dialog {
   position: absolute;
-  left: 0;
+  right: 0;
   top: calc(100% + 0.5rem);
   z-index: 5;
-  width: max(20rem, 100%);
+  width: min(max(20rem, 100%), calc(100vw - 2rem));
+}
+@media (max-width: 47.9375rem) {
+  /* A first attempt kept this anchored (position: fixed, but still under
+     its own trigger via bottom: 5rem/left/right: 1rem) -- real-measurement
+     finding: the trigger's own row can itself be positioned deep inside
+     gth-shop-panel-body's own scrollable, height-clamped area (decision 3),
+     so a fixed box merely re-anchored near there was still liable to open
+     underneath gth-bottom-bar or another sibling with a higher stacking
+     order. Reusing gth-confirm-dialog--modal's own already-proven centered
+     treatment (declared above) instead -- the same fixed, viewport-centered
+     box gathering-finalize-confirm-dialog already uses -- removes the
+     anchor entirely rather than trying to compute a safer one. */
+  .gth-issue .gth-confirm-dialog {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    right: auto;
+    transform: translate(-50%, -50%);
+    z-index: 32;
+    width: min(20rem, calc(100vw - 2rem));
+    max-height: calc(100vh - 2rem);
+    max-height: calc(100dvh - 2rem);
+    overflow-y: auto;
+  }
 }
 .gth-issue-dialog {
   border-top: 3px solid #14614a;
@@ -1392,7 +1513,10 @@
     right: 0;
     top: auto;
     bottom: 3.5rem;
-    max-height: 50%;
+    /* Same clamp() reasoning as gth-shop-panel's own mobile max-height
+       below (item 3): a bare percentage alone shrinks to nothing on a
+       short device and grows needlessly tall on a long one. */
+    max-height: clamp(3.5rem, 15%, 22rem);
     width: auto;
     border-radius: 1.125rem 1.125rem 0 0;
     padding-top: 0.625rem;
@@ -1419,25 +1543,40 @@
 .gth-pane--flush {
   padding: 0;
   overflow: hidden;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 /* Board's own frame (real-machine finding, extended 2026-09-19 to
    SELECTING_SHOP's own gth-shop-stage per board S4 comparison: 画面の下の
    帯が画面の真ん中あたりにあり、その下にまだ地図が続いている -- a fixed
    height left a growing strip of empty map below gth-bottom-bar instead of
    reaching the viewport bottom): the map fills from right below the
-   heading to the viewport bottom, not a fixed height. Both stages share
-   this one rule so they cannot drift apart again. */
+   heading to the viewport bottom. **Changed** from that fixed
+   calc(100vh - 18rem)/calc(100vh - 16rem) pair (one guessed chrome height
+   per breakpoint) to flex:1 up gth-pane--flush/gth-dash/#gathering-app's
+   own chain (declared above this file) into body's own 100dvh -- the
+   stage now fills exactly whatever the heading/tabs actually leave at any
+   height (ADR-0065 decision 2's own example: "flex: 1 1 auto かつ
+   min-height: 0"). **Fixed (real-measurement finding)**: an earlier draft
+   of this rule gave min-height a non-zero floor (16rem) as a defensive
+   "never literally 0" bound -- on a genuinely short viewport
+   (844x390 landscape) that floor itself was taller than the space actually
+   left after the heading/tabs, forcing this pane past body's own 100dvh
+   and pushing gth-bottom-bar (position: absolute bottom: 0 of this stage)
+   below the visible viewport entirely (ADR-0065 decision 5(h)'s own gate).
+   min-height: 0 (this rule now matches decision 2's example exactly) lets
+   the stage genuinely shrink to whatever room remains instead; the render-
+   invariant map-visible-height gate (tests/ui_invariants, decision 5(i)) is
+   what actually guards against the map being crushed too small, not a
+   fixed floor here. Both stages share this one rule so they cannot drift
+   apart again. */
 .gth-shop-stage,
 .gth-decision-stage {
   position: relative;
-  min-height: 26rem;
-  height: calc(100vh - 18rem);
-}
-@media (max-width: 47.9375rem) {
-  .gth-shop-stage,
-  .gth-decision-stage {
-    height: calc(100vh - 16rem);
-  }
+  flex: 1 1 auto;
+  min-height: 0;
 }
 /* An explicit z-index makes this establish its own stacking context, so
    Leaflet's own panes (up to z-index 700) stay contained beneath it
@@ -1639,18 +1778,12 @@
   overflow-wrap: anywhere;
 }
 @media (max-width: 47.9375rem) {
-  /* **Fixed 2026-09-19 (coordinator finding, board S4 comparison)**: this
-     rule used to *also* offset gth-bottom-bar by 3.5rem to clear
-     .primary-nav-bar (organizer_primary_nav.html's own real,
-     viewport-fixed mobile bottom bar, z-index: 30) -- but gth-shop-stage
-     above already reaches only to the viewport bottom minus that same
-     nav's own height (its own calc(100vh - 16rem) formula), so this
-     bar's own default bottom: 0 (unchanged from the base rule above)
-     already lands it flush with the stage's own bottom edge, which
-     itself already sits just above the nav. The removed 3.5rem was
-     double-reserving the same nav clearance twice, leaving a ~60px strip
-     of bare map between the bar and the nav instead of the bar sitting on
-     the stage's own floor the way board S4 draws it. */
+  /* gth-bottom-bar's own default bottom: 0 (base rule above) already lands
+     it flush with gth-shop-stage's own bottom edge -- no separate offset is
+     needed here to clear .primary-nav-bar any longer: that clearance now
+     lives on body itself (this file's own body:has(#gathering-app)
+     padding-bottom rule, declared beside #gathering-app above), not baked
+     into a per-breakpoint calc(100vh - Nrem) stage height. */
   .gth-shop-panel {
     left: 0;
     right: 0;
@@ -1663,17 +1796,14 @@
        this panel itself needs now. */
     bottom: 4.25rem;
     width: auto;
-    /* **Changed 2026-09-19 (board S4-SpSelect comparison, coordinator
-       finding)**: reclaiming the double-counted 3.5rem above (previous
-       comment) moves this sheet's own floor down by that same amount, so
-       this percentage is re-tuned against the same real-render
-       measurement discipline as before -- board S4's own sheet is 64% of
-       its map area's height; this pane's own participantLinkCopy control
-       no longer adds a competing row of its own on the shop tab (merged
-       into that tab's existing head row instead, gth-inline-actions
-       below), so this value now sits close to board's own 64% rather
-       than needing to run higher. */
-    max-height: 58%;
+    /* clamp() bounds this sheet's own height between an absolute floor (it
+       stays usable once its own list/tab content needs it) and ceiling (it
+       does not balloon on a tall phone) around the same 58%-of-stage
+       preference this rule used before -- a bare percentage alone shrinks
+       to nothing on a short device and grows needlessly tall on a long one
+       (the render-invariant map-visible-height/no-horizontal-scroll gates,
+       tests/ui_invariants, are what this range is tuned against). */
+    max-height: clamp(4rem, 25%, 24rem);
     border-radius: 1.125rem 1.125rem 0 0;
     padding-top: 0.625rem;
   }
