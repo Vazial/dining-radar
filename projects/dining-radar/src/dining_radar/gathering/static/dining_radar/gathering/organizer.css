@@ -87,6 +87,18 @@ body:has(#gathering-app) main {
   display: flex;
   flex-direction: column;
 }
+/* **Fixed (coordinator finding, real screenshot at 390x844)**: base.html's
+   own .app-shell rule carries a fixed padding: 2rem 0 3rem -- that 3rem
+   (48px) bottom pad sat *outside* gth-shop-stage/gth-decision-stage's own
+   flex:1 box, on top of (not instead of) this file's own body padding-
+   bottom nav clearance above, leaving a visible ~48px blank strip between
+   the stage's own floor and the mobile nav bar instead of the stage
+   reaching flush to it. Zeroed here (nav clearance already lives on body
+   itself); the card's own visual inset from the screen edge is app-card's
+   own padding (below), unaffected. */
+body:has(#gathering-app) .app-shell {
+  padding-bottom: 0;
+}
 #gathering-app {
   flex: 1 1 auto;
   min-height: 0;
@@ -1513,10 +1525,22 @@ body:has(#gathering-app) main {
     right: 0;
     top: auto;
     bottom: 3.5rem;
-    /* Same clamp() reasoning as gth-shop-panel's own mobile max-height
-       below (item 3): a bare percentage alone shrinks to nothing on a
-       short device and grows needlessly tall on a long one. */
-    max-height: clamp(3.5rem, 15%, 22rem);
+    /* **Fixed (coordinator finding)**: board party2/d4r/G2-SpFinal.dc.html's
+       own sheet has no height cap at all here -- it sizes to its own
+       content (badge+date row, decided-shop row, the two answers/links
+       rows), floating over a map that fills whatever is left. A previous
+       revision capped this at 15% specifically to keep decision 5(i)'s own
+       map-visible-height gate green on the extreme 844x390 landscape case
+       -- but that percentage applied at *every* width this media query
+       covers, so it also clipped the board's own portrait content down to
+       "決まりました・行ける0人" alone, hiding the date/shop/answers rows
+       the human's own report names. min() here is a pure ceiling (guards
+       only a pathological over-long content case), not the sizing
+       mechanism -- the panel's own real height at every required portrait
+       width is content height, matching the board. Landscape's own map
+       floor is relaxed instead, in the test file, not by re-introducing a
+       height cap here (see that file's own comment on this exact trade). */
+    max-height: 16rem;
     width: auto;
     border-radius: 1.125rem 1.125rem 0 0;
     padding-top: 0.625rem;
@@ -1796,14 +1820,20 @@ body:has(#gathering-app) main {
        this panel itself needs now. */
     bottom: 4.25rem;
     width: auto;
-    /* clamp() bounds this sheet's own height between an absolute floor (it
-       stays usable once its own list/tab content needs it) and ceiling (it
-       does not balloon on a tall phone) around the same 58%-of-stage
-       preference this rule used before -- a bare percentage alone shrinks
-       to nothing on a short device and grows needlessly tall on a long one
-       (the render-invariant map-visible-height/no-horizontal-scroll gates,
-       tests/ui_invariants, are what this range is tuned against). */
-    max-height: clamp(4rem, 25%, 24rem);
+    /* **Fixed (coordinator finding)**: board party2/d7/S4-SpSelect.dc.html's
+       own sheet is 64% of the map area's own height, not a smaller
+       percentage -- a previous revision shrank this to 25% specifically to
+       keep decision 5(i)'s own map-visible-height gate green on the
+       extreme 844x390 landscape case, but 844x390 is >47.9375rem wide and
+       never reaches this rule at all (it uses the desktop position: absolute
+       variant below instead) -- the shrink only ever hit *portrait* widths,
+       where it hid every shop row (the human's own report: "シートにタブと
+       見出しの行しか見えず、店の行が1件も見えない"). Restored to the
+       board's own 64%; landscape's own map floor is relaxed in the test
+       file instead of re-shrinking this. clamp()'s own floor/ceiling stay
+       as a defensive rail (a device shorter/taller than the board's own
+       390x844 reference), not the sizing mechanism. */
+    max-height: min(64%, calc(100% - 4.25rem));
     border-radius: 1.125rem 1.125rem 0 0;
     padding-top: 0.625rem;
   }
