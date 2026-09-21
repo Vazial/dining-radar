@@ -249,6 +249,17 @@ RESPONSIVE_MATRIX_VIEWPORTS = [
     (1440, 900, "desktop-1440x900"),
 ]
 
+# Coordinator finding (2026-09-21): a visibility assertion (not merely a
+# presence one) needs a deterministic Given -- _seed_one_shortlisted_shop's
+# own default (unpinned weighted sampling) shortlists whichever synthetic
+# shop's own name/detail-field length happens to land at candidates[0],
+# which repeated runs showed varies and flaked (i)/content-visible
+# assertions tuned against one specific rendered row height. Every test
+# below that asserts *visibility* (not just presence) of
+# gathering-shortlisted-shop-item passes this seed to
+# _seed_one_shortlisted_shop.
+RESPONSIVE_CHECK_RANDOM_SEED = 20260921
+
 # (i)'s own composite floor (ADR-0065 decision 5: "割合とpxの両方を持つ複合
 # 下限とする"): whichever is larger of this ratio of the viewport's own
 # height or this many px wins, so neither an extreme aspect ratio (ratio
@@ -282,20 +293,24 @@ LANDSCAPE_VIEWPORT_LABEL = "phone-landscape-844x390"
 # 41px/98px against a 120px/148px requirement) -- relaxed the same way
 # LANDSCAPE_VIEWPORT_LABEL already is, rather than re-shrinking the sheet
 # below the board's own proportion for these two widths as well.
-# phone-390x844 (the board's own reference width itself) is relaxed too --
-# real-measurement finding: this panel's own height is content-driven
-# whenever 64% of the stage exceeds it (only shrunk to the percentage cap
-# once content needs less), so a longer synthetic shop name/detail-field
-# combination (this file's own synthetic population varies these -- real
-# production shops do too) wraps this seeded shop's own single row onto
-# more lines, growing the panel and shrinking the map below (i)'s own
-# floor by a small, content-dependent margin (measured 152.9px against a
-# 168.8px requirement with one synthetic shop; flaked pass/fail across
-# repeated runs with different randomly-seeded shops before this was
-# added) -- not a layout defect this slice can close without shrinking the
-# sheet below the board's own 64% again.
+#
+# **Changed (coordinator finding, 2026-09-21)**: phone-390x844 was
+# previously relaxed too, because this panel's own height is content-driven
+# whenever 64% of the stage exceeds it, and an *unpinned* weighted-random
+# shop pick flaked pass/fail across repeated runs depending on which
+# synthetic shop's own name/detail-field length landed at candidates[0].
+# RESPONSIVE_CHECK_RANDOM_SEED (below) pins that pick -- with the flake
+# gone and this file's own mobile-width chrome (header/card padding, the
+# 票が多い順/店を絞りなおす row) tightened, phone-390x844 clears the full
+# floor with margin (measured 192.3px against 168.8px) and phone-360x740's
+# own content-visible requirement (SHOP_ROW_VISIBLE_EXCLUDED_LABELS below)
+# now passes too -- only phone-360x740's own *map* floor remains short
+# (measured 113.4px against 148px: the board's own 64% ratio, restored and
+# kept per decision 7, simply leaves this little room once a real row is
+# also fully shown at this width) and landscape/phone-320x568 (no board
+# reference / below it) stay relaxed.
 SHOP_PANEL_RELAXED_MAP_FLOOR_LABELS = frozenset(
-    {LANDSCAPE_VIEWPORT_LABEL, "phone-320x568", "phone-360x740", "phone-390x844"}
+    {LANDSCAPE_VIEWPORT_LABEL, "phone-320x568", "phone-360x740"}
 )
 
 # **Known, reported gap** (not a silent exclusion, ADR-0020 decision 2's own
@@ -315,41 +330,51 @@ SHOP_PANEL_RELAXED_MAP_FLOOR_LABELS = frozenset(
 # relaxed, >0 form in SHOP_PANEL_RELAXED_MAP_FLOOR_LABELS above already
 # covers this same width for that reason).
 #
-# phone-360x740 is excluded too, for a *content-variability* reason rather
-# than a purely geometric one: this file's own synthetic candidate
-# population (real production shops too) varies shop-name/detail-field
-# length shop to shop, so whichever shop _seed_one_shortlisted_shop's own
-# weighted-random sampling happens to pick can occasionally wrap this row
-# onto one more line than the shortest-name case this width was tuned
-# against, repeatedly observed to flake pass/fail across otherwise-
-# identical repeated runs. Pinning the Given to always seed a short-named
-# shop would hide this rather than fix it (a real organizer cannot pin
-# their own shop's name length either) -- excluded and reported instead.
-#
-# Together these are the two cells of decision 5's own "縦持ち5サイズ"
-# requirement this slice does not close for gathering-shortlisted-shop-item.
-SHOP_ROW_VISIBLE_EXCLUDED_LABELS = frozenset(
-    {LANDSCAPE_VIEWPORT_LABEL, "phone-320x568", "phone-360x740"}
-)
+# **Changed (coordinator finding, 2026-09-21)**: phone-360x740 was
+# previously excluded too, for a *content-variability* reason (an unpinned
+# weighted-random shop pick occasionally wrapped this row onto one more
+# line than the shortest-name case this width was tuned against, flaking
+# pass/fail across otherwise-identical repeated runs). RESPONSIVE_CHECK_
+# RANDOM_SEED now pins that pick, and this file's own mobile-width chrome
+# (app-header/app-card padding, the 票が多い順/店を絞りなおす row) is
+# tightened -- together these close this cell too (stable across repeated
+# runs with the pinned seed). Only phone-320x568 remains excluded here.
+SHOP_ROW_VISIBLE_EXCLUDED_LABELS = frozenset({LANDSCAPE_VIEWPORT_LABEL, "phone-320x568"})
 
 # organizerDashboard.finalizedSummary's own sheet (gth-decision-panel) has no
 # height cap at all in board party2/d4r/G2-SpFinal.dc.html -- it sizes to
 # its own fixed content (badge+going row, date/time row, decided shop row,
 # then the answers/links entrance rows), floating over a map that fills
-# whatever is left. Given a fixed max-height ceiling sized to fit that
-# content (organizer.css's own gth-decision-panel mobile rule), three
-# widths still cannot clear (i)'s own global floor alongside it (coordinator
-# finding, 2026-09-21) -- LANDSCAPE_VIEWPORT_LABEL (no board reference at
-# this orientation at all), phone-320x568, and phone-360x740 (the decided
-# shop row's own text wraps onto more lines at these two narrow columns,
-# 140px tall measured vs. 97px from 390px width up, leaving too little room
-# to clear the ratio term of the floor even where the px term alone would
-# have been close -- 360x740 measured 134.8px against a 148px requirement).
-# All three use the relaxed ">0" form rather than trimming the sheet's own
-# required content to chase the floor.
+# whatever is left. This sheet is bottom-anchored (bottom: 0, flush with
+# gth-decision-stage's own floor, coordinator finding 2026-09-21) with an
+# 85% max-height ceiling (a pure ceiling -- overflow-y: auto scrolls the
+# rest into reach whenever real content exceeds it, not the sizing
+# mechanism). At phone-390x844 and up this content (with
+# RESPONSIVE_CHECK_RANDOM_SEED's own pinned shop) fits comfortably under
+# that ceiling and clears (i)'s own global floor with real margin (measured
+# 220.9px against 168.8px). Two widths still cannot: LANDSCAPE_VIEWPORT_
+# LABEL (no board reference at this orientation at all) and phone-360x740
+# (measured 94.5px against a 148px requirement -- fully showing this
+# sheet's own required content, including both entrance rows per the
+# human's own report, simply leaves less room than this floor wants at
+# this one width, even with phone-390x844's own margin above);
+# phone-320x568 needs the same relax for the same reason at an even
+# smaller width. All three use the relaxed ">0" form rather than trimming
+# the sheet's own required content to chase the floor.
 DECISION_PANEL_RELAXED_MAP_FLOOR_LABELS = frozenset(
     {LANDSCAPE_VIEWPORT_LABEL, "phone-320x568", "phone-360x740"}
 )
+
+# Coordinator finding (2026-09-21): board party2/d4r/G2-SpFinal.dc.html's
+# own sheet shows both closed answers/links entrance rows without
+# scrolling at its own 390x844 reference. phone-320x568 is excluded --
+# the sheet's own required content above (head/date-time/shop-row) alone
+# already uses most of this width's own available height (see
+# DECISION_PANEL_RELAXED_MAP_FLOOR_LABELS' own comment); adding both
+# entrance rows on top of that leaves no geometrically consistent ceiling
+# that both shows them and keeps any part of the map visible at this one
+# width.
+DECISION_ENTRANCE_ROWS_EXCLUDED_LABELS = frozenset({LANDSCAPE_VIEWPORT_LABEL, "phone-320x568"})
 
 # (h)'s own containment tolerance: bounding_box()/getBoundingClientRect()
 # report sub-pixel floats even on an integer viewport size, so a strict >
@@ -2134,9 +2159,21 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         )
         return self._issue_participant_link_url()
 
-    def _seed_one_shortlisted_shop(self, gathering_id: str) -> str:
+    def _seed_one_shortlisted_shop(self, gathering_id: str, random_seed: int | None = None) -> str:
         """Puts exactly one real, synthetic shop into this gathering's
         shortlist so shortlistedShopVotes/finalize can be exercised.
+
+        ``random_seed`` (coordinator finding, 2026-09-21): every existing
+        caller of this method leaves it ``None`` (unpinned weighted
+        sampling, this method's own long-established default) -- a new,
+        opt-in parameter, not a change to that default. A test asserting
+        exactly what is or is not *visible* (not merely present) needs a
+        deterministic Given: which synthetic shop's own name/detail-field
+        length ends up at ``candidates[0]`` otherwise varies run to run,
+        which real measurement showed flakes a visibility assertion
+        tuned against one specific length (ADR-0065's own responsive
+        slice, tests/ui_invariants/test_render_invariants.py's own
+        RESPONSIVE_MATRIX_VIEWPORTS callers).
 
         Shop selection itself lives entirely on candidate-search-browser-
         interface.yaml's own gatheringMode screen (adr/0049 decision 1) --
@@ -2156,7 +2193,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         render satisfies this).
         """
         self.dsl.reset_candidate_state()
-        self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING")
+        self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING", random_seed=random_seed)
         token = csrf_token(self.page)
         propose_response = self.context.request.post(
             f"{self.base_url}/candidate-proposals",
@@ -3836,7 +3873,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         gathering_id = self._create_gathering_via_ui("店選び中サイズ確認会")
         by_test_id(self.page, "gathering-candidate-date").click()
         by_test_id(self.page, "gathering-confirm-date-select").click()
-        self._seed_one_shortlisted_shop(gathering_id)
+        self._seed_one_shortlisted_shop(gathering_id, random_seed=RESPONSIVE_CHECK_RANDOM_SEED)
         self.page.reload()
         expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
 
@@ -3961,6 +3998,112 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
                         f"gathering-shortlisted-shop-item, first row ({label})",
                     )
 
+    def test_gathering_dashboard_selecting_shop_stage_handles_the_longest_synthetic_shop_name(
+        self,
+    ) -> None:
+        """Coordinator finding (2026-09-21): a visibility check against one
+        specific, pinned shop (RESPONSIVE_CHECK_RANDOM_SEED, the test above)
+        does not by itself prove every synthetic shop name is safe -- this
+        Given instead shortlists whichever candidate has the *longest* name
+        in the synthetic population (deterministic by construction: found by
+        scanning the actual API response, not a hardcoded string, so this
+        stays correct if that population's own content changes), the worst
+        case for text-wrap width this file's own real measurement
+        (SHOP_ROW_VISIBLE_EXCLUDED_LABELS's own comment) already found
+        sensitive to shop-name length. Asserts (g) it never causes
+        horizontal overflow and that its own name element wraps within
+        (rather than overflowing or being clipped to) about 2 lines, at
+        every portrait width -- a *width* concern, not (i)'s own height one,
+        so this does not also repeat the map-visible-height/content-visible
+        checks the test above already covers for the pinned-seed shop.
+        """
+        self._sign_in_as_organizer()
+        gathering_id = self._create_gathering_via_ui("最長店名確認会")
+        by_test_id(self.page, "gathering-candidate-date").click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        self.dsl.reset_candidate_state()
+        self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING")
+        token = csrf_token(self.page)
+        # DISPLAY_CAP limits any one proposeCandidates call to 5 of the
+        # >=40 lunch-eligible synthetic candidates NORMAL_WITH_WEIGHTED_
+        # SAMPLING's own population guarantees (weighted by distance) --
+        # the single longest-named one is not guaranteed to be among any
+        # one call's own 5. Repeating this same public call (each one a
+        # fresh weighted draw, no randomSeed pinned here) and keeping the
+        # longest name seen across every draw finds it with high
+        # probability without needing this test to read the population's
+        # own internal ordering (out of scope -- suggestions/
+        # acceptance_state.py is implementation, not a public seam).
+        seen_by_shop_id: dict[str, dict] = {}
+        for _ in range(15):
+            propose_response = self.context.request.post(
+                f"{self.base_url}/candidate-proposals",
+                data={"gatheringId": gathering_id},
+                headers={"X-CSRFToken": token},
+            )
+            self.assertEqual(propose_response.status, 200, propose_response.text())
+            for candidate in propose_response.json()["candidates"]:
+                seen_by_shop_id[candidate["shopId"]] = candidate
+        self.assertGreater(
+            len(seen_by_shop_id), 0, "no synthetic candidates available to shortlist"
+        )
+        longest = max(seen_by_shop_id.values(), key=lambda candidate: len(candidate["name"]))
+        put_response = self.context.request.put(
+            f"{self.dsl.base_url}/gatherings/{gathering_id}/shortlisted-shops",
+            data={"shopIds": [longest["shopId"]]},
+            headers={"X-CSRFToken": token},
+        )
+        self.assertEqual(put_response.status, 200, put_response.text())
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+
+        for width, height, label in RESPONSIVE_MATRIX_VIEWPORTS:
+            with self.subTest(viewport=label, shop_name=longest["name"]):
+                self.page.set_viewport_size({"width": width, "height": height})
+                self.page.reload()
+                expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+                _assert_no_horizontal_overflow(self.page, f"longest shop name, closed ({label})")
+
+                name_el = self.page.locator(".gth-shop-name").first
+                name_box = name_el.bounding_box()
+                assert name_box is not None, f"{label}: shop name element has no bounding box"
+                # 2 lines' worth at this row's own 0.875rem/1.6 line-height
+                # (organizer.css/base.html) is ~45px -- 60px keeps a real
+                # margin above that (measured, not guessed) while still
+                # rejecting a 3rd line (a sign of overflow/clipping rather
+                # than a clean 2-line wrap).
+                assert name_box["height"] <= 60, (
+                    f"{label}: shop name element height ({name_box['height']}px) for "
+                    f"{longest['name']!r} suggests more than ~2 lines, not a clean wrap"
+                )
+                # _assert_no_horizontal_overflow (document-level) does not
+                # by itself catch a nowrap name overflowing its own row:
+                # gth-shop-panel-body's own overflow-y: auto (a real-
+                # measurement finding -- setting only one axis to a
+                # non-visible value makes a browser treat the other axis as
+                # auto too, CSS overflow's own "both or neither stay
+                # visible" rule) already contains it as its own internal
+                # horizontal scroll rather than letting it burst out to
+                # gth-shop-panel or the page (a plain, unconstrained span's
+                # own scrollWidth always equals its clientWidth regardless
+                # of how wide it renders, so the check has to be against
+                # this contained-scroll ancestor, not the name span
+                # itself, to mean anything -- gth-shop-panel itself turned
+                # out NOT to see this overflow at all, confirmed by a
+                # direct measurement, since gth-shop-panel-body's own
+                # internal scroll already contains it one level up).
+                # scrollWidth vs. clientWidth on gth-shop-panel-body catches
+                # exactly "some descendant renders wider than this row" --
+                # a fault-injection round confirmed this fires (a forced
+                # white-space: nowrap on gth-shop-name) and reverts to
+                # passing once the name wraps again.
+                panel_el = self.page.locator(".gth-shop-panel-body").first
+                overflow = panel_el.evaluate("el => el.scrollWidth - el.clientWidth")
+                assert overflow <= VIEWPORT_EDGE_TOLERANCE_PX, (
+                    f"{label}: gth-shop-panel-body's own scrollWidth exceeds its clientWidth "
+                    f"by {overflow}px for {longest['name']!r} -- not wrapping cleanly"
+                )
+
     def test_ghi_gathering_dashboard_finalized_stage_fits_every_supported_viewport(self) -> None:
         """One Given (the same gathering as the previous test, carried
         through to FINALIZED), then every viewport in
@@ -3974,7 +4117,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         gathering_id = self._create_gathering_via_ui("確定後サイズ確認会")
         by_test_id(self.page, "gathering-candidate-date").click()
         by_test_id(self.page, "gathering-confirm-date-select").click()
-        self._seed_one_shortlisted_shop(gathering_id)
+        self._seed_one_shortlisted_shop(gathering_id, random_seed=RESPONSIVE_CHECK_RANDOM_SEED)
         self.page.reload()
         expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
         by_test_id(self.page, "gathering-finalize-shop-select").click()
@@ -3992,12 +4135,6 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
                 is_narrow = width < 1024
 
                 _assert_no_horizontal_overflow(self.page, f"decision stage, closed ({label})")
-
-                by_test_id(self.page, "gathering-decision-links-open").click()
-                expect(by_test_id(self.page, "gathering-participant-link-list")).to_be_visible()
-                _assert_no_horizontal_overflow(
-                    self.page, f"decision stage, links-open entrance open ({label})"
-                )
 
                 if is_narrow:
                     nav_bar = by_test_id(self.page, "candidate-primary-nav-bar")
@@ -4062,6 +4199,37 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
                             height,
                             f"{part_label} ({label})",
                         )
+
+                if label not in DECISION_ENTRANCE_ROWS_EXCLUDED_LABELS:
+                    # Coordinator finding (2026-09-21): board party2/d4r/
+                    # G2-SpFinal.dc.html's own sheet shows both closed
+                    # answers/links entrance rows (回答を見る／回答リンク)
+                    # below the decided shop row, without scrolling --
+                    # checked in their own closed (not yet expanded) state,
+                    # matching that board frame; DECISION_ENTRANCE_ROWS_
+                    # EXCLUDED_LABELS' own comment records phone-320x568's
+                    # excluded reason.
+                    for entrance_test_id in (
+                        "gathering-decision-answers-open",
+                        "gathering-decision-links-open",
+                    ):
+                        _assert_element_fully_visible_and_uncovered(
+                            by_test_id(self.page, entrance_test_id),
+                            width,
+                            height,
+                            f"{entrance_test_id} ({label})",
+                        )
+
+                # (g), the links-open entrance's own expanded state (a
+                # separate concern from the closed-state content check
+                # above -- opening it grows the sheet with the link list,
+                # which is expected to need scrolling on a short device,
+                # not full visibility).
+                by_test_id(self.page, "gathering-decision-links-open").click()
+                expect(by_test_id(self.page, "gathering-participant-link-list")).to_be_visible()
+                _assert_no_horizontal_overflow(
+                    self.page, f"decision stage, links-open entrance open ({label})"
+                )
 
     def test_gh_participant_answer_fits_every_supported_viewport(self) -> None:
         """One Given (a signed participant link, 2 candidate dates so

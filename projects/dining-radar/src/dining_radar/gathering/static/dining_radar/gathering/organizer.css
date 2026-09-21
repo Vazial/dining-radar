@@ -139,6 +139,34 @@ body:has(#gathering-app) .app-shell {
     padding: 0.5rem 0.75rem;
   }
 }
+/* Coordinator finding (2026-09-21, 360x740 real measurement): base.html's
+   own .app-shell (width: min(100% - 2rem, ...)) / .app-card (padding:
+   clamp(1.25rem, 4vw, 2rem)) / .app-header (margin-bottom: 1.5rem; h1
+   font-size: clamp(1.5rem, 6vw, 2rem)) sum to real, width-independent
+   chrome above gth-shop-stage/gth-decision-stage that left too little of
+   the stage's own height for gathering-shortlisted-shop-item's own first
+   row to render without being cut off at this width. Tightened here
+   (mobile width only; wording/labels unchanged, only size/spacing) so the
+   map's own stage starts closer to the top and gathering-shortlisted-
+   shop-item's own row has more real room -- not a fix aimed at the map
+   directly, but the same chrome this whole chain already competes with. */
+@media (max-width: 47.9375rem) {
+  body:has(#gathering-app) .app-shell {
+    width: min(100% - 0.75rem, 60rem);
+  }
+  body:has(#gathering-app) .app-card {
+    padding: 0.625rem 0.625rem 0.75rem;
+  }
+  body:has(#gathering-app) .app-header {
+    margin-bottom: 0.5rem;
+  }
+  body:has(#gathering-app) .app-header h1 {
+    font-size: 1.125rem;
+  }
+  .gth-dash {
+    gap: 0.5rem;
+  }
+}
 
 /* --- shared buttons/inputs (both gathering- and gth- prefixes) --------- */
 
@@ -1336,11 +1364,27 @@ body:has(#gathering-app) .app-shell {
   gap: 0.5rem;
   flex-wrap: wrap;
 }
+/* Coordinator finding (2026-09-21): the synthetic population's own longest
+   name ("ドラゴンレッドリバー DRAGON RED RIVER 総本店（合成データ）", the
+   worst case for shop-name length this file's own render invariants now
+   seed directly) wraps onto 3-5 lines at every required width, not the 2
+   the human's own ask names ("店名が2行で収まる") -- overflow-wrap alone
+   only controls *where* a line breaks, not how many lines render. A
+   2-line clamp (WebKit's own long-standing -webkit-line-clamp, the same
+   technique used everywhere a card grid truncates a long title) caps this
+   at exactly 2 lines with an ellipsis for any name too long to fit,
+   rather than growing the row without bound -- ordinary (short) shop
+   names, including every board-approved example, never reach 2 lines in
+   the first place and are completely unaffected. */
 .gth-shop-name {
   font-weight: 700;
   font-size: 0.875rem;
   color: #17201b;
   overflow-wrap: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .gth-shop-genre {
   font-size: 0.75rem;
@@ -1524,23 +1568,37 @@ body:has(#gathering-app) .app-shell {
     left: 0;
     right: 0;
     top: auto;
-    bottom: 3.5rem;
+    /* **Fixed (coordinator finding, 2026-09-21)**: bottom: 3.5rem left a
+       ~55px strip of bare map between this sheet's own bottom edge and the
+       stage's own floor, cutting the last answers/links entrance row off
+       instead of reaching the mobile nav bar the way board party2/d4r/
+       G2-SpFinal.dc.html does ("シートは面の下端に貼り付け"). This 3.5rem
+       was a second, separate nav-bar clearance -- redundant now that this
+       file's own body:has(#gathering-app) padding-bottom (declared near
+       the top of this file) already reserves that same clearance once,
+       the same double-reservation class of bug already found and fixed for
+       gth-shop-panel's own bottom-bar offset. bottom: 0 lands this sheet
+       flush with gth-decision-stage's own floor instead, which itself
+       already sits just above the nav bar. */
+    bottom: 0;
     /* **Fixed (coordinator finding)**: board party2/d4r/G2-SpFinal.dc.html's
        own sheet has no height cap at all here -- it sizes to its own
        content (badge+date row, decided-shop row, the two answers/links
-       rows), floating over a map that fills whatever is left. A previous
-       revision capped this at 15% specifically to keep decision 5(i)'s own
-       map-visible-height gate green on the extreme 844x390 landscape case
-       -- but that percentage applied at *every* width this media query
-       covers, so it also clipped the board's own portrait content down to
-       "決まりました・行ける0人" alone, hiding the date/shop/answers rows
-       the human's own report names. min() here is a pure ceiling (guards
-       only a pathological over-long content case), not the sizing
-       mechanism -- the panel's own real height at every required portrait
-       width is content height, matching the board. Landscape's own map
-       floor is relaxed instead, in the test file, not by re-introducing a
-       height cap here (see that file's own comment on this exact trade). */
-    max-height: 16rem;
+       rows), floating over a map that fills whatever is left. Two earlier
+       revisions of this rule tried a flat percentage (15%, then a flat
+       16rem) chosen to keep decision 5(i)'s own map-visible-height gate
+       green -- both instead clipped the board's own portrait content
+       (2026-09-21 coordinator findings, in turn: "決まりました・行ける0人"
+       alone, then the last answers/links row cut off). 85% is a ceiling
+       only (this panel's own overflow-y: auto, base rule above, scrolls
+       the rest into reach whenever real content exceeds it) -- every
+       required portrait width's own real content (measured: head+date-
+       time+shop-row+both entrance rows, ~315px) fits under it without
+       scrolling; landscape and phone-320x568 are relaxed on decision
+       5(i)'s own map floor instead of shrinking this ceiling further (see
+       tests/ui_invariants/test_render_invariants.py's own comment on this
+       exact trade). */
+    max-height: 85%;
     width: auto;
     border-radius: 1.125rem 1.125rem 0 0;
     padding-top: 0.625rem;
@@ -1722,7 +1780,7 @@ body:has(#gathering-app) .app-shell {
 @media (max-width: 47.9375rem) {
   .gth-shop-select-tabs {
     gap: 0.25rem 0.375rem;
-    padding: 0.625rem 0.5rem 0.5rem;
+    padding: 0.375rem 0.5rem 0.375rem;
   }
   .gth-shop-select-tab {
     padding: 0 0.4rem;
@@ -1733,6 +1791,34 @@ body:has(#gathering-app) .app-shell {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+/* Coordinator finding (2026-09-21, 360x740 real measurement): this row
+   ("票が多い順" + gth-inline-actions's own 2 buttons) is one line at the
+   board's own reference width, but a caption sharing a row with 2 buttons
+   does not fit at 360px content width even after every button/tab trim
+   this file already applies elsewhere -- it wrapped, and because the row
+   itself only sets flex-wrap (not flex-direction), the wrap could land
+   either button on its own third line depending on exact pixel widths,
+   not a clean 2-line split. flex-direction: column here (scoped to this
+   one row via the child combinator, not every .gth-pane-head-row this file
+   has elsewhere) makes it deterministically 2 lines instead: 票が多い順 on
+   its own (now reading as a small caption under the tab strip, per the
+   human's own "タブの下の説明に回す" framing) then gth-inline-actions's own
+   row (its own existing justify-content: flex-end still right-aligns the
+   2 buttons, which fit together on one line at every required width). No
+   wording/label change -- geometry only. */
+@media (max-width: 47.9375rem) {
+  .gth-shop-select-pane > .gth-pane-head-row {
+    flex-direction: column;
+    /* stretch (the flex default -- restated for clarity): gth-inline-
+       actions below needs the row's own full width for its own
+       justify-content: flex-end to still right-align the 2 buttons the
+       way the board's own one-line form does; align-items: flex-start
+       would instead shrink it to its own content width, left-aligning
+       them. */
+    align-items: stretch;
+    gap: 0.25rem;
+  }
 }
 /* participantLinkCopy (ADR-0063 decision 3's own scope note: this control
    is not one of the 4 tab-gated targets) -- kept unconditionally visible
