@@ -1998,13 +1998,27 @@ body:has(#gathering-app) .app-shell {
 }
 /* Board's own plain name-tag beside each pin -- Leaflet's default tooltip
    is already close (white pill, drop shadow); this only tunes size and
-   drops the default pointer arrow board's own labels do not show. */
+   drops the default pointer arrow board's own labels do not show.
+   max-width caps the tag to one line with an ellipsis for long shop names
+   (real-machine finding, 2026-09-21: an untruncated long name reached the
+   far edge of the map and sat under the zoom control). The number is sized
+   to fit within the tooltip's own horizontal budget to the right of its pin
+   -- marker icon half-width (14px) + Leaflet's own tooltip offset (10px) +
+   this pill's own padding (0.625rem x2 = 20px) -- while staying under the
+   organizer decision map's own far-side fitBounds clearance (gathering.js
+   initializeOrganizerDecisionMap, 160px on desktop, matched on mobile
+   below) with margin to spare for the pill's rounded corners/shadow. */
 .gth-map-label {
   font-size: 0.75rem;
   font-weight: 700;
   color: #17201b;
   border-radius: 999px;
   padding: 0.25rem 0.625rem;
+  box-sizing: border-box;
+  max-width: 6.5rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .gth-map-label::before {
   display: none;

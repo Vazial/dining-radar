@@ -572,6 +572,71 @@ def _assert_element_fully_visible_and_uncovered(
     _assert_center_hit_tests_to_self(locator, label)
 
 
+def _assert_element_within_container_bounds(
+    locator: Locator, container_locator: Locator, label: str
+) -> None:
+    """Coordinator finding (2026-09-21): the decided shop's own name tag
+    (``.gth-map-label``, a permanent Leaflet tooltip) is not a descendant
+    clipped by the map container's own ``overflow`` -- Leaflet renders it
+    into its own tooltip pane, a sibling layer, so an over-wide tag can
+    render past the map's own right/bottom edge while still reporting its
+    full, unclipped ``bounding_box()`` here (the same "an ancestor's own
+    overflow:hidden does not shrink what ``bounding_box()`` reports" fact
+    ``_assert_element_fully_visible_and_uncovered``'s own docstring already
+    relies on, applied against a container narrower than the viewport
+    instead of the viewport itself). Asserts ``locator``'s own bounding box
+    sits entirely within ``container_locator``'s own bounding box.
+    """
+    box = locator.bounding_box()
+    container_box = container_locator.bounding_box()
+    assert box is not None, f"{label}: element has no bounding box"
+    assert container_box is not None, f"{label}: container has no bounding box"
+    assert box["x"] >= container_box["x"] - VIEWPORT_EDGE_TOLERANCE_PX, (
+        f"{label}: left edge ({box['x']}px) is left of its own map container "
+        f"({container_box['x']}px)"
+    )
+    assert box["y"] >= container_box["y"] - VIEWPORT_EDGE_TOLERANCE_PX, (
+        f"{label}: top edge ({box['y']}px) is above its own map container ({container_box['y']}px)"
+    )
+    right = box["x"] + box["width"]
+    container_right = container_box["x"] + container_box["width"]
+    assert right <= container_right + VIEWPORT_EDGE_TOLERANCE_PX, (
+        f"{label}: right edge ({right}px) exceeds its own map container's right edge "
+        f"({container_right}px)"
+    )
+    bottom = box["y"] + box["height"]
+    container_bottom = container_box["y"] + container_box["height"]
+    assert bottom <= container_bottom + VIEWPORT_EDGE_TOLERANCE_PX, (
+        f"{label}: bottom edge ({bottom}px) exceeds its own map container's bottom edge "
+        f"({container_bottom}px)"
+    )
+
+
+def _assert_elements_do_not_overlap(locator_a: Locator, locator_b: Locator, label: str) -> None:
+    """Coordinator finding (2026-09-21): an axis-aligned bounding-box
+    intersection test between two elements' own ``bounding_box()`` rects --
+    used here for the decided shop's own name tag against Leaflet's zoom
+    control (``.leaflet-control-zoom``, docked top-right), neither of which
+    is a descendant of the other, so ``_assert_center_hit_tests_to_self``'s
+    own single-point hit test would not by itself catch a *partial* overlap
+    that still leaves the control's own center point clickable. If either
+    element has no bounding box (not rendered), there is nothing to overlap
+    and this passes -- a caller that requires both to be present should
+    assert that separately.
+    """
+    box_a = locator_a.bounding_box()
+    box_b = locator_b.bounding_box()
+    if box_a is None or box_b is None:
+        return
+    a_right = box_a["x"] + box_a["width"]
+    b_right = box_b["x"] + box_b["width"]
+    a_bottom = box_a["y"] + box_a["height"]
+    b_bottom = box_b["y"] + box_b["height"]
+    overlap_x = box_a["x"] < b_right and box_b["x"] < a_right
+    overlap_y = box_a["y"] < b_bottom and box_b["y"] < a_bottom
+    assert not (overlap_x and overlap_y), f"{label}: bounding boxes overlap (a={box_a}, b={box_b})"
+
+
 class RenderedScreenInvariantTests(StaticLiveServerTestCase):
     """Each test method is one independent ADR-0020 decision 4 invariant.
 
@@ -2211,6 +2276,57 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         )
         self.assertEqual(put_response.status, 200, put_response.text())
         return shop_id
+
+    def _shortlist_the_longest_named_shop(self, gathering_id: str) -> dict:
+        """Shortlists whichever synthetic candidate has the longest ``name``
+        across the population ``proposeCandidates`` (gathering mode) can
+        return, and returns that candidate's own dict (``shopId``/``name``
+        included). Factored out of what was originally
+        ``test_gathering_dashboard_selecting_shop_stage_handles_the_longest_
+        synthetic_shop_name``'s own inline Given so a second test (the map
+        label's own containment, coordinator finding 2026-09-21) can reuse
+        the identical "worst case for text width" shop without duplicating
+        the search for it.
+
+        DISPLAY_CAP limits any one ``proposeCandidates`` call to 5 of the
+        >=40 lunch-eligible synthetic candidates NORMAL_WITH_WEIGHTED_
+        SAMPLING's own population guarantees (weighted by distance) -- the
+        single longest-named one is not guaranteed to be among any one
+        call's own 5. Repeating this same public call (each one a fresh
+        weighted draw, no ``randomSeed`` pinned here) and keeping the
+        longest name seen across every draw finds it with high probability
+        without needing this file to read the population's own internal
+        ordering (out of scope -- suggestions/acceptance_state.py is
+        implementation, not a public seam). ``self.page`` must already be on
+        an organizer-authenticated page carrying the hidden CSRF field (same
+        precondition as ``_seed_one_shortlisted_shop``); this method itself
+        resets/re-seeds candidate state, so no separate call to
+        ``set_candidate_state`` is needed first.
+        """
+        self.dsl.reset_candidate_state()
+        self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING")
+        token = csrf_token(self.page)
+        seen_by_shop_id: dict[str, dict] = {}
+        for _ in range(15):
+            propose_response = self.context.request.post(
+                f"{self.base_url}/candidate-proposals",
+                data={"gatheringId": gathering_id},
+                headers={"X-CSRFToken": token},
+            )
+            self.assertEqual(propose_response.status, 200, propose_response.text())
+            for candidate in propose_response.json()["candidates"]:
+                seen_by_shop_id[candidate["shopId"]] = candidate
+        self.assertGreater(
+            len(seen_by_shop_id), 0, "no synthetic candidates available to shortlist"
+        )
+        longest = max(seen_by_shop_id.values(), key=lambda candidate: len(candidate["name"]))
+        put_response = self.context.request.put(
+            f"{self.dsl.base_url}/gatherings/{gathering_id}/shortlisted-shops",
+            data={"shopIds": [longest["shopId"]]},
+            headers={"X-CSRFToken": token},
+        )
+        self.assertEqual(put_response.status, 200, put_response.text())
+        return longest
 
     def _seed_two_shortlisted_shops_with_a_clear_leader(self, gathering_id: str) -> tuple[str, str]:
         """Shortlists two real, synthetic shops and casts exactly one
@@ -4021,39 +4137,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         gathering_id = self._create_gathering_via_ui("最長店名確認会")
         by_test_id(self.page, "gathering-candidate-date").click()
         by_test_id(self.page, "gathering-confirm-date-select").click()
-        self.dsl.reset_candidate_state()
-        self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING")
-        token = csrf_token(self.page)
-        # DISPLAY_CAP limits any one proposeCandidates call to 5 of the
-        # >=40 lunch-eligible synthetic candidates NORMAL_WITH_WEIGHTED_
-        # SAMPLING's own population guarantees (weighted by distance) --
-        # the single longest-named one is not guaranteed to be among any
-        # one call's own 5. Repeating this same public call (each one a
-        # fresh weighted draw, no randomSeed pinned here) and keeping the
-        # longest name seen across every draw finds it with high
-        # probability without needing this test to read the population's
-        # own internal ordering (out of scope -- suggestions/
-        # acceptance_state.py is implementation, not a public seam).
-        seen_by_shop_id: dict[str, dict] = {}
-        for _ in range(15):
-            propose_response = self.context.request.post(
-                f"{self.base_url}/candidate-proposals",
-                data={"gatheringId": gathering_id},
-                headers={"X-CSRFToken": token},
-            )
-            self.assertEqual(propose_response.status, 200, propose_response.text())
-            for candidate in propose_response.json()["candidates"]:
-                seen_by_shop_id[candidate["shopId"]] = candidate
-        self.assertGreater(
-            len(seen_by_shop_id), 0, "no synthetic candidates available to shortlist"
-        )
-        longest = max(seen_by_shop_id.values(), key=lambda candidate: len(candidate["name"]))
-        put_response = self.context.request.put(
-            f"{self.dsl.base_url}/gatherings/{gathering_id}/shortlisted-shops",
-            data={"shopIds": [longest["shopId"]]},
-            headers={"X-CSRFToken": token},
-        )
-        self.assertEqual(put_response.status, 200, put_response.text())
+        longest = self._shortlist_the_longest_named_shop(gathering_id)
         self.page.reload()
         expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
 
@@ -4229,6 +4313,77 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
                 expect(by_test_id(self.page, "gathering-participant-link-list")).to_be_visible()
                 _assert_no_horizontal_overflow(
                     self.page, f"decision stage, links-open entrance open ({label})"
+                )
+
+    def test_gathering_dashboard_finalized_stage_map_label_stays_inside_map_bounds(
+        self,
+    ) -> None:
+        """Coordinator finding (2026-09-21, real-machine screenshot): the
+        decided shop's own name tag (``.gth-map-label``, a permanent
+        Leaflet tooltip bound to ``gathering-decision-shop-map-marker``)
+        reached the map's own right edge and sat under the zoom control for
+        a long shop name, at both 390x844 and 360x740 -- neither
+        ``_assert_no_horizontal_overflow`` (document-level; the map itself
+        never grows the page) nor the existing (i) map-visible-height check
+        (only looks at vertical occlusion by the sheet) can see this,
+        since the tag renders inside the map's own bounds, just past its
+        own *usable* right edge.
+
+        Uses ``_shortlist_the_longest_named_shop`` (the same worst-case
+        shop the width test above already found) so this is checked
+        against a real name long enough to matter, not a short synthetic
+        name that would pass regardless of whether the fix holds. Checked
+        at the 5 portrait ``RESPONSIVE_MATRIX_VIEWPORTS`` widths only
+        (landscape/tablet/PC excluded here the same way the finalized-stage
+        map-floor/content checks above already carve out
+        LANDSCAPE_VIEWPORT_LABEL -- this screen's own board reference is
+        portrait-only) -- asserts (1) the tag's own bounding box sits
+        entirely within the map container's own bounding box (not merely
+        within the viewport, which ``_assert_no_horizontal_overflow`` above
+        already covers and which would not by itself catch the tag ending
+        exactly at the map's own edge, one column short of the true
+        column the map no longer occupies past the sheet, on desktop) and
+        (2) the tag's own bounding box does not overlap Leaflet's own zoom
+        control (``.leaflet-control-zoom``, docked top-right per
+        ``initializeOrganizerDecisionMap``'s own ``zoomControl: false`` +
+        manual ``topright`` placement).
+        """
+        self._sign_in_as_organizer()
+        gathering_id = self._create_gathering_via_ui("最長店名確定後の地図確認会")
+        by_test_id(self.page, "gathering-candidate-date").click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        longest = self._shortlist_the_longest_named_shop(gathering_id)
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+        by_test_id(self.page, "gathering-finalize-shop-select").click()
+        by_test_id(self.page, "gathering-finalize-open").click()
+        by_test_id(self.page, "gathering-finalize-confirm").click()
+        expect(by_test_id(self.page, "gathering-phase-indicator")).to_have_attribute(
+            "data-gathering-phase", "FINALIZED"
+        )
+
+        portrait_viewports = [
+            (width, height, label)
+            for width, height, label in RESPONSIVE_MATRIX_VIEWPORTS
+            if label != LANDSCAPE_VIEWPORT_LABEL and width < 1024
+        ]
+        for width, height, label in portrait_viewports:
+            with self.subTest(viewport=label, shop_name=longest["name"]):
+                self.page.set_viewport_size({"width": width, "height": height})
+                self.page.reload()
+                expect(by_test_id(self.page, "gathering-decision-banner")).to_be_visible()
+
+                map_locator = by_test_id(self.page, "gathering-decision-shop-map")
+                map_label = self.page.locator(".gth-map-label").filter(has_text=longest["name"])
+                expect(map_label.first).to_be_visible()
+                _assert_element_within_container_bounds(
+                    map_label.first, map_locator, f"decided shop's own map label ({label})"
+                )
+                zoom_control = self.page.locator(".leaflet-control-zoom")
+                _assert_elements_do_not_overlap(
+                    map_label.first,
+                    zoom_control,
+                    f"decided shop's own map label vs. zoom control ({label})",
                 )
 
     def test_gh_participant_answer_fits_every_supported_viewport(self) -> None:
