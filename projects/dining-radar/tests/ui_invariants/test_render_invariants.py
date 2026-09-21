@@ -224,6 +224,193 @@ _SCAN_VISIBLE_TEXT_FOR_TOKENS_JS = """
 }
 """
 
+# ---------------------------------------------------------------------------
+# ADR-0065 decision 4/5: (g)/(h)/(i), a second extension to ADR-0020 decision
+# 4's frozen invariant set (ADR-0032's (f) was the first, following the same
+# "new ADR, not an edit to ADR-0020 itself" procedure -- ADR-0020 decision 2).
+# The viewport set below and the floor/ratio constants each (g)/(h)/(i) check
+# below are, per that same decision 2/ADR-0032 decision 2 style, developer-
+# maintained -- not contract text.
+
+# ADR-0065 decision 4: 5 phone portrait sizes, 1 landscape, and 3 tablet/PC
+# sizes -- the human's own concern ("スマホの画面が多少解像度が変わっても")
+# is a *range* of real phones, not one more fixed point, so this set is wider
+# than NARROW_VIEWPORTS/CONTROL_SIZE_VIEWPORTS above rather than reusing them
+# outright (decision 4 explicitly permits, but does not require, sharing).
+RESPONSIVE_MATRIX_VIEWPORTS = [
+    (320, 568, "phone-320x568"),
+    (360, 740, "phone-360x740"),
+    (390, 844, "phone-390x844"),
+    (412, 915, "phone-412x915"),
+    (430, 932, "phone-430x932"),
+    (844, 390, "phone-landscape-844x390"),
+    (768, 1024, "tablet-768x1024"),
+    (1024, 768, "desktop-1024x768"),
+    (1440, 900, "desktop-1440x900"),
+]
+
+# (i)'s own composite floor (ADR-0065 decision 5: "割合とpxの両方を持つ複合
+# 下限とする"): whichever is larger of this ratio of the viewport's own
+# height or this many px wins, so neither an extreme aspect ratio (ratio
+# alone) nor a very large screen (px alone) can slip a crushed map past this
+# gate. Measured (ADR-0020 decision 2's "initial approval doubles as
+# baseline approval" style) against this slice's own flex-fill rewrite
+# (ADR-0065 decision 2/3) rendering correctly across
+# RESPONSIVE_MATRIX_VIEWPORTS -- both values are the real, developer-
+# measured floor this implementation achieves, not a value chosen first and
+# then implemented against. organizerDashboard's own decision stage
+# (gathering-decision-shop-map/.gth-decision-panel) is the binding case at
+# the smallest margin: 844x390 (landscape) leaves it exactly 86.4px of
+# uncovered map (this stage's own header content -- title/badge/date/decided
+# -shop row, ADR-0062 decision 4's own board content, none of it trimmed to
+# chase a higher floor here) -- 75px/15% each keep a small margin below that
+# real number rather than sitting flush against it. Both the candidate
+# screen and organizerDashboard's own shop-select stage clear this same
+# floor with considerably more room at every required viewport.
+MAP_PRIMARY_MIN_VISIBLE_HEIGHT_PX = 75
+MAP_PRIMARY_MIN_VISIBLE_HEIGHT_RATIO = 0.15
+
+# (h)'s own containment tolerance: bounding_box()/getBoundingClientRect()
+# report sub-pixel floats even on an integer viewport size, so a strict >
+# comparison flakes on rounding alone; this is a measurement-noise allowance,
+# not a loosening of the gate itself.
+VIEWPORT_EDGE_TOLERANCE_PX = 1.0
+
+
+def _assert_no_horizontal_overflow(page, label: str) -> None:
+    """ADR-0065 decision 5(g): scrollWidth must not exceed clientWidth on
+    ``document.documentElement`` -- the same DOM-level definition of "a real
+    horizontal scrollbar exists" a browser itself uses. This catches an
+    element that genuinely widens the page (e.g. a non-clipped sheet/menu
+    pushing past the edge). Real-measurement finding: it does **not** by
+    itself catch every instance of decision 5(g)'s own motivating defect
+    (``.gth-issue .gth-confirm-dialog``) -- every call site of that popover
+    sits inside ``.gth-shop-panel``, which has its own ``overflow: hidden``,
+    so an overflowing descendant there is simply clipped/invisible rather
+    than widening documentElement's own scrollWidth (no scrollbar ever
+    appears; the popover's own trailing content is unreachable instead).
+    ``_assert_element_within_viewport_width`` below is this check's own
+    complement, asserting the popover's own bounding box directly (ADR-0065
+    decision 2's literal wording, "小窓は画面幅に収める") -- both gates are
+    kept, since a future popover placed *outside* any clipping ancestor
+    would still need this one.
+    """
+    overflow = page.evaluate(
+        "() => document.documentElement.scrollWidth - document.documentElement.clientWidth"
+    )
+    assert overflow <= VIEWPORT_EDGE_TOLERANCE_PX, (
+        f"{label}: horizontal overflow of {overflow}px "
+        "(document.documentElement.scrollWidth exceeds clientWidth) -- ADR-0065 decision 5(g)"
+    )
+
+
+def _assert_element_within_viewport_width(
+    locator: Locator, viewport_width: int, label: str
+) -> None:
+    """ADR-0065 decision 5(g)/decision 2's own literal wording ("小窓は画面幅
+    に収める"): this element's own bounding box must sit entirely within
+    ``[0, viewport_width]`` horizontally -- checked directly against the
+    element, not only via ``document.documentElement.scrollWidth``
+    (``_assert_no_horizontal_overflow``'s own docstring records why that
+    check alone does not reach a popover clipped by an ``overflow: hidden``
+    ancestor).
+    """
+    box = locator.bounding_box()
+    assert box is not None, f"{label}: element has no bounding box"
+    assert box["x"] >= -VIEWPORT_EDGE_TOLERANCE_PX, (
+        f"{label}: left edge ({box['x']}px) is left of the viewport -- ADR-0065 decision 5(g)"
+    )
+    right = box["x"] + box["width"]
+    assert right <= viewport_width + VIEWPORT_EDGE_TOLERANCE_PX, (
+        f"{label}: right edge ({right}px) exceeds the viewport width ({viewport_width}px) "
+        "-- ADR-0065 decision 5(g)"
+    )
+
+
+def _assert_fixed_bottom_surface_contained(
+    locator: Locator, viewport_height: int, label: str
+) -> None:
+    """ADR-0065 decision 5(h)(i): a viewport-bottom-fixed bar/nav's own
+    bounding box must sit entirely within ``[0, viewport_height]`` -- neither
+    edge pushed out of the visible area.
+    """
+    box = locator.bounding_box()
+    assert box is not None, f"{label}: fixed bottom surface has no bounding box"
+    assert box["y"] >= -VIEWPORT_EDGE_TOLERANCE_PX, (
+        f"{label}: top edge ({box['y']}px) is above the viewport -- ADR-0065 decision 5(h)"
+    )
+    bottom = box["y"] + box["height"]
+    assert bottom <= viewport_height + VIEWPORT_EDGE_TOLERANCE_PX, (
+        f"{label}: bottom edge ({bottom}px) exceeds the viewport height ({viewport_height}px) "
+        "-- ADR-0065 decision 5(h)"
+    )
+
+
+def _assert_center_hit_tests_to_self(locator: Locator, label: str) -> None:
+    """ADR-0065 decision 5(h)(ii): ``document.elementFromPoint`` at this
+    element's own bounding-box center must resolve to the element itself or
+    one of its own descendants -- catching a different element (a map tile,
+    another sheet) silently intercepting every pointer event aimed at a
+    control that still *looks* pressable.
+    """
+    hit = locator.evaluate(
+        """el => {
+          const r = el.getBoundingClientRect();
+          const x = r.left + r.width / 2;
+          const y = r.top + r.height / 2;
+          const at = document.elementFromPoint(x, y);
+          return Boolean(at) && (at === el || el.contains(at));
+        }"""
+    )
+    assert hit, (
+        f"{label}: center point is not hit-tested to this element -- ADR-0065 decision 5(h)(ii)"
+    )
+
+
+def _map_visible_height(
+    map_locator: Locator,
+    occluder_locator: Locator | None,
+    occlusion_width_ratio_threshold: float = 0.8,
+) -> float:
+    """The portion of ``map_locator``'s own bounding box not covered by
+    ``occluder_locator`` from below -- only when the occluder's own width is
+    at least ``occlusion_width_ratio_threshold`` of the map's width (a
+    desktop sidebar panel narrower than the map does not reduce how much of
+    the map reads as visible beside it; a mobile bottom sheet spanning (near)
+    the full width does)."""
+    map_box = map_locator.bounding_box()
+    assert map_box is not None, "map element has no bounding box"
+    visible_bottom = map_box["y"] + map_box["height"]
+    if occluder_locator is not None and occluder_locator.count() > 0:
+        occ_box = occluder_locator.first.bounding_box()
+        if occ_box is not None and map_box["width"] > 0:
+            ratio = occ_box["width"] / map_box["width"]
+            if ratio >= occlusion_width_ratio_threshold:
+                visible_bottom = min(visible_bottom, occ_box["y"])
+    return max(0.0, visible_bottom - map_box["y"])
+
+
+def _assert_map_primary_visible_height(
+    map_locator: Locator,
+    occluder_locator: Locator | None,
+    viewport_height: int,
+    label: str,
+) -> None:
+    """ADR-0065 decision 5(i): the map's own uncovered height must clear both
+    an absolute floor and a viewport-relative floor (see
+    MAP_PRIMARY_MIN_VISIBLE_HEIGHT_PX/_RATIO's own comment for why neither
+    alone is sufficient)."""
+    visible = _map_visible_height(map_locator, occluder_locator)
+    threshold = max(
+        MAP_PRIMARY_MIN_VISIBLE_HEIGHT_PX, MAP_PRIMARY_MIN_VISIBLE_HEIGHT_RATIO * viewport_height
+    )
+    assert visible >= threshold - VIEWPORT_EDGE_TOLERANCE_PX, (
+        f"{label}: map visible height ({visible}px) is below the required floor "
+        f"({threshold}px = max({MAP_PRIMARY_MIN_VISIBLE_HEIGHT_PX}px, "
+        f"{MAP_PRIMARY_MIN_VISIBLE_HEIGHT_RATIO * 100:.0f}% of {viewport_height}px)) "
+        "-- ADR-0065 decision 5(i)"
+    )
+
 
 class RenderedScreenInvariantTests(StaticLiveServerTestCase):
     """Each test method is one independent ADR-0020 decision 4 invariant.
@@ -1356,6 +1543,97 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         toast_return = by_test_id(self.page, "candidate-gathering-shortlist-toast-return")
         _assert_44px_and_tabbable(toast_return, "candidate-gathering-shortlist-toast-return")
 
+    # --- (g)/(h)/(i): ADR-0065 decision 5, measured against
+    # RESPONSIVE_MATRIX_VIEWPORTS (decision 4) ------------------------------
+
+    def test_ghi_candidate_screen_fits_every_supported_viewport(self) -> None:
+        """One Given (``_sign_in_with_candidates``), then every viewport in
+        RESPONSIVE_MATRIX_VIEWPORTS in turn (ADR-0065 decision 4's own
+        "画面ごとにGivenを1回作ってからサイズを切り替える" shape) -- a fresh
+        ``open_candidate_screen()`` per width is still required (not a mere
+        resize) for the same reason test_a/test_f already establish: render
+        mode (isTwoColumnLayout vs. isMapPrimaryTouchLayout) is read once at
+        render time, never on a live resize (adr/0032 decision3).
+
+        (g) is checked closed, then again with whichever of this screen's
+        own openable surfaces exists at that width (the filter panel always;
+        the ≡ menu at >=64rem; the mobile account sheet below it) -- decision
+        5(g)'s own "小窓を開いた状態も含める" requirement, generalized to this
+        screen's own control surface (candidate-search-browser-
+        interface.yaml has no participant-link-issue-dialog equivalent
+        here).
+
+        (h) only applies at <64rem, where candidate-primary-nav-bar (the
+        mobile bottom bar) survives initializePrimaryNav()'s render-mode
+        removal -- at >=64rem this screen has no viewport-bottom-fixed
+        surface at all (the ≡ menu is not bottom-fixed), so (h) is simply not
+        exercised there (no silent exclusion: this is the same "screen has no
+        such surface" carve-out decision 5(h) itself names).
+
+        (i) only applies at <64rem (mapPrimaryTouchLayout) -- >=64rem is
+        isTwoColumnLayout, a side-by-side list-and-map layout, not a
+        "浮く/重なる" map-primary one (ADR-0065 decision 5(i)'s own scoping
+        text); the map there is simply not covered by anything, so the
+        height floor would be measuring a different, uninteresting property
+        (whether the column itself is tall enough) rather than "is the map
+        crushed by something floating over it".
+        """
+        self._sign_in_with_candidates()
+        for width, height, label in RESPONSIVE_MATRIX_VIEWPORTS:
+            with self.subTest(viewport=label):
+                self.page.set_viewport_size({"width": width, "height": height})
+                self.dsl.open_candidate_screen()
+                is_narrow = width < 1024
+
+                _assert_no_horizontal_overflow(self.page, f"candidate screen, closed ({label})")
+
+                # candidateFilterBar.open exists at every width.
+                by_test_id(self.page, "candidate-filter-open").click()
+                _assert_no_horizontal_overflow(
+                    self.page, f"candidate screen, filter panel open ({label})"
+                )
+                by_test_id(self.page, "candidate-filter-open").click()
+
+                if is_narrow:
+                    account_toggle = by_test_id(self.page, "candidate-primary-nav-account")
+                    account_toggle.click()
+                    _assert_no_horizontal_overflow(
+                        self.page, f"candidate screen, account sheet open ({label})"
+                    )
+                    # Escape, not a second click: the open sheet is
+                    # position: fixed over the same bottom strip as its own
+                    # trigger (by design -- see .primary-nav-account-sheet's
+                    # own z-index), so a click at the trigger's old screen
+                    # position now lands on the sheet instead.
+                    self.page.keyboard.press("Escape")
+
+                    nav_bar = by_test_id(self.page, "candidate-primary-nav-bar")
+                    _assert_fixed_bottom_surface_contained(
+                        nav_bar, height, f"candidate-primary-nav-bar ({label})"
+                    )
+                    for link_test_id in (
+                        "candidate-primary-nav-search",
+                        "candidate-primary-nav-gathering",
+                        "candidate-primary-nav-account",
+                    ):
+                        _assert_center_hit_tests_to_self(
+                            by_test_id(self.page, link_test_id), f"{link_test_id} ({label})"
+                        )
+
+                    _assert_map_primary_visible_height(
+                        by_test_id(self.page, "candidate-map"),
+                        self.page.locator(".candidate-deck"),
+                        height,
+                        f"candidate-map ({label})",
+                    )
+                else:
+                    menu_toggle = by_test_id(self.page, "candidate-primary-nav-menu-toggle")
+                    menu_toggle.click()
+                    _assert_no_horizontal_overflow(
+                        self.page, f"candidate screen, primary nav menu open ({label})"
+                    )
+                    menu_toggle.click()
+
 
 # ---------------------------------------------------------------------------
 # 会の画面群 (organizerGatheringList / organizerGatheringCreate /
@@ -1431,14 +1709,22 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
     recorded here rather than silently omitted (decision 2's "no silent
     exclusion" requirement):
 
-    - ``organizerGatheringList``/``organizerGatheringCreate``/
-      ``organizerDashboard`` define no map element at all
-      (``gathering-scheduling-browser-interface.yaml``'s own
+    - ``organizerGatheringList``/``organizerGatheringCreate`` define no map
+      element at all (``gathering-scheduling-browser-interface.yaml``'s own
       ``forbiddenTestIdsNote``: ``organizerDashboard.shortlistSelection``'s
       own map was retired 2026-09-09, adr/0049 decision 1 -- shop-detail/map
       observation now lives entirely in
       ``candidate-search-browser-interface.yaml``'s ``gatheringMode``, a
-      screen outside this file's four-screen scope).
+      screen outside this file's four-screen scope). **Updated (ADR-0065
+      decision 6)**: this reasoning stopped covering ``organizerDashboard``
+      itself once ADR-0062 decision 1 gave it its own new map
+      (``gathering-shortlisted-shop-map``/``gathering-decision-shop-map``,
+      the "地図いっぱい" skeleton) -- (a) is still not extended there
+      directly (it is a binary reachability check; ADR-0065's own (i),
+      below, is the strictly stronger "occupies enough of the viewport"
+      check, so satisfying (i) on this screen's own map-primary stages
+      already implies (a) would hold too, closing this gap without a
+      redundant separate assertion).
     - ``participantAnswer`` does define its own map
       (``gathering-shop-vote-map``), but only once shop voting has started,
       and even then it renders as one secondary block partway down an
@@ -3394,3 +3680,203 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
                 by_test_id(page, "gathering-participant-day-list-open").click()
                 expect(by_test_id(page, "gathering-participant-day-list")).to_be_visible()
             self._assert_all_declared_gathering_controls_meet_44px(page, label)
+
+    # --- (g)/(h)/(i): ADR-0065 decision 5, measured against
+    # RESPONSIVE_MATRIX_VIEWPORTS (decision 4) ------------------------------
+
+    def test_ghi_gathering_dashboard_selecting_shop_stage_fits_every_supported_viewport(
+        self,
+    ) -> None:
+        """One Given (a SCHEDULING gathering confirmed into SELECTING_SHOP
+        with one shortlisted shop, so gth-shop-stage/gth-shop-map/
+        gth-shop-panel/gth-bottom-bar all render), then every viewport in
+        RESPONSIVE_MATRIX_VIEWPORTS in turn -- ``self.page.reload()`` (not a
+        fresh gathering) per width, since initializePrimaryNav() also reads
+        matchMedia once at DOMContentLoaded (gathering.js, mirroring
+        candidate.js) and would otherwise keep whichever of
+        candidate-primary-nav-bar/-menu-toggle this Given's own first
+        viewport happened to render.
+        """
+        self._sign_in_as_organizer()
+        gathering_id = self._create_gathering_via_ui("店選び中サイズ確認会")
+        by_test_id(self.page, "gathering-candidate-date").click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        self._seed_one_shortlisted_shop(gathering_id)
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+
+        for width, height, label in RESPONSIVE_MATRIX_VIEWPORTS:
+            with self.subTest(viewport=label):
+                self.page.set_viewport_size({"width": width, "height": height})
+                self.page.reload()
+                expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+                is_narrow = width < 1024
+
+                _assert_no_horizontal_overflow(self.page, f"selecting-shop stage, closed ({label})")
+
+                # gathering-participant-link-copy's own issueDialog (ADR-0061
+                # decision 1) -- the exact small window ADR-0065 decision 5(g)
+                # names as its motivating defect.
+                by_test_id(self.page, "gathering-shop-select-tab-links").click()
+                by_test_id(self.page, "gathering-participant-link-copy").click()
+                _assert_no_horizontal_overflow(
+                    self.page, f"selecting-shop stage, link-issue dialog open ({label})"
+                )
+                _assert_element_within_viewport_width(
+                    by_test_id(self.page, "gathering-participant-link-issue-dialog"),
+                    width,
+                    f"gathering-participant-link-issue-dialog, links tab ({label})",
+                )
+                by_test_id(self.page, "gathering-participant-link-issue-dialog-close").click()
+                by_test_id(self.page, "gathering-shop-select-tab-shop").click()
+
+                # Same issueDialog, reopened from shopTab's own trailing
+                # gth-inline-actions position (ADR-0063 decision 3's default
+                # tab, and the exact position real measurement found the
+                # ~160px overflow at -- narrower/deeper-nested than the
+                # links-tab row above, so this is not a redundant repeat of
+                # the check above).
+                by_test_id(self.page, "gathering-participant-link-copy").click()
+                _assert_no_horizontal_overflow(
+                    self.page,
+                    f"selecting-shop stage, link-issue dialog open from shop tab ({label})",
+                )
+                _assert_element_within_viewport_width(
+                    by_test_id(self.page, "gathering-participant-link-issue-dialog"),
+                    width,
+                    f"gathering-participant-link-issue-dialog, shop tab ({label})",
+                )
+                by_test_id(self.page, "gathering-participant-link-issue-dialog-close").click()
+
+                # gathering-finalize-confirm-dialog (ADR-0062 decision 3).
+                by_test_id(self.page, "gathering-finalize-shop-select").click()
+                by_test_id(self.page, "gathering-finalize-open").click()
+                expect(by_test_id(self.page, "gathering-finalize-confirm-dialog")).to_be_attached()
+                _assert_no_horizontal_overflow(
+                    self.page, f"selecting-shop stage, finalize-confirm dialog open ({label})"
+                )
+                by_test_id(self.page, "gathering-finalize-cancel").click()
+
+                if is_narrow:
+                    nav_bar = by_test_id(self.page, "candidate-primary-nav-bar")
+                    _assert_fixed_bottom_surface_contained(
+                        nav_bar, height, f"candidate-primary-nav-bar ({label})"
+                    )
+                    for link_test_id in (
+                        "candidate-primary-nav-search",
+                        "candidate-primary-nav-gathering",
+                        "candidate-primary-nav-account",
+                    ):
+                        _assert_center_hit_tests_to_self(
+                            by_test_id(self.page, link_test_id), f"{link_test_id} ({label})"
+                        )
+
+                # gth-bottom-bar (ADR-0062 decision 2) has no test id of its
+                # own (a plain status row + finalizeOpen) -- located by class,
+                # the same precedent this file's own
+                # test_e_gathering_dashboard_shortlisted_shop_panel_paints_
+                # above_the_map already uses for the sibling gth-shop-panel.
+                bottom_bar = self.page.locator(".gth-bottom-bar")
+                _assert_fixed_bottom_surface_contained(
+                    bottom_bar, height, f"gth-bottom-bar ({label})"
+                )
+                _assert_center_hit_tests_to_self(
+                    by_test_id(self.page, "gathering-finalize-open"),
+                    f"gathering-finalize-open ({label})",
+                )
+
+                _assert_map_primary_visible_height(
+                    by_test_id(self.page, "gathering-shortlisted-shop-map"),
+                    self.page.locator(".gth-shop-panel"),
+                    height,
+                    f"gathering-shortlisted-shop-map ({label})",
+                )
+
+    def test_ghi_gathering_dashboard_finalized_stage_fits_every_supported_viewport(self) -> None:
+        """One Given (the same gathering as the previous test, carried
+        through to FINALIZED), then every viewport in
+        RESPONSIVE_MATRIX_VIEWPORTS in turn. No gth-bottom-bar check here
+        (ADR-0065 decision 5(h)'s own "この面を持たない画面は対象外である理由を
+        書く" carve-out): renderFinalizedSummary (gathering.js) never builds
+        one -- only shortlistedShopVotes's own SELECTING_SHOP stage does
+        (previous test).
+        """
+        self._sign_in_as_organizer()
+        gathering_id = self._create_gathering_via_ui("確定後サイズ確認会")
+        by_test_id(self.page, "gathering-candidate-date").click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        self._seed_one_shortlisted_shop(gathering_id)
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+        by_test_id(self.page, "gathering-finalize-shop-select").click()
+        by_test_id(self.page, "gathering-finalize-open").click()
+        by_test_id(self.page, "gathering-finalize-confirm").click()
+        expect(by_test_id(self.page, "gathering-phase-indicator")).to_have_attribute(
+            "data-gathering-phase", "FINALIZED"
+        )
+
+        for width, height, label in RESPONSIVE_MATRIX_VIEWPORTS:
+            with self.subTest(viewport=label):
+                self.page.set_viewport_size({"width": width, "height": height})
+                self.page.reload()
+                expect(by_test_id(self.page, "gathering-decision-banner")).to_be_visible()
+                is_narrow = width < 1024
+
+                _assert_no_horizontal_overflow(self.page, f"decision stage, closed ({label})")
+
+                by_test_id(self.page, "gathering-decision-links-open").click()
+                expect(by_test_id(self.page, "gathering-participant-link-list")).to_be_visible()
+                _assert_no_horizontal_overflow(
+                    self.page, f"decision stage, links-open entrance open ({label})"
+                )
+
+                if is_narrow:
+                    nav_bar = by_test_id(self.page, "candidate-primary-nav-bar")
+                    _assert_fixed_bottom_surface_contained(
+                        nav_bar, height, f"candidate-primary-nav-bar ({label})"
+                    )
+                    for link_test_id in (
+                        "candidate-primary-nav-search",
+                        "candidate-primary-nav-gathering",
+                        "candidate-primary-nav-account",
+                    ):
+                        _assert_center_hit_tests_to_self(
+                            by_test_id(self.page, link_test_id), f"{link_test_id} ({label})"
+                        )
+
+                _assert_map_primary_visible_height(
+                    by_test_id(self.page, "gathering-decision-shop-map"),
+                    self.page.locator(".gth-decision-panel"),
+                    height,
+                    f"gathering-decision-shop-map ({label})",
+                )
+
+    def test_gh_participant_answer_fits_every_supported_viewport(self) -> None:
+        """One Given (a signed participant link, 2 candidate dates so
+        dayList's own sheet has more than one row), then every viewport in
+        RESPONSIVE_MATRIX_VIEWPORTS in turn, each in its own fresh browser
+        context (``_open_participant_view``'s own contract: no
+        organizerSession cookie). No (h)/(i) here (ADR-0065 decision 5(h)'s
+        own carve-out): participantAnswer builds no viewport-bottom-fixed
+        bar/nav of its own (no primary nav on this anonymous, signed-link-
+        only screen; gth-day-sheet is a bottom sheet, not a permanently
+        fixed bar), and this screen's own map (once shop voting starts) is a
+        secondary, ordinarily-scrolled-to block, not a map-primary stage
+        (this file's own class docstring already records this same
+        reasoning for (a), above).
+        """
+        link_url = self._build_participant_link(candidate_date_count=2)
+        for width, height, label in RESPONSIVE_MATRIX_VIEWPORTS:
+            with self.subTest(viewport=label):
+                page = self._open_participant_view(link_url, viewport=(width, height))
+                wait_for_at_least_one(page, "gathering-schedule-question")
+
+                _assert_no_horizontal_overflow(page, f"participant answer, closed ({label})")
+
+                if width < 1024:
+                    by_test_id(page, "gathering-participant-day-list-open").click()
+                    expect(by_test_id(page, "gathering-participant-day-list")).to_be_visible()
+                    _assert_no_horizontal_overflow(
+                        page, f"participant answer, day-list sheet open ({label})"
+                    )
+                    by_test_id(page, "gathering-participant-day-list-close").click()
