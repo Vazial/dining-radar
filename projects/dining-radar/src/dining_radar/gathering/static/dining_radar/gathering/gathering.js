@@ -2285,6 +2285,21 @@
     // Keeps both pins clear of panel's own footprint (PC: left side only,
     // not its height too) plus a name-tag-width margin on the far side.
     // maxZoom keeps two close points from zooming in past readable.
+    //
+    // MAP_LABEL_FAR_SIDE_CLEARANCE_PX: the shop-name tag (.gth-map-label,
+    // organizer.css) is drawn to the right of its pin, so a pin sitting
+    // right at the fitBounds edge would still push its own tag past the
+    // map's edge and under the top-right zoom control. Real-machine finding,
+    // 2026-09-21: a long shop name did exactly this at both desktop and
+    // mobile widths (mobile had no far-side clearance at all -- 24px, the
+    // same plain edge margin used everywhere else). The value below is
+    // sized for the tag's own capped width (organizer.css .gth-map-label
+    // max-width: 6.5rem/104px) plus the marker icon's own half-width (14px)
+    // and Leaflet's tooltip offset (10px), with margin to spare for the
+    // zoom control (26-30px wide, docked top-right, already comfortably
+    // inside this clearance). Desktop and mobile share the same number so
+    // the tag's own CSS cap only has to satisfy one budget.
+    var MAP_LABEL_FAR_SIDE_CLEARANCE_PX = 160;
     var fitOptions = { padding: [24, 24], maxZoom: 16 };
     if (panel) {
       var panelRect = panel.getBoundingClientRect();
@@ -2292,13 +2307,16 @@
       if (isDesktopDecisionLayout()) {
         fitOptions = {
           paddingTopLeft: [Math.max(24, panelRect.right - containerRect.left + 16), 24],
-          paddingBottomRight: [160, 24],
+          paddingBottomRight: [MAP_LABEL_FAR_SIDE_CLEARANCE_PX, 24],
           maxZoom: 16,
         };
       } else {
         fitOptions = {
           paddingTopLeft: [24, 24],
-          paddingBottomRight: [24, Math.max(24, containerRect.bottom - panelRect.top + 16)],
+          paddingBottomRight: [
+            MAP_LABEL_FAR_SIDE_CLEARANCE_PX,
+            Math.max(24, containerRect.bottom - panelRect.top + 16),
+          ],
           maxZoom: 16,
         };
       }

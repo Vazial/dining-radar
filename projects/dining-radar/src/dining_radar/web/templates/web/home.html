@@ -16,7 +16,29 @@
        own <style> block, not this one, so they are unaffected. */
     .app-shell { width: min(100% - 2rem, 80rem); padding-top: 1.25rem; }
     .app-card { padding-top: 1rem; }
-    #candidate-app { display: flex; flex-direction: column; gap: 1rem; }
+    /* Height chain (body -> ... -> candidate-main-layout): 100dvh (100vh
+       fallback first, for browsers without dvh) tracks the *visible*
+       viewport, not a guessed chrome height, so candidate-map-wrapper below
+       can flex:1 into whatever space header/filter-bar/provider-credit
+       actually leave -- replacing this file's former practice of measuring
+       real chrome pixels and subtracting a hardcoded calc(100vh - Nrem)
+       (fragile against any width/content change to those siblings, see
+       activeContext.md's own account of that history). */
+    body {
+      height: 100vh;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+    }
+    .app-shell,
+    .app-card,
+    main {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    #candidate-app { display: flex; flex-direction: column; gap: 1rem; flex: 1 1 auto; min-height: 0; }
 
     /* Above-the-map elements on narrow widths (human 2026-08-06 real-device
        review, first round: header 349px -> 279px after an earlier pass;
@@ -270,7 +292,10 @@
     .candidate-filter-apply:hover { background: #0d4b35; }
     .candidate-filter-apply:disabled { background: #b9c2ba; cursor: default; }
     .candidate-budget-tier-note { margin: 0; font-size: 0.75rem; color: #85908a; line-height: 1.5; }
-    [data-testid="candidate-proposal-content"] { display: flex; flex-direction: column; gap: 1.25rem; }
+    [data-testid="candidate-proposal-content"] {
+      display: flex; flex-direction: column; gap: 1.25rem;
+      flex: 1 1 auto; min-height: 0;
+    }
 
     /* adr/0023 decision 6: disclosed only when the response's
        izakayaBarFallbackApplied is true. Styled as a notice, not an error --
@@ -433,30 +458,23 @@
       display: flex;
       flex-direction: column;
       gap: 0.75rem;
+      flex: 1 1 auto;
+      min-height: 0;
     }
-    /* Fills essentially the whole area below the header/filter bar at
-       every width below 64rem now, mirroring >=64rem's own "map fills the
-       remaining vertical space" treatment (that block's own comment) at a
-       narrower measurement basis. 10.5rem (168px) is a real measurement
-       (this slice, Playwright at 390x844 against the local demo): header
-       52px + filter bar 50px + #candidate-app's own 12px gap +
-       candidate-provider-credit row 30.375px + #candidate-app's own 1rem
-       (16px) bottom padding at this width sum to 160.375px of real,
-       width-independent chrome; 168px keeps a small deliberate margin
-       above that (a first estimate of 152px left an 8px page-scroll
-       overflow, confirmed by measuring documentElement.scrollHeight
-       against window.innerHeight before this correction). Not yet
-       measured against every possible real mobile viewport height or a
-       longer provider-credit string -- Mobile.dc.html's own "作図上の値・
-       未実測" caveat still applies beyond this one measured width.
-       overflow: hidden still matters here: >=64rem's own override (below)
-       does not restate it, so >=64rem keeps depending on this same
-       declaration, not just narrow widths. */
+    /* Fills essentially the whole area below the header/filter bar at every
+       width below 64rem now, via flex:1 on the ancestor chain above rather
+       than a measured-chrome calc(100vh - Nrem) (this file's former
+       approach here -- fragile against any width/content change to the
+       sibling header/filter-bar/provider-credit rows, since a fixed
+       subtraction has to be re-measured by hand every time one of them
+       changes height). min-height is an absolute floor only, not the
+       primary sizing mechanism. overflow: hidden still matters here:
+       >=64rem's own override (below) does not restate it, so >=64rem keeps
+       depending on this same declaration, not just narrow widths. */
     .candidate-map-wrapper {
       position: relative;
-      height: calc(100vh - 10.5rem);
-      height: calc(100dvh - 10.5rem);
-      min-height: 20rem;
+      flex: 1 1 auto;
+      min-height: 14rem;
       overflow: hidden;
       border-bottom: 1px solid #dfe4de;
       background: #f2efe9;
@@ -1020,6 +1038,23 @@
         overflow: hidden;
         position: relative;
       }
+      /* Real-measurement finding (ADR-0065 decision 3): this card's own
+         content height (unchanged from the approved board reference,
+         ~844px-tall phones) is taller than the entire remaining map area on
+         a genuinely short viewport (320x568 portrait, 844x390 landscape),
+         crushing -- or, since this deck is bottom-anchored and grows
+         upward, clipping the card's own top through candidate-map-wrapper's
+         overflow: hidden -- the map underneath it (ADR-0065 decision 5(i)'s
+         own gate). Capped only below this height threshold (normal-height
+         phones matching the board reference are unaffected); the card's own
+         vertical scroll keeps every field reachable, just not all visible
+         at once. */
+      @media (max-height: 37.5rem) {
+        .candidate-deck-viewport {
+          max-height: 5rem;
+          overflow-y: auto;
+        }
+      }
       /* pan-y (not `none`): a swipe that starts on the card still lets a
          genuinely tall viewport scroll vertically; candidate.js's own
          pointer handlers (attachSwipeGesture) claim only the horizontal
@@ -1172,21 +1207,23 @@
       .app-card { padding: 1rem 1.5rem 1.5rem; }
       .candidate-main-layout {
         flex-direction: row;
-        align-items: flex-start;
+        /* stretch (the flex default -- restated for clarity since a
+           column-layout rule above does not need it): both columns take
+           candidate-main-layout's own flex:1 height instead of each
+           guessing it independently via its own calc(100vh - Nrem). */
+        align-items: stretch;
         gap: 1.25rem;
       }
       /* Deck.dc.html's own `.listcol` width (424px). The card list scrolls
-         independently of the page once it exceeds the map's own height
-         (matched below) -- at most 5 cards are ever displayed
-         (candidate-search-api.yaml's DISPLAY_CAP), so this is expected to
-         rarely engage in practice, but is kept rather than left unbounded
-         so a very small viewport height cannot grow the page past the
-         map's own fixed height. */
+         independently of candidate-map-wrapper's own height (100%, i.e.
+         candidate-main-layout's height) once it exceeds it -- at most 5
+         cards are ever displayed (candidate-search-api.yaml's
+         DISPLAY_CAP), so this is expected to rarely engage in practice. */
       .candidate-list-column {
         flex: 0 0 26.5rem;
         min-width: 0;
-        max-height: calc(100vh - 15rem);
-        min-height: 28rem;
+        min-height: 0;
+        max-height: 100%;
         overflow-y: auto;
       }
       /* Deck.dc.html's own `.nm { flex: 1 }`: lets the shop name claim the
@@ -1198,31 +1235,23 @@
          placement branch) is untouched. */
       .candidate-list-column [data-testid="candidate-card-name"] { flex: 1 1 auto; }
       /* The map wrapper is candidate-main-layout's second column at this
-         width, sized the same way it always has been for >=64rem -- see
-         its own history below for how these values were measured -- but no
-         longer overlaid by a deck (cardsContainer moved to its own
-         .candidate-list-column above), so mapPrimaryFitPaddingOptions
+         width -- no longer overlaid by a deck (cardsContainer moved to its
+         own .candidate-list-column above), so mapPrimaryFitPaddingOptions
          (candidate.js) simply finds no .candidate-deck to pad for and falls
-         back to its own plain, symmetric padding. 15rem (240px) is a
-         measured value, not a guess: orchestrator measured every element
-         around this wrapper at 1280x800 (header 44px, filter bar 60.375px,
-         the candidate-provider-credit row below the map including its own
-         margin 30.375px, app-shell/app-card's own combined vertical padding
-         72px) summing to 233px of real, mostly width-independent chrome;
-         240px keeps a small deliberate margin above that measured 233px
-         instead of cutting it exactly, so a slightly taller header wrap or
-         a longer providerCredit string does not immediately reintroduce
-         page-level scroll (confirmed no page overflow at
-         1280x800/1440x900/1920x1080; 1024px, this breakpoint's own lower
-         bound, still overflows by a few px after this value -- see
-         activeContext.md for the exact figure and why it was accepted
-         rather than chased further). Developer has not measured this
-         against every possible real viewport height. */
+         back to its own plain, symmetric padding. Sized by flex:1 (fills
+         candidate-main-layout's own height, itself flex:1 up the ancestor
+         chain to body's 100dvh) rather than a measured-chrome
+         calc(100vh - Nrem) -- replacing this rule's former practice of
+         hand-measuring every sibling at one fixed viewport and subtracting
+         their sum (activeContext.md records that this had to be re-tuned
+         once already and still overflowed by a few px at this breakpoint's
+         own lower bound). max-height keeps an ultra-tall monitor from
+         stretching the map past a comfortable size; min-height is an
+         absolute floor only. */
       .candidate-map-wrapper {
         flex: 1 1 auto;
         min-width: 0;
-        height: calc(100vh - 15rem);
-        min-height: 28rem;
+        min-height: 20rem;
         max-height: 52rem;
         border-bottom: 0;
         border: 1px solid #dfe4de;
