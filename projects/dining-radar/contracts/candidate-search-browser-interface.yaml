@@ -436,8 +436,23 @@
 #   置かれることをMustにする。各項目自身の値・ラベル・生値の規則はいずれも無変更。
 # - 具体的なYAML編集は次工程で行う（本改訂に同梱の`.spec`ファイル参照）。architect自身は
 #   `contracts/`配下のYAMLへ直接書き込まない。
+#
+# 2026-09-23 追補 (architect、ADR-0066。板と違う実装がL0〜L5すべて緑のままmainに入った事故
+# （PCの≡を「右上・右から出る」と裁定したのに左上に置き、開くと画面の外へはみ出した）への対応。
+# ADR-0059が位置を「見た目の実装選択」としてMustから外したことを、この見逃しの上流の原因の1つと
+# 記録した上で、板が裁定した位置・並び・開く向きを以後この契約のMustに格上げする一般方針
+# （ADR-0066決定2）を、この画面のナビへ適用する（ADR-0066決定3）。contractVersionを1.13.0から
+# 1.14.0へ上げる):
+# - **gatheringEntry.primaryNavigationGeometryを新設する**（ADR-0066決定3）: twoColumnLayoutでの
+#   menuToggle（画面上端の行の右端）・entry（進行中の会があるときだけmenuToggleの左隣）・
+#   menuPanel（menuToggleの下、右端をmenuToggleの右端に揃えて開き、ビューポートの外に出ない）と、
+#   mapPrimaryTouchLayoutでのmobileBar（常に3項目）・mobileBarAccount（下から出るシートがmobileBar
+#   を覆わない）を、いずれもMustとして固定する。既存のentry/menuToggle/menuPanel/mobileBar/
+#   mobileBarAccountの各requirementは無変更——この新設節が位置・並び・向きだけを追加で固定する。
+# - 具体的なYAML編集は本ADRに同梱する`.spec/conformance.spec`が持つ（本ラウンドで作成済み）。
+#   architect自身は`contracts/`配下のYAMLへ直接書き込まない。
 
-contractVersion: '1.13.0'
+contractVersion: '1.14.0'
 kind: acceptance-browser-interface
 scope: candidate-search
 profiles:
@@ -2333,6 +2348,68 @@ gatheringEntry:
       are reachable from any of gathering-scheduling-browser-interface.
       yaml's organizer-facing screens on mobile widths -- the same gap
       closure menuPanel above provides on desktop.
+  primaryNavigationGeometry:
+    requirement: >-
+      Added 2026-09-23 (ADR-0066). Promotes the position, adjacency, and
+      open direction the human ruled on the design board
+      (party2/a-nav-r5, ADR-0059's own approved_by record: "案1-1（≡だけ・
+      右から出る）" for twoColumnLayout, and the "画面下の固定ナビ...
+      『さがす／ランチ会 N／アカウント』" wording for mapPrimaryTouchLayout)
+      from a rendered-geometry/visual choice this contract otherwise
+      leaves unfixed (the style entry/menuToggle/mobileBar's own
+      requirement text above uses for width thresholds, font size, icon,
+      and animation) to a Must this contract fixes instead. ADR-0066
+      records as fact that ADR-0059 classifying this same position as an
+      implementation choice was the upstream cause of a shipped build
+      diverging from this board undetected through every verification
+      layer L0-L5 (see projects/dining-radar/adr/0066 for the full
+      incident and for the general principle this decision instantiates:
+      going forward, a human board ruling that fixes an element's
+      position, adjacency, or disclosure direction is a Must at the time
+      of that ruling's own ADR, distinct from size, color, font, icon,
+      and timing, which remain unfixed rendered-geometry choices unless a
+      future ADR says otherwise for a specific element).
+    twoColumnLayout: >-
+      Whenever twoColumnLayout holds: menuToggle sits at the right end of
+      this screen's top row (the row carrying this screen's own
+      heading). entry (the "ランチ会 N" chip), exactly when entry.
+      requirement's own presence rule holds, sits immediately to
+      menuToggle's left in that same row, never elsewhere on the screen.
+      menuPanel, once disclosed, opens directly below menuToggle with its
+      own right edge aligned with menuToggle's own right edge (opens
+      "from the right", per the board ruling), and stays entirely within
+      the viewport -- it must never extend past the viewport's left edge.
+      This is the litigated defect this Must exists to gate: a shipped
+      build once placed menuToggle at the screen's top-left corner
+      instead of its top-right, and opened a panel that ran off the
+      viewport's left edge.
+    mapPrimaryTouchLayout: >-
+      Whenever mapPrimaryTouchLayout holds: mobileBar holds exactly the
+      three children mobileBar.requiredTestIds above names (search,
+      gathering, account) -- never more, never fewer, never partially
+      disclosed. mobileBarAccount, once activated, discloses its two
+      controls (auth-sign-out, auth-password-change-open) as a sheet
+      that rises from the viewport's bottom edge and, while open, does
+      not visually cover any of mobileBar's own three children.
+    verificationAllocation:
+      L5: >-
+        tests/ui_invariants mechanically checks the open-direction and
+        viewport-containment half of the twoColumnLayout clause above
+        (adr/0066 decision 1's invariant (o), test_layout_sanity.py check
+        6) and, for the mapPrimaryTouchLayout clause, whether
+        mobileBarAccount's own sheet covers any of mobileBar's three
+        children (adr/0065 decision 5(h)(ii), test_render_invariants.py --
+        candidate-primary-nav-bar is already that check's named subject).
+        Neither existing check yet separately asserts menuToggle's own
+        row-right position, entry's own left-of-menuToggle adjacency, or
+        mobileBar's own three-children completeness as standalone
+        assertions (as opposed to menuPanel's position relative to
+        menuToggle, which (o) already checks, and the sheet-coverage
+        property, which adr/0065 decision 5(h) already checks) -- adr/0066
+        names this gap and leaves closing it to developer's next
+        implementation slice (adr/0020 decision 6's existing maintenance
+        lane; no new ADR is needed to add an assertion for a Must this
+        decision already fixes).
   crossContractReference:
     file: contracts/gathering-scheduling-api.yaml
     operationId: getInProgressGatheringCount
