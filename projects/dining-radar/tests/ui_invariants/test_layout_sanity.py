@@ -12,11 +12,21 @@ from -- ADR-0020 decision 6 places both files in developer's own maintenance
 lane, so a second, independent file here follows the same precedent that
 file's own two classes already set for each other).
 
+An 8th check (coordinator report, 2026-09-23, cross-checking this file's own
+first 7 against a captured board): visible text's own color against its
+effective background color (WCAG 2.1 AA's same numbers/large-text
+definition). Found and confirmed real via this same file's own real-browser
+measurement (not merely the reported screenshot): SELECTING_SHOP's own 4
+tabs collapse to near-unreadable contrast the instant a real mouse hovers
+the just-clicked one, because none of them declare their own ``:hover``
+background, so base.html's generic, higher-specificity ``button:hover``
+rule silently takes over.
+
 **Process note, recorded here rather than left silent (P-08's "flag, do not
 silently proceed" applied to a process question, not a business one)**:
 ADR-0020 decision 2 requires a *new ADR* before decision 4's frozen invariant
 list gains a genuinely new category (the procedure ADR-0032 and ADR-0065
-each followed for their own additions). The 7 checks below are exactly that
+each followed for their own additions). The 8 checks below are exactly that
 -- a new category, not an implementation detail of an existing one -- and
 developer does not author ADRs (``developer.md``'s own "契約ファイルを変更
 しない" line; ADR authorship is architect's role, meta/agents.md). This file
@@ -24,24 +34,33 @@ was written on direct orchestrator instruction as the investigative step the
 task itself describes ("まず検査を書いて...どこが落ちるかを洗い出す...直すか
 どうかは orchestrator が人間の合意と照らして決める") -- the same order ADR-0020
 itself was born in (developer/orchestrator measurement first, architect's ADR
-second). Until an architect writes that follow-up ADR (mirroring ADR-0032/
-ADR-0065's own addenda to ADR-0020 decision 4) and a human approves it, the
-7 checks below should be read as a *proposed* extension backed by real
-measurement, not yet a ratified permanent gate -- even though, mechanically,
-every non-``xfail`` assertion in this file already blocks CI today. This
-note exists so that fact is visible to whoever reviews the PR, not only to
-whoever reads this file's own git history.
+second). **Update, 2026-09-23**: that follow-up ADR now exists --
+``adr/0066`` (still 提案中/proposed, not yet human-approved as of this
+file's own last edit) formally adds all 8 checks below to ADR-0020 decision
+4 as (j)-(q), and its own decision 1(q) fixes this file's own WCAG 2.1 AA
+thresholds (``CONTRAST_NORMAL_TEXT_MIN``/``CONTRAST_LARGE_TEXT_MIN``/
+``LARGE_TEXT_MIN_PX`` below) as the Must, not a developer-chosen value --
+ADR-0020 decision 2's own "初回承認がbaseline承認を兼ねる" style, which
+``adr/0066`` decision 1(q) explicitly extends to check 8 once it first runs
+green. Until ``adr/0066`` itself is approved, every non-``xfail`` assertion
+in this file already blocks CI today regardless -- this note exists so that
+fact, and which specific ADR now governs it, is visible to whoever reviews
+the PR, not only to whoever reads this file's own git history.
 
 Sizes (human decision, this task): 360x740, 390x844, 768x1024, 1440x900 --
 one narrow phone, one common phone, one tablet/narrow-desktop boundary, one
 desktop, matching this product's own two render-mode breakpoint (64rem =
 1024px; ADR-0032/ADR-0049).
 
-Each of the 7 checks operates on "visible elements with their own text, or
-that are operable controls" (``_LAYOUT_SCAN_JS``'s own population, computed
-once per screen/state/size and shared across checks 1-5 and 6's own
-resolution) rather than bespoke per-screen selectors, so the same check code
-runs unchanged against every screen this file visits.
+Each of checks 1-5 and 8 operates on "visible elements with their own text,
+or that are operable controls" (``_LAYOUT_SCAN_JS``'s own population,
+computed once per screen/state/size and shared across those checks and
+check 6's own resolution) rather than bespoke per-screen selectors, so the
+same check code runs unchanged against every screen this file visits. Check
+8's own hover-state half (``_sweep_controls_for_hover_contrast``) is a
+separate, real-``Locator.hover()``-driven sweep -- CSS ``:hover`` cannot be
+reproduced by JS-side style manipulation alone, so it cannot be folded into
+the single page-wide scan the other checks share.
 """
 
 from __future__ import annotations
@@ -198,6 +217,33 @@ WRAP_ALLOW_SELECTORS = [
     ".gth-shop-name",  # long synthetic shop names measured to wrap ~2 lines
 ]
 
+# Check 8 (text/background contrast): text sitting on a raster image (map
+# tiles) or a Leaflet marker's own small painted circle has no single
+# determinate background color a DOM walk can resolve -- excluded outright
+# rather than measured against a color that is not really there.
+CONTRAST_ALLOW_SELECTORS = [
+    '[data-testid="candidate-map"]',  # lunch-candidate map: OSM raster tiles
+    '[data-testid="gathering-shortlisted-shop-map"]',  # shortlist-stage map
+    '[data-testid="gathering-decision-shop-map"]',  # finalized-stage map
+    ".candidate-map-marker-visual",  # pin's own small painted circle
+    ".candidate-origin-marker-visual",
+    ".gathering-shortlisted-shop-map-marker-visual",
+    ".gathering-decision-shop-map-marker-visual",
+    ".gathering-search-origin-marker-visual",
+]
+# Real-measurement finding: every one of a set of small decorative glyphs
+# this codebase already marks aria-hidden="true" (the filter icon "☷", the
+# calendar's own holiday badge "祝", a plain "・" separator between detail
+# fields, the finalized dashboard's own "›" chevron) individually failed
+# check 8's own resting-state contrast test. Since assistive tech is
+# already told to skip these (they carry no information of their own --
+# each sits beside real, non-hidden text that says the same thing), this is
+# not the "見えている文字" the check exists for -- excluded by attribute
+# (self-or-ancestor aria-hidden="true"), not by selector list, since new
+# decorative glyphs this codebase adds later inherit the same exclusion
+# automatically as long as they keep using this existing, established
+# pattern (rather than needing a selector added here every time).
+
 _LAYOUT_SCAN_JS = r"""
 (config) => {
   const floatingSelectors = config.floatingSelectors;
@@ -205,6 +251,7 @@ _LAYOUT_SCAN_JS = r"""
   const decorativeSelectors = config.decorativeSelectors;
   const textClippingAllowSelectors = config.textClippingAllowSelectors;
   const wrapAllowSelectors = config.wrapAllowSelectors;
+  const contrastAllowSelectors = config.contrastAllowSelectors;
 
   function isVisible(el) {
     const style = getComputedStyle(el);
@@ -275,6 +322,46 @@ _LAYOUT_SCAN_JS = r"""
     }
     return null;
   }
+  function parseRgb(colorStr) {
+    // getComputedStyle always resolves to "rgb(r, g, b)" or
+    // "rgba(r, g, b, a)" regardless of how the CSS was originally written
+    // (named colors, hex, hsl, ...).
+    const m = colorStr.match(/rgba?\(([^)]+)\)/);
+    if (!m) return null;
+    const parts = m[1].split(",").map((p) => parseFloat(p.trim()));
+    return { r: parts[0], g: parts[1], b: parts[2], a: parts.length > 3 ? parts[3] : 1 };
+  }
+  function relativeLuminance(rgb) {
+    const toLinear = (c) => {
+      const cs = c / 255;
+      return cs <= 0.03928 ? cs / 12.92 : Math.pow((cs + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * toLinear(rgb.r) + 0.7152 * toLinear(rgb.g) + 0.0722 * toLinear(rgb.b);
+  }
+  function contrastRatio(rgbA, rgbB) {
+    const lA = relativeLuminance(rgbA);
+    const lB = relativeLuminance(rgbB);
+    const lighter = Math.max(lA, lB);
+    const darker = Math.min(lA, lB);
+    return (lighter + 0.05) / (darker + 0.05);
+  }
+  function effectiveBackgroundColor(el) {
+    // Check 8: "自分に背景色が無ければ祖先をたどって最初に不透明な色を持つ
+    // 物" -- starts at the element itself (own background-color first),
+    // then walks up ancestors, skipping any whose own background is fully
+    // or partially transparent (alpha < 0.999), until one opaque color is
+    // found or the walk reaches documentElement without one (falls back to
+    // white, the browser's own default canvas beneath a fully-transparent
+    // :root/body).
+    let node = el;
+    while (node) {
+      const bg = parseRgb(getComputedStyle(node).backgroundColor);
+      if (bg && bg.a >= 0.999) return bg;
+      if (node === document.documentElement) break;
+      node = node.parentElement;
+    }
+    return { r: 255, g: 255, b: 255, a: 1 };
+  }
   function countTextLines(el) {
     // Range.getClientRects() gives one rect per visually-rendered line of
     // the element's own rendered content -- robust against padding/
@@ -328,6 +415,12 @@ _LAYOUT_SCAN_JS = r"""
       isMapMarkerLike: matchesAny(el, mapMarkerSelectors),
       isTextClippingAllowed: matchesAny(el, textClippingAllowSelectors),
       isWrapAllowed: matchesAny(el, wrapAllowSelectors),
+      isContrastAllowed:
+        !!closestAny(el, contrastAllowSelectors) || !!el.closest('[aria-hidden="true"]'),
+      isDisabledControl:
+        el.disabled === true ||
+        el.hasAttribute("disabled") ||
+        el.getAttribute("aria-disabled") === "true",
       isFormField: el.matches("input, select, textarea"),
       isSimpleLabelControl: isControl && el.children.length === 0,
       lineCount: isControl && el.children.length === 0 ? countTextLines(el) : 1,
@@ -357,6 +450,10 @@ _LAYOUT_SCAN_JS = r"""
       lineClamp: style.getPropertyValue("-webkit-line-clamp") || style.webkitLineClamp || "none",
       lineHeightPx: parseFloat(style.lineHeight) || null,
       fontSizePx: parseFloat(style.fontSize) || null,
+      fontWeightNum: parseFloat(style.fontWeight) || 400,
+      contrastRatio: own
+        ? contrastRatio(parseRgb(style.color), effectiveBackgroundColor(el))
+        : null,
       describe: describe(el),
     });
   }
@@ -485,6 +582,7 @@ def _run_layout_scan(page: Page) -> dict:
             "decorativeSelectors": DECORATIVE_SELECTORS,
             "textClippingAllowSelectors": TEXT_CLIPPING_ALLOW_SELECTORS,
             "wrapAllowSelectors": WRAP_ALLOW_SELECTORS,
+            "contrastAllowSelectors": CONTRAST_ALLOW_SELECTORS,
         },
     )
 
@@ -636,12 +734,50 @@ def _check_5_cramped_spacing(scan: dict, label: str, findings: list[str]) -> Non
             )
 
 
-def _run_checks_1_to_5(page: Page, label: str, findings: list[str]) -> None:
+#: WCAG 2.1 AA thresholds (same numbers, same "large text" definition --
+#: >=24px, or >=18.66px and bold (font-weight >= 700)).
+CONTRAST_NORMAL_TEXT_MIN = 4.5
+CONTRAST_LARGE_TEXT_MIN = 3.0
+LARGE_TEXT_MIN_PX = 24.0
+LARGE_BOLD_TEXT_MIN_PX = 18.66
+LARGE_BOLD_TEXT_MIN_WEIGHT = 700
+
+
+def _check_8_contrast(scan: dict, label: str, findings: list[str]) -> None:
+    """Check 8 (coordinator report, 2026-09-23): visible text's own color
+    against its effective background (walked in JS -- own background first,
+    then ancestors, stopping at the first opaque one; ``CONTRAST_ALLOW_
+    SELECTORS`` documents the "no determinate background" exclusions, e.g.
+    text over map tiles). Disabled controls are excluded (a de-emphasized,
+    non-interactive state is not what this check is for).
+    """
+    for el in scan["elements"]:
+        if el["contrastRatio"] is None or el["isContrastAllowed"] or el["isDisabledControl"]:
+            continue
+        is_large = el["fontSizePx"] is not None and (
+            el["fontSizePx"] >= LARGE_TEXT_MIN_PX
+            or (
+                el["fontSizePx"] >= LARGE_BOLD_TEXT_MIN_PX
+                and el["fontWeightNum"] >= LARGE_BOLD_TEXT_MIN_WEIGHT
+            )
+        )
+        minimum = CONTRAST_LARGE_TEXT_MIN if is_large else CONTRAST_NORMAL_TEXT_MIN
+        if el["contrastRatio"] < minimum:
+            findings.append(
+                f"{label} [8.文字と背景の見分けやすさ] {el['describe']} text={el['text'][:30]!r} "
+                f"contrast={el['contrastRatio']:.2f} < {minimum} "
+                f"({'大きい文字' if is_large else '普通の文字'}, "
+                f"fontSize={el['fontSizePx']}px, fontWeight={el['fontWeightNum']})"
+            )
+
+
+def _run_checks_1_to_5_and_8(page: Page, label: str, findings: list[str]) -> None:
     scan = _run_layout_scan(page)
     _check_1_overlap(scan, label, findings)
     _check_2_text_clipping(scan, label, findings)
     _check_3_unintended_wrap(scan, label, findings)
     _check_4_overflow(scan, label, findings)
+    _check_8_contrast(scan, label, findings)
     _check_5_cramped_spacing(scan, label, findings)
 
 
@@ -816,6 +952,109 @@ _FOCUS_DESCRIPTOR_JS = """
 
 def _focus_descriptor(page: Page) -> str | None:
     return page.evaluate(_FOCUS_DESCRIPTOR_JS)
+
+
+# Real-measurement finding (coordinator report, 2026-09-23): a resting-state
+# scan alone misses a defect class where a component's own selected-state
+# text color (e.g. gth-shop-select-tab[aria-selected=true]'s own
+# color: #14614a) was only ever checked against its own resting
+# background: transparent -- once a real mouse hovers it, a *sitewide*
+# generic rule with higher specificity (base.html's own "button:hover
+# { background: #0e4933 }", a plain type+pseudo-class selector that beats
+# this component's own plain class selector) silently takes over the
+# background, and nothing re-checks the text color against *that*. This
+# duplicates _LAYOUT_SCAN_JS's own contrast formula in a small, standalone
+# snippet (rather than reusing that scan) because it runs after a real
+# ``Locator.hover()`` -- Playwright has no simple "force a pseudo-class
+# without moving the mouse" API, and CSS :hover cannot be reproduced by
+# JS-side style manipulation, so this must be evaluated element-by-element
+# after each individual real hover, not as part of one page-wide scan.
+_HOVER_ELEMENT_CONTRAST_JS = """
+(el) => {
+  function parseRgb(colorStr) {
+    const m = colorStr.match(/rgba?\\(([^)]+)\\)/);
+    if (!m) return null;
+    const parts = m[1].split(",").map((p) => parseFloat(p.trim()));
+    return { r: parts[0], g: parts[1], b: parts[2], a: parts.length > 3 ? parts[3] : 1 };
+  }
+  function relativeLuminance(rgb) {
+    const toLinear = (c) => {
+      const cs = c / 255;
+      return cs <= 0.03928 ? cs / 12.92 : Math.pow((cs + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * toLinear(rgb.r) + 0.7152 * toLinear(rgb.g) + 0.0722 * toLinear(rgb.b);
+  }
+  function effectiveBackgroundColor(node) {
+    let n = node;
+    while (n) {
+      const bg = parseRgb(getComputedStyle(n).backgroundColor);
+      if (bg && bg.a >= 0.999) return bg;
+      if (n === document.documentElement) break;
+      n = n.parentElement;
+    }
+    return { r: 255, g: 255, b: 255, a: 1 };
+  }
+  const style = getComputedStyle(el);
+  const textColor = parseRgb(style.color);
+  const bgColor = effectiveBackgroundColor(el);
+  const lA = relativeLuminance(textColor);
+  const lB = relativeLuminance(bgColor);
+  const lighter = Math.max(lA, lB);
+  const darker = Math.min(lA, lB);
+  return {
+    ratio: (lighter + 0.05) / (darker + 0.05),
+    fontSizePx: parseFloat(style.fontSize) || 0,
+    fontWeightNum: parseFloat(style.fontWeight) || 400,
+  };
+}
+"""
+
+
+def _sweep_controls_for_hover_contrast(page: Page, label: str, findings: list[str]) -> None:
+    """Check 8's own hover-state half (see ``_HOVER_ELEMENT_CONTRAST_JS``'s
+    own comment for why this is a separate, real-hover sweep rather than
+    part of ``_run_layout_scan``). Hovers each visible, simple-label
+    button/link once (dedup by ``data-testid``, mirroring check 7's own
+    sweep in ``_sweep_controls_for_dead_clicks``) and re-measures its own
+    text/background contrast while genuinely hovered.
+    """
+    scan = _run_layout_scan(page)
+    seen: set[str] = set()
+    for el in scan["elements"]:
+        testid = el["testid"]
+        if (
+            not testid
+            or testid in seen
+            or not el["isSimpleLabelControl"]
+            or el["isDisabledControl"]
+            or el["isContrastAllowed"]
+            or not el["text"]
+        ):
+            continue
+        seen.add(testid)
+        locator = by_test_id(page, testid).first
+        try:
+            if locator.count() == 0 or not locator.is_visible():
+                continue
+            locator.hover(timeout=2000)
+            info = locator.evaluate(_HOVER_ELEMENT_CONTRAST_JS)
+        except Exception:  # noqa: BLE001 - a control that cannot be hovered is skipped, not fatal
+            continue
+        finally:
+            try:
+                page.mouse.move(0, 0)
+            except Exception:  # noqa: BLE001
+                pass
+        is_large = info["fontSizePx"] >= LARGE_TEXT_MIN_PX or (
+            info["fontSizePx"] >= LARGE_BOLD_TEXT_MIN_PX
+            and info["fontWeightNum"] >= LARGE_BOLD_TEXT_MIN_WEIGHT
+        )
+        minimum = CONTRAST_LARGE_TEXT_MIN if is_large else CONTRAST_NORMAL_TEXT_MIN
+        if info["ratio"] < minimum:
+            findings.append(
+                f"{label} [8.文字と背景の見分けやすさ(hover)] {testid} "
+                f"contrast={info['ratio']:.2f} < {minimum}"
+            )
 
 
 def _sweep_controls_for_dead_clicks(page: Page, label: str, findings: list[str]) -> None:
@@ -1075,10 +1314,12 @@ class LayoutSanityTests(StaticLiveServerTestCase):
     @pytest.mark.xfail(
         strict=True,
         reason=(
-            "報告リスト項目1・2: デスクトップ1440x900で候補画面の≡メニューの列が折り返し"
-            "画面左端付近（x=-107〜85）に来ている（h1直前0px間隔・パネルもビューポート左端"
-            "の外にはみ出す、check4・check5）。加えてcandidate-provider-credit（クレジット"
-            "表記）がカード本文と重なる（最大424x30px、check1）。"
+            "報告リスト項目1・2・13: デスクトップ1440x900で候補画面の≡メニューの列が"
+            "折り返し画面左端付近（x=-107〜85）に来ている（h1直前0px間隔・パネルもビュー"
+            "ポート左端の外にはみ出す、check4・check5）。加えてcandidate-provider-credit"
+            "（クレジット表記）がカード本文と重なる（最大424x30px、check1）。さらに"
+            "候補画面共通の淡いグレー文字（条件バーのラベル等）がコントラスト比4.5をわずかに"
+            "下回る（4.1程度、check8。項目13と同じ画面共通パターン）。"
         ),
     )
     def test_candidate_normal_and_menu_open(self) -> None:
@@ -1096,18 +1337,18 @@ class LayoutSanityTests(StaticLiveServerTestCase):
                 self.page.goto(f"{self.base_url}/")
                 wait_for_at_least_one(self.page, "candidate-card")
 
-                _run_checks_1_to_5(self.page, f"candidate-normal ({label})", findings)
+                _run_checks_1_to_5_and_8(self.page, f"candidate-normal ({label})", findings)
 
                 is_two_column = width >= 1024
                 if is_two_column:
                     by_test_id(self.page, "candidate-primary-nav-menu-toggle").click()
                     self.page.wait_for_timeout(150)
-                    _run_checks_1_to_5(self.page, f"candidate-menu-open ({label})", findings)
+                    _run_checks_1_to_5_and_8(self.page, f"candidate-menu-open ({label})", findings)
                     self.page.keyboard.press("Escape")
                 else:
                     by_test_id(self.page, "candidate-primary-nav-account").click()
                     self.page.wait_for_timeout(150)
-                    _run_checks_1_to_5(
+                    _run_checks_1_to_5_and_8(
                         self.page, f"candidate-account-sheet-open ({label})", findings
                     )
                     self.page.keyboard.press("Escape")
@@ -1116,15 +1357,18 @@ class LayoutSanityTests(StaticLiveServerTestCase):
                     _sweep_controls_for_dead_clicks(
                         self.page, f"candidate-normal ({label})", findings
                     )
+                    _sweep_controls_for_hover_contrast(
+                        self.page, f"candidate-normal ({label})", findings
+                    )
 
         assert not findings, "\n".join(findings)
 
     @pytest.mark.xfail(
         strict=True,
         reason=(
-            "報告リスト項目1・2: 会モードでも候補画面と同じ根本原因（項目1・2参照、"
-            "デスクトップ1440x900の≡メニュー折り返しとクレジット表記の重なり）が"
-            "そのまま再現する。"
+            "報告リスト項目1・2・13: 会モードでも候補画面と同じ根本原因（項目1・2・13"
+            "参照、デスクトップ1440x900の≡メニュー折り返し・クレジット表記の重なり・"
+            "淡いグレー文字のコントラスト不足）がそのまま再現する。"
         ),
     )
     def test_candidate_gathering_mode(self) -> None:
@@ -1144,7 +1388,7 @@ class LayoutSanityTests(StaticLiveServerTestCase):
                 self.page.set_viewport_size({"width": width, "height": height})
                 self.dsl.open_gathering_mode_from_dashboard(gathering_id)
                 wait_for_at_least_one(self.page, "candidate-gathering-mode-band")
-                _run_checks_1_to_5(self.page, f"candidate-gathering-mode ({label})", findings)
+                _run_checks_1_to_5_and_8(self.page, f"candidate-gathering-mode ({label})", findings)
 
         assert not findings, "\n".join(findings)
 
@@ -1153,8 +1397,9 @@ class LayoutSanityTests(StaticLiveServerTestCase):
     @pytest.mark.xfail(
         strict=True,
         reason=(
-            "報告リスト項目7: デスクトップ1440x900でh1直前の≡メニューが0px間隔で詰まる"
-            "（項目1と同じ根本原因）。他はすべて緑。"
+            "報告リスト項目7・13: デスクトップ1440x900でh1直前の≡メニューが0px間隔で"
+            "詰まる（項目1と同じ根本原因）。加えて一覧行の状態文言（回答を待っています等）"
+            "がコントラスト比3.6程度で4.5を下回る（check8。項目13と同じ画面共通パターン）。"
         ),
     )
     def test_gathering_list(self) -> None:
@@ -1166,9 +1411,12 @@ class LayoutSanityTests(StaticLiveServerTestCase):
                 self.page.set_viewport_size({"width": width, "height": height})
                 self.page.goto(f"{self.base_url}{reverse('gathering:organizer-gathering-list')}")
                 wait_for_at_least_one(self.page, "gathering-list-item")
-                _run_checks_1_to_5(self.page, f"gathering-list ({label})", findings)
+                _run_checks_1_to_5_and_8(self.page, f"gathering-list ({label})", findings)
                 if label == "desktop-1440x900":
                     _sweep_controls_for_dead_clicks(
+                        self.page, f"gathering-list ({label})", findings
+                    )
+                    _sweep_controls_for_hover_contrast(
                         self.page, f"gathering-list ({label})", findings
                     )
 
@@ -1179,10 +1427,11 @@ class LayoutSanityTests(StaticLiveServerTestCase):
     @pytest.mark.xfail(
         strict=True,
         reason=(
-            "報告リスト項目3・11: デスクトップ1440x900で、作成画面本体・確認小窓のいずれも"
-            "h1直前の≡メニューが0px間隔で詰まる（項目1と同じ根本原因）。加えて"
+            "報告リスト項目3・11・12: デスクトップ1440x900で、作成画面本体・確認小窓の"
+            "いずれもh1直前の≡メニューが0px間隔で詰まる（項目1と同じ根本原因）。加えて"
             "gathering-create-candidate-date-day（カレンダーの日付セル）を押しても check7 "
-            "からは変化が見えない（未確認）。"
+            "からは変化が見えない（未確認）。同じ日付セルはホバー時にコントラスト比1.46まで"
+            "落ちる（check8。項目12と同じhover詳細のパターン）。"
         ),
     )
     def test_gathering_create_and_confirm_dialog(self) -> None:
@@ -1203,11 +1452,11 @@ class LayoutSanityTests(StaticLiveServerTestCase):
                     "gathering-create-candidate-date-day",
                     "gathering-create-candidate-date-month-next",
                 )
-                _run_checks_1_to_5(self.page, f"gathering-create ({label})", findings)
+                _run_checks_1_to_5_and_8(self.page, f"gathering-create ({label})", findings)
 
                 by_test_id(self.page, "gathering-create-review-open").click()
                 expect(by_test_id(self.page, "gathering-create-review-dialog")).to_be_attached()
-                _run_checks_1_to_5(
+                _run_checks_1_to_5_and_8(
                     self.page, f"gathering-create-confirm-dialog ({label})", findings
                 )
                 by_test_id(self.page, "gathering-create-review-cancel").click()
@@ -1215,6 +1464,9 @@ class LayoutSanityTests(StaticLiveServerTestCase):
 
                 if label == "desktop-1440x900":
                     _sweep_controls_for_dead_clicks(
+                        self.page, f"gathering-create ({label})", findings
+                    )
+                    _sweep_controls_for_hover_contrast(
                         self.page, f"gathering-create ({label})", findings
                     )
 
@@ -1225,10 +1477,12 @@ class LayoutSanityTests(StaticLiveServerTestCase):
     @pytest.mark.xfail(
         strict=True,
         reason=(
-            "報告リスト項目4・5・6: デスクトップ1440x900でh1直前の≡メニューが0px間隔で"
-            "詰まる（項目1と同じ根本原因）。加えてphone-360x740で候補日追加の小窓が"
+            "報告リスト項目4・5・6・13: デスクトップ1440x900でh1直前の≡メニューが0px間隔"
+            "で詰まる（項目1と同じ根本原因）。加えてphone-360x740で候補日追加の小窓が"
             "ビューポート下端の外（約85px）にはみ出し（check4:小窓）、削除確認の小窓を"
-            "開くとh1が画面上端の外（y=-18）に押し出される（check4）。"
+            "開くとh1が画面上端の外（y=-18）に押し出される（check4）。さらに局面表示や"
+            "候補日行の淡いグレー文字が4.5をわずかに下回る（check8。項目13と同じ画面共通"
+            "パターン）。"
         ),
     )
     def test_gathering_dashboard_scheduling_phase(self) -> None:
@@ -1240,20 +1494,20 @@ class LayoutSanityTests(StaticLiveServerTestCase):
             if True:  # per-viewport -- not subTest, see VIEWPORTS's own comment above
                 self.page.set_viewport_size({"width": width, "height": height})
                 self._create_gathering_via_ui(f"日程調整局面確認会 {label}")
-                _run_checks_1_to_5(self.page, f"dashboard-scheduling ({label})", findings)
+                _run_checks_1_to_5_and_8(self.page, f"dashboard-scheduling ({label})", findings)
 
                 by_test_id(self.page, "gathering-add-candidate-date-open").click()
                 expect(
                     by_test_id(self.page, "gathering-add-candidate-date-calendar")
                 ).to_be_attached()
-                _run_checks_1_to_5(
+                _run_checks_1_to_5_and_8(
                     self.page, f"dashboard-scheduling-add-date-dialog ({label})", findings
                 )
                 by_test_id(self.page, "gathering-add-candidate-date-cancel").click()
 
                 by_test_id(self.page, "gathering-delete-open").click()
                 expect(by_test_id(self.page, "gathering-delete-confirm-dialog")).to_be_attached()
-                _run_checks_1_to_5(
+                _run_checks_1_to_5_and_8(
                     self.page, f"dashboard-scheduling-delete-dialog ({label})", findings
                 )
                 by_test_id(self.page, "gathering-delete-cancel").click()
@@ -1262,15 +1516,24 @@ class LayoutSanityTests(StaticLiveServerTestCase):
                     _sweep_controls_for_dead_clicks(
                         self.page, f"dashboard-scheduling ({label})", findings
                     )
+                    _sweep_controls_for_hover_contrast(
+                        self.page, f"dashboard-scheduling ({label})", findings
+                    )
 
         assert not findings, "\n".join(findings)
 
     @pytest.mark.xfail(
         strict=True,
         reason=(
-            "報告リスト項目4: デスクトップ1440x900で、4タブ・リンク発行小窓・確定確認小窓の"
-            "いずれでもh1直前の≡メニューが0px間隔で詰まっている（項目1と同じ根本原因、"
-            "gathering-scheduling-browser-interface.yamlの3画面に共通）。"
+            "報告リスト項目4・12・13: デスクトップ1440x900で、4タブ・リンク発行小窓・確定"
+            "確認小窓のいずれでもh1直前の≡メニューが0px間隔で詰まっている（項目1と同じ"
+            "根本原因、gathering-scheduling-browser-interface.yamlの3画面に共通）。加えて"
+            "コーディネーター報告どおり、日程・店・回答・リンクの4タブすべてがクリック直後の"
+            "ホバー状態でコントラスト比1.4程度まで落ちる（check8。日程タブのみ選択済みの"
+            "文字色#14614aが読めなくなる — 報告いただいた実害そのもの。原因はbase.htmlの"
+            "汎用button:hover{background:#0e4933}が.gth-shop-select-tab固有のcolorに"
+            "対して自分のhover用背景を持たないため）。さらに店の投票数・タブの淡いグレー"
+            "文字なども4.5をわずかに下回る（項目13と同じ画面共通パターン）。"
         ),
     )
     def test_gathering_dashboard_selecting_shop_phase_and_tabs(self) -> None:
@@ -1295,16 +1558,28 @@ class LayoutSanityTests(StaticLiveServerTestCase):
                     "gathering-shop-select-tab-answers",
                 ):
                     by_test_id(self.page, tab).click()
-                    _run_checks_1_to_5(
+                    _run_checks_1_to_5_and_8(
                         self.page, f"dashboard-selecting-shop-{tab} ({label})", findings
                     )
+                    # Coordinator report (2026-09-23): the resting-state
+                    # scan above alone does not reproduce this screen's own
+                    # real defect (the just-clicked tab's own contrast
+                    # breaks while the mouse is still hovering it, per
+                    # _sweep_controls_for_hover_contrast's own docstring) --
+                    # bounded to one representative width, mirroring check
+                    # 7's own desktop-1440x900 scoping precedent elsewhere
+                    # in this file.
+                    if label == "desktop-1440x900":
+                        _sweep_controls_for_hover_contrast(
+                            self.page, f"dashboard-selecting-shop-{tab} ({label})", findings
+                        )
 
                 by_test_id(self.page, "gathering-shop-select-tab-links").click()
                 by_test_id(self.page, "gathering-participant-link-copy").click()
                 expect(
                     by_test_id(self.page, "gathering-participant-link-issue-dialog")
                 ).to_be_attached()
-                _run_checks_1_to_5(
+                _run_checks_1_to_5_and_8(
                     self.page, f"dashboard-selecting-shop-link-dialog ({label})", findings
                 )
                 by_test_id(self.page, "gathering-participant-link-issue-dialog-close").click()
@@ -1313,7 +1588,7 @@ class LayoutSanityTests(StaticLiveServerTestCase):
                 by_test_id(self.page, "gathering-finalize-shop-select").check(force=True)
                 by_test_id(self.page, "gathering-finalize-open").click()
                 expect(by_test_id(self.page, "gathering-finalize-confirm-dialog")).to_be_attached()
-                _run_checks_1_to_5(
+                _run_checks_1_to_5_and_8(
                     self.page, f"dashboard-selecting-shop-finalize-dialog ({label})", findings
                 )
                 by_test_id(self.page, "gathering-finalize-cancel").click()
@@ -1323,16 +1598,22 @@ class LayoutSanityTests(StaticLiveServerTestCase):
                     _sweep_controls_for_dead_clicks(
                         self.page, f"dashboard-selecting-shop ({label})", findings
                     )
+                    _sweep_controls_for_hover_contrast(
+                        self.page, f"dashboard-selecting-shop ({label})", findings
+                    )
 
         assert not findings, "\n".join(findings)
 
     @pytest.mark.xfail(
         strict=True,
         reason=(
-            "報告リスト項目4・8: デスクトップ1440x900でh1直前の≡メニューが0px間隔で詰まる"
-            "（項目1と同じ根本原因）。加えてphone-360x740/390x844で回答・リンクの開閉行を"
-            "開くと、中身が gathering-decision-links-open 等と重なり "
+            "報告リスト項目4・8・12・13: デスクトップ1440x900でh1直前の≡メニューが0px"
+            "間隔で詰まる（項目1と同じ根本原因）。加えてphone-360x740/390x844で回答・"
+            "リンクの開閉行を開くと、中身が gathering-decision-links-open 等と重なり "
             "div.gth-decision-disclosure-panel の外にもはみ出す（check1・check4）。"
+            "gathering-decision-links-open自身もホバー時コントラスト比1.36（check8、"
+            "項目12と同じhoverパターン）。さらに参加リンクの状態表示などの淡いグレー文字が"
+            "4.5をわずかに下回る（項目13と同じ画面共通パターン）。"
         ),
     )
     def test_gathering_dashboard_finalized_phase(self) -> None:
@@ -1352,16 +1633,19 @@ class LayoutSanityTests(StaticLiveServerTestCase):
                 by_test_id(self.page, "gathering-finalize-confirm").click()
                 expect(by_test_id(self.page, "gathering-decision-banner")).to_be_visible()
 
-                _run_checks_1_to_5(self.page, f"dashboard-finalized ({label})", findings)
+                _run_checks_1_to_5_and_8(self.page, f"dashboard-finalized ({label})", findings)
 
                 by_test_id(self.page, "gathering-decision-answers-open").click()
                 by_test_id(self.page, "gathering-decision-links-open").click()
-                _run_checks_1_to_5(
+                _run_checks_1_to_5_and_8(
                     self.page, f"dashboard-finalized-entrance-rows-open ({label})", findings
                 )
 
                 if label == "desktop-1440x900":
                     _sweep_controls_for_dead_clicks(
+                        self.page, f"dashboard-finalized ({label})", findings
+                    )
+                    _sweep_controls_for_hover_contrast(
                         self.page, f"dashboard-finalized ({label})", findings
                     )
 
@@ -1372,10 +1656,12 @@ class LayoutSanityTests(StaticLiveServerTestCase):
     @pytest.mark.xfail(
         strict=True,
         reason=(
-            "報告リスト項目10: デスクトップ1440x900でgathering-participant-answer-skip・"
-            "gathering-participant-name-submit・gathering-participant-day-item を押しても"
-            "check7 からは変化が見えない（未確認。項目9と同じ検査の限界の可能性、または"
-            "実際に反応していない可能性の両方が残る）。確認して直すか、限界と分かれば外す。"
+            "報告リスト項目10・13: デスクトップ1440x900でgathering-participant-answer-"
+            "skip・gathering-participant-name-submit・gathering-participant-day-item を"
+            "押してもcheck7 からは変化が見えない（未確認。項目9と同じ検査の限界の可能性、"
+            "または実際に反応していない可能性の両方が残る）。確認して直すか、限界と分かれば"
+            "外す。加えて参加者の名前状態などの淡いグレー文字が4.5をわずかに下回る"
+            "（check8。項目13と同じ画面共通パターン）。"
         ),
     )
     def test_participant_answer(self) -> None:
@@ -1396,18 +1682,21 @@ class LayoutSanityTests(StaticLiveServerTestCase):
                 page = context.new_page()
                 page.goto(link_url)
                 wait_for_at_least_one(page, "gathering-schedule-question")
-                _run_checks_1_to_5(page, f"participant-answer ({label})", findings)
+                _run_checks_1_to_5_and_8(page, f"participant-answer ({label})", findings)
 
                 if width < 1024:
                     by_test_id(page, "gathering-participant-day-list-open").click()
                     expect(by_test_id(page, "gathering-participant-day-list")).to_be_visible()
-                    _run_checks_1_to_5(
+                    _run_checks_1_to_5_and_8(
                         page, f"participant-answer-day-list-open ({label})", findings
                     )
                     by_test_id(page, "gathering-participant-day-list-close").click()
 
                 if label == "desktop-1440x900":
                     _sweep_controls_for_dead_clicks(page, f"participant-answer ({label})", findings)
+                    _sweep_controls_for_hover_contrast(
+                        page, f"participant-answer ({label})", findings
+                    )
 
         assert not findings, "\n".join(findings)
 
@@ -1430,9 +1719,12 @@ class LayoutSanityTests(StaticLiveServerTestCase):
                 self.page.set_viewport_size({"width": width, "height": height})
                 self.page.goto(f"{self.base_url}{reverse('authentication:password_change')}")
                 expect(by_test_id(self.page, "auth-password-change-submit")).to_be_visible()
-                _run_checks_1_to_5(self.page, f"password-change ({label})", findings)
+                _run_checks_1_to_5_and_8(self.page, f"password-change ({label})", findings)
                 if label == "desktop-1440x900":
                     _sweep_controls_for_dead_clicks(
+                        self.page, f"password-change ({label})", findings
+                    )
+                    _sweep_controls_for_hover_contrast(
                         self.page, f"password-change ({label})", findings
                     )
 
@@ -1624,6 +1916,26 @@ class LayoutSanityFaultInjectionTests(StaticLiveServerTestCase):
         injected: list[str] = []
         _check_5_cramped_spacing(_run_layout_scan(self.page), "injected", injected)
         assert injected, "check 5 (cramped spacing) did not catch the injected crowding"
+
+    def test_injected_low_contrast_is_caught(self) -> None:
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        self.page.goto(f"{self.base_url}{reverse('authentication:password_change')}")
+        submit = by_test_id(self.page, "auth-password-change-submit")
+        expect(submit).to_be_visible()
+        findings: list[str] = []
+        _check_8_contrast(_run_layout_scan(self.page), "baseline", findings)
+        assert not findings, "baseline unexpectedly has low contrast: " + "\n".join(findings)
+
+        # base.html's own button rule: background: #155c42. Setting the
+        # text color to the exact same value (rather than merely "close")
+        # gives a contrast ratio of 1.0 -- unambiguously below both
+        # thresholds regardless of font size/weight.
+        self.page.add_style_tag(
+            content='[data-testid="auth-password-change-submit"] { color: #155c42 !important; }'
+        )
+        injected: list[str] = []
+        _check_8_contrast(_run_layout_scan(self.page), "injected", injected)
+        assert injected, "check 8 (contrast) did not catch the injected low-contrast text"
 
     def test_injected_toggle_wrong_direction_is_caught(self) -> None:
         self._open_candidate_screen()
