@@ -1,0 +1,20 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dining-radar-live",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "projects/dining-radar/manage.py",
+        "runserver",
+        "127.0.0.1:8020",
+        "--noreload",
+        "--insecure"
+      ],
+      "port": 8020,
+      "env": {
+        "DJANGO_ALLOWED_HOSTS": "127.0.0.1,localhost"
+      }
+    }
+  ]
+}
