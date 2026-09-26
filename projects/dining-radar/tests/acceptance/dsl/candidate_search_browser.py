@@ -802,7 +802,12 @@ class CandidateSearchBrowserDsl:
             )
             raise AssertionError("unreachable")  # self.assertions.fail always raises
 
-        resolve_business_day_iso(seed_iso, _attempt_create, step_days=7)
+        # step_days=1, not 7: this Given's own default seed ("+3 days") lands on
+        # whatever weekday that happens to be, and a 7-day step keeps a weekend
+        # seed on that same weekend forever (2026-09-24 CI: every one of the 8
+        # attempts from a Sunday seed was rejected). Callers that need a specific
+        # weekday pass their own already-resolved date.
+        resolve_business_day_iso(seed_iso, _attempt_create, step_days=1)
         create_response = require(accepted_response, "createGathering never returned 201")
         self.assertions.assertEqual(create_response.status, 201, create_response.body)
         gathering = create_response.payload
