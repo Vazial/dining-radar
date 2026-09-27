@@ -112,13 +112,14 @@
   ><span aria-hidden="true">👤</span><span class="primary-nav-bar-label">アカウント</span></button>
 </nav>
 <div id="primary-nav-account-sheet" data-primary-nav-mobile class="primary-nav-account-sheet" hidden>
+  <h2 class="primary-nav-account-sheet-heading">アカウント</h2>
   <a
     href="{% url 'authentication:password_change' %}"
     data-testid="auth-password-change-open"
     data-candidate-control-category="button"
     data-candidate-control-purpose="auth-password-change-open"
     class="primary-nav-account-sheet-link"
-  >パスワード変更</a>
+  >パスワードを変える</a>
   <form method="post" action="{% url 'authentication:logout' %}" data-testid="auth-sign-out-form" class="primary-nav-account-sheet-form">
     {% csrf_token %}
     <button
@@ -127,6 +128,6 @@
       data-candidate-control-category="button"
       data-candidate-control-purpose="auth-sign-out"
       class="primary-nav-account-sheet-link"
-    >サインアウト</button>
+    >ログアウト</button>
   </form>
 </div>

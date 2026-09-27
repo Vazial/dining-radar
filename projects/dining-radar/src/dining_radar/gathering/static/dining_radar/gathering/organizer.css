@@ -65,6 +65,17 @@
   width: min(100% - 2rem, 60rem);
 }
 
+/* Keep the heading and the shared desktop primary navigation in one row. */
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.app-header h1 {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 /* Height chain (body -> ... -> gth-shop-stage/gth-decision-stage), scoped
    to the dashboard only (:has(#gathering-app) -- organizerGatheringList/
    -Create are ordinary scrolling forms, unaffected). 100dvh (100vh
@@ -2424,7 +2435,7 @@ body:has(#gathering-app) .app-shell {
   white-space: nowrap;
   border: 0;
 }
-.primary-nav-desktop { display: flex; align-items: center; gap: 0.5rem; }
+.primary-nav-desktop { display: flex; flex-direction: row-reverse; align-items: center; gap: 0.5rem; margin-left: auto; order: 2; }
 .primary-nav-menu { position: relative; }
 .primary-nav-menu-toggle {
   display: inline-flex;
@@ -2530,9 +2541,16 @@ body:has(#gathering-app) .app-shell {
   border-top: 1px solid #dce3da;
   border-radius: 0.75rem 0.75rem 0 0;
   padding: 0.6rem;
-  box-shadow: 0 -0.5rem 1.5rem rgb(23 49 36 / 18%);
+  box-shadow: 0 -0.5rem 1.5rem rgb(23 49 36 / 18%), 0 -100vh 0 100vh rgb(16 28 21 / 42%);
 }
 .primary-nav-account-sheet[hidden] { display: none; }
+.primary-nav-account-sheet-heading {
+  margin: 0.15rem 0 0.25rem;
+  padding: 0 0.85rem;
+  font-size: 1rem;
+  line-height: 1.4;
+  color: #17201b;
+}
 .primary-nav-account-sheet-link {
   display: flex;
   align-items: center;
