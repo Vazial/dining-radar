@@ -1,7 +1,7 @@
 # テンプレの共有ファイルの写しの記録（meta/adr/0067 決定3）。手で書き換えず scripts/template-pull.sh で更新する。
 # commit: 写した元のテンプレのコミット。paths: 同期の対象。files: 対象ファイルの内容ハッシュ（CRLF を LF に揃えた sha256）
 source: https://github.com/Vazial/ai-driven-dev-template
-commit: cb3aede110afc060de8d91f7c715d3bf8a406ef4
+commit: 739b41ee096e493ff7b9ba2ba6cdb2675c07889e
 paths:
   meta
   .claude/agents
@@ -38,7 +38,7 @@ e8fdebb28b5929b61419263cc160ec37c29dbbb1b4b3a349b9150278a4a7b864  .github/workfl
 9ed17abae4a2fb023f7775cb177d76522508cfdd6c0834bc3f3cc633ee9c2ce3  guardrails/branch-protection.md
 b3b9f331e04901ed3066367bbdabe4493da7df49a3b0d0e47c949a4b17ab1c0a  guardrails/step-definition-lint.md
 870313dba9e24dcb360fb94e8cefed7eb127a478db0a32ad215c162adc78db33  meta/PRINCIPLES.md
-3ec8a4d23b3c7ce120b206627c0b01c8e30bfb10acbd43cb6c91a67b1c0932aa  meta/README.md
+8b31f2dc7fb87768404677d640cbb217a9fcccb69e9d5768e4c9daf4e45e4fc0  meta/README.md
 7d43472685e7656e1b4dcbe20a60a6a9c000b83c258ba3672f98562725a36f27  meta/adr/0001-meta-adr-location.md
 74042298c5dcca9b2f03d31e47edf1f5f6f805faeb5691974c33c3d6036b059c  meta/adr/0002-acceptance-scenario-template.md
 98c5214e05f324a75cb90affc6a8a9686a9cdc2d560ff3f961010c21bc76c80c  meta/adr/0003-adr-with-human-decisions.md
@@ -106,6 +106,7 @@ aa7199e1a23f001e592612ab3f279b87563eb6ee6610b6c5396b040bbff79782  meta/adr/0064-
 f0334c0f595f83506acf7c1569ad52a48498d03e3dda1854e512e5e5d5fa4d1e  meta/adr/0066-count-before-you-cut.md
 232c7ce8c05d42064a415e87bf8870872166a12d5873fd44def6ca83e753ec7f  meta/adr/0067-split-product-projects-into-their-own-repos.md
 0417345751e9a3cb13ce590c14ebc1d8c12ab4a229bea4df868aa8a4561a3034  meta/adr/0068-orchestrate-with-orca-and-linear.md
+e4a03d410ea176ce6e6f7b4b60eb7900cdac639dace01c8f08ef033f947a7992  meta/adr/0069-derived-repos-pull-template-weekly.md
 03f132a4173efc774d2416fccbea1af49831b31bf70746ba57f5e740e585ce35  meta/agent-runtime-mapping.md
 654a4424cd577bc5e1ce574d8fff8a9dc2b3ab053040261eb6de635b1fce80ed  meta/agents.md
 ffc7c67b700b80c8884eea6b6538e435fd927302e7deddf121b69bbd8d3694ac  meta/architecture-selection.md
@@ -118,9 +119,10 @@ f3313c1b9c8076c7908be003c52cb6beb4cb9c6613c340f602bfca94811b911a  meta/loop/fric
 17b2ee2cb7cd7e7775cdf36b15f47d5ef3ed837d05e2bbaa81fabfb090903ad3  meta/loop/test_friction_trend.py
 215900ffc7a44146b68e223f83db6d6154f063c0fccdd98654a0dea98683b801  meta/loop/test_harvest_friction.py
 11b7e0bc51acb095712bcf2784644c5b8554a6f49de6447782a718a21a156468  meta/loop/test_index_sessions.py
-14bcb3304106afe5518bf159d7d413bc52e04b6cb9c542cd2e8b13d86cbb71b3  meta/orchestration.md
+c20a79d62c0e08c661c7b25679c08a3042a6dbcf4d96cb2b09c352b4a5947334  meta/orchestration.md
 2499e62fe26492e57ca032dd26c488db910cf7c1d1cfc6014359ebd18b900b34  meta/permissions.md
 2e1be9732ce462628cebb385dcb0f880708dad6fe2ec3f0fc1135cb74ccf6e53  meta/scenario-id-prefixes.md
+24c946a93867efcb7e275d871d4b3f8608d374073bf6a04c78bd0dbab834027c  meta/template-sync.sh
 7bc091e2a5c4daf87752686b78b927a8bba2df350052a9ec9b11f8de390e7809  meta/templates/acceptance-scenario.feature
 b4ac3e309d763230ebf90dae932ec816db7d5d7dd6b485a62a6ca5e9f19f4fac  meta/templates/active-context.md
 0051f56d24efaa80307be28b5e92cce8da2f98aec50a0371ffb71c2e02528a41  meta/templates/adr.md

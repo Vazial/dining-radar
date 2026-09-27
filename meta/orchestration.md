@@ -2,7 +2,7 @@
 
 > 対象: 指揮役（orchestrator）と、Orca から起動された役割agent。
 > 根拠: meta/adr/0068。役割の中身は `meta/agents.md`、モデルの対応は `meta/agent-runtime-mapping.md` が持つ。
-> ここに書くのは「どう回すか」だけである。
+> ここに書くのは「どう回すか」だけである。テンプレの取り込みは §6（meta/adr/0069）。
 
 ## 1. 置き場
 
@@ -105,3 +105,37 @@ HANDOFF.md を読み、meta/orchestration.md の §3 と §4 に従って、Line
 In Progress があればその続き、無ければ Todo の先頭を取る。どちらも無ければ何もせず終える。
 止まる条件に当たったら、チケットに理由を書いて終える。マージはしない。
 ```
+
+## 6. テンプレの取り込み（派生リポジトリ）
+
+テンプレの変更は、派生リポジトリ側が週に1回取りに行き、PR にする（meta/adr/0069）。
+入口は `meta/template-sync.sh`。テンプレから写されて派生リポジトリに届き、そこで走る。
+手でいつでも同じことを走らせてよい。
+
+| コマンド | すること |
+|---|---|
+| `bash meta/template-sync.sh status` | 取り込む変更があれば終了コード 0、無ければ 1 |
+| `bash meta/template-sync.sh pull` | ブランチを切って取り込み、衝突が無ければ PR まで出す。衝突は終了コード 3 |
+| `bash meta/template-sync.sh finish` | 衝突を解いて `git add` したあとに走らせる。検証して PR を出す |
+
+先頭に `TEMPLATE_SYNC_DRY_RUN=1` を付けると、push と PR 作成をせず、出すはずの PR の本文を表示するだけになる。
+取り込みの PR が開いている間は、次の取り込みを始めない。マージは人間が行う。
+
+### 週1回の自動実行（Claude）
+
+```text
+orca automations create --name "週1: テンプレの取り込み" --trigger weekly --day 1 --time 06:00 \
+  --timezone Asia/Tokyo --provider claude --repo name:<リポジトリ名> \
+  --precheck "bash meta/template-sync.sh status" --prompt "<下の文面>"
+```
+
+```text
+meta/orchestration.md の §6 に従い、bash meta/template-sync.sh pull を走らせる。
+終了コード 0 なら PR の URL を報告して終える。1 なら何もせず終える。
+3 のとき、衝突が「両側が同じファイルの末尾に追記しただけ」なら、両方を残して解く（テンプレ側を先、このリポジトリ固有の節を後）。
+解いたら git add して bash meta/template-sync.sh finish を走らせる。
+それ以外の衝突と、終了コード 4（検証が赤）は解かない。orca linear create で Project <リポジトリ名> に Backlog のチケットを作り、衝突したファイルと止めた理由を書いて終える。
+```
+
+`meta/template-sync.sh` がまだ届いていない派生リポジトリでは、最初の1回だけテンプレの写しから手で走らせる。
+`cd <派生リポジトリ> && bash <テンプレの場所>/meta/template-sync.sh pull`
