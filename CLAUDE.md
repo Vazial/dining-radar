@@ -15,3 +15,7 @@ Claude and Codex may develop this repository in parallel. Before starting a slic
 the active context and inspect relevant open PRs. Do not edit another runtime's
 unmerged project or shared `meta/**` changes without first coordinating through the
 project branch and PR review.
+
+When work comes from a Linear ticket or runs under Orca, follow `meta/orchestration.md`
+(ADR-0068). The default runtime per role for mixed Claude/Codex operation is in
+`meta/agent-runtime-mapping.md`.

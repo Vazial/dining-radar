@@ -154,6 +154,8 @@ agentを起動し成果物を束ねる役（orchestrator）は、4agentのよう
 
 **この禁止は明文で4回破られたため、構造で止める側に移した（meta/adr/0046。方式は meta/adr/0054 で変更）**: `meta/tools/**` と `build.gradle*` は `.claude/settings.json` の `permissions.ask` に載っており、orchestrator も developer も、書き込もうとすると**人間に確認プロンプトが出る**。当初は deny で完全に止めていたが、19日間で正当な開錠が一度も起きず、検査の置き場が govlint の外へ逃げる圧力まで生んだため ask に緩めた（meta/adr/0054）。保護が ask に載っていることは govlint が ERROR で検証するため、**外したままではマージできない**。実装は従来どおりdeveloperの領分である（本節の帰属は変わらない。変わったのは「書き始めるときに人間が一度承認する」段が挟まることだけ）。
 
+**Orcaで役割を起動するとき（meta/adr/0068）**: 1チケット＝1作業場所＝1回の指揮とし、役割は `orca orchestration worker-start` で起動する。実行先は `meta/agent-runtime-mapping.md` の「既定の実行先」に従う。起動時の指示に書いてよいものは上のroutingと同じで、Orcaの指示欄の埋め方は `meta/orchestration.md` §4 が持つ。
+
 **（廃止）meta/adr/0021 の例外**: designerの外部AI実行をorchestratorが代行するという例外は、外部設計AI経路の廃止（meta/adr/0050）により無くなった。designerは`/design`スキルを自分で実行する（`Bash`・`Skill`・`Artifact`を持つ）。`meta/tools/commission_design_api.py` は死蔵コードであり、削除は人間の承認を要する（meta/adr/0050決定7・0054）。
 
 **例外（meta/adr/0024）**: UIを持つプロジェクトの断面②検証における「ユースケース走破」（実機でユース
