@@ -41,6 +41,26 @@ new decision, a conflict, or a materially broader scope, stop and return to chat
 changing or creating the PR. Mechanical follow-up that does not change the agreed scope
 (for example, reporting CI completion) does not need a new checkpoint.
 
+## Orca-dispatched work (ADR-0068)
+
+When a Linear ticket has been moved to `Todo` by the human, its description is the agreed
+scope for implementation. In that case the chat checkpoint above is replaced by the ticket:
+proceed to a Draft PR without waiting for a chat reply. This applies both when Codex is
+started by Orca as a supervised worker and when an Orca automation runs Codex directly.
+
+- If the prompt contains an Orca orchestration preamble (Task and Dispatch IDs), it is
+  authoritative: do only that Task, ask the coordinator through the preamble's `ask`
+  command, and finish with exactly one `worker_done` carrying `--outcome`.
+- Read the role file named in the task spec in full before acting, as in "Role-agent
+  dispatch" below.
+- Stop instead of guessing when a decision is not written in the ticket, a human approval
+  point is reached (contract, design skeleton, step implementation, governance change), the
+  mapped model is unavailable, or verification stays red. Report through the coordinator,
+  or as a Linear comment when there is no coordinator.
+- Never move a ticket into `Todo` and never merge.
+
+`meta/orchestration.md` holds the full procedure.
+
 ## Codex host CLI discovery
 
 Before reporting a required CLI as unavailable, Codex must confirm it through a

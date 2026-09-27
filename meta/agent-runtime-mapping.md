@@ -25,6 +25,23 @@ Claude Codeは `.claude/agents/<role>.md` をruntime定義として使う。Code
 `developer` と `tester` をLunaへ割り当て、判断・監査を担うroleを上位モデルに維持する根拠は
 ADR-0048を参照する。reasoning effortはこの対応表では固定しない。
 
+## 既定の実行先（ClaudeとCodexを混ぜて回すとき）
+
+Orcaで1チケットを回すときは、役割ごとに次の実行先で起動する（ADR-0068）。上の表は各runtimeで
+単独に回すときのモデルであり、指揮役がCodexだけのときは引き続き上の表に従う。
+
+| 役割 | 実行先 | Orcaの起動指定 |
+|---|---|---|
+| orchestrator（指揮役） | Claude Sonnet | Orca側のClaude既定モデル |
+| architect | Claude Sonnet | `--agent claude --model sonnet` |
+| designer | Claude Opus | `--agent claude --model opus` |
+| developer | Codex Luna | `--agent codex --model gpt-5.6-luna` |
+| tester | Codex Luna | `--agent codex --model gpt-5.6-luna` |
+| reviewer | Claude Sonnet | `--agent claude --model sonnet` |
+
+testerとreviewerが別のruntimeになるのは意図である（学習元の違うAIが監査し、同じ誤解を共有しにくい）。
+起動の手順は `meta/orchestration.md` が持つ。
+
 ## 並行開発
 
 ClaudeとCodexは同一リポジトリを並行して開発してよい。ただし、両者は同じ `activeContext.md`、

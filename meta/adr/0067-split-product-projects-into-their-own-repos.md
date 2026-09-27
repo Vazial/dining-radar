@@ -1,9 +1,9 @@
 ---
 id: 0067
 scope: meta
-status: 提案中
+status: 承認済み
 date: 2026-09-26
-approved_by: null
+approved_by: "人間裁定（2026-09-26 チャット: テンプレに入れたdining-radarを分けてもよいと提案し、公開のまま・写しを置いて双方向に同期する方向を選んだ。同じ配置を保つこととハッシュで直接編集を検出することを含む本文を読んで「承認」と返した）"
 supersedes: []
 superseded_by: null
 relates_to: [P-04, P-06, P-11, 0026, 0028, 0033, 0036, 0052, 0064]
