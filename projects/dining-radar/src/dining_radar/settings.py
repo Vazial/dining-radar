@@ -54,15 +54,30 @@ SECURE_SSL_REDIRECT = not DEBUG
 # only the exact "healthz" path (urls.py's own path("healthz", ...) has no
 # trailing slash) -- never as a prefix or substring match against any other
 # path, so no other path is exempted from the HTTPS redirect.
+#
+# The same landmine exists for the ECS Fargate task's own container
+# healthcheck (ADR-0067, deploy/ecs/task-definition.json): it curls
+# http://localhost:8000/healthz straight against this app container,
+# deliberately bypassing the Caddy sidecar (and so its X-Forwarded-Proto)
+# entirely, since there is no ALB target group here to health-check through
+# instead. This one path-based exemption already covers both platforms.
 SECURE_REDIRECT_EXEMPT = [r"^healthz$"]
 
 render_runtime = os.environ.get("RENDER", "").strip()
-if render_runtime:
+# ADR-0067 (KEN-31): the ECS Fargate task's own Caddy sidecar terminates TLS
+# the same way Render's edge does, over localhost inside the task's shared
+# network namespace, and needs the same explicit opt-in to trust its
+# X-Forwarded-Proto -- Fargate has no equivalent to Render's own
+# auto-supplied `RENDER` variable, so the task definition sets this one
+# itself (deploy/ecs/task-definition.json).
+fargate_runtime = os.environ.get("AWS_ECS_FARGATE", "").strip()
+behind_tls_terminating_proxy = bool(render_runtime or fargate_runtime)
+if behind_tls_terminating_proxy:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 database_url = os.environ.get("DATABASE_URL", "").strip()
-if render_runtime and not database_url:
-    raise RuntimeError("DATABASE_URL must be configured for a Render deployment.")
+if behind_tls_terminating_proxy and not database_url:
+    raise RuntimeError("DATABASE_URL must be configured for a Render or Fargate deployment.")
 if database_url:
     DATABASES = {
         "default": dj_database_url.parse(  # noqa: F405

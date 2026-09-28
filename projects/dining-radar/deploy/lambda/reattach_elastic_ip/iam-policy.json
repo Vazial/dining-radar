@@ -1,0 +1,22 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadTheOneServiceTaskWeReattachFor",
+      "Effect": "Allow",
+      "Action": "ecs:DescribeTasks",
+      "Resource": "arn:aws:ecs:<AWS_REGION>:<AWS_ACCOUNT_ID>:task/dining-radar/*"
+    },
+    {
+      "Sid": "MoveTheOneElasticIpThisServiceOwns",
+      "Effect": "Allow",
+      "Action": "ec2:AssociateAddress",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "ec2:AllocationId": "<ELASTIC_IP_ALLOCATION_ID>"
+        }
+      }
+    }
+  ]
+}
