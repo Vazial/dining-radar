@@ -905,6 +905,7 @@
     }
     var shopIds = [];
     var thisShopId = null;
+    var thisShopName = null;
     // ADR-0059 decision 5: shortlistToast appears only when the activated
     // card's own toggle flips false->true (a shop being *added*, never a
     // removal) -- captured here from the card's pre-click attribute, before
@@ -920,6 +921,7 @@
       var isOn = toggleEl.getAttribute("data-gathering-shortlisted") === "true";
       if (ref === candidateRef) {
         thisShopId = shopId;
+        thisShopName = currentCandidatesByRef[ref] ? currentCandidatesByRef[ref].name : null;
         isAddition = !isOn;
         isOn = !isOn;
       }
@@ -1001,6 +1003,7 @@
         // lingering from an earlier at-the-cap addition -- its own attribute
         // values (shortlistedCount/maxShortlisted) would otherwise go stale
         // the moment this removal changes the count it was still showing.
+        shortlistToastShopName = isAddition ? thisShopName : null;
         if (isAddition) {
           renderGatheringShortlistToast(currentGatheringContext);
         } else {
@@ -2432,6 +2435,7 @@
   // navigating away.
   var SHORTLIST_TOAST_AUTO_DISMISS_MS = 4000;
   var shortlistToastDismissTimer = null;
+  var shortlistToastShopName = null;
 
   function dismissGatheringShortlistToast() {
     if (shortlistToastDismissTimer !== null) {
@@ -2445,6 +2449,7 @@
   }
 
   function renderGatheringShortlistToast(context) {
+    var shopName = shortlistToastShopName;
     dismissGatheringShortlistToast();
     var limitReached = context.shortlistedShopCount >= context.maxShortlistedShops;
     var toast = el(
@@ -2457,7 +2462,8 @@
       },
       [
         el("span", {}, [
-          "入れました・" + String(context.shortlistedShopCount) + " / " + String(context.maxShortlistedShops),
+          String(shopName || "店") + " を入れました・" +
+            String(context.shortlistedShopCount) + " / " + String(context.maxShortlistedShops),
         ]),
         el(
           "a",

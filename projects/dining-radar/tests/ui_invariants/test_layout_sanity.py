@@ -1311,6 +1311,48 @@ class LayoutSanityTests(StaticLiveServerTestCase):
 
     # --- 1/2/3: candidate screen (normal / gathering mode / menu open) ----
 
+    def test_primary_navigation_geometry(self) -> None:
+        """ADR-0066 decision 3: assert the three newly promoted geometry Musts."""
+        self._sign_in_as_organizer()
+        self._create_gathering_via_ui("ナビ位置確認会")
+        self.dsl.reset_candidate_state()
+        self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING", random_seed=20260927)
+
+        self.page.set_viewport_size({"width": 1440, "height": 900})
+        self.page.goto(f"{self.base_url}/")
+        wait_for_at_least_one(self.page, "candidate-card")
+        toggle = by_test_id(self.page, "candidate-primary-nav-menu-toggle")
+        header = self.page.locator('header[data-testid="authenticated-application-shell"]')
+        toggle_box = toggle.bounding_box()
+        header_box = header.bounding_box()
+        assert toggle_box is not None and header_box is not None
+        assert (
+            abs((toggle_box["x"] + toggle_box["width"]) - (header_box["x"] + header_box["width"]))
+            <= 2
+        )
+
+        entry = by_test_id(self.page, "candidate-gathering-entry")
+        expect(entry).to_be_visible()
+        entry_box = entry.bounding_box()
+        assert entry_box is not None
+        assert entry_box["x"] + entry_box["width"] <= toggle_box["x"]
+        assert toggle_box["x"] - (entry_box["x"] + entry_box["width"]) <= 16
+
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        self.page.reload()
+        wait_for_at_least_one(self.page, "candidate-card")
+        bar = by_test_id(self.page, "candidate-primary-nav-bar")
+        child_ids = bar.locator("[data-testid]").evaluate_all(
+            "nodes => nodes.map(node => node.getAttribute('data-testid'))"
+        )
+        assert sorted(child_ids) == sorted(
+            [
+                "candidate-primary-nav-search",
+                "candidate-primary-nav-gathering",
+                "candidate-primary-nav-account",
+            ]
+        )
+
     @pytest.mark.xfail(
         strict=True,
         reason=(

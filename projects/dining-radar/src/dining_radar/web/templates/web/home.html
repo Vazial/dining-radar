@@ -14,7 +14,7 @@
        this override only takes effect on this template -- the other pages
        that use those same class names (login, password change) load their
        own <style> block, not this one, so they are unaffected. */
-    .app-shell { width: min(100% - 2rem, 80rem); padding-top: 1.25rem; }
+    .app-shell { width: min(100% - 2rem, 80rem); padding-top: 1.25rem; position: relative; }
     .app-card { padding-top: 1rem; }
     /* Height chain (body -> ... -> candidate-main-layout): 100dvh (100vh
        fallback first, for browsers without dvh) tracks the *visible*
@@ -104,7 +104,9 @@
        ".primary-nav-*" rules (this codebase's existing no-shared-module-
        system convention). Every control keeps the same 44px tap target
        this screen's other controls already use. */
-    .primary-nav-desktop { display: flex; align-items: center; gap: 0.5rem; }
+    .primary-nav-desktop { display: flex; flex-direction: row-reverse; align-items: center; gap: 0.5rem; }
+    .app-shell > .primary-nav-desktop { position: absolute; top: 1.25rem; right: 0; z-index: 10; }
+    .app-shell > header[data-testid="authenticated-application-shell"] { padding-right: 8.5rem; }
     .primary-nav-menu { position: relative; }
     .primary-nav-menu-toggle {
       display: inline-flex; align-items: center; justify-content: center;
@@ -171,9 +173,13 @@
       position: fixed; left: 0; right: 0; bottom: 0; z-index: 31;
       display: flex; flex-direction: column; gap: 0.3rem;
       background: #fff; border-top: 1px solid #dce3da; border-radius: 0.75rem 0.75rem 0 0;
-      padding: 0.6rem; box-shadow: 0 -0.5rem 1.5rem rgb(23 49 36 / 18%);
+      padding: 0.6rem; box-shadow: 0 -0.5rem 1.5rem rgb(23 49 36 / 18%), 0 -100vh 0 100vh rgb(16 28 21 / 42%);
     }
     .primary-nav-account-sheet[hidden] { display: none; }
+    .primary-nav-account-sheet-heading {
+      margin: 0.15rem 0 0.25rem; padding: 0 0.85rem;
+      font-size: 1rem; line-height: 1.4; color: #17201b;
+    }
     .primary-nav-account-sheet-link {
       display: flex; align-items: center; width: 100%;
       box-sizing: border-box; min-height: 2.75rem; padding: 0 0.85rem; border-radius: 0.5rem;
@@ -1432,13 +1438,14 @@
       element from this panel, not a native <summary>.
     {% endcomment %}
     <div id="primary-nav-account-sheet" data-primary-nav-mobile class="primary-nav-account-sheet" hidden>
+      <h2 class="primary-nav-account-sheet-heading">アカウント</h2>
       <a
         href="{% url 'authentication:password_change' %}"
         data-testid="auth-password-change-open"
         data-candidate-control-category="button"
         data-candidate-control-purpose="auth-password-change-open"
         class="primary-nav-account-sheet-link"
-      >パスワード変更</a>
+      >パスワードを変える</a>
       <form method="post" action="{% url 'authentication:logout' %}" data-testid="auth-sign-out-form" class="primary-nav-account-sheet-form">
         {% csrf_token %}
         <button
@@ -1447,7 +1454,7 @@
           data-candidate-control-category="button"
           data-candidate-control-purpose="auth-sign-out"
           class="primary-nav-account-sheet-link"
-        >サインアウト</button>
+        >ログアウト</button>
       </form>
     </div>
     <header data-testid="authenticated-application-shell">
