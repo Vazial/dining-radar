@@ -1825,17 +1825,21 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
                     _assert_no_horizontal_overflow(
                         self.page, f"candidate screen, account sheet open ({label})"
                     )
-                    # Escape, not a second click: the open sheet is
-                    # position: fixed over the same bottom strip as its own
-                    # trigger (by design -- see .primary-nav-account-sheet's
-                    # own z-index), so a click at the trigger's old screen
-                    # position now lands on the sheet instead.
-                    self.page.keyboard.press("Escape")
 
                     nav_bar = by_test_id(self.page, "candidate-primary-nav-bar")
                     _assert_fixed_bottom_surface_contained(
                         nav_bar, height, f"candidate-primary-nav-bar ({label})"
                     )
+                    # KEN-11 (audit A3, ADR-0066 decision 3's
+                    # mapPrimaryTouchLayout clause: the sheet "does not
+                    # visually cover any of mobileBar's own three
+                    # children"): hit-tested here, with the sheet still
+                    # open, not after Escape closes it -- checking only
+                    # after close is exactly how the previous build's own
+                    # sheet-covers-bar regression passed this same
+                    # assertion undetected (.primary-nav-account-sheet used
+                    # to sit flush over the bar's own bottom strip while
+                    # open, at a higher z-index).
                     for link_test_id in (
                         "candidate-primary-nav-search",
                         "candidate-primary-nav-gathering",
@@ -1844,6 +1848,8 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
                         _assert_center_hit_tests_to_self(
                             by_test_id(self.page, link_test_id), f"{link_test_id} ({label})"
                         )
+
+                    self.page.keyboard.press("Escape")
 
                     _assert_map_primary_visible_height(
                         by_test_id(self.page, "candidate-map"),
