@@ -135,6 +135,15 @@
     .primary-nav-menu-link:focus-visible { outline: 2px solid #155c42; outline-offset: 2px; }
     .primary-nav-menu-link[data-primary-nav-current="true"] { background: #e9f1eb; font-weight: 700; }
     .primary-nav-menu-form { margin: 0; width: 100%; }
+    /* KEN-11 (audit A2, party2/a-nav-r5): the board's panel groups the two
+       account controls under their own heading, below the destination
+       links -- matches .primary-nav-account-sheet-heading's own role in the
+       mobile sheet below, at this panel's own 0.75rem link indent instead
+       of the sheet's 0.85rem. */
+    .primary-nav-menu-account-heading {
+      margin: 0.3rem 0 0.15rem; padding: 0 0.75rem;
+      font-size: 0.8125rem; font-weight: 700; color: #68766c;
+    }
     .candidate-gathering-entry {
       display: inline-flex; align-items: center; gap: 0.35rem;
       min-height: 2.75rem; padding: 0 0.8rem; border: 1px solid #c6cfc6;
@@ -170,7 +179,15 @@
     .primary-nav-bar-link[data-primary-nav-current="true"] { color: #14614a; font-weight: 700; }
     .primary-nav-bar-label { font-size: 0.6875rem; line-height: 1; }
     .primary-nav-account-sheet {
-      position: fixed; left: 0; right: 0; bottom: 0; z-index: 31;
+      /* KEN-11 (audit A3, party2/a-nav-r5): bottom: 0 here used to sit the
+         sheet flush over .primary-nav-bar's own bottom strip (same
+         position, sheet's higher z-index winning) -- the board's sheet
+         rises to rest directly above the bar instead, so the bar's three
+         items stay visible and tappable the whole time the sheet is open.
+         calc() below is .primary-nav-bar-link's own min-height (3.25rem,
+         border-box so padding is already included) plus .primary-nav-bar's
+         own 1px top border -- the bar's full rendered height. */
+      position: fixed; left: 0; right: 0; bottom: calc(3.25rem + 1px); z-index: 31;
       display: flex; flex-direction: column; gap: 0.3rem;
       background: #fff; border-top: 1px solid #dce3da; border-radius: 0.75rem 0.75rem 0 0;
       padding: 0.6rem; box-shadow: 0 -0.5rem 1.5rem rgb(23 49 36 / 18%), 0 -100vh 0 100vh rgb(16 28 21 / 42%);
@@ -1375,6 +1392,7 @@
             data-primary-nav-current="false"
             class="primary-nav-menu-link"
           ><span aria-hidden="true">🍽</span>ランチ会</a>
+          <h2 class="primary-nav-menu-account-heading">アカウント</h2>
           <a
             href="{% url 'authentication:password_change' %}"
             data-testid="auth-password-change-open"
