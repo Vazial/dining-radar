@@ -1,4 +1,5 @@
 import ast
+import json
 import os
 import runpy
 from pathlib import Path
@@ -177,6 +178,43 @@ class ApplicationStructureTests(SimpleTestCase):
         self.assertEqual(runtime["DATABASES"]["default"]["OPTIONS"]["sslmode"], "require")
         self.assertEqual(runtime["SECURE_HSTS_SECONDS"], 31_536_000)
 
+    def test_fargate_runtime_requires_postgres_and_trusts_only_its_https_proxy_signal(self):
+        """Mirrors the Render test above (ADR-0067, KEN-31): same landmine,
+
+        different platform. AWS_ECS_FARGATE has no ALLOWED_HOSTS-appending
+        counterpart to RENDER_EXTERNAL_HOSTNAME, since Fargate supplies no
+        equivalent auto-hostname -- DJANGO_ALLOWED_HOSTS alone must carry
+        the real domain (deploy/ecs/task-definition.json's SSM secret).
+        """
+        base_environment = {
+            "DJANGO_SECRET_KEY": "synthetic-runtime-secret-long-enough-for-deploy-checks",
+            "DJANGO_ALLOWED_HOSTS": "synthetic.invalid",
+            "AWS_ECS_FARGATE": "1",
+        }
+        with (
+            patch.dict(os.environ, base_environment, clear=True),
+            self.assertRaisesRegex(RuntimeError, "DATABASE_URL must be configured"),
+        ):
+            runpy.run_module("dining_radar.settings", run_name="dining_radar._fargate_no_db")
+
+        with patch.dict(
+            os.environ,
+            {
+                **base_environment,
+                "DATABASE_URL": "postgresql://synthetic:secret@db.invalid:5432/app",
+            },
+            clear=True,
+        ):
+            runtime = runpy.run_module(
+                "dining_radar.settings", run_name="dining_radar._fargate_probe"
+            )
+
+        self.assertEqual(runtime["ALLOWED_HOSTS"], ["synthetic.invalid"])
+        self.assertEqual(runtime["SECURE_PROXY_SSL_HEADER"], ("HTTP_X_FORWARDED_PROTO", "https"))
+        self.assertEqual(runtime["DATABASES"]["default"]["ENGINE"], "django.db.backends.postgresql")
+        self.assertEqual(runtime["DATABASES"]["default"]["OPTIONS"]["sslmode"], "require")
+        self.assertEqual(runtime["SECURE_HSTS_SECONDS"], 31_536_000)
+
     def test_env_example_documents_exactly_the_environment_variables_read_at_runtime(self):
         """A human must be able to configure this app without reading source.
 
@@ -318,3 +356,94 @@ class HealthCheckHttpsExemptionTests(TestCase):
 
                     self.assertEqual(response.status_code, 301)
                     self.assertTrue(response["Location"].startswith("https://"))
+
+
+class EcsFargateDeployStructureTests(SimpleTestCase):
+    """ADR-0067 / KEN-31: the code-side half of the ECS Fargate migration.
+
+    These check the *shape* of the deploy/ artifacts a human uses to stand
+    up the real AWS resources (deploy/README.md), the same way
+    ``test_render_blueprint_uses_the_agreed_free_stateless_topology`` above
+    checks render.yaml -- not the AWS-side behavior itself, which none of
+    this project's AI runtimes can reach (no AWS credentials, KEN-31 scope).
+    """
+
+    def test_task_definition_matches_the_agreed_single_task_no_alb_topology(self):
+        task_def = json.loads(
+            (PROJECT_ROOT / "deploy" / "ecs" / "task-definition.json").read_text(encoding="utf-8")
+        )
+
+        self.assertEqual(task_def["networkMode"], "awsvpc")
+        self.assertEqual(task_def["requiresCompatibilities"], ["FARGATE"])
+        self.assertEqual(task_def["cpu"], "256")
+        self.assertEqual(task_def["memory"], "512")
+
+        containers = {c["name"]: c for c in task_def["containerDefinitions"]}
+        self.assertEqual(set(containers), {"web", "caddy"})
+
+        web = containers["web"]
+        web_secret_names = {s["name"] for s in web["secrets"]}
+        for required in ("DJANGO_SECRET_KEY", "DJANGO_ALLOWED_HOSTS", "DATABASE_URL"):
+            self.assertIn(required, web_secret_names)
+        # The real value never belongs in a committed JSON file (ADR-0002 §4)
+        # -- only an SSM parameter ARN naming where it lives.
+        for secret in web["secrets"]:
+            self.assertTrue(secret["valueFrom"].startswith("arn:aws:ssm:"))
+        self.assertIn({"name": "AWS_ECS_FARGATE", "value": "1"}, web["environment"])
+        self.assertEqual(web["healthCheck"]["command"][0], "CMD-SHELL")
+        self.assertIn("localhost:8000/healthz", web["healthCheck"]["command"][1])
+
+        caddy = containers["caddy"]
+        caddy_ports = {p["containerPort"] for p in caddy["portMappings"]}
+        self.assertEqual(caddy_ports, {80, 443})
+        # There is no ALB target group in this topology (ADR-0067's central
+        # decision) -- the app container's own port is reachable only
+        # inside the task, never mapped for external exposure.
+        self.assertNotIn(8000, caddy_ports)
+        self.assertEqual(caddy["dependsOn"], [{"containerName": "web", "condition": "HEALTHY"}])
+
+    def test_service_definition_accepts_the_agreed_redeploy_downtime_instead_of_two_tasks(self):
+        service_def = json.loads(
+            (PROJECT_ROOT / "deploy" / "ecs" / "service-definition.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        self.assertEqual(service_def["launchType"], "FARGATE")
+        self.assertEqual(service_def["desiredCount"], 1)
+        # Two tasks would fight over the one Elastic IP this service owns
+        # (deploy/lambda/reattach_elastic_ip); ADR-0067 accepts a brief
+        # connection break on redeploy instead of provisioning a second one.
+        self.assertEqual(service_def["deploymentConfiguration"]["minimumHealthyPercent"], 0)
+        self.assertEqual(
+            service_def["networkConfiguration"]["awsvpcConfiguration"]["assignPublicIp"],
+            "ENABLED",
+        )
+
+    def test_reattach_lambda_only_moves_the_one_elastic_ip_it_is_scoped_to(self):
+        iam_policy = json.loads(
+            (
+                PROJECT_ROOT / "deploy" / "lambda" / "reattach_elastic_ip" / "iam-policy.json"
+            ).read_text(encoding="utf-8")
+        )
+        associate_statements = [
+            statement
+            for statement in iam_policy["Statement"]
+            if statement["Action"] == "ec2:AssociateAddress"
+        ]
+        self.assertEqual(len(associate_statements), 1)
+        self.assertIn("ec2:AllocationId", associate_statements[0]["Condition"]["StringEquals"])
+
+    def test_dockerfile_runs_collectstatic_at_build_time_and_execs_the_entrypoint(self):
+        dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
+
+        self.assertIn("collectstatic --no-input", dockerfile)
+        self.assertIn("HEALTHCHECK", dockerfile)
+        self.assertIn("localhost:8000/healthz", dockerfile)
+        self.assertIn('ENTRYPOINT ["docker-entrypoint.sh"]', dockerfile)
+
+        entrypoint = (PROJECT_ROOT / "deploy" / "docker-entrypoint.sh").read_text(encoding="utf-8")
+        commands = ["migrate --no-input", "provision_organizer --if-configured", "check --deploy"]
+        positions = [entrypoint.index(command) for command in commands]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("exec gunicorn", entrypoint)

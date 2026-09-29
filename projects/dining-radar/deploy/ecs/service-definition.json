@@ -1,0 +1,18 @@
+{
+  "cluster": "dining-radar",
+  "serviceName": "dining-radar-web",
+  "taskDefinition": "dining-radar-web",
+  "desiredCount": 1,
+  "launchType": "FARGATE",
+  "deploymentConfiguration": {
+    "maximumPercent": 100,
+    "minimumHealthyPercent": 0
+  },
+  "networkConfiguration": {
+    "awsvpcConfiguration": {
+      "subnets": ["<PUBLIC_SUBNET_ID>"],
+      "securityGroups": ["<SECURITY_GROUP_ID>"],
+      "assignPublicIp": "ENABLED"
+    }
+  }
+}

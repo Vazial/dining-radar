@@ -1,0 +1,19 @@
+# TLS-terminating sidecar Caddyfile (ADR-0067). {$NAME} / {$NAME:default}
+# substitution is Caddy's own feature, resolved from this container's
+# environment at startup -- the real public domain is supplied by the ECS
+# task definition (from SSM Parameter Store) and never appears in this
+# repository (activeContext.md: "URL はリポジトリに書かれていない").
+{
+	email {$ACME_EMAIL:ops-not-configured@invalid.example}
+}
+
+{$PUBLIC_DOMAIN} {
+	# Same-task localhost: both containers share one network namespace
+	# (awsvpc mode), so this never leaves the task.
+	reverse_proxy localhost:8000 {
+		header_up X-Forwarded-Proto {scheme}
+		header_up Host {host}
+	}
+
+	encode zstd gzip
+}

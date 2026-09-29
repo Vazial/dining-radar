@@ -18,7 +18,10 @@
 Web アプリである。公開運用中（Render + Neon、カスタムドメイン。URL はリポジトリに書かれていない
 ——`adr/0021` の 2026-08-14 追記。実データでの見え方を確かめたいときは人間に開いてもらう）。
 `main` へのマージは CI 通過後に Render が自動デプロイする（`render.yaml` の
-`autoDeployTrigger: checksPass`）。
+`autoDeployTrigger: checksPass`）。**移行先が決まっている**（`adr/0067`: ECS Fargate 単一タスク・
+ALB 無し、DB は Neon のまま）。コード側の成果物（`deploy/`・`Dockerfile`・`settings.py` の
+Fargate 対応）は KEN-31 で実装済み。AWS 側の実リソース作成・カットオーバーは人間が行う
+（`DEPLOYMENT.md` §7）——それまでは上記の Render + Neon が現在の公開運用である。
 
 プロジェクト名は 2026-08-20 に `toyama-dining-radar` から改名した（`adr/0026`）。公開リポジトリに
 実在の県名を持ち込まないため（`product-brief.md` §4・`adr/0002`）。Python パッケージは元から

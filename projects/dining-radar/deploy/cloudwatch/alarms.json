@@ -1,0 +1,49 @@
+[
+  {
+    "AlarmName": "dining-radar-web-cpu-high",
+    "AlarmDescription": "Sustained high CPU on the single Fargate web task -- the task is undersized (0.25 vCPU, ADR-0067) or something is looping.",
+    "Namespace": "AWS/ECS",
+    "MetricName": "CPUUtilization",
+    "Dimensions": [
+      { "Name": "ClusterName", "Value": "dining-radar" },
+      { "Name": "ServiceName", "Value": "dining-radar-web" }
+    ],
+    "Statistic": "Average",
+    "Period": 300,
+    "EvaluationPeriods": 3,
+    "Threshold": 80,
+    "ComparisonOperator": "GreaterThanThreshold",
+    "TreatMissingData": "notBreaching"
+  },
+  {
+    "AlarmName": "dining-radar-web-memory-high",
+    "AlarmDescription": "Sustained high memory on the single Fargate web task -- close to the 0.5GB task limit (ADR-0067); the task will be OOM-killed if this keeps rising.",
+    "Namespace": "AWS/ECS",
+    "MetricName": "MemoryUtilization",
+    "Dimensions": [
+      { "Name": "ClusterName", "Value": "dining-radar" },
+      { "Name": "ServiceName", "Value": "dining-radar-web" }
+    ],
+    "Statistic": "Average",
+    "Period": 300,
+    "EvaluationPeriods": 3,
+    "Threshold": 85,
+    "ComparisonOperator": "GreaterThanThreshold",
+    "TreatMissingData": "notBreaching"
+  },
+  {
+    "AlarmName": "dining-radar-reattach-eip-lambda-errors",
+    "AlarmDescription": "The Elastic IP reattach Lambda (deploy/lambda/reattach_elastic_ip) failed -- a redeploy or restart may have left the task running without the public Elastic IP attached.",
+    "Namespace": "AWS/Lambda",
+    "MetricName": "Errors",
+    "Dimensions": [
+      { "Name": "FunctionName", "Value": "dining-radar-reattach-eip" }
+    ],
+    "Statistic": "Sum",
+    "Period": 300,
+    "EvaluationPeriods": 1,
+    "Threshold": 0,
+    "ComparisonOperator": "GreaterThanThreshold",
+    "TreatMissingData": "notBreaching"
+  }
+]

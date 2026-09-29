@@ -1,0 +1,85 @@
+{
+  "family": "dining-radar-web",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "runtimePlatform": {
+    "operatingSystemFamily": "LINUX",
+    "cpuArchitecture": "X86_64"
+  },
+  "executionRoleArn": "arn:aws:iam::<AWS_ACCOUNT_ID>:role/dining-radar-ecs-execution",
+  "containerDefinitions": [
+    {
+      "name": "web",
+      "image": "<AWS_ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com/dining-radar-web:<TAG>",
+      "essential": true,
+      "portMappings": [
+        { "containerPort": 8000, "protocol": "tcp" }
+      ],
+      "environment": [
+        { "name": "AWS_ECS_FARGATE", "value": "1" }
+      ],
+      "secrets": [
+        { "name": "DJANGO_SECRET_KEY", "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dining-radar/prod/django_secret_key" },
+        { "name": "DJANGO_ALLOWED_HOSTS", "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dining-radar/prod/django_allowed_hosts" },
+        { "name": "DATABASE_URL", "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dining-radar/prod/database_url" },
+        { "name": "HOTPEPPER_API_KEY", "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dining-radar/prod/hotpepper_api_key" },
+        { "name": "HOTPEPPER_SEARCH_LATITUDE", "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dining-radar/prod/hotpepper_search_latitude" },
+        { "name": "HOTPEPPER_SEARCH_LONGITUDE", "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dining-radar/prod/hotpepper_search_longitude" },
+        { "name": "HOTPEPPER_SEARCH_RANGE", "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dining-radar/prod/hotpepper_search_range" },
+        { "name": "DJANGO_BOOTSTRAP_ORGANIZER_USERNAME", "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dining-radar/prod/django_bootstrap_organizer_username" },
+        { "name": "DJANGO_BOOTSTRAP_ORGANIZER_PASSWORD", "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dining-radar/prod/django_bootstrap_organizer_password" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/dining-radar/prod/web",
+          "awslogs-region": "<AWS_REGION>",
+          "awslogs-stream-prefix": "web",
+          "awslogs-create-group": "true"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:8000/healthz || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 30
+      }
+    },
+    {
+      "name": "caddy",
+      "image": "<AWS_ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com/dining-radar-caddy:<TAG>",
+      "essential": true,
+      "dependsOn": [
+        { "containerName": "web", "condition": "HEALTHY" }
+      ],
+      "portMappings": [
+        { "containerPort": 80, "protocol": "tcp" },
+        { "containerPort": 443, "protocol": "tcp" },
+        { "containerPort": 443, "protocol": "udp" }
+      ],
+      "secrets": [
+        { "name": "PUBLIC_DOMAIN", "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dining-radar/prod/public_domain" },
+        { "name": "ACME_EMAIL", "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dining-radar/prod/acme_email" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/dining-radar/prod/caddy",
+          "awslogs-region": "<AWS_REGION>",
+          "awslogs-stream-prefix": "caddy",
+          "awslogs-create-group": "true"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD", "wget", "-q", "-O", "-", "http://localhost:2019/config/"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 15
+      }
+    }
+  ]
+}

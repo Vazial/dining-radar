@@ -243,3 +243,136 @@ python manage.py shell -c "from django.db import connection; print(connection.se
 作り直す。その人のsessionは無効になり、他のaccountには影響しない。**この操作中も、passwordの実値を
 SQL、log、issue、PRへ書かないこと。** 行を消してから環境変数で作り直すのであって、SQLでpasswordを
 書き換えるのではない。
+
+## 7. ECS Fargateへの移行先（ADR-0067、KEN-31）
+
+この節は [ADR-0067](adr/0067-consider-aws-deployment-migration.md) が決めた移行先を対象とする。
+Web（このRender構成）をECS Fargate単一タスク（0.25vCPU/0.5GB、**ALB無し**）へ移し、タスク内に
+Caddyをサイドカーとして同居させてTLS終端し、Elastic IPをタスクのENIへ直接アタッチする。DB
+（Neon）は変更しない。コード側の成果物（Dockerfile・Caddy設定・タスク定義・Lambda・CloudWatch
+アラーム定義）は [deploy/](deploy/README.md) に置く。
+
+**この節の手順のうち「AWS側」と明記したものは人間が実行する。**このリポジトリのAI実行系はAWS
+認証情報を持たない（`adr/0021`の前例と同じ扱い、KEN-31チケット本文）。実際のカットオーバー・DNS
+切替も人間が確認する。
+
+### 事前条件
+
+- 本PRが対象branchへmerge済みであること。
+- **正式なAWS Pricing Calculatorでの見積り**（AWS側）。ADR-0067記載の月$4〜5という概算は、AWS
+  公式ページのWebFetch要約による粗い見積りであり、正式な見積りではない（ADR-0067「料金についての
+  留保」）。KEN-31の帰結として、実装着手前に裏を取ることを求めている——この見積りを済ませてから
+  以下へ進むこと。
+- Neonは変更しない。§1のNeon projectをそのまま使い続ける。
+
+### 7-1. イメージを作りECRへ積む（AWS側）
+
+1. ECRリポジトリを2つ作る: `dining-radar-web`（`Dockerfile`）と `dining-radar-caddy`
+   （`deploy/caddy/Dockerfile`）。
+2. `projects/dining-radar/` をビルドcontextとして両方をbuildし、push する。
+   ```
+   docker build -t <account>.dkr.ecr.<region>.amazonaws.com/dining-radar-web:<tag> .
+   docker build -t <account>.dkr.ecr.<region>.amazonaws.com/dining-radar-caddy:<tag> deploy/caddy
+   ```
+3. `manage.py check --deploy` は`docker-entrypoint.sh`がコンテナ起動のたびに走らせる
+   （`build.sh`と同じ検査、実行タイミングだけがビルド時からコンテナ起動時へ移った——このイメージは
+   一度buildしたら複数回の再起動・再deployで使い回されるため、Renderの「buildごとに1回」という
+   前提がそのまま持ち込めない）。
+
+### 7-2. secretをSSM Parameter Storeへ入れる（AWS側）
+
+`deploy/ecs/task-definition.json`の`secrets`が参照するSSM Parameter Store（Standard・
+SecureString）パラメータを作る。Secrets Managerは使わない（ADR-0067決定8、$0.40/secret/月を
+避けるため）。
+
+| SSMパラメータ名 | 入力元・扱い |
+|---|---|
+| `/dining-radar/prod/django_secret_key` | 新規生成（Renderの`DJANGO_SECRET_KEY`とは別の値でよい） |
+| `/dining-radar/prod/django_allowed_hosts` | 実ドメイン。§5と同じ理由でこの文書・git・issueに書かない |
+| `/dining-radar/prod/database_url` | NeonのTLS connection string（§1と同じもの、または別のNeon branch/roleを切ってもよい） |
+| `/dining-radar/prod/hotpepper_api_key` | 人間管理のprovider credential |
+| `/dining-radar/prod/hotpepper_search_latitude` / `_longitude` | 非公開の検索地点。表示・log出力禁止 |
+| `/dining-radar/prod/hotpepper_search_range` | 現行環境と同じ非公開range |
+| `/dining-radar/prod/django_bootstrap_organizer_username` / `_password` | 初回organizer作成用。§6と同じ運用（使い終わったら空にして再deploy） |
+| `/dining-radar/prod/public_domain` | Caddyの`{$PUBLIC_DOMAIN}`。実ドメイン、コミットしない |
+| `/dining-radar/prod/acme_email` | Let's Encryptのアカウント連絡先（任意、未設定でも動く。`deploy/caddy/Caddyfile`参照） |
+
+### 7-3. ネットワークとタスク定義（AWS側）
+
+1. パブリックサブネットとセキュリティグループを用意する（既存VPCのデフォルトVPCで足りる）。
+   セキュリティグループのinbound: TCP 80・TCP 443・UDP 443（HTTP/3、Caddyの既定）を
+   `0.0.0.0/0`から許可する。**8000番（appコンテナ）は外へ公開しない**——Caddy経由でしか届かない
+   内部専用ポートである。
+2. `deploy/ecs/task-definition.json`の`<PLACEHOLDER>`（アカウントID・region・イメージURI・
+   ロールARN）を埋め、`aws ecs register-task-definition --cli-input-json file://task-definition.json`
+   で登録する。executionRoleにはECR pull・CloudWatch Logs書き込み・SSMパラメータ読み取りの権限が
+   要る（`AmazonECSTaskExecutionRolePolicy` + SSM読み取りを追加したロール）。
+3. ECSクラスタ`dining-radar`を作る（Fargate専用でよい）。
+4. `deploy/ecs/service-definition.json`の`<PLACEHOLDER>`（サブネットID・セキュリティグループID）を
+   埋め、`aws ecs create-service --cli-input-json file://service-definition.json`でサービスを作る。
+   `minimumHealthyPercent: 0`は意図的——このトポロジーは冗長性を持たない単一タスクであり、
+   2タスクが同時に走ると1つしかないElastic IPを取り合う（ADR-0067が明記した帰結: 再デプロイの
+   たびに数十秒〜1分の接続断を受け入れる）。
+
+### 7-4. Elastic IPと自動付け替えLambda（AWS側）
+
+1. Elastic IPを1つ確保する（`aws ec2 allocate-address`）。AllocationIdを控える。
+2. `deploy/lambda/reattach_elastic_ip/handler.py`をzipにしてLambda関数
+   `dining-radar-reattach-eip`として作る。ランタイムはPython（boto3同梱のもの）。
+3. 実行ロールに`deploy/lambda/reattach_elastic_ip/iam-policy.json`（`<PLACEHOLDER>`を埋めたもの）
+   と、AWS管理ポリシー`AWSLambdaBasicExecutionRole`（Lambda自身のログ書き込み用）を付与する。
+4. Lambdaの環境変数に`ELASTIC_IP_ALLOCATION_ID`（1で控えたAllocationId）と
+   `ECS_SERVICE_GROUP`（`service:dining-radar-web`）を設定する。
+5. `deploy/lambda/reattach_elastic_ip/eventbridge-rule.json`（`<PLACEHOLDER>`を埋めたもの）で
+   EventBridgeルールを作り、ターゲットをこのLambdaにする
+   （`aws events put-rule` → `aws events put-targets`）。
+6. **`put-targets`だけではEventBridgeはこのLambdaを呼び出せない。** ターゲット登録は「どこへ送るか」
+   をEventBridge側に教えるだけで、「送ってよい」という許可はLambda側のリソースベースポリシーが
+   別途持つ。次のコマンドでその許可を足す（`<RULE_ARN>`は5で作ったルールのARN）。
+   ```
+   aws lambda add-permission \
+     --function-name dining-radar-reattach-eip \
+     --statement-id allow-eventbridge \
+     --action lambda:InvokeFunction \
+     --principal events.amazonaws.com \
+     --source-arn <RULE_ARN>
+   ```
+   これを忘れると、ルールは発火してもLambda呼び出しが権限エラーで失敗する（EventBridgeの
+   コンソールの「呼び出し失敗」メトリクスで気づける）。
+7. サービスを1回再起動（force new deployment）し、タスクがRUNNINGになった直後にElastic IPが
+   そのタスクのENIへ付け替わることを、**実リソース上で人間が確認する**（KEN-31 DoD）。CloudWatch
+   Logsで`dining-radar-reattach-eip`の実行ログも見る。
+
+### 7-5. CloudWatch（AWS側）
+
+- ログはタスク定義の`awslogs`ドライバが`/dining-radar/prod/web`・`/dining-radar/prod/caddy`
+  ロググループへ自動で作って送る（`awslogs-create-group: true`）。常時無料枠5GB/月に収まる想定
+  （ADR-0067）。
+- 基本アラーム3件（タスクCPU高騰・タスクメモリ高騰・reattach Lambdaのエラー）は
+  `bash deploy/cloudwatch/create-alarms.sh`で作る。通知先（SNSトピック）はADR-0067が決めていない
+  ため未設定——必要なら人間がAlarmActionsを別途足す。
+
+### 7-6. DNS切替（AWS側、順序を守る。§5と同じ理由）
+
+1. Elastic IPが安定して付いていることを7-4手順6で確認済みであること。
+2. `https://<Elastic IPを指すRoute 53レコードのテスト用一時ドメイン>/healthz`が200 `ok`を返すことを
+   確認する。Caddyの証明書発行（Let's Encrypt HTTP-01チャレンジ）はDNSが実際にそのIPを指してから
+   でないと成功しないため、**本番ドメインのDNSを向ける前にCaddyが起動しHTTP(80番)へは応答すること
+   だけを先に確認し**、その後本番ドメインへ向ける。
+3. Route 53の既存ホストゾーン（§5で作成済み）のAレコードを、RenderのIPからこのElastic IPへ
+   切り替える。TTLを事前に短くしておくと切替の見えが良い。
+4. 切替後、§3の手順（healthz・HTTPS redirect・セキュリティヘッダ・organizer sign in・
+   Hot Pepperクレジット表記・OSM attribution）を同じ基準で再確認する。
+5. 動作を確認できたら、Render側のサービスを止める（削除は即座に行わず、しばらく残して切り戻し
+   経路を確保してもよい——このADRは切り戻し手順そのものを決めていないため、必要なら人間が個別に
+   判断する）。
+
+### 既知のトレードオフ（ADR-0067の帰結の再掲）
+
+- ALB無しのためAWS WAFが使えない。このアプリは招待制・署名付き使い捨てリンクのみで運用され、
+  公開signup/フォームを持たないため許容している（現状のRenderもWAF相当を持たないため後退ではない）。
+- 単一タスクのため冗長性が無く、再デプロイのたびに数十秒〜1分の接続断が起きる。デプロイは利用の
+  無い時間帯に行う運用規律が要る。
+- Elastic IP自動付け替えのLambda自体が新しい壊れどころになり得る（IAM権限ミス、古いタスクが
+  ENIからIPを離す前に新タスクが取りに行くタイミングのズレ等）。7-4手順6の実機確認はこのリスクを
+  軽減するための最初の一歩であり、継続的な監視は上記CloudWatchアラームに委ねる。
