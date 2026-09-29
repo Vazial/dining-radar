@@ -14,7 +14,7 @@ why; it does not duplicate that procedure (P-04).
 | `ecs/task-definition.json` | `aws ecs register-task-definition --cli-input-json file://task-definition.json` input. Two containers (`web`, `caddy`), 0.25 vCPU / 0.5GB, secrets sourced from SSM Parameter Store (never committed values). |
 | `ecs/service-definition.json` | `aws ecs create-service --cli-input-json file://service-definition.json` input. Single task, public subnet, `assignPublicIp: ENABLED`. `minimumHealthyPercent: 0` is deliberate — this topology accepts a brief connection break on redeploy instead of running two tasks that would fight over the one Elastic IP (ADR-0067's accepted tradeoff). |
 | `lambda/reattach_elastic_ip/handler.py` | Re-associates the one Elastic IP onto whichever task is newly `RUNNING`, since every Fargate task restart gets a fresh ENI. |
-| `lambda/reattach_elastic_ip/eventbridge-rule.json` | The EventBridge rule that invokes the Lambda on `ECS Task State Change` events. |
+| `lambda/reattach_elastic_ip/eventbridge-rule.json` | The EventBridge rule matching `ECS Task State Change` events. Registering it as a target (`put-targets`) is not enough on its own — DEPLOYMENT.md §7-4 step 6 also grants the Lambda's *resource-based* policy permission for EventBridge to invoke it (`aws lambda add-permission`). |
 | `lambda/reattach_elastic_ip/iam-policy.json` | Least-privilege policy for the Lambda's execution role (plus the AWS-managed `AWSLambdaBasicExecutionRole` for its own logs). |
 | `cloudwatch/alarms.json`, `cloudwatch/create-alarms.sh` | Three basic alarms (task CPU, task memory, reattach-Lambda errors). No `AlarmActions`/SNS topic is set — ADR-0067 did not decide a notification channel. |
 

@@ -326,7 +326,20 @@ SecureString）パラメータを作る。Secrets Managerは使わない（ADR-0
 5. `deploy/lambda/reattach_elastic_ip/eventbridge-rule.json`（`<PLACEHOLDER>`を埋めたもの）で
    EventBridgeルールを作り、ターゲットをこのLambdaにする
    （`aws events put-rule` → `aws events put-targets`）。
-6. サービスを1回再起動（force new deployment）し、タスクがRUNNINGになった直後にElastic IPが
+6. **`put-targets`だけではEventBridgeはこのLambdaを呼び出せない。** ターゲット登録は「どこへ送るか」
+   をEventBridge側に教えるだけで、「送ってよい」という許可はLambda側のリソースベースポリシーが
+   別途持つ。次のコマンドでその許可を足す（`<RULE_ARN>`は5で作ったルールのARN）。
+   ```
+   aws lambda add-permission \
+     --function-name dining-radar-reattach-eip \
+     --statement-id allow-eventbridge \
+     --action lambda:InvokeFunction \
+     --principal events.amazonaws.com \
+     --source-arn <RULE_ARN>
+   ```
+   これを忘れると、ルールは発火してもLambda呼び出しが権限エラーで失敗する（EventBridgeの
+   コンソールの「呼び出し失敗」メトリクスで気づける）。
+7. サービスを1回再起動（force new deployment）し、タスクがRUNNINGになった直後にElastic IPが
    そのタスクのENIへ付け替わることを、**実リソース上で人間が確認する**（KEN-31 DoD）。CloudWatch
    Logsで`dining-radar-reattach-eip`の実行ログも見る。
 
