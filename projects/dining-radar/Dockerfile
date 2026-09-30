@@ -26,6 +26,8 @@ COPY pyproject.toml ./
 COPY src ./src
 RUN python -m pip install --no-cache-dir -e .
 
+COPY manage.py ./
+
 # collectstatic needs a non-empty DJANGO_SECRET_KEY to import settings.py
 # (settings.py raises RuntimeError otherwise) but never touches the
 # database or a real ALLOWED_HOSTS value, so a build-time-only placeholder
@@ -37,7 +39,6 @@ RUN python -m pip install --no-cache-dir -e .
 RUN DJANGO_SECRET_KEY=build-time-placeholder-not-used-at-runtime \
     python manage.py collectstatic --no-input
 
-COPY manage.py ./
 COPY deploy/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
