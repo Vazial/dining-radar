@@ -1,9 +1,9 @@
 ---
 id: 0069
 scope: project/dining-radar
-status: 提案中
+status: 承認済み
 date: 2026-10-04
-approved_by: null
+approved_by: "人間裁定（2026-10-04 PR #14 のマージを承認とする旨を、人間が調整役とのチャットで明言したと調整役 ken-18-d8 が伝達。マージ者は GitHub アカウント Vazial）"
 supersedes: []
 superseded_by: null
 relates_to:
