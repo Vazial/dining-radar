@@ -108,6 +108,7 @@
     .app-shell > .primary-nav-desktop { position: absolute; top: 1.25rem; right: 0; z-index: 10; }
     .app-shell > header[data-testid="authenticated-application-shell"] { padding-right: 8.5rem; }
     .primary-nav-menu { position: relative; }
+    .primary-nav-menu-toggle-wrap { position: relative; display: inline-flex; }
     .primary-nav-menu-toggle {
       display: inline-flex; align-items: center; justify-content: center;
       list-style: none; cursor: pointer; user-select: none;
@@ -144,19 +145,10 @@
       margin: 0.3rem 0 0.15rem; padding: 0 0.75rem;
       font-size: 0.8125rem; font-weight: 700; color: #68766c;
     }
-    .candidate-gathering-entry {
-      display: inline-flex; align-items: center; gap: 0.35rem;
-      min-height: 2.75rem; padding: 0 0.8rem; border: 1px solid #c6cfc6;
-      border-radius: 0.6rem; background: #fff; color: #17201b;
-      font-weight: 650; font-size: 0.875rem; text-decoration: none; white-space: nowrap;
-    }
-    .candidate-gathering-entry:hover { background: #f4f6f2; }
-    .candidate-gathering-entry:focus-visible { outline: 2px solid #14684a; outline-offset: 2px; }
-    .candidate-gathering-entry-badge {
-      display: inline-flex; align-items: center; justify-content: center;
-      min-width: 1.125rem; height: 1.125rem; border-radius: 999px;
-      background: #14614a; color: #fff; font-size: 0.625rem; font-weight: 700;
-      padding: 0 0.3rem;
+    .candidate-primary-nav-menu-dot {
+      position: absolute; top: -0.1rem; right: -0.1rem; z-index: 1;
+      width: 0.5rem; height: 0.5rem; border-radius: 999px;
+      background: #14614a; box-shadow: 0 0 0 2px #fff;
     }
 
     /* Mobile bottom bar (candidate-primary-nav-bar): fixed to the viewport
@@ -1378,7 +1370,7 @@
           data-candidate-control-category="button"
           data-candidate-control-purpose="candidate-primary-nav-menu-toggle"
           class="primary-nav-menu-toggle"
-        ><span aria-hidden="true">☰</span><span class="visually-hidden">メニュー</span></summary>
+        ><span aria-hidden="true">☰</span><span class="visually-hidden">メニュー</span><span data-testid="candidate-primary-nav-menu-dot" class="candidate-primary-nav-menu-dot" hidden></span></summary>
         <div data-testid="candidate-primary-nav-menu-panel" class="primary-nav-menu-panel">
           <a
             href="{% url 'web:home' %}"
@@ -1412,15 +1404,6 @@
           </form>
         </div>
       </details>
-      {% comment %}
-        candidate-gathering-entry (the chip): JS-inserted only while
-        data-in-progress-gathering-count > 0 (candidate.js's
-        loadGatheringEntryBadge), per
-        gatheringEntry.entry.requirement's revised presence rule -- unlike
-        candidate-primary-nav-menu-toggle above, this element itself (not
-        only a nested badge) must be entirely absent from the DOM at count
-        zero, so it is never server-rendered here.
-      {% endcomment %}
     </div>
     <nav data-testid="candidate-primary-nav-bar" data-primary-nav-mobile class="primary-nav-bar" aria-label="ランチ機能">
       <a
@@ -1531,5 +1514,5 @@
       code (184px facts grid, no name-in-id-row) even though the server's
       own file already had this round's fixes.
     {% endcomment %}
-    <script src="{% static 'dining_radar/web/candidate.js' %}?v=20260916-primary-nav-redesign"></script>
+    <script src="{% static 'dining_radar/web/candidate.js' %}?v=20261004-adr0069-menu-dot"></script>
 {% endblock %}
