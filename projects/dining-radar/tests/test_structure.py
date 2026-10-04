@@ -431,8 +431,17 @@ class EcsFargateDeployStructureTests(SimpleTestCase):
             for statement in iam_policy["Statement"]
             if statement["Action"] == "ec2:AssociateAddress"
         ]
-        self.assertEqual(len(associate_statements), 1)
-        self.assertIn("ec2:AllocationId", associate_statements[0]["Condition"]["StringEquals"])
+        # AssociateAddress authorizes two resources at once: the Elastic IP and the
+        # network interface it moves onto. An `ec2:AllocationId` condition on a
+        # `*` resource is not satisfied while the ENI is evaluated (observed on a
+        # real task: UnauthorizedOperation on the ENI), so each resource gets its
+        # own statement and the IP is scoped by its ARN instead.
+        self.assertEqual(len(associate_statements), 2)
+        resources = sorted(statement["Resource"] for statement in associate_statements)
+        self.assertTrue(resources[0].endswith(":elastic-ip/<ELASTIC_IP_ALLOCATION_ID>"))
+        self.assertTrue(resources[1].endswith(":network-interface/*"))
+        for statement in associate_statements:
+            self.assertNotEqual(statement["Resource"], "*")
 
     def test_dockerfile_runs_collectstatic_at_build_time_and_execs_the_entrypoint(self):
         dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")

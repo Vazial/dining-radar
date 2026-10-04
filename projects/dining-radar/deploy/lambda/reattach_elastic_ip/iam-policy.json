@@ -11,12 +11,13 @@
       "Sid": "MoveTheOneElasticIpThisServiceOwns",
       "Effect": "Allow",
       "Action": "ec2:AssociateAddress",
-      "Resource": "*",
-      "Condition": {
-        "StringEquals": {
-          "ec2:AllocationId": "<ELASTIC_IP_ALLOCATION_ID>"
-        }
-      }
+      "Resource": "arn:aws:ec2:<AWS_REGION>:<AWS_ACCOUNT_ID>:elastic-ip/<ELASTIC_IP_ALLOCATION_ID>"
+    },
+    {
+      "Sid": "ToAnyNetworkInterfaceInThisAccount",
+      "Effect": "Allow",
+      "Action": "ec2:AssociateAddress",
+      "Resource": "arn:aws:ec2:<AWS_REGION>:<AWS_ACCOUNT_ID>:network-interface/*"
     }
   ]
 }
