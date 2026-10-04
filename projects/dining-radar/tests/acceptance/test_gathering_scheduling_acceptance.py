@@ -778,7 +778,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
             ]
         )
         self.steps.organizer_opens_the_lunch_candidate_screen()
-        self.steps.in_progress_gathering_count_badge_shows(2)
+        self.steps.in_progress_gathering_count_dot_shows(2)
         self.steps.organizer_opens_the_gathering_entry()
         self.steps.gathering_list_screen_is_shown()
 
@@ -1884,6 +1884,21 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.organizer_has_a_selecting_shop_gathering("会追補24a", [thursday])
         self.steps.organizer_opens_the_dashboard()
         self.steps.phase_indicator_is_absent()
+        self.steps.screen_has_no_forbidden_controls_or_disclosures()
+
+    def test_gth_finalized_dashboard_has_the_contract_heading_structure(self) -> None:
+        """専用シナリオの無い契約Must（ADR-0069決定3）を、確定後の幹事画面で
+        直接検査する。戻り道、会の名前だけのh1、見出しから除かれた日付を確かめる。
+        """
+        self._sign_in()
+        thursday = self.dsl.next_weekday_iso(3)
+        self.steps.organizer_has_a_selecting_shop_gathering("会確定見出し", [thursday])
+        shop_id = self.steps.open_shop_ids_for_the_confirmed_date()[0]
+        self.steps.organizer_shortlists_shops_via_api([shop_id])
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.organizer_selects_a_shop_for_finalize(shop_id)
+        self.steps.organizer_finalizes_via_dashboard()
+        self.steps.finalized_dashboard_heading_matches_contract("会確定見出し")
         self.steps.screen_has_no_forbidden_controls_or_disclosures()
 
     def test_gth_selecting_shop_tab_panel_is_functional(self) -> None:

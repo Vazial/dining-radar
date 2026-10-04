@@ -72,6 +72,7 @@ GATHERING_PHASE_ATTR = "data-gathering-phase"
 # itself is absent (_read_gathering_phase_from_dom below, 未決事項1).
 GATHERING_DASHBOARD_TITLE = "gathering-dashboard-title"
 GATHERING_DASHBOARD_TITLE_ATTR = "data-gathering-title"
+GATHERING_DASHBOARD_BACK = "gathering-dashboard-back"
 GATHERING_DASHBOARD_CONFIRMED_DATE = "gathering-dashboard-confirmed-date"
 GATHERING_DASHBOARD_CONFIRMED_DATE_ATTR = "data-confirmed-candidate-date"
 RESPONDED_SUMMARY = "gathering-responded-summary"
@@ -411,16 +412,11 @@ GATHERING_DELETE_CANCEL = "gathering-delete-cancel"
 # point; this file reads its raw test ids/attributes directly rather than
 # importing candidate_search_browser.py, keeping this slice's own module
 # boundary (the sibling DSL is not touched).
-CANDIDATE_GATHERING_ENTRY = "candidate-gathering-entry"
-CANDIDATE_GATHERING_ENTRY_BADGE = "candidate-gathering-entry-badge"
+PRIMARY_NAV_MENU_TOGGLE = "candidate-primary-nav-menu-toggle"
+PRIMARY_NAV_MENU_DESTINATION_GATHERING = "candidate-primary-nav-menu-gathering"
+PRIMARY_NAV_MENU_DOT = "candidate-primary-nav-menu-dot"
 IN_PROGRESS_GATHERING_COUNT_ATTR = "data-in-progress-gathering-count"
-# ADR-0059 decision 2 (2026-09-16): candidate-gathering-entry is now
-# exclusive to renderModes.twoColumnLayout (it previously rendered
-# viewport-independently, ADR-0054 decision 1) -- duplicated from
-# candidate_search_browser.py's own DESKTOP_TWO_COLUMN_VIEWPORT rather than
-# imported (this pair of DSL files' established precedent, see this
-# section's own header comment above), chosen deliberately far from any
-# plausible breakpoint for the same reason that file states.
+# The desktop menu is the only desktop gathering destination after ADR-0069.
 CANDIDATE_SEARCH_DESKTOP_TWO_COLUMN_VIEWPORT = {"width": 1440, "height": 900}
 
 # participantAnswer test ids / attributes
@@ -1250,6 +1246,31 @@ class GatheringSchedulingBrowserDsl:
         node = assert_present(self.assertions, self.page, GATHERING_DASHBOARD_CONFIRMED_DATE)
         self.assertions.assertEqual(
             node.get_attribute(GATHERING_DASHBOARD_CONFIRMED_DATE_ATTR), expected_iso
+        )
+
+    def assert_finalized_dashboard_heading_matches_contract(self, expected_title: str) -> None:
+        """ADR-0069 decision 3: FINALIZED has a return link immediately
+        before the gathering name, which is the screen's sole h1; the
+        heading does not repeat the confirmed date.
+        """
+        back = assert_present(self.assertions, self.page, GATHERING_DASHBOARD_BACK)
+        expect(back).to_be_visible()
+        self.assertions.assertIn("/gatherings/", back.get_attribute("href") or "")
+        title = assert_present(self.assertions, self.page, GATHERING_DASHBOARD_TITLE)
+        expect(title).to_be_visible()
+        self.assertions.assertEqual(
+            title.get_attribute(GATHERING_DASHBOARD_TITLE_ATTR), expected_title
+        )
+        self.assertions.assertEqual(title.evaluate("node => node.tagName"), "H1")
+        self.assertions.assertEqual(self.page.locator("h1").count(), 1)
+        self.assertions.assertEqual(
+            self.page.locator(f'[data-testid="{GATHERING_DASHBOARD_CONFIRMED_DATE}"]').count(), 0
+        )
+        self.assertions.assertTrue(
+            title.evaluate(
+                "node => node.previousElementSibling?.dataset.testid === "
+                "'gathering-dashboard-back'",
+            )
         )
 
     def assert_phase_indicator_is_absent(self) -> None:
@@ -2129,7 +2150,7 @@ class GatheringSchedulingBrowserDsl:
 
     def set_lunch_candidate_screen_available(self) -> None:
         """TDR-GTH-25 needs the candidate-search screen itself to render
-        successfully to reach candidate-gathering-entry
+        successfully to reach the authenticated candidate-search surface
         (authenticatedInitialOutcome.present). Uses the same test-support-
         api.yaml seam set_gathering_open_shop_population already uses,
         mirroring candidate_search_browser.py's own NORMAL_WITH_WEIGHTED_
@@ -2144,26 +2165,23 @@ class GatheringSchedulingBrowserDsl:
         assert_no_content(self.assertions, response, "NORMAL_WITH_WEIGHTED_SAMPLING state set")
 
     def open_lunch_candidate_screen(self) -> None:
-        """ADR-0059 decision 2: pins the desktop viewport before navigating,
-        since candidate-gathering-entry (this method's own settle point) is
-        no longer present under every render mode -- see
-        CANDIDATE_SEARCH_DESKTOP_TWO_COLUMN_VIEWPORT above.
+        """Pins the desktop viewport because the menu dot is a desktop-only
+        observation surface under candidate-search-browser-interface.yaml.
         """
         self.page.set_viewport_size(CANDIDATE_SEARCH_DESKTOP_TWO_COLUMN_VIEWPORT)
         self.page.goto(f"{self.base_url}/")
-        wait_for_at_least_one(self.page, CANDIDATE_GATHERING_ENTRY)
+        wait_for_at_least_one(self.page, "candidate-proposal-content")
 
-    def assert_in_progress_gathering_count_badge(self, expected_count: int) -> None:
-        if expected_count > 0:
-            badge = wait_for_at_least_one(self.page, CANDIDATE_GATHERING_ENTRY_BADGE)
-            self.assertions.assertEqual(
-                badge.first.get_attribute(IN_PROGRESS_GATHERING_COUNT_ATTR), str(expected_count)
-            )
-        else:
-            assert_absent(self.assertions, self.page, CANDIDATE_GATHERING_ENTRY_BADGE)
+    def assert_in_progress_gathering_count_dot(self, expected_count: int) -> None:
+        dot = wait_for_at_least_one(self.page, PRIMARY_NAV_MENU_DOT)
+        self.assertions.assertEqual(
+            dot.first.get_attribute(IN_PROGRESS_GATHERING_COUNT_ATTR), str(expected_count)
+        )
 
     def open_gathering_entry_from_candidate_screen(self) -> None:
-        by_test_id(self.page, CANDIDATE_GATHERING_ENTRY).click()
+        by_test_id(self.page, PRIMARY_NAV_MENU_TOGGLE).click()
+        wait_for_at_least_one(self.page, "candidate-primary-nav-menu-panel")
+        by_test_id(self.page, PRIMARY_NAV_MENU_DESTINATION_GATHERING).click()
 
     def assert_gathering_list_screen_is_shown(self) -> None:
         wait_for_at_least_one(self.page, GATHERING_LIST)
@@ -4104,6 +4122,15 @@ class GatheringSchedulingBrowserDsl:
         self.assertions.assertEqual(map_node.get_attribute("data-overlay-ring-count"), "0")
         assert_present(self.assertions, self.page, GATHERING_DECISION_SHOP_MAP_MARKER)
         assert_present(self.assertions, self.page, GATHERING_DECISION_SHOP_MAP_ORIGIN_MARKER)
+        viewport = self.page.viewport_size
+        self.assertions.assertIsNotNone(viewport)
+        box = map_node.bounding_box()
+        self.assertions.assertIsNotNone(box)
+        self.assertions.assertLessEqual(abs(box["x"]), 2)
+        self.assertions.assertLessEqual(abs(box["width"] - viewport["width"]), 2)
+        self.assertions.assertEqual(
+            map_node.evaluate("node => getComputedStyle(node).borderRadius"), "0px"
+        )
 
     # finalizedSummary.answersOpen/linksOpen (ADR-0062 追補22, 2026-09-19,
     # observation 0.24.1) -- the entrance to responseTable/participantLinkList

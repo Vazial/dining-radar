@@ -1679,11 +1679,10 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         gathering mode too, since it is not one of gathering-scheduling-
         browser-interface.yaml's own three organizer-facing screens
         (gatheringEntry.mobileBar/menuToggle requirement paragraphs).
-        candidate-gathering-entry (the chip) is unlike those two: it stays
-        present here (unlike on the three organizer screens,
-        GatheringScreenInvariantTests' own sibling test below), since
-        entry.requirement's own exclusion only names those three screens,
-        not gatheringMode. None of the new elements below carry
+        The retired candidate-gathering-entry chip is absent here. The new
+        candidate-primary-nav-menu-dot is display-only and is checked for
+        its transferred count/position in the geometry invariant below. None
+        of the navigation elements below carry
         data-candidate-control-purpose (plain navigation elements, per this
         contract's existing gatheringEntry.entry precedent), so none is
         caught by test_e_activatable_controls_meet_44px_minimum_target's
@@ -1732,19 +1731,15 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
             "",
             f"candidate-primary-nav-gathering label text empty ({mobile_label})",
         )
-        expect(by_test_id(self.page, "candidate-gathering-entry")).to_have_count(0)
+        expect(by_test_id(self.page, "candidate-primary-nav-menu-dot")).to_have_count(0)
 
-        # --- desktop chip + menu (twoColumnLayout, adr/0049 decision 4) ---
+        # --- desktop menu + dot (twoColumnLayout, ADR-0069) ---
         desktop_width, desktop_height, desktop_label = TWO_COLUMN_VIEWPORTS[1]
         self.page.set_viewport_size({"width": desktop_width, "height": desktop_height})
         self.page.goto(f"{self.dsl.base_url}/?gatheringId={gathering_id}")
-        chip = by_test_id(self.page, "candidate-gathering-entry")
-        _assert_44px_and_tabbable(chip, f"candidate-gathering-entry ({desktop_label})")
-        self.assertNotEqual(
-            (chip.inner_text() or "").strip(),
-            "",
-            f"candidate-gathering-entry label text empty ({desktop_label})",
-        )
+        dot = by_test_id(self.page, "candidate-primary-nav-menu-dot")
+        expect(dot).to_be_visible()
+        expect(dot).to_have_attribute("data-in-progress-gathering-count", "1")
 
         toggle = by_test_id(self.page, "candidate-primary-nav-menu-toggle")
         _assert_44px_and_tabbable(toggle, f"candidate-primary-nav-menu-toggle ({desktop_label})")
@@ -3422,11 +3417,10 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         """ADR-0063 decisions 1-2 (2026-09-19, board S4): a full round trip
         (SCHEDULING -> SELECTING_SHOP -> FINALIZED) confirming headingBar
         (gathering-dashboard-title/-confirmed-date) and phaseIndicator
-        (gathering-phase-indicator) are mutually exclusive across exactly
-        the one phase decision 1 carves out -- both present together would
-        be a regression of the "replaces the badge for this one phase"
-        design, and headingBar surviving into FINALIZED would duplicate
-        finalizedSummary.decisionBanner's own heading role.
+        (gathering-phase-indicator) follow the phase-specific contract. The
+        heading is absent in SCHEDULING, includes the date only in
+        SELECTING_SHOP, and in FINALIZED becomes the gathering name's sole
+        h1 with the return link above it (ADR-0069).
         """
         self._sign_in_as_organizer()
         title = "見出し切り替えの確認会"
@@ -3466,11 +3460,24 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         by_test_id(self.page, "gathering-finalize-open").click()
         by_test_id(self.page, "gathering-finalize-confirm").click()
 
-        # FINALIZED: phaseIndicator returns, headingBar is gone again.
+        # FINALIZED: phaseIndicator returns; ADR-0069 keeps the heading bar,
+        # changes its title to the sole h1, adds the return link, and removes
+        # the date from this heading.
         expect(by_test_id(self.page, "gathering-phase-indicator")).to_have_attribute(
             "data-gathering-phase", "FINALIZED"
         )
-        expect(by_test_id(self.page, "gathering-dashboard-title")).to_have_count(0)
+        finalized_title = by_test_id(self.page, "gathering-dashboard-title")
+        expect(finalized_title).to_be_visible()
+        self.assertEqual(finalized_title.get_attribute("data-gathering-title"), title)
+        self.assertEqual(finalized_title.evaluate("node => node.tagName"), "H1")
+        self.assertEqual(self.page.locator("h1").count(), 1)
+        back = by_test_id(self.page, "gathering-dashboard-back")
+        expect(back).to_be_visible()
+        self.assertTrue(
+            finalized_title.evaluate(
+                "node => node.previousElementSibling?.dataset.testid === 'gathering-dashboard-back'"
+            )
+        )
         expect(by_test_id(self.page, "gathering-dashboard-confirmed-date")).to_have_count(0)
 
     def test_b_gathering_dashboard_shop_select_tabs_are_keyboard_operable_and_toggle_content(
@@ -3666,20 +3673,17 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         self,
     ) -> None:
         """ADR-0059 (2026-09-16, 束A) replaces ADR-0054 decision 1's single,
-        render-mode-independent candidate-gathering-entry chip on these
-        three organizer screens with a render-mode-specific pair:
+        render-mode-independent primary navigation on these three organizer
+        screens with a render-mode-specific pair:
         candidate-primary-nav-bar (unconditional under
         mapPrimaryTouchLayout) and candidate-primary-nav-menu-toggle ->
         -menu-panel (unconditional under twoColumnLayout) -- both
         contracts/candidate-search-browser-interface.yaml's own
         gatheringEntry.mobileBar/menuToggle requirement paragraphs
         (2026-09-16) state this holds on these same three screens, not only
-        on the candidate-search screen itself. candidate-gathering-entry
-        itself is now the *opposite* of ADR-0054 decision 1's rule here --
-        entry.requirement (2026-09-16) explicitly excludes these three
-        screens ("redundant... on a screen that already is that gathering")
-        -- this test also asserts its absence, a regression a silently-
-        still-present chip would previously have passed unnoticed. None of
+        on the candidate-search screen itself. The chip is now retired by
+        ADR-0069, and candidate-primary-nav-menu-dot is also absent on these
+        three organizer-facing screens. None of
         the new elements carry ``data-gathering-control-purpose`` (plain
         navigation elements, mirroring the retired chip's own precedent),
         so none is caught by ``_assert_all_declared_gathering_controls_meet_
@@ -3716,7 +3720,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
                     _assert_44px_and_tabbable(
                         by_test_id(self.page, test_id), f"{test_id} ({mobile_label}, {url})"
                     )
-                expect(by_test_id(self.page, "candidate-gathering-entry")).to_have_count(0)
+                expect(by_test_id(self.page, "candidate-primary-nav-menu-dot")).to_have_count(0)
 
         desktop_width, desktop_height, desktop_label = GATHERING_CONTROL_SIZE_VIEWPORTS[1]
         self.page.set_viewport_size({"width": desktop_width, "height": desktop_height})
@@ -3737,7 +3741,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
                     _assert_44px_and_tabbable(
                         by_test_id(self.page, test_id), f"{test_id} ({desktop_label}, {url})"
                     )
-                expect(by_test_id(self.page, "candidate-gathering-entry")).to_have_count(0)
+                expect(by_test_id(self.page, "candidate-primary-nav-menu-dot")).to_have_count(0)
 
     def test_b_gathering_dashboard_delete_confirmation_is_keyboard_operable(self) -> None:
         self._sign_in_as_organizer()
@@ -4267,6 +4271,20 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
                 is_narrow = width < 1024
 
                 _assert_no_horizontal_overflow(self.page, f"decision stage, closed ({label})")
+
+                # ADR-0069 decision 4: the FINALIZED decision map is flush
+                # with both viewport edges, has no visible frame or corner
+                # rounding, and is the surface directly below the heading.
+                decision_map = by_test_id(self.page, "gathering-decision-shop-map")
+                map_box = decision_map.bounding_box()
+                self.assertIsNotNone(map_box, f"decision map has no box ({label})")
+                self.assertLessEqual(abs(map_box["x"]), 2, label)
+                self.assertLessEqual(abs(map_box["width"] - width), 2, label)
+                self.assertEqual(
+                    decision_map.evaluate("node => getComputedStyle(node).borderRadius"),
+                    "0px",
+                    label,
+                )
 
                 if is_narrow:
                     nav_bar = by_test_id(self.page, "candidate-primary-nav-bar")

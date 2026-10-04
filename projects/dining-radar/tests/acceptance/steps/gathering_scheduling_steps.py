@@ -290,8 +290,8 @@ class GatheringSchedulingSteps:
     def no_gathering_exists_with_title(self, title: str) -> None:
         self.dsl.assert_no_gathering_exists_with_title(title)
 
-    def in_progress_gathering_count_badge_shows(self, expected_count: int) -> None:
-        self.dsl.assert_in_progress_gathering_count_badge(expected_count)
+    def in_progress_gathering_count_dot_shows(self, expected_count: int) -> None:
+        self.dsl.assert_in_progress_gathering_count_dot(expected_count)
 
     def gathering_list_screen_is_shown(self) -> None:
         self.dsl.assert_gathering_list_screen_is_shown()
@@ -805,6 +805,9 @@ class GatheringSchedulingSteps:
 
     def dashboard_shows_the_confirmed_date(self, expected_iso: str) -> None:
         self.dsl.assert_dashboard_shows_the_confirmed_date(expected_iso)
+
+    def finalized_dashboard_heading_matches_contract(self, expected_title: str) -> None:
+        self.dsl.assert_finalized_dashboard_heading_matches_contract(expected_title)
 
     def phase_indicator_is_absent(self) -> None:
         self.dsl.assert_phase_indicator_is_absent()

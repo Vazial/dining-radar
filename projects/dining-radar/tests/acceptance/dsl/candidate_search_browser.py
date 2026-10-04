@@ -441,8 +441,8 @@ GATHERING_SHORTLIST_TOAST_RETURN = "candidate-gathering-shortlist-toast-return"
 # openGatheringEntry/returnToGatheringFromEntry's own shared input, plus the
 # desktop menu's disclosure surface and the current-location marker every
 # nav destination (chip/menu/mobile-bar item) carries.
-CANDIDATE_GATHERING_ENTRY = "candidate-gathering-entry"
-GATHERING_ENTRY_ACTIVE_GATHERING_ID_ATTR = "data-active-gathering-id"
+PRIMARY_NAV_MENU_DOT = "candidate-primary-nav-menu-dot"
+IN_PROGRESS_GATHERING_COUNT_ATTR = "data-in-progress-gathering-count"
 PRIMARY_NAV_MENU_TOGGLE = "candidate-primary-nav-menu-toggle"
 PRIMARY_NAV_MENU_PANEL = "candidate-primary-nav-menu-panel"
 PRIMARY_NAV_MENU_DESTINATION_SEARCH = "candidate-primary-nav-menu-search"
@@ -909,8 +909,7 @@ class CandidateSearchBrowserDsl:
             self._pending_filters = dict(self._applied_filters)
 
     def open_gathering_mode_at_two_column_viewport(self, gathering_id: str) -> None:
-        """ADR-0059 decision 2: candidate-gathering-entry (the chip) and
-        candidate-primary-nav-menu-toggle are each exclusive to
+        """candidate-primary-nav-menu-toggle is exclusive to
         twoColumnLayout -- pins DESKTOP_TWO_COLUMN_VIEWPORT (chosen
         deliberately far from any plausible breakpoint, mirroring
         open_candidate_screen_at_two_column_viewport's own reasoning) before
@@ -942,26 +941,12 @@ class CandidateSearchBrowserDsl:
         wait_for_at_least_one(self.page, GATHERING_RESPONDED_SUMMARY)
         self.assertions.assertIn(f"/gatherings/{gathering_id}/", self.page.url)
 
-    def assert_desktop_chip_returns_to_this_gathering(self, gathering_id: str) -> None:
-        """gatheringMode active (gatheringContext non-null): the chip's
-        activation must resolve to returnToGatheringFromEntry, not
-        openGatheringEntry -- navigating to *this* gathering's own
-        dashboard, never the plain gathering list.
+    def assert_desktop_menu_dot_shows_count(self, expected_count: int) -> None:
+        """The retired chip's count remains observable on the display-only
+        menu dot.
         """
-        chip = assert_present(self.assertions, self.page, CANDIDATE_GATHERING_ENTRY)
-        expect(chip).to_have_attribute(GATHERING_ENTRY_ACTIVE_GATHERING_ID_ATTR, gathering_id)
-        chip.click()
-        self._assert_navigated_to_this_gathering_dashboard(gathering_id)
-
-    def assert_desktop_chip_opens_the_gathering_list(self) -> None:
-        """gatheringMode inactive (gatheringContext null, the ordinary
-        candidate-search screen): the same chip's activation must instead
-        resolve to openGatheringEntry, navigating to the gathering list.
-        """
-        chip = assert_present(self.assertions, self.page, CANDIDATE_GATHERING_ENTRY)
-        self.assertions.assertIsNone(chip.get_attribute(GATHERING_ENTRY_ACTIVE_GATHERING_ID_ATTR))
-        chip.click()
-        self._assert_navigated_to_gathering_list()
+        dot = assert_present(self.assertions, self.page, PRIMARY_NAV_MENU_DOT)
+        expect(dot).to_have_attribute(IN_PROGRESS_GATHERING_COUNT_ATTR, str(expected_count))
 
     def _open_desktop_menu_panel(self) -> None:
         toggle = assert_present(self.assertions, self.page, PRIMARY_NAV_MENU_TOGGLE)
