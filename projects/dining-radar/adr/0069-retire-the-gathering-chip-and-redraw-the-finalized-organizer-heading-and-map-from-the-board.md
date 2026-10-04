@@ -166,7 +166,7 @@ relates_to:
 - `contracts/candidate-search-browser-interface.yaml`（1.14.0→1.15.0）: 追補コメント、`entry`の廃止記録、
   `menuDot`新設、`menuDestinationGathering.activeGatheringId`、`absent`への2件追加、2つのactionの
   `input`、`primaryNavigationGeometry`・`verificationAllocation`の文言。
-- `contracts/gathering-scheduling-browser-interface.yaml`（0.25.0→0.26.0）: 追補25コメント、
+- `contracts/gathering-scheduling-browser-interface.yaml`（0.26.0→0.27.0）: 追補26コメント、
   `headingBar`の出現範囲・`backLink`新設・`title`のh1規則・`confirmedDate`の狭め、
   `deleteButtonPlacement`の注記、`decisionBanner.map.layout`新設、
   `formControlExemptTestIds`へ`gathering-dashboard-back`。

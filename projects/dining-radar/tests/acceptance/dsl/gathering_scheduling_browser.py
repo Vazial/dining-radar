@@ -2191,6 +2191,9 @@ class GatheringSchedulingBrowserDsl:
         below (TDR-GTH-03) and recopy_participant_link_at (TDR-GTH-17),
         each specific to the scenario that actually names it.
         """
+        # ADR-0068: while SELECTING_SHOP, participantLinkCopy is visible only
+        # with linksTab selected (no-op in SCHEDULING, where no panel exists).
+        self.ensure_selecting_shop_links_tab_is_open()
         before = self._read_unanswered_summary()
         button = assert_present(self.assertions, self.page, PARTICIPANT_LINK_COPY)
         button.click()
@@ -2215,6 +2218,9 @@ class GatheringSchedulingBrowserDsl:
         itself now lives here, moved by ADR-0061決定1** (not removed; the
         activation that must satisfy it changed).
         """
+        # ADR-0068: while SELECTING_SHOP, participantLinkCopy is visible only
+        # with linksTab selected (no-op in SCHEDULING, where no panel exists).
+        self.ensure_selecting_shop_links_tab_is_open()
         before = self._read_unanswered_summary()
         button = assert_present(self.assertions, self.page, PARTICIPANT_LINK_COPY)
         writes_before = clipboard_write_count(self.page)
