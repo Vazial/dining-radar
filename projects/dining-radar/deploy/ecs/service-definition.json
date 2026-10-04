@@ -5,14 +5,24 @@
   "desiredCount": 1,
   "launchType": "FARGATE",
   "deploymentConfiguration": {
-    "maximumPercent": 100,
-    "minimumHealthyPercent": 0
+    "minimumHealthyPercent": 100,
+    "maximumPercent": 200,
+    "deploymentCircuitBreaker": { "enable": true, "rollback": true }
   },
+  "loadBalancers": [
+    {
+      "targetGroupArn": "<TARGET_GROUP_ARN>",
+      "containerName": "web",
+      "containerPort": 8000
+    }
+  ],
+  "healthCheckGracePeriodSeconds": 60,
   "networkConfiguration": {
     "awsvpcConfiguration": {
       "subnets": ["<PUBLIC_SUBNET_ID>"],
       "securityGroups": ["<SECURITY_GROUP_ID>"],
       "assignPublicIp": "ENABLED"
     }
-  }
+  },
+  "tags": [{ "key": "Project", "value": "dining-radar" }]
 }

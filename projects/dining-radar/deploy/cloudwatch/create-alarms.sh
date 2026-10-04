@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Creates the basic CloudWatch alarms in alarms.json (ADR-0067, KEN-31).
-# Run by a human after the ECS service and reattach Lambda exist (this
+# Creates the basic CloudWatch alarms in alarms.json (KEN-31, KEN-37).
+# Run by a human after the ECS service exists (this
 # repository's AI runtimes hold no AWS credentials). Requires the AWS CLI
 # and jq. No AlarmActions/SNS topic is set here -- ADR-0067 did not decide
 # a notification channel, so these alarms are visible in the CloudWatch
