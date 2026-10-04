@@ -495,9 +495,24 @@ body:has(#gathering-app) .app-shell {
 }
 
 /* ADR-0060 decision 5: organizerGatheringCreate redrawn as a single column
-   (name -> calendar -> summary -> "つくる"), replacing the retired
-   two-control .gathering-create-actions row above (kept for any other
-   screen still referencing it -- this screen no longer builds it). */
+   (name -> calendar -> summary -> "つくる"). Board party2/b2-q4r/R1-SpCreate:
+   on phones the summary row is a bar stuck above the bottom nav
+   (.primary-nav-bar, 3.75rem), not a card in the flow; on PC it stays a
+   row under the calendar. */
+.gathering-create-back {
+  box-sizing: border-box;
+  min-height: 2.75rem;
+  align-self: flex-start;
+  margin: 0 0 0.25rem -0.25rem;
+  padding: 0 0.625rem 0 0.25rem;
+  border: 0;
+  background: transparent;
+  color: #14614a;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+}
 .gathering-create-summary-row {
   display: flex;
   align-items: center;
@@ -508,40 +523,121 @@ body:has(#gathering-app) .app-shell {
   border-top: 1px solid #dfe4de;
 }
 .gathering-create-summary {
-  font-size: 0.875rem;
-  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 0.84rem;
+  font-weight: 700;
   color: #17201b;
 }
 .gathering-create-summary-count {
   color: #14614a;
 }
+.gathering-create-summary-months {
+  font-size: 0.6875rem;
+  font-weight: 400;
+  color: #5c675f;
+}
+.gathering-create-summary-row .gathering-btn-primary {
+  min-height: 3rem;
+  padding: 0 1.75rem;
+}
+@media (max-width: 63.999rem) {
+  body:has(#gathering-create-app) {
+    /* nav bar (3.75rem) + the sticky summary bar (~4rem) */
+    padding-bottom: 7.75rem;
+  }
+  .gathering-create-summary-row {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 3.75rem;
+    z-index: 20;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0.5rem 0.75rem;
+    background: #fff;
+    border-top: 1px solid #d9e0d8;
+    box-shadow: 0 -0.25rem 0.75rem rgba(23, 32, 27, 0.08);
+  }
+}
 
-/* ADR-0060 decision 5: gathering-create-review-dialog. A fixed-position
-   overlay (M3 board, party2/b2-q4r3/N1-*) -- the exact scroll/backdrop
-   treatment is an implementation choice this contract does not fix. */
+/* ADR-0060 decision 5: gathering-create-review-dialog (board
+   party2/b2-q4r/R1-*Modal, b2-q4r3/N1-*). Phones: a sheet rising from the
+   bottom over a dimmed screen (the scrim is the dialog's own huge spread
+   shadow). PC (>= 64rem): the same content as a centred card. */
 .gathering-review-dialog {
   position: fixed;
-  inset: 0;
-  z-index: 30;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   background: #fff;
-  max-width: 32rem;
-  /* dvh (100vh-fallback-first idiom, item 1) so this dialog's own 4/92
-     split still sums to a whole visible viewport on a browser whose
-     address-bar chrome makes dvh differ from vh. */
-  margin: 4vh auto;
-  margin: 4dvh auto;
-  max-height: 92vh;
-  max-height: 92dvh;
-  border-radius: 0.875rem;
-  border: 1px solid #dfe4de;
-  box-shadow: 0 1rem 2.5rem rgba(23, 32, 27, 0.25);
+  max-height: 85vh;
+  max-height: 85dvh;
+  border-radius: 1.125rem 1.125rem 0 0;
+  box-shadow: 0 0 0 100vmax rgba(23, 32, 27, 0.45), 0 -0.5rem 1.5rem rgba(23, 32, 27, 0.25);
   overflow: hidden;
+}
+@media (min-width: 64rem) {
+  .gathering-review-dialog {
+    inset: 0;
+    max-width: 32rem;
+    margin: 4dvh auto;
+    max-height: 92dvh;
+    border-radius: 0.875rem;
+    border: 1px solid #dfe4de;
+  }
 }
 .gathering-review-dialog:focus-visible,
 .gathering-review-dialog:focus {
   outline: none;
+}
+.gathering-review-grip {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 2.25rem;
+  height: 4px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: #c6cfc6;
+}
+.gathering-review-title {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.625rem;
+  padding: 0.375rem 0.375rem 0.375rem 1.25rem;
+  border-bottom: 1px solid #edf0eb;
+}
+.gathering-review-title-text {
+  display: flex;
+  align-items: baseline;
+  gap: 0.625rem;
+}
+.gathering-review-title-count {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #17201b;
+}
+.gathering-review-title-note {
+  font-size: 0.75rem;
+  color: #5c675f;
+}
+.gathering-review-close {
+  box-sizing: border-box;
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 0;
+  border-radius: 0.625rem;
+  background: transparent;
+  color: #4b564e;
+  font-size: 1.125rem;
+  cursor: pointer;
 }
 .gathering-review-head {
   flex: 0 0 auto;
@@ -549,64 +645,126 @@ body:has(#gathering-app) .app-shell {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid #dfe4de;
+  padding: 1rem 1.25rem 0;
+}
+.gathering-review-head .gth-cal-nav {
+  box-sizing: border-box;
+  min-height: 2.75rem;
+  min-width: 6rem;
+  padding: 0 0.75rem;
+  font-size: 0.84rem;
+  white-space: nowrap;
+}
+.gathering-review-head .gth-cal-nav--prev {
+  justify-content: flex-start;
+}
+.gathering-review-head .gth-cal-nav:disabled {
+  border-color: transparent;
+  background: transparent;
+  color: #c6cfc6;
+}
+.gathering-review-month-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
 }
 .gathering-review-month {
   font-weight: 700;
-  font-size: 0.9375rem;
+  font-size: 1rem;
+  white-space: nowrap;
   color: #17201b;
 }
+.gathering-review-month-count {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #4b564e;
+}
 .gathering-review-dots {
-  flex: 0 0 auto;
   display: flex;
   justify-content: center;
-  gap: 0.375rem;
-  padding: 0.375rem 0;
+  gap: 5px;
 }
 .gathering-review-dot {
-  width: 0.5rem;
-  height: 0.5rem;
+  width: 8px;
+  height: 8px;
   border-radius: 999px;
-  background: #dfe4de;
+  background: #c6cfc6;
 }
 .gathering-review-dot--current {
+  width: 18px;
   background: #14614a;
 }
 .gathering-review-list {
   flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  margin: 0.875rem 1.25rem 1.25rem;
+  border: 1px solid #d9e0d8;
+  border-radius: 0.625rem;
 }
 .gathering-review-item {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  min-height: 2.875rem;
-  padding: 0 0.5rem 0 1rem;
+  min-height: 3.25rem;
+  padding-left: 0.875rem;
   border-bottom: 1px solid #edf0eb;
 }
-.gathering-review-item-date {
-  font-size: 0.875rem;
-  font-weight: 600;
+.gathering-review-item:last-child {
+  border-bottom: 0;
+}
+.gathering-review-item-day {
+  width: 2.4ch;
+  text-align: right;
+  font-size: 1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
   color: #17201b;
+}
+.gathering-review-item-weekday {
+  width: 1.75rem;
+  margin-left: 0.375rem;
+  font-size: 0.8125rem;
+  color: #4b564e;
+}
+.gathering-review-item-time {
+  font-size: 0.8125rem;
+  color: #5c675f;
+}
+.gathering-review-item-remove {
+  box-sizing: border-box;
+  margin-left: auto;
+  min-width: 4rem;
+  min-height: 2.75rem;
+  padding: 0 0.875rem;
+  border: 0;
+  background: transparent;
+  color: #8a3b2c;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 500;
+  cursor: pointer;
 }
 .gathering-review-empty {
   padding: 1rem;
-  color: #77827a;
+  color: #5c675f;
   font-size: 0.8125rem;
 }
 .gathering-review-footer {
   flex: 0 0 auto;
   display: flex;
-  gap: 0.625rem;
-  padding: 0.875rem 1rem;
-  border-top: 1px solid #dfe4de;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid #edf0eb;
+}
+.gathering-review-footer .gathering-btn {
+  flex: 1 1 0;
 }
 .gathering-review-footer .gathering-btn-primary {
-  flex: 1 1 auto;
+  min-height: 3rem;
 }
 
 /* --- organizerDashboard --------------------------------------------------- */

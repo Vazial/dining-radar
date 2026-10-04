@@ -648,6 +648,32 @@
     return (date.getMonth() + 1) + "/" + date.getDate() + "（" + WEEKDAY_LABELS[date.getDay()] + "）";
   }
 
+  function weekdayLabelOfIso(iso) {
+    var parts = iso.split("-").map(Number);
+    var date = new Date(parts[0], parts[1] - 1, parts[2]);
+    return ["日", "月", "火", "水", "木", "金", "土"][date.getDay()];
+  }
+
+  function monthOnlyLabel(monthKey) {
+    return Number(monthKey.split("-")[1]) + "月";
+  }
+
+  // "9月 9 ・ 10月 11" -- the per-month counts shown under the sticky bar's
+  // "選んだ日 N" (board party2/b2-q4r/R1-SpCreate).
+  function monthCountsSummary() {
+    var counts = {};
+    Object.keys(state.selectedIsos).forEach(function (iso) {
+      var key = monthKeyOfIso(iso);
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    return Object.keys(counts)
+      .sort()
+      .map(function (key) {
+        return monthOnlyLabel(key) + " " + counts[key];
+      })
+      .join(" ・ ");
+  }
+
   function openReview() {
     if (!canOpenReview()) {
       return;
@@ -877,6 +903,10 @@
     if (summaryCountNode) {
       summaryCountNode.textContent = String(totalSelectedCount());
     }
+    var summaryMonthsNode = root.querySelector(".gathering-create-summary-months");
+    if (summaryMonthsNode) {
+      summaryMonthsNode.textContent = monthCountsSummary();
+    }
   }
 
   // ADR-0060 decision 5: the review dialog. `null` while
@@ -903,15 +933,18 @@
           "data-gathering-control-purpose": "gathering-create-candidate-date-remove-selected",
           "data-date": iso,
           "aria-label": formatSelectedDayLabel(iso) + " を外す",
-          class: "gth-cal-picked-remove",
+          class: "gathering-review-item-remove",
         },
-        ["×"]
+        ["外す"]
       );
       removeButton.addEventListener("click", function () {
         removeSelectedInReview(iso);
       });
+      // Board party2/b2-q4r3/N1-Sp*: "17 木 12:00 から 外す".
       return el("div", { class: "gathering-review-item" }, [
-        el("span", { class: "gathering-review-item-date" }, [formatSelectedDayLabel(iso)]),
+        el("span", { class: "gathering-review-item-day" }, [String(Number(iso.slice(8, 10)))]),
+        el("span", { class: "gathering-review-item-weekday" }, [weekdayLabelOfIso(iso)]),
+        el("span", { class: "gathering-review-item-time" }, ["12:00 から"]),
         removeButton,
       ]);
     });
@@ -926,7 +959,7 @@
         disabled: currentIndex <= 0,
         class: "gth-cal-nav gth-cal-nav--prev",
       },
-      ["‹"]
+      [currentIndex > 0 ? "‹ " + monthOnlyLabel(monthKeys[currentIndex - 1]) : "‹"]
     );
     prevButton.addEventListener("click", function () {
       stepReviewMonth(-1);
@@ -941,7 +974,7 @@
         disabled: currentIndex === -1 || currentIndex >= monthKeys.length - 1,
         class: "gth-cal-nav gth-cal-nav--next",
       },
-      ["›"]
+      [currentIndex !== -1 && currentIndex < monthKeys.length - 1 ? monthOnlyLabel(monthKeys[currentIndex + 1]) + " ›" : "›"]
     );
     nextButton.addEventListener("click", function () {
       stepReviewMonth(1);
@@ -970,9 +1003,16 @@
         disabled: totalCount < 1,
         class: "gathering-btn gathering-btn-primary",
       },
-      ["この" + totalCount + "件でつくる"]
+      ["この" + totalCount + "日でつくる"]
     );
     confirmButton.addEventListener("click", confirmCreate);
+
+    var closeButton = el(
+      "button",
+      { type: "button", "aria-label": "閉じる", class: "gathering-review-close" },
+      ["×"]
+    );
+    closeButton.addEventListener("click", closeReview);
 
     var cancelReviewButton = el(
       "button",
@@ -982,7 +1022,7 @@
         "data-gathering-control-purpose": "gathering-create-review-cancel",
         class: "gathering-btn",
       },
-      ["やめる"]
+      ["カレンダーにもどる"]
     );
     cancelReviewButton.addEventListener("click", closeReview);
 
@@ -1012,12 +1052,25 @@
         class: "gathering-review-dialog",
       },
       [
+        el("div", { class: "gathering-review-grip", "aria-hidden": "true" }, []),
+        el("div", { class: "gathering-review-title" }, [
+          el("div", { class: "gathering-review-title-text" }, [
+            el("span", { class: "gathering-review-title-count" }, ["選んだ日 " + totalCount]),
+            el("span", { class: "gathering-review-title-note" }, ["ぜんぶ 12:00 から"]),
+          ]),
+          closeButton,
+        ]),
         el("div", { class: "gathering-review-head" }, [
           prevButton,
-          el("div", { class: "gathering-review-month" }, [currentKey ? formatMonthKeyLabel(currentKey) : ""]),
+          el("div", { class: "gathering-review-month-block" }, [
+            el("div", { class: "gathering-review-month" }, [
+              currentKey ? formatMonthKeyLabel(currentKey) : "",
+              el("span", { class: "gathering-review-month-count" }, [" ・ " + items.length + "日"]),
+            ]),
+            el("div", { class: "gathering-review-dots" }, dots),
+          ]),
           nextButton,
         ]),
-        el("div", { class: "gathering-review-dots" }, dots),
         el(
           "div",
           { class: "gathering-review-list" },
@@ -1025,7 +1078,7 @@
         ),
       ]
         .concat(errorNodes)
-        .concat([el("div", { class: "gathering-review-footer" }, [confirmButton, cancelReviewButton])])
+        .concat([el("div", { class: "gathering-review-footer" }, [cancelReviewButton, confirmButton])])
     );
 
     // モーダルは開いたらフォーカスを中へ、Esc で閉じる、閉じたら開いたボタン
@@ -1096,9 +1149,9 @@
         type: "button",
         "data-testid": "gathering-create-cancel",
         "data-gathering-control-purpose": "gathering-create-cancel",
-        "class": "gathering-btn",
+        "class": "gathering-create-back",
       },
-      ["やめる"]
+      ["‹ 会の一覧"]
     );
     cancelButton.addEventListener("click", cancel);
 
@@ -1106,9 +1159,11 @@
     // this contract does not fix this wording, only the underlying
     // selected-day count it is drawn from.
     var summary = el("div", { class: "gathering-create-summary" }, [
-      "候補日 ",
-      el("b", { class: "gathering-create-summary-count" }, [String(totalSelectedCount())]),
-      " 件",
+      el("div", { class: "gathering-create-summary-main" }, [
+        "選んだ日 ",
+        el("b", { class: "gathering-create-summary-count" }, [String(totalSelectedCount())]),
+      ]),
+      el("div", { class: "gathering-create-summary-months" }, [monthCountsSummary()]),
     ]);
 
     // ADR-0060 decision 5: this control now only opens
@@ -1121,9 +1176,9 @@
         "data-testid": "gathering-create-review-open",
         "data-gathering-control-purpose": "gathering-create-review-open",
         disabled: !canOpenReview(),
-        "class": "gathering-btn gathering-btn-primary gathering-btn-block",
+        "class": "gathering-btn gathering-btn-primary",
       },
-      ["会をつくる"]
+      ["つくる"]
     );
     reviewOpenButton.addEventListener("click", openReview);
 
@@ -1131,11 +1186,12 @@
       el("label", { "class": "gathering-field" }, ["会の名前", nameInput]),
       el("label", { "class": "gathering-field-label" }, ["候補日（複数選択できます）"]),
       calendar.container,
-      el("div", { "class": "gathering-create-summary-row" }, [summary, cancelButton]),
-      reviewOpenButton,
+      // Board party2/b2-q4r/R1-SpCreate: on phones "選んだ日 N・月ごと | つくる"
+      // is a bar stuck above the bottom nav (CSS), not a card in the flow.
+      el("div", { "class": "gathering-create-summary-row" }, [summary, reviewOpenButton]),
     ];
 
-    root.appendChild(el("div", { "class": "gathering-create-form" }, children));
+    root.appendChild(el("div", { "class": "gathering-create-form" }, [cancelButton].concat(children)));
 
     var dialog = renderReviewDialog();
     if (dialog) {
