@@ -835,11 +835,26 @@
 #   gathering-shop-select-tab-links（allowedPurposesNoteAdr0063参照）。
 # - `profiles.localAcceptance.verifiesScenarios`へTDR-GTH-67を追加した。
 #
+# 2026-10-04 追補25 (architect、ADR-0068。人間裁定（2026-10-04、板
+#   .orca/drops/dsg-out/party2/d7/S4-SpSelect.dc.html・S4-PcSelect.dc.html。選択肢B「板どおり」）:
+#   店を選び中の画面の店タブの見出し行は「票が多い順」と「店を絞りなおす」の2点だけで、
+#   「リンクを発行」は板のどこにも無い。リンクは「リンク N本」タブに寄せる。
+#   contractVersionを0.25.0から0.26.0へ上げる):
+# - `organizerDashboard.participantLinkCopy.presenceRule`を狭めた: phaseがSELECTING_SHOPの間、
+#   この要素は`shopSelectionPanel.linksTab`が選ばれているときだけ存在し見える。店タブ・日程タブ・
+#   回答タブが選ばれている間は見えない（DOMから外すか隠すかは固定しない）。SCHEDULING局面
+#   （タブ群が無い）とFINALIZED局面（もともと不在）は変えない。
+# - `shopSelectionPanel.linksTab.requiredOutcome`へ、押すとparticipantLinkCopyも見えるように
+#   なる（他の3タブを押すと見えなくなる）旨を足した。
+# - participantLinkList自身のpresenceRule・issueDialog・requiredOutcome・data-issued-link-url・
+#   testId/purpose・allowedPurposes・verifiesScenariosは無変更。.featureは無変更
+#   （置き場所はUIの構造であり業務規則ではない。ADR-0063がタブ構造に.featureを足さなかったのと同じ）。
+#
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.25.0'
+contractVersion: '0.26.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -2855,7 +2870,12 @@ browserControlSurface:
           relationship to participantLinkList exactly, applied here to
           the SELECTING_SHOP phase. participantLinkList's own
           presenceRule (unconditional across all three phases) is
-          unchanged.
+          unchanged. **Extended 2026-10-04 (ADR-0068)**: activating it
+          also makes participantLinkCopy above currently visible, and it
+          is the only one of the four tabs that does -- activating
+          shopTab, scheduleTab or answersTab makes participantLinkCopy not
+          visible (see participantLinkCopy.presenceRule above). Calls no
+          additional public operation.
     confirmDate:
       testId: gathering-confirm-date-select
       purpose: gathering-confirm-date-select
@@ -2910,6 +2930,27 @@ browserControlSurface:
         recopy/revoke's finer-grained treatment below -- "もう発行しない
         （会が締まっている）"). Contrast with participantLinkList.item.recopy
         below, which remains present and enabled regardless of phase.
+        **Narrowed 2026-10-04 (ADR-0068, human decision: 板どおり -- board
+        S4-SpSelect/S4-PcSelect draw the shop tab's heading row with only
+        「票が多い順」and「店を絞りなおす」, and no issuance control anywhere
+        outside the「リンク N本」tab)**: the sentence above is read with
+        this qualification. While phase is SELECTING_SHOP, this element is
+        present and visible exactly while shopSelectionPanel.linksTab's
+        aria-selected is "true"; while shopTab, scheduleTab or answersTab is
+        selected it is not visible (this contract does not fix whether an
+        implementation removes it from the DOM or merely hides it), whether
+        or not any shop has been shortlisted yet. While phase is SCHEDULING
+        there is no shopSelectionPanel, and this element is present and
+        visible directly on the dashboard exactly as before (unchanged).
+        While phase is FINALIZED it is absent exactly as before
+        (unchanged). This does not change participantLinkList's own
+        presenceRule (unconditional across all three phases), issueDialog's
+        own presenceRule (absent until this element is activated --
+        activation is only reachable while linksTab is selected), or any
+        requiredOutcome below. Note for readers of earlier drafts and code
+        comments: the .feature's TDR-GTH-36 is about re-copying after
+        FINALIZED and says nothing about tabs; "reachable from every tab"
+        was a tester's L4 set-up finding, never a contract requirement.
       requiredOutcome: >-
         Activating it calls issueParticipantLinks with count: 1.
         Gathering.totalIssuedParticipantLinks and activeParticipantLinkCount
