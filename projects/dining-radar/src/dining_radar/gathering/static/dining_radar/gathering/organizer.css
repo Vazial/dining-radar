@@ -1537,6 +1537,11 @@ body:has(#gathering-app) .app-shell {
   color: #14614a;
   background: #f7fbf8;
 }
+/* base.html's global `button:hover` (dark green background) outranks the
+   single-class tab rules above, so a hovered/just-tapped tab painted its
+   text on dark green (KEN-18). Pin hover to each tab's own background. */
+.gth-decision-tab:hover { background: #fff; }
+.gth-decision-tab[aria-selected="true"]:hover { background: #f7fbf8; }
 .gth-decision-tabpanel {
   min-height: 0;
   overflow-y: auto;
@@ -1776,6 +1781,9 @@ body:has(#gathering-app) .app-shell {
 .gth-shop-select-tab:not(.gth-shop-select-tab--primary)[aria-selected="true"] {
   color: #14614a;
 }
+.gth-shop-select-tab:hover { background: transparent; }
+.gth-shop-select-tab--primary:hover { background: #f2f4f0; }
+.gth-shop-select-tab--primary[aria-selected="true"]:hover { background: #23302a; }
 .gth-shop-select-tab:focus-visible {
   outline: 2px solid #14614a;
   outline-offset: 2px;
