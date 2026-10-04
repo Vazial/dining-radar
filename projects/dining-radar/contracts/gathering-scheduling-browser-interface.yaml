@@ -835,23 +835,23 @@
 #   gathering-shop-select-tab-links（allowedPurposesNoteAdr0063参照）。
 # - `profiles.localAcceptance.verifiesScenarios`へTDR-GTH-67を追加した。
 #
-# 2026-10-04 追補25 (architect、ADR-0068。人間の指示「確定後の幹事画面の見出しを板 party2/d4r G1/G2
+# 2026-10-04 追補25 (architect、ADR-0069。人間の指示「確定後の幹事画面の見出しを板 party2/d4r G1/G2
 #   の形にする、地図を見出しの下で端から端まで埋める」への対応。板G1/G2（PC・スマホ）が描く見出しは、
 #   上部バーに「ランチ会」と≡、その下に「‹ ランチ会」の戻り道と会の名前、その下から地図いっぱい。
 #   監査 audit-board-vs-implementation-2026-09-22.md の D6・D7 に当たる。D5（回答タブの表）はKEN-42の
 #   範囲でこの追補は触らない。contractVersionを0.25.0から0.26.0へ上げる):
-# - **`organizerDashboard.headingBar`をFINALIZED局面にも広げた**（ADR-0068決定3）: これまで
+# - **`organizerDashboard.headingBar`をFINALIZED局面にも広げた**（ADR-0069決定3）: これまで
 #   SELECTING_SHOPだけで出現していたが、SELECTING_SHOPとFINALIZEDで出現する。`title`は両局面で
 #   出現し、`confirmedDate`はSELECTING_SHOPだけで出現する（FINALIZEDでは同じ事実を
 #   `finalizedSummary.decisionBanner`の`data-confirmed-candidate-date`が持つ）。`phaseIndicatorAttributes`
 #   （SCHEDULING・FINALIZEDで出現）は無変更で、FINALIZEDの「確定」の札はそのまま残る。
-# - **`headingBar.backLink`を新設した**（ADR-0068決定3、testId`gathering-dashboard-back`）: FINALIZEDで
+# - **`headingBar.backLink`を新設した**（ADR-0069決定3、testId`gathering-dashboard-back`）: FINALIZEDで
 #   だけ出現する、会の一覧への平叙なリンク（板の「‹ ランチ会」）。`formControlExemptTestIds`へ登録した。
-# - **FINALIZEDの見出し構造をMustにした**（ADR-0068決定3、ADR-0066決定2に従い、板が裁定した並びは
+# - **FINALIZEDの見出し構造をMustにした**（ADR-0069決定3、ADR-0066決定2に従い、板が裁定した並びは
 #   契約に書く）: 戻り道が会の名前の上、会の名前は画面で唯一のレベル1見出し。現行実装の汎用見出し
 #   「会の日程調整」は出さない。「確定」の札を会の名前の横に置くこと・「この会を削除」を見出し行の
 #   右に置くことは板に描かれていない部分で、契約はMustにしない（`deleteButtonPlacement`の注記）。
-# - **`finalizedSummary.decisionBanner.map.layout`を新設した**（ADR-0068決定4）: 地図は見出しの下から
+# - **`finalizedSummary.decisionBanner.map.layout`を新設した**（ADR-0069決定4）: 地図は見出しの下から
 #   端から端まで埋め、外側の余白・枠・角丸を持たない（板G1/G2の`inset:0; border:0; border-radius:0`）。
 #   浮かせたパネル（ADR-0062決定4）は地図の上に重なる形のまま。
 # - `profiles.localAcceptance.verifiesScenarios`・`.feature`は無変更。この追補は画面の構造と配置の
@@ -1169,8 +1169,8 @@ unavailableControls:
      gathering-participant-decision-origin-marker,
      gathering-participant-decision-page-link,
      gathering-decision-shop-page-link, gathering-dashboard-back]
-  formControlExemptTestIdsNoteAdr0068: >-
-    One display-only element added (ADR-0068 decision 3, 2026-10-04):
+  formControlExemptTestIdsNoteAdr0069: >-
+    One display-only element added (ADR-0069 decision 3, 2026-10-04):
     gathering-dashboard-back (organizerDashboard.headingBar.backLink), a
     plain `<a href>` anchor outside forbiddenFormControlCategories' scan,
     the same precedent gathering-decision-shop-page-link above already
@@ -1978,7 +1978,7 @@ browserControlSurface:
       description: >-
         Added 2026-09-19 (architect, ADR-0063 decision 2, board
         S4-SpSelect/S4-PcSelect). Present while phase is SELECTING_SHOP
-        or FINALIZED (**widened 2026-10-04, ADR-0068 decision 3**, board
+        or FINALIZED (**widened 2026-10-04, ADR-0069 decision 3**, board
         party2/d4r G1/G2; until contractVersion 0.25.0 it was present
         for SELECTING_SHOP only, same condition as shopSelectionEntry
         below) -- the map-first layout these two phases adopt (ADR-0063
@@ -1995,10 +1995,10 @@ browserControlSurface:
         testId: gathering-dashboard-back
         formControl: false
         presenceRule: >-
-          Added 2026-10-04 (ADR-0068 decision 3, board party2/d4r
+          Added 2026-10-04 (ADR-0069 decision 3, board party2/d4r
           G1/G2's "‹ ランチ会" return path). Present exactly while phase
           is FINALIZED. Absent for SELECTING_SHOP -- no board has ruled
-          a return path for that phase's heading yet (ADR-0068 flags
+          a return path for that phase's heading yet (ADR-0069 flags
           this as an open question rather than extending the ruling).
         requirement: >-
           A plain `<a href>` (outside forbiddenFormControlCategories'
@@ -2019,7 +2019,7 @@ browserControlSurface:
           and value organizerGatheringList.list.item already establishes
           above (no new API field; this is that same value projected onto
           organizerDashboard for the first time). **Added 2026-10-04
-          (ADR-0068 decision 3; a board-ruled structure, so a Must per
+          (ADR-0069 decision 3; a board-ruled structure, so a Must per
           ADR-0066 decision 2)**: while phase is FINALIZED, this element
           is the one level-1 heading (`<h1>`) of the screen, and the
           screen renders no other level-1 heading -- in particular not
@@ -2034,7 +2034,7 @@ browserControlSurface:
         attributes:
           confirmedCandidateDate: data-confirmed-candidate-date
         requirement: >-
-          **Narrowed 2026-10-04 (ADR-0068 decision 3)**: present while
+          **Narrowed 2026-10-04 (ADR-0069 decision 3)**: present while
           phase is SELECTING_SHOP only, not FINALIZED -- the board
           G1/G2 heading carries no date (the decided date is the large
           figure on the panel, finalizedSummary.decisionBanner's own
@@ -2050,12 +2050,12 @@ browserControlSurface:
           instance can be, since reaching SELECTING_SHOP phase requires
           confirmDate to have already succeeded).
       deleteButtonPlacement: >-
-        **Extended 2026-10-04 (ADR-0068 decision 3) to FINALIZED**: in
+        **Extended 2026-10-04 (ADR-0069 decision 3) to FINALIZED**: in
         FINALIZED the same applies -- the delete button stays on the
         right of the heading row and the phase badge
         (gathering-phase-indicator, present in FINALIZED) sits beside
         the gathering's name. Neither placement is drawn on board
-        G1/G2, so neither is made a Must here; ADR-0068 records both as
+        G1/G2, so neither is made a Must here; ADR-0069 records both as
         points the human approves. The organizer's earlier request to
         place deleteGathering.open
         (gathering-delete-open, existing, unconditional across all three
@@ -3437,7 +3437,7 @@ browserControlSurface:
             Present whenever gathering-decision-banner itself is present
             (i.e. whenever phase is FINALIZED).
           layout: >-
-            Added 2026-10-04 (ADR-0068 decision 4, board party2/d4r
+            Added 2026-10-04 (ADR-0069 decision 4, board party2/d4r
             G1/G2: the map is `inset: 0; border: 0; border-radius: 0`
             under the heading; a board-ruled position and shape, so a
             Must per ADR-0066 decision 2). The map fills the screen from

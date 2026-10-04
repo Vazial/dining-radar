@@ -452,27 +452,27 @@
 # - 具体的なYAML編集は本ADRに同梱する`.spec/conformance.spec`が持つ（本ラウンドで作成済み）。
 #   architect自身は`contracts/`配下のYAMLへ直接書き込まない。
 
-# 2026-10-04 追補 (architect、ADR-0068。人間裁定「案2: 候補検索画面の右上チップ
+# 2026-10-04 追補 (architect、ADR-0069。人間裁定「案2: 候補検索画面の右上チップ
 # （candidate-gathering-entry）をやめ、ランチ会への行き先は≡の中だけにする。≡の右上に進行中の会が
 # あることを示す点を付ける」（板 party2/f1 N1-b）への対応。ADR-0059決定2・ADR-0054決定1の残りと
 # ADR-0066決定3の一部を覆す。contractVersionを1.14.0から1.15.0へ上げる）:
-# - **`gatheringEntry.entry`（チップ、candidate-gathering-entry）を廃止する**（ADR-0068決定1）:
+# - **`gatheringEntry.entry`（チップ、candidate-gathering-entry）を廃止する**（ADR-0069決定1）:
 #   `requiredTestIds.entry`を外し、`entry`節は廃止の記録だけを残す。`candidate-gathering-entry`と
 #   `candidate-gathering-entry-badge`は、候補検索画面・会モード・会の画面群のどこにも出現してはならない
 #   （`browserEntry.authenticatedInitialOutcome.absent`へ追加）。
-# - **`gatheringEntry.menuDot`を新設する**（ADR-0068決定2、testId`candidate-primary-nav-menu-dot`）:
+# - **`gatheringEntry.menuDot`を新設する**（ADR-0069決定2、testId`candidate-primary-nav-menu-dot`）:
 #   menuToggleの右上に出る表示専用の点。進行中の会の数が1以上のときだけ出現する。旧`entry.badge`が
 #   持っていた`data-in-progress-gathering-count`の規則（件数>0のときだけ出現・10進整数文字列）を
 #   そのまま引き継ぐ。会の画面群の中では出さない（旧チップと同じ裁定、板G1で≡に点が無い）。
 # - **旧`entry.activeGathering`の`data-active-gathering-id`を`menuDestinationGathering`へ移す**
-#   （ADR-0068決定2）: 会モードのときだけ非null、通常画面では属性自体が無い、という規則は無変更。
+#   （ADR-0069決定2）: 会モードのときだけ非null、通常画面では属性自体が無い、という規則は無変更。
 # - `browserActions.openGatheringEntry`・`returnToGatheringFromEntry`の`input`から
 #   `candidate-gathering-entry`を外す（入力は2つ: `candidate-primary-nav-gathering`・
 #   `candidate-primary-nav-menu-gathering`）。2つのactionの排他・網羅の関係は無変更。
 # - `primaryNavigationGeometry.twoColumnLayout`から「チップはmenuToggleの左隣」の1文を外し、
 #   「点はmenuToggleの右上の角」へ置き換える。mapPrimaryTouchLayout側は無変更（モバイルには
 #   元からチップが無い）。
-# - 本追補はYAMLの下書きである（architect起草、人間の承認後に確定する。ADR-0068の`approved_by`参照）。
+# - 本追補はYAMLの下書きである（architect起草、人間の承認後に確定する。ADR-0069の`approved_by`参照）。
 
 contractVersion: '1.15.0'
 kind: acceptance-browser-interface
@@ -528,7 +528,7 @@ browserEntry:
       test ids are therefore absent here, added to this outcome's absent
       list by adr/0049. candidate-gathering-entry is removed from this
       list 2026-09-16 (ADR-0059) -- its presence is no longer viewport-
-      independent. **2026-10-04 (ADR-0068)**: the chip is retired outright
+      independent. **2026-10-04 (ADR-0069)**: the chip is retired outright
       and candidate-gathering-entry (with its badge) is now listed in
       this outcome's absent list instead -- it is absent under every
       render mode and every screen, not merely conditionally.
@@ -686,7 +686,7 @@ browserControlSurface:
         accompanying text, the shape the human ruling explicitly retired).
         The exact wording, icon, font size, and shape remain implementation
         choices this contract does not fix, mirroring
-        the (since retired, ADR-0068) gatheringEntry.entry's own visible-label Must and
+        the (since retired, ADR-0069) gatheringEntry.entry's own visible-label Must and
         walkingTimeEstimateWording's content-only-Must style elsewhere in
         this contract. This control's underlying behavior (re-search under
         the currently applied filters, per shownPoolPriority) and its
@@ -1410,7 +1410,7 @@ browserControlSurface:
         shortlistToast below (immediately after adding a shop) and, once
         that toast has dismissed, gatheringEntry.menuDestinationGathering
         (desktop, inside menuPanel; the former chip was retired by
-        ADR-0068) / gatheringEntry.mobileBarGathering (mobile) via
+        ADR-0069) / gatheringEntry.mobileBarGathering (mobile) via
         browserActions.returnToGatheringFromEntry -- see those for their
         own requiredOutcome. browserActions.returnToGatheringFromBand is
         retired along with this navigation role.
@@ -2031,7 +2031,7 @@ browserActions:
       (candidate-gathering-entry) to the three render-mode/location-specific
       shapes of the same navigation destination -- the mobile bottom-nav
       item and the desktop menu-panel item both trigger this same action
-      when activated outside gathering mode. **2026-10-04 (ADR-0068)**:
+      when activated outside gathering mode. **2026-10-04 (ADR-0069)**:
       the chip is retired, so the input is now just those two (the mobile
       bottom-nav item and the desktop menu-panel item). This action's precondition
       (gatheringContext is null) and returnToGatheringFromEntry's own
@@ -2171,9 +2171,9 @@ gatheringEntry:
     mobileBarAccount: candidate-primary-nav-account
   entry:
     retired: true
-    retiredBy: ADR-0068
+    retiredBy: ADR-0069
     requirement: >-
-      **Retired 2026-10-04 (ADR-0068 decision 1, human ruling 案2, board
+      **Retired 2026-10-04 (ADR-0069 decision 1, human ruling 案2, board
       party2/f1 N1-b).** The "ランチ会 N" chip (testId
       candidate-gathering-entry, with its badge candidate-gathering-entry-
       badge) no longer exists on any screen: neither element may be
@@ -2198,7 +2198,7 @@ gatheringEntry:
     formControl: false
     attribute: data-in-progress-gathering-count
     presenceRule: >-
-      Added 2026-10-04 (ADR-0068 decision 2, board party2/f1 N1-b: ≡の
+      Added 2026-10-04 (ADR-0069 decision 2, board party2/f1 N1-b: ≡の
       右上に進行中の会があることを示す点). Present exactly when all of
       the following hold: twoColumnLayout holds; menuToggle is present;
       the in-progress gathering count is greater than zero; and the
@@ -2248,7 +2248,7 @@ gatheringEntry:
       widening auth-account-menu-toggle's own narrower, already-approved
       scope (ADR-0013 decision 5). auth-account-menu-toggle itself is
       unchanged and is not used on desktop -- see mobileBarAccount below
-      for its one remaining use. **2026-10-04 (ADR-0068)**: with the chip
+      for its one remaining use. **2026-10-04 (ADR-0069)**: with the chip
       retired (entry above), this control and its menuPanel are the only
       desktop entrance to the gathering feature; menuDot above is the
       signal, on this control, that an in-progress gathering exists.
@@ -2291,7 +2291,7 @@ gatheringEntry:
     activeGatheringId:
       attribute: data-active-gathering-id
       presenceRule: >-
-        Moved here 2026-10-04 (ADR-0068 decision 2) from the retired
+        Moved here 2026-10-04 (ADR-0069 decision 2) from the retired
         entry.activeGathering. Present, with the current gathering's
         opaque id as its exact string value, exactly when this screen
         was reached in gathering mode (response.gatheringContext is
@@ -2346,7 +2346,7 @@ gatheringEntry:
       Added 2026-09-16 (ADR-0059). Same current-marker rule as
       menuDestinationGathering above. Its badgeCount attribute follows
       the count rule the retired entry.badge carried and menuDot's
-      attribute now carries (ADR-0068) (present, as a decimal integer
+      attribute now carries (ADR-0069) (present, as a decimal integer
       string, exactly when the count is greater than zero; absent when it
       is zero) -- unlike entry's chip, this bar item's own "ランチ会"
       label remains present either way, since mobileBar itself is
@@ -2397,7 +2397,7 @@ gatheringEntry:
       menuToggle's top-right corner, overlapping menuToggle's own box,
       never elsewhere on the screen. (The "ランチ会 N" chip that
       ADR-0066 placed immediately to menuToggle's left no longer exists
-      -- ADR-0068 retired it; there is nothing else in that row to the
+      -- ADR-0069 retired it; there is nothing else in that row to the
       left of menuToggle that this clause fixes.)
       menuPanel, once disclosed, opens directly below menuToggle with its
       own right edge aligned with menuToggle's own right edge (opens
@@ -2426,7 +2426,7 @@ gatheringEntry:
         candidate-primary-nav-bar is already that check's named subject).
         Neither existing check yet separately asserts menuToggle's own
         row-right position, menuDot's own top-right-corner position on
-        menuToggle (added by ADR-0068, replacing the retired entry
+        menuToggle (added by ADR-0069, replacing the retired entry
         chip's left-of-menuToggle adjacency clause), or
         mobileBar's own three-children completeness as standalone
         assertions (as opposed to menuPanel's position relative to
