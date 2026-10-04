@@ -2733,34 +2733,19 @@
       .forEach(function (link) {
         link.setAttribute("data-primary-nav-current", isGatheringMode ? "false" : "true");
       });
-    // ADR-0056 decision 8: the chip's own data-active-gathering-id (present
-    // only in gathering mode, absent -- the attribute itself, not merely
-    // empty -- otherwise) and its own href, kept in the same lockstep.
-    var chip = document.querySelector('[data-testid="candidate-gathering-entry"]');
-    if (chip) {
+    // ADR-0069: the retired chip's active id now lives on the menu destination.
+    var menuGathering = document.querySelector('[data-testid="candidate-primary-nav-menu-gathering"]');
+    if (menuGathering) {
       if (isGatheringMode) {
-        chip.setAttribute("data-active-gathering-id", effectiveGatheringId);
-        chip.setAttribute("href", gatheringHref);
+        menuGathering.setAttribute("data-active-gathering-id", effectiveGatheringId);
       } else {
-        chip.removeAttribute("data-active-gathering-id");
+        menuGathering.removeAttribute("data-active-gathering-id");
       }
     }
   }
 
-  // contracts/candidate-search-browser-interface.yaml's gatheringEntry
-  // section: unlike menuToggle/mobileBar (server-rendered, present
-  // unconditionally per renderModes), gatheringEntry.entry (the chip) must
-  // be entirely absent from the DOM -- not merely hidden -- whenever
-  // data-in-progress-gathering-count is zero (2026-09-16 human ruling, see
-  // that requirement's own text), so it is built here in full once fetched,
-  // never server-rendered in home.html. Its count mirrors gathering-
-  // scheduling-api.yaml's getInProgressGatheringCount, a different business
-  // contract's own resource. Independent of the candidate-proposal request
-  // above: a failure fetching one must never block or hide the other. Only
-  // ever inserted while [data-primary-nav-desktop] itself still exists --
-  // initializePrimaryNav has already removed it entirely under
-  // mapPrimaryTouchLayout, where the chip has no place at all (mobileBar
-  // carries the same count on its own gathering item instead, see below).
+  // ADR-0069: the in-progress count is observed on a dot over the desktop
+  // menu toggle; the mobile bar keeps its existing count attribute.
   function loadGatheringEntryBadge() {
     var desktopNav = document.querySelector("[data-primary-nav-desktop]");
     fetch("/gatherings/in-progress-count", { credentials: "same-origin" })
@@ -2785,35 +2770,15 @@
             barGathering.removeAttribute("data-in-progress-gathering-count");
           }
         }
-        if (!desktopNav) {
-          return;
-        }
-        var chip = desktopNav.querySelector('[data-testid="candidate-gathering-entry"]');
-        if (count > 0) {
-          if (!chip) {
-            chip = el(
-              "a",
-              { href: "/gatherings/", "data-testid": "candidate-gathering-entry", "class": "candidate-gathering-entry" },
-              [
-                el("span", { "aria-hidden": "true" }, ["🍽"]),
-                el("span", {}, ["ランチ会"]),
-              ]
-            );
-            desktopNav.appendChild(chip);
+        var menuDot = document.querySelector('[data-testid="candidate-primary-nav-menu-dot"]');
+        if (menuDot) {
+          if (count > 0) {
+            menuDot.hidden = false;
+            menuDot.setAttribute("data-in-progress-gathering-count", String(count));
+          } else {
+            menuDot.hidden = true;
+            menuDot.removeAttribute("data-in-progress-gathering-count");
           }
-          var badge = chip.querySelector('[data-testid="candidate-gathering-entry-badge"]');
-          if (!badge) {
-            badge = el(
-              "span",
-              { "data-testid": "candidate-gathering-entry-badge", "class": "candidate-gathering-entry-badge" },
-              []
-            );
-            chip.appendChild(badge);
-          }
-          badge.setAttribute("data-in-progress-gathering-count", String(count));
-          badge.textContent = String(count);
-        } else if (chip) {
-          chip.remove();
         }
         syncPrimaryNavGatheringLinks();
       })

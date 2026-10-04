@@ -418,11 +418,8 @@ class CandidateSearchSteps:
     ) -> None:
         self.dsl.open_gathering_mode_at_map_primary_touch_viewport(gathering_id)
 
-    def desktop_chip_returns_to_this_gathering(self, gathering_id: str) -> None:
-        self.dsl.assert_desktop_chip_returns_to_this_gathering(gathering_id)
-
-    def desktop_chip_opens_the_gathering_list(self) -> None:
-        self.dsl.assert_desktop_chip_opens_the_gathering_list()
+    def desktop_menu_dot_shows_count(self, expected_count: int) -> None:
+        self.dsl.assert_desktop_menu_dot_shows_count(expected_count)
 
     def desktop_menu_gathering_destination_returns_to_this_gathering(
         self, gathering_id: str

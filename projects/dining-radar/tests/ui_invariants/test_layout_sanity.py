@@ -1331,12 +1331,13 @@ class LayoutSanityTests(StaticLiveServerTestCase):
             <= 2
         )
 
-        entry = by_test_id(self.page, "candidate-gathering-entry")
-        expect(entry).to_be_visible()
-        entry_box = entry.bounding_box()
-        assert entry_box is not None
-        assert entry_box["x"] + entry_box["width"] <= toggle_box["x"]
-        assert toggle_box["x"] - (entry_box["x"] + entry_box["width"]) <= 16
+        dot = by_test_id(self.page, "candidate-primary-nav-menu-dot")
+        expect(dot).to_be_visible()
+        expect(dot).to_have_attribute("data-in-progress-gathering-count", "1")
+        dot_box = dot.bounding_box()
+        assert dot_box is not None
+        assert dot_box["x"] + dot_box["width"] >= toggle_box["x"] + toggle_box["width"] - 2
+        assert dot_box["y"] <= toggle_box["y"] + 8
 
         self.page.set_viewport_size({"width": 390, "height": 844})
         self.page.reload()

@@ -1367,6 +1367,28 @@
     return el("div", { class: "gth-heading-bar" }, [titleEl, dateEl, renderDeleteGathering()]);
   }
 
+  function renderFinalizedHeadingBar() {
+    var backLink = el(
+      "a",
+      { "data-testid": "gathering-dashboard-back", href: "/gatherings/", class: "gth-heading-back" },
+      ["‹ ランチ会"]
+    );
+    var titleEl = el(
+      "h1",
+      {
+        "data-testid": "gathering-dashboard-title",
+        "data-gathering-title": state.gathering.title,
+        class: "gth-title",
+      },
+      [state.gathering.title]
+    );
+    return el("div", { class: "gth-heading-bar gth-heading-bar--finalized" }, [
+      backLink,
+      titleEl,
+      renderPhaseIndicator(),
+    ]);
+  }
+
   function renderResponseSummary() {
     return el(
       "div",
@@ -3162,6 +3184,8 @@
     var header;
     if (phase === "SELECTING_SHOP") {
       header = renderShopSelectHeadingBar();
+    } else if (phase === "FINALIZED") {
+      header = renderFinalizedHeadingBar();
     } else {
       var headerChildren = [
         el("div", { class: "gth-header-row" }, [
@@ -3239,7 +3263,7 @@
       sections.push(renderParticipantLinkPane());
     }
 
-    root.appendChild(el("div", { class: "gth-dash" }, sections));
+    root.appendChild(el("div", { class: "gth-dash" + (phase === "FINALIZED" ? " gth-dash--finalized" : "" ) }, sections));
 
     if (pendingShortlistedShopMap) {
       initializeShortlistedShopMap(

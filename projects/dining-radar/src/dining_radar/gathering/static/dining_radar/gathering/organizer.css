@@ -98,6 +98,15 @@ body:has(#gathering-app) main {
   display: flex;
   flex-direction: column;
 }
+body:has(.gth-dash--finalized) .app-shell {
+  width: 100%;
+}
+body:has(.gth-dash--finalized) .app-card {
+  border: 0;
+  border-radius: 0;
+  padding-left: clamp(1.25rem, 4vw, 2rem);
+  padding-right: clamp(1.25rem, 4vw, 2rem);
+}
 /* **Fixed (coordinator finding, real screenshot at 390x844)**: base.html's
    own .app-shell rule carries a fixed padding: 2rem 0 3rem -- that 3rem
    (48px) bottom pad sat *outside* gth-shop-stage/gth-decision-stage's own
@@ -162,6 +171,10 @@ body:has(#gathering-app) .app-shell {
    shop-item's own row has more real room -- not a fix aimed at the map
    directly, but the same chrome this whole chain already competes with. */
 @media (max-width: 47.9375rem) {
+  body:has(.gth-dash--finalized) .app-card {
+    padding-left: 0.625rem;
+    padding-right: 0.625rem;
+  }
   body:has(#gathering-app) .app-shell {
     width: min(100% - 0.75rem, 60rem);
   }
@@ -177,6 +190,18 @@ body:has(#gathering-app) .app-shell {
   .gth-dash {
     gap: 0.5rem;
   }
+}
+
+/* The finalized map is flushed through app-card's padding, so its remaining
+   containing block must itself coincide with the viewport.  The generic
+   dashboard width rules above have higher specificity than the earlier
+   finalized-screen width rule; keep this selector specific enough that the
+   mobile width rule cannot reintroduce an outer gutter. */
+body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
+  width: 100%;
+  max-width: none;
+  margin-left: 0;
+  margin-right: 0;
 }
 
 /* --- shared buttons/inputs (both gathering- and gth- prefixes) --------- */
@@ -823,6 +848,23 @@ body:has(#gathering-app) .app-shell {
   order: 3;
   margin-left: auto;
   align-self: flex-start;
+}
+.gth-heading-bar--finalized {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.125rem;
+}
+.gth-heading-back {
+  color: #4b564e;
+  font-size: 0.875rem;
+  text-decoration: none;
+  min-height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+}
+.gth-heading-bar--finalized .gth-title {
+  order: 2;
+  margin: 0;
 }
 @media (max-width: 47.9375rem) {
   .gth-heading-bar .gth-delete {
@@ -1947,6 +1989,16 @@ body:has(#gathering-app) .app-shell {
   border-radius: 0;
   overflow: hidden;
   background: #eaf0ea;
+}
+.gth-dash--finalized {
+  gap: 0;
+}
+.gth-dash--finalized .gth-pane--flush {
+  /* Anchor to the viewport rather than mirroring app-card's responsive
+     padding.  The latter also changes for short landscape viewports. */
+  margin-left: calc(50% - 50vw);
+  margin-right: 0;
+  width: 100vw;
 }
 /* 2026-09-19 fix (real render-invariant finding, L5): gth-bottom-bar's own
    rendered height is a button (.gth-btn's 2.75rem floor) plus its own

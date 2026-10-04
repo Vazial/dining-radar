@@ -806,17 +806,22 @@ class PrimaryNavSourceTests(SimpleTestCase):
         # Esc closes both the ≡ <details> and the mobile account sheet.
         self.assertIn('event.key !== "Escape" && event.key !== "Esc"', source)
 
-    def test_candidate_js_no_longer_builds_the_chip_from_a_static_element(self):
-        # loadGatheringEntryBadge must build the whole chip in full (not
-        # look one up that home.html no longer server-renders).
+    def test_candidate_js_updates_the_menu_dot_and_mobile_count(self):
         source = CANDIDATE_SCRIPT.read_text(encoding="utf-8")
 
         badge_fn_start = source.index("function loadGatheringEntryBadge() {")
         badge_fn_end = source.index("\n  }\n", badge_fn_start)
         badge_fn_source = source[badge_fn_start:badge_fn_end]
-        self.assertIn('el(\n              "a",', badge_fn_source)
         self.assertIn(
             "document.querySelector('[data-testid=\"candidate-primary-nav-gathering\"]')",
+            badge_fn_source,
+        )
+        self.assertIn(
+            "document.querySelector('[data-testid=\"candidate-primary-nav-menu-dot\"]')",
+            badge_fn_source,
+        )
+        self.assertIn(
+            'menuDot.setAttribute("data-in-progress-gathering-count", String(count));',
             badge_fn_source,
         )
 

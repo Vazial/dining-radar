@@ -553,9 +553,9 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
         self.steps.gathering_shortlist_toast_shows(shortlisted=5)
         self.steps.gathering_shortlist_toast_persists_at_the_cap()
 
-    # ADR-0059 decision 4 (2026-09-16): openGatheringEntry / returnToGathering
-    # FromEntry share three inputs (desktop chip, desktop menu panel's
-    # gathering destination, mobile bottom nav's gathering item) and switch
+    # ADR-0069 (2026-10-04): the desktop chip was retired. The menu dot is
+    # display-only; navigation is covered by the menu destination and mobile
+    # bottom-nav tests below.
     # between them by gatheringMode's own on/off state. Not tied to a TDR-CS
     # scenario id -- this nav structure has no corresponding business
     # scenario (candidate-search.feature's own TDR-CS-23 header comment:
@@ -566,20 +566,15 @@ class CandidateSearchAcceptanceTests(StaticLiveServerTestCase):
     # elsewhere (see "gatheringMode server-truth cross-checks" above).
     # -------------------------------------------------------------------
 
-    def test_adr_0059_desktop_chip_switches_between_gathering_list_and_this_gathering(
+    def test_adr_0069_desktop_menu_dot_shows_an_in_progress_gathering_count(
         self,
     ) -> None:
         self._sign_in()
         self.steps.lunch_candidates_can_be_proposed()
-        gathering_id = self.steps.organizer_has_a_selecting_shop_gathering("会Nav1")
+        self.steps.organizer_has_a_selecting_shop_gathering("会Nav1")
 
         self.steps.organizer_compares_candidates_at_two_column_viewport()
-        self.steps.desktop_chip_opens_the_gathering_list()
-
-        self.steps.organizer_opens_this_screen_in_gathering_mode_at_two_column_viewport(
-            gathering_id
-        )
-        self.steps.desktop_chip_returns_to_this_gathering(gathering_id)
+        self.steps.desktop_menu_dot_shows_count(1)
 
     def test_adr_0059_desktop_menu_gathering_destination_switches_between_list_and_this_gathering(
         self,
