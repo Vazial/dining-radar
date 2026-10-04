@@ -784,42 +784,143 @@ body:has(#gathering-app) .app-shell {
    file's own existing mobile breakpoint) -- the containing block becomes
    the viewport itself, not .gth-issue, so this box's own width and position
    no longer depend on where its own narrow trigger happens to sit. */
-.gth-issue .gth-confirm-dialog {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 0.5rem);
-  z-index: 5;
-  width: min(max(20rem, 100%), calc(100vw - 2rem));
+/* Board C1-b (audit C1, 2026-10): the issue window is a viewport-centered
+   480px card on PC and a bottom sheet on mobile, both over a dimmed
+   background (.gth-issue-backdrop). Neither is anchored to its trigger any
+   more: an anchored box overflowed past the viewport edge at narrow widths
+   and opened under neighbouring bars (real-measurement findings that drove
+   the earlier anchored versions' own comments). Fixed + viewport-based
+   sizing removes the dependence on where the trigger sits. */
+.gth-issue-backdrop {
+  z-index: 1100;
+}
+.gth-issue-overlay .gth-confirm-dialog.gth-issue-dialog {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  right: auto;
+  bottom: auto;
+  transform: translate(-50%, -50%);
+  z-index: 1101;
+  width: min(30rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  padding: 0;
+  gap: 0;
+  border: 0;
+  border-radius: 1rem;
+  box-shadow: 0 1rem 2.5rem rgba(23, 32, 27, 0.3);
 }
 @media (max-width: 47.9375rem) {
-  /* A first attempt kept this anchored (position: fixed, but still under
-     its own trigger via bottom: 5rem/left/right: 1rem) -- real-measurement
-     finding: the trigger's own row can itself be positioned deep inside
-     gth-shop-panel-body's own scrollable, height-clamped area (decision 3),
-     so a fixed box merely re-anchored near there was still liable to open
-     underneath gth-bottom-bar or another sibling with a higher stacking
-     order. Reusing gth-confirm-dialog--modal's own already-proven centered
-     treatment (declared above) instead -- the same fixed, viewport-centered
-     box gathering-finalize-confirm-dialog already uses -- removes the
-     anchor entirely rather than trying to compute a safer one. */
-  .gth-issue .gth-confirm-dialog {
-    position: fixed;
-    left: 50%;
-    top: 50%;
-    right: auto;
-    transform: translate(-50%, -50%);
-    z-index: 32;
-    width: min(20rem, calc(100vw - 2rem));
-    max-height: calc(100vh - 2rem);
-    max-height: calc(100dvh - 2rem);
-    overflow-y: auto;
+  .gth-issue-overlay .gth-confirm-dialog.gth-issue-dialog {
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    transform: none;
+    width: auto;
+    max-width: none;
+    padding-top: 0.375rem;
+    border-radius: 1.125rem 1.125rem 0 0;
+    box-shadow: 0 -0.5rem 1.5rem rgba(23, 32, 27, 0.25);
   }
 }
-.gth-issue-dialog {
-  border-top: 3px solid #14614a;
+.gth-issue-dialog-handle {
+  display: none;
+}
+@media (max-width: 47.9375rem) {
+  .gth-issue-dialog-handle {
+    display: block;
+    align-self: center;
+    width: 2.25rem;
+    height: 0.25rem;
+    border-radius: 999px;
+    background: #c6cfc6;
+  }
+}
+.gth-issue-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.375rem 0.375rem 0.375rem 1.25rem;
+  border-bottom: 1px solid #edf0eb;
+}
+.gth-issue-dialog-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #17201b;
+}
+.gth-issue-dialog-x {
+  box-sizing: border-box;
+  width: 2.75rem;
+  height: 2.75rem;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0.625rem;
+  background: transparent;
+  cursor: pointer;
+}
+.gth-issue-dialog-x:hover {
+  background: #f4f6f2;
+}
+.gth-issue-dialog-x:focus-visible {
+  outline: 2px solid #14614a;
+  outline-offset: 2px;
+}
+.gth-issue-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
 }
 .gth-issue-dialog-url {
-  word-break: break-all;
+  box-sizing: border-box;
+  min-height: 3rem;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 0.875rem;
+  background: #f2f4f0;
+  border: 1px solid #d9e0d8;
+  border-radius: 0.625rem;
+  font-size: 0.8125rem;
+  color: #4b564e;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.gth-issue-dialog-copy {
+  min-height: 3.25rem;
+}
+.gth-issue-dialog-copy--done {
+  background: #e3eee7;
+  border-color: #e3eee7;
+  color: #14614a;
+}
+.gth-issue-dialog-copy--done:hover {
+  background: #e3eee7;
+}
+.gth-issue-dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.625rem 1.25rem 0.875rem;
+}
+
+/* Board C1-b: 「リンクを発行」 is an outlined button; 「取り消す」 the muted red one. */
+.gth-btn-outline {
+  border: 1.5px solid #14614a;
+  color: #14614a;
+  font-weight: 700;
+}
+.gth-btn-danger {
+  border-color: #e0c4bc;
+  color: #8a3b2c;
 }
 
 /* --- gathering-finalize-confirm-dialog's own confirmSummary (ADR-0062
@@ -2145,23 +2246,64 @@ body:has(#gathering-app) .app-shell {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
   gap: 0.5rem;
-  min-height: 2.75rem;
-  padding: 0.3rem 0.6rem;
-  border: 1px solid #e7ebe6;
-  border-radius: 0.5rem;
+  min-height: 3.25rem;
+  padding: 0.25rem 0.375rem 0.25rem 0.75rem;
+  border: 0;
+  border-bottom: 1px solid #edf0eb;
   font-size: 0.8125rem;
+}
+.gth-link-row--new {
+  background: #eaf4ee;
+  box-shadow: inset 4px 0 0 #14614a;
 }
 .gth-link-row[data-revoked="true"] {
   opacity: 0.6;
 }
+.gth-link-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
 .gth-link-name {
-  color: #4b564e;
+  display: flex;
+  align-items: center;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #17201b;
+}
+.gth-link-name--anon {
+  color: #5b665e;
+  font-weight: 400;
+}
+.gth-link-new-tag {
+  margin-left: 0.5rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  background: #14614a;
+  color: #fff;
+  font-size: 0.65625rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.gth-link-status {
+  font-size: 0.75rem;
+  color: #5b665e;
+}
+.gth-link-status--done {
+  color: #4e7d63;
+  font-weight: 500;
+}
+.gth-link-pane-title .gth-pane-sub {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #5b665e;
 }
 .gth-link-actions {
   display: flex;
-  gap: 0.4rem;
+  gap: 0.375rem;
+  flex-shrink: 0;
 }
 
 /* --- gathering-participant-link-issuance-closed (ADR-0056 decision 11) --- */

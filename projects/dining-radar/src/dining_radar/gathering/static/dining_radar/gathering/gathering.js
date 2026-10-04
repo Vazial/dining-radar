@@ -325,6 +325,49 @@
     return node;
   }
 
+  // Board-drawn inline icons (decorative, aria-hidden): `shapes` is a list of
+  // [tag, attrs] pairs drawn on a `viewBox` box with a round-capped stroke.
+  function svgIcon(size, viewBox, color, strokeWidth, shapes) {
+    var ns = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("width", String(size));
+    svg.setAttribute("height", String(size));
+    svg.setAttribute("viewBox", viewBox);
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("focusable", "false");
+    shapes.forEach(function (shape) {
+      var node = document.createElementNS(ns, shape[0]);
+      Object.keys(shape[1]).forEach(function (name) {
+        node.setAttribute(name, shape[1][name]);
+      });
+      node.setAttribute("stroke", color);
+      node.setAttribute("stroke-width", String(strokeWidth));
+      node.setAttribute("stroke-linecap", "round");
+      svg.appendChild(node);
+    });
+    return svg;
+  }
+  function copyIcon(color) {
+    return svgIcon(14, "0 0 16 16", color, 1.5, [
+      ["rect", { x: "5", y: "5", width: "8.5", height: "8.5", rx: "1.8" }],
+      ["path", { d: "M3 10.5V3.8C3 3.1 3.6 2.5 4.3 2.5H10.5" }],
+    ]);
+  }
+  function linkIcon(color) {
+    return svgIcon(15, "0 0 18 18", color, 1.7, [
+      [
+        "path",
+        {
+          d: "M7.5 10.5l3-3M6 8.2L4.6 9.6a2.6 2.6 0 003.7 3.7L9.7 12M12 9.8l1.4-1.4a2.6 2.6 0 00-3.7-3.7L8.3 6",
+        },
+      ],
+    ]);
+  }
+  function closeIcon() {
+    return svgIcon(15, "0 0 16 16", "#4b564e", 1.8, [["path", { d: "M4 4l8 8M12 4l-8 8" }]]);
+  }
+
   function requestJson(method, url, body) {
     var options = {
       method: method,
@@ -2001,7 +2044,7 @@
     if (state.shopSelectTab === "links") {
       return el("div", { class: "gth-pane" }, [
         el("div", { class: "gth-pane-head-row" }, [
-          el("div", { class: "gth-pane-head" }, ["発行済みリンク"]),
+          renderParticipantLinkPaneTitle(),
           linkCopyButton,
         ]),
         renderParticipantLinkList(),
@@ -2616,22 +2659,29 @@
     if (!state.issueDialogOpen) {
       return null;
     }
+    // Board C1-b: 大きな「リンクをコピー」(押したあとは薄い緑地の
+    // 「コピーしました」)。 dialogCopy.requiredOutcome does not fix the
+    // visible text -- the same non-binding wording latitude this file's own
+    // "N件" precedent (ADR-0060 decision 9) already takes.
+    var copied = state.issueDialogCopied;
     var copyButton = el(
       "button",
       {
         type: "button",
         "data-testid": "gathering-participant-link-issue-dialog-copy",
         "data-gathering-control-purpose": "gathering-participant-link-issue-dialog-copy",
-        class: "gth-btn gth-btn-primary gth-btn-block",
+        class:
+          "gth-btn gth-btn-block gth-issue-dialog-copy" +
+          (copied ? " gth-issue-dialog-copy--done" : " gth-btn-primary"),
       },
-      // dialogCopy.requiredOutcome: this contract does not fix the visible
-      // text a successful write may show -- the same non-binding wording
-      // latitude this file's own "N件" precedent (ADR-0060 decision 9)
-      // already takes.
-      [state.issueDialogCopied ? "✓ コピーしました" : "リンクをコピー"]
+      copied ? ["✓ コピーしました"] : [copyIcon("#ffffff"), "リンクをコピー"]
     );
     copyButton.addEventListener("click", copyIssuedLinkFromDialog);
 
+    // Board C1-b draws both a 「×」 in the heading and a 「閉じる」 text button
+    // (dialogClose: this contract allows one or two controls). The testId is
+    // carried by 「閉じる」 alone so it stays unique; 「×」 declares the same
+    // purpose without a second testId.
     var closeButton = el(
       "button",
       {
@@ -2643,6 +2693,17 @@
       ["閉じる"]
     );
     closeButton.addEventListener("click", closeIssueDialog);
+    var closeIconButton = el(
+      "button",
+      {
+        type: "button",
+        "data-gathering-control-purpose": "gathering-participant-link-issue-dialog-close",
+        "aria-label": "閉じる",
+        class: "gth-issue-dialog-x",
+      },
+      [closeIcon()]
+    );
+    closeIconButton.addEventListener("click", closeIssueDialog);
 
     var dialog = el(
       "div",
@@ -2651,15 +2712,27 @@
         "data-issued-link-url": state.headerIssuedLinkUrl || undefined,
         role: "dialog",
         "aria-modal": "true",
-        "aria-label": "発行したリンク",
+        "aria-label": "回答リンクを発行しました",
         tabindex: "-1",
         class: "gth-confirm-dialog gth-issue-dialog",
       },
       [
-        el("p", { class: "gth-confirm-dialog-text gth-issue-dialog-url" }, [
-          truncateIssuedLinkUrlForDisplay(state.headerIssuedLinkUrl),
+        // Board's own sheet handle -- decorative, shown on the mobile sheet only.
+        el("div", { class: "gth-issue-dialog-handle", "aria-hidden": "true" }, []),
+        el("div", { class: "gth-issue-dialog-head" }, [
+          el("p", { class: "gth-issue-dialog-title" }, ["回答リンクを発行しました"]),
+          closeIconButton,
         ]),
-        el("div", { class: "gth-inline-form-row" }, [copyButton, closeButton]),
+        el("div", { class: "gth-issue-dialog-body" }, [
+          el("p", { class: "gth-confirm-dialog-text" }, [
+            "このリンクは1人ぶんです。渡す相手に1本ずつ送ってください。",
+          ]),
+          el("p", { class: "gth-issue-dialog-url" }, [
+            truncateIssuedLinkUrlForDisplay(state.headerIssuedLinkUrl),
+          ]),
+          copyButton,
+        ]),
+        el("div", { class: "gth-issue-dialog-foot" }, [closeButton]),
       ]
     );
 
@@ -2688,10 +2761,51 @@
     if (!url) {
       return "";
     }
-    if (url.length <= 46) {
-      return url;
+    // Board C1-b: 「https://…/a/7f3k-q2m9…」 -- scheme kept, host elided,
+    // only the head of the path shown; the full URL is never displayed (it
+    // stays on data-issued-link-url and goes to the clipboard on copy).
+    var match = /^(https?:\/\/)[^/]+(\/.*)$/.exec(url);
+    if (!match) {
+      return url.length <= 24 ? url : url.slice(0, 23) + "…";
     }
-    return url.slice(0, 26) + "…" + url.slice(-16);
+    var path = match[2];
+    return match[1] + "…" + (path.length <= 18 ? path : path.slice(0, 17) + "…");
+  }
+
+  // Board C1-b: the issue window is a sheet/card over a dimmed background.
+  // It is mounted on document.body rather than inside the dashboard: the
+  // trigger can sit inside the shop panel's own stacking context (the
+  // map-first stage is z-index: 0), which would keep a fixed dialog beneath
+  // the app header and bottom bar no matter its own z-index. Rebuilt on
+  // every render() like the rest of the screen.
+  var issueOverlayNode = null;
+  function syncIssueOverlay() {
+    var activeTestId = null;
+    var active = document.activeElement;
+    if (issueOverlayNode && active && issueOverlayNode.contains(active)) {
+      activeTestId = active.getAttribute("data-testid");
+    }
+    if (issueOverlayNode && issueOverlayNode.parentNode) {
+      issueOverlayNode.parentNode.removeChild(issueOverlayNode);
+    }
+    issueOverlayNode = null;
+    var dialog = state.gathering ? renderIssueDialog() : null;
+    if (!dialog) {
+      return;
+    }
+    // Plain scrim, no testid/purpose -- the same precedent
+    // gathering-finalize-confirm-dialog's scrim sets.
+    issueOverlayNode = el("div", { class: "gth-issue-overlay" }, [
+      el("div", { class: "gth-modal-backdrop gth-issue-backdrop" }, []),
+      dialog,
+    ]);
+    document.body.appendChild(issueOverlayNode);
+    if (activeTestId) {
+      var again = issueOverlayNode.querySelector('[data-testid="' + activeTestId + '"]');
+      if (again) {
+        again.focus({ preventScroll: true });
+      }
+    }
   }
 
   function renderParticipantLinkCopy() {
@@ -2701,25 +2815,23 @@
         type: "button",
         "data-testid": "gathering-participant-link-copy",
         "data-gathering-control-purpose": "gathering-participant-link-copy",
-        class: "gth-btn gth-btn-primary",
+        class: "gth-btn gth-btn-outline",
       },
       // **Changed 2026-09-17 (ADR-0061 decision 1)**: this contract does not
       // fix the visible text either, but "リンクを発行" reads accurately now
       // that this activation only issues a link and opens the dialog below,
-      // rather than copying to the clipboard itself.
-      ["リンクを発行"]
+      // rather than copying to the clipboard itself. Board C1-b draws it as
+      // an outlined button with a link icon.
+      [linkIcon("#14614a"), "リンクを発行"]
     );
     button.addEventListener("click", copyParticipantLink);
 
     var children = [button];
-    var dialog = renderIssueDialog();
-    if (dialog) {
-      children.push(dialog);
-    }
+    // The dialog itself is not built here: see syncIssueOverlay.
     return el("div", { class: "gth-issue" }, children);
   }
 
-  function renderParticipantLinkItem(link) {
+  function renderParticipantLinkItem(link, justIssued) {
     var recopyButton = el(
       "button",
       {
@@ -2730,14 +2842,33 @@
         "data-issued-link-url": state.recopiedLinkUrls[link.id] || undefined,
         class: "gth-btn gth-btn-small",
       },
-      ["再コピー"]
+      [copyIcon("#17201b"), "コピー"]
     );
     recopyButton.addEventListener("click", function () {
       recopyParticipantLink(link.id);
     });
 
+    // Board C1-b/C2: a row is 名前 over 状態 (答えた / まだ) on the left, 取り消す
+    // (unanswered only) and コピー on the right; the link just issued while
+    // the dialog is open carries an 「いま発行」 tag and a left accent bar.
+    var nameChildren = [link.displayName === null ? "名無し" : link.displayName];
+    if (justIssued) {
+      nameChildren.push(el("span", { class: "gth-link-new-tag" }, ["いま発行"]));
+    }
+    var statusText = link.revoked ? "取り消し済み" : link.hasResponded ? "答えた" : "まだ";
     var children = [
-      el("span", { class: "gth-link-name" }, [link.displayName === null ? "名無し" : link.displayName]),
+      el("div", { class: "gth-link-main" }, [
+        el(
+          "span",
+          { class: "gth-link-name" + (link.displayName === null ? " gth-link-name--anon" : "") },
+          nameChildren
+        ),
+        el(
+          "span",
+          { class: "gth-link-status" + (link.hasResponded ? " gth-link-status--done" : "") },
+          [statusText]
+        ),
+      ]),
       el("div", { class: "gth-link-actions" }, [recopyButton]),
     ];
 
@@ -2756,12 +2887,12 @@
           "data-gathering-control-purpose": "gathering-participant-link-revoke",
           class: "gth-btn gth-btn-small",
         },
-        ["失効"]
+        ["取り消す"]
       );
       revokeButton.addEventListener("click", function () {
         revokeParticipantLink(link.id);
       });
-      children[1].appendChild(revokeButton);
+      children[1].insertBefore(revokeButton, children[1].firstChild);
     }
 
     return el(
@@ -2773,7 +2904,7 @@
         "data-has-responded": link.hasResponded ? "true" : "false",
         "data-revoked": link.revoked ? "true" : "false",
         "data-participant-named": link.displayName === null ? "false" : "true",
-        class: "gth-link-row",
+        class: "gth-link-row" + (justIssued ? " gth-link-row--new" : ""),
       },
       children
     );
@@ -2783,15 +2914,29 @@
     return el(
       "div",
       { "data-testid": "gathering-participant-link-list", class: "gth-link-list" },
-      state.participantLinks.map(renderParticipantLinkItem)
+      state.participantLinks.map(function (link, index) {
+        // Listed in issue order, so the link issued just now is the last row.
+        return renderParticipantLinkItem(
+          link,
+          state.issueDialogOpen && index === state.participantLinks.length - 1
+        );
+      })
     );
+  }
+
+  // Board C1-b/C2: 「回答リンク」 + 「N本」 (the row count) as one heading.
+  function renderParticipantLinkPaneTitle() {
+    return el("div", { class: "gth-pane-head gth-link-pane-title" }, [
+      "回答リンク",
+      el("span", { class: "gth-pane-sub" }, [String(state.participantLinks.length) + "本"]),
+    ]);
   }
 
   // Extracted so FINALIZED can nest this same pane inside the decision
   // panel's own answers/links groups (renderDecisionAnswersLinksGroups)
   // instead of rendering it as a separate top-level section.
   function renderParticipantLinkPane() {
-    var linkPaneHeadChildren = [el("div", { class: "gth-pane-head" }, ["発行済みリンク"])];
+    var linkPaneHeadChildren = [renderParticipantLinkPaneTitle()];
     if (state.gathering.phase !== "FINALIZED") {
       linkPaneHeadChildren.push(renderParticipantLinkCopy());
     }
@@ -3025,6 +3170,7 @@
     pendingDecisionMap = null;
     root.innerHTML = "";
     if (!state.gathering) {
+      syncIssueOverlay();
       return;
     }
     var phase = state.gathering.phase;
@@ -3138,6 +3284,7 @@
       );
     }
     restoreFocusFromDescriptor(root, focusDescriptor);
+    syncIssueOverlay();
 
     // Explicit open/close focus management for gathering-participant-link-
     // issue-dialog -- distinct from the generic restoreFocusFromDescriptor
@@ -3145,7 +3292,7 @@
     // after this rebuild (identical shape to gathering_create.js's own
     // pendingReviewFocus, ADR-0060 decision 5).
     if (state.pendingIssueDialogFocus === "open") {
-      var issueDialogNode = root.querySelector(
+      var issueDialogNode = document.querySelector(
         '[data-testid="gathering-participant-link-issue-dialog"]'
       );
       if (issueDialogNode) {
