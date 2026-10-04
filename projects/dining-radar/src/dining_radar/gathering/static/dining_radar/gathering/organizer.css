@@ -938,8 +938,8 @@ body:has(#gathering-app) .app-shell {
 /* **Fixed** (real-measurement finding: this dialog overflowed ~160px past
    the right viewport edge at 320-1024px widths): every caller places
    participantLinkCopy (this wrapper's own button) at the *trailing* end of
-   its row (gth-shop-panel-link-copy/gth-inline-actions's own
-   justify-content: flex-end, the links-tab head row's own trailing child).
+   its row (the links-tab head row's own trailing child, ADR-0068:
+   it is rendered nowhere else while SELECTING_SHOP).
    width: max(20rem, 100%) forced a 320px-wide box regardless of where that
    trailing position landed -- anchoring it to grow from the trigger's own
    edge (left: 0, the original rule, or right: 0, a first attempt at this
@@ -2071,7 +2071,7 @@ body:has(#gathering-app) .app-shell {
   gap: 0.5rem;
 }
 /* Coordinator finding (2026-09-21, 360x740 real measurement): this row
-   ("票が多い順" + gth-inline-actions's own 2 buttons) is one line at the
+   ("票が多い順" + gth-inline-actions's own button) is one line at the
    board's own reference width, but a caption sharing a row with 2 buttons
    does not fit at 360px content width even after every button/tab trim
    this file already applies elsewhere -- it wrapped, and because the row
@@ -2083,7 +2083,7 @@ body:has(#gathering-app) .app-shell {
    its own (now reading as a small caption under the tab strip, per the
    human's own "タブの下の説明に回す" framing) then gth-inline-actions's own
    row (its own existing justify-content: flex-end still right-aligns the
-   2 buttons, which fit together on one line at every required width). No
+   button). No
    wording/label change -- geometry only. */
 @media (max-width: 47.9375rem) {
   .gth-shop-select-pane > .gth-pane-head-row {
@@ -2098,30 +2098,8 @@ body:has(#gathering-app) .app-shell {
     gap: 0.25rem;
   }
 }
-/* participantLinkCopy (ADR-0063 decision 3's own scope note: this control
-   is not one of the 4 tab-gated targets) -- kept unconditionally visible
-   regardless of which tab is active (tester finding, TDR-GTH-36). On the
-   shop tab (shops non-empty) and the links tab it shares an existing head
-   row instead (gth-inline-actions below / linksTab's own gth-pane-head-row)
-   -- this rule is this control's own standalone row on the remaining
-   tabs (schedule/answers, and shopTab before any shop is ever added),
-   which have no head row of their own to share it with. */
-.gth-shop-panel-link-copy {
-  display: flex;
-  justify-content: flex-end;
-  padding: 0.5rem 0.75rem 0;
-  flex-shrink: 0;
-}
-.gth-pane > .gth-shop-panel-link-copy {
-  padding: 0;
-}
-/* **Fixed 2026-09-19 (coordinator finding, board S4 comparison)**: board
-   S4's own list-heading row ("票が多い順"/"店を絞りなおす") is one line;
-   participantLinkCopy used to stack a second row directly beneath it
-   instead. Groups it with 店を絞りなおす at the row's own trailing end so
-   the row stays the one line board draws (wraps onto its own second line
-   only if the row is too narrow to fit both, the same graceful-wrap
-   convention gth-pane-head-row's own flex-wrap already uses). */
+/* Right-aligns the shop tab's "店を絞りなおす" at the trailing end of the
+   head row (board S4: the row is "票が多い順" + this one button, ADR-0068). */
 .gth-inline-actions {
   display: flex;
   align-items: center;

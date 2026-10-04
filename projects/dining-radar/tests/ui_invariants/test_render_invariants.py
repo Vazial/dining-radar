@@ -3530,49 +3530,48 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
         expect(by_test_id(self.page, "gathering-participant-link-list")).to_be_hidden()
 
-    def test_gathering_dashboard_participant_link_copy_is_unconditional_on_shop_select_tab(
+    def test_gathering_dashboard_participant_link_copy_is_visible_only_on_links_tab(
         self,
     ) -> None:
-        """ADR-0063 decision 3's own scope note names exactly 4 tab-gated
-        targets (shopSelectionEntry/shortlistedShopVotes.list,
-        candidateDateList, responseTable, participantLinkList) --
-        participantLinkCopy is deliberately not one of them, so its own
-        presenceRule ("Present while phase is SCHEDULING or
-        SELECTING_SHOP") must hold regardless of which tab is currently
-        selected (tester finding, TDR-GTH-36: it must be reachable from
-        the default shopTab, not only from linksTab). Checked once before
-        any shop is ever shortlisted (shopTab's own shopSelectionEntry-only
-        content) and once after (shopTab's own head-row-with-shops
-        content, coordinator finding: merged into the same row as 店を
-        絞りなおす, board S4 comparison) -- these are two different render
-        branches and either could independently regress."""
+        """ADR-0068 (2026-10-04, board S4, human decision: 板どおり): while
+        phase is SELECTING_SHOP, participantLinkCopy is visible only while
+        shopSelectionPanel.linksTab is selected; it is not visible on
+        shopTab, scheduleTab or answersTab. Checked once before any shop is
+        ever shortlisted (shopTab's shopSelectionEntry-only content) and
+        once after (shopTab's head-row-with-shops content, which is just
+        「票が多い順」and「店を絞りなおす」) -- these are two different
+        render branches and either could independently regress."""
         self._sign_in_as_organizer()
         gathering_id = self._create_gathering_via_ui("回答リンク発行ボタンの確認会")
         by_test_id(self.page, "gathering-candidate-date").click()
         by_test_id(self.page, "gathering-confirm-date-select").click()
         expect(by_test_id(self.page, "gathering-dashboard-confirmed-date")).to_be_visible()
 
-        shop_tab = by_test_id(self.page, "gathering-shop-select-tab-shop")
-        expect(shop_tab).to_have_attribute("aria-selected", "true")
-        copy_control = by_test_id(self.page, "gathering-participant-link-copy")
-        expect(copy_control).to_be_visible()
-        self._assert_tabbable(copy_control, "gathering-participant-link-copy")
+        def assert_only_links_tab_shows_copy(branch: str) -> None:
+            copy_control = by_test_id(self.page, "gathering-participant-link-copy")
+            for tab_test_id in (
+                "gathering-shop-select-tab-shop",
+                "gathering-shop-select-tab-schedule",
+                "gathering-shop-select-tab-answers",
+            ):
+                by_test_id(self.page, tab_test_id).click()
+                expect(copy_control, f"{branch}: {tab_test_id}").to_be_hidden()
+            by_test_id(self.page, "gathering-shop-select-tab-links").click()
+            expect(copy_control, f"{branch}: links tab").to_be_visible()
+            self._assert_tabbable(copy_control, "gathering-participant-link-copy")
 
-        for tab_test_id in (
-            "gathering-shop-select-tab-schedule",
-            "gathering-shop-select-tab-answers",
-            "gathering-shop-select-tab-links",
-        ):
-            by_test_id(self.page, tab_test_id).click()
-            expect(copy_control).to_be_visible()
+        expect(by_test_id(self.page, "gathering-shop-select-tab-shop")).to_have_attribute(
+            "aria-selected", "true"
+        )
+        expect(by_test_id(self.page, "gathering-participant-link-copy")).to_be_hidden()
+        assert_only_links_tab_shows_copy("0 shops")
 
         by_test_id(self.page, "gathering-shop-select-tab-shop").click()
         self._seed_one_shortlisted_shop(gathering_id)
         self.page.reload()
         expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
-        copy_control_with_shop = by_test_id(self.page, "gathering-participant-link-copy")
-        expect(copy_control_with_shop).to_be_visible()
-        self._assert_tabbable(copy_control_with_shop, "gathering-participant-link-copy")
+        expect(by_test_id(self.page, "gathering-participant-link-copy")).to_be_hidden()
+        assert_only_links_tab_shows_copy("1+ shops")
 
     def test_gathering_dashboard_selected_shop_row_pins_without_reordering_the_list(
         self,
@@ -4081,23 +4080,9 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
                 by_test_id(self.page, "gathering-participant-link-issue-dialog-close").click()
                 by_test_id(self.page, "gathering-shop-select-tab-shop").click()
 
-                # Same issueDialog, reopened from shopTab's own trailing
-                # gth-inline-actions position (ADR-0063 decision 3's default
-                # tab, and the exact position real measurement found the
-                # ~160px overflow at -- narrower/deeper-nested than the
-                # links-tab row above, so this is not a redundant repeat of
-                # the check above).
-                by_test_id(self.page, "gathering-participant-link-copy").click()
-                _assert_no_horizontal_overflow(
-                    self.page,
-                    f"selecting-shop stage, link-issue dialog open from shop tab ({label})",
-                )
-                _assert_element_within_viewport_width(
-                    by_test_id(self.page, "gathering-participant-link-issue-dialog"),
-                    width,
-                    f"gathering-participant-link-issue-dialog, shop tab ({label})",
-                )
-                by_test_id(self.page, "gathering-participant-link-issue-dialog-close").click()
+                # ADR-0068: shopTab no longer carries the issue control, so
+                # the dialog is only ever opened from the links tab above.
+                expect(by_test_id(self.page, "gathering-participant-link-copy")).to_be_hidden()
 
                 # gathering-finalize-confirm-dialog (ADR-0062 decision 3).
                 by_test_id(self.page, "gathering-finalize-shop-select").click()
