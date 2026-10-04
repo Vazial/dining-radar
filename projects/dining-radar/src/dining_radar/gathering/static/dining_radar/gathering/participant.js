@@ -1006,24 +1006,44 @@
    *   instead and never needs a toggle (renderDayListPanel/renderDayList
    *   Sheet below, chosen once per render by isWideDayListLayout).
    */
-  function renderHeader(answered, total, dayListToggle) {
-    var countAndToggle = [el("div", { class: "gth-count" }, ["日程 " + answered + " / " + total])];
-    if (dayListToggle) {
-      countAndToggle.push(dayListToggle);
-    }
+  function renderHeader() {
     var titleRow = el("div", { class: "gth-hd-row" }, [
       el("div", { class: "gth-title" }, [state.view.gatheringTitle]),
-      el("div", { class: "gth-hd-row-end" }, countAndToggle),
-    ]);
-    var progressPercent = total > 0 ? Math.round((answered / total) * 100) : 0;
-    var progressBar = el("div", { class: "gth-progress" }, [
-      el("i", { style: "width: " + progressPercent + "%" }, []),
+      renderNameOpenButton(),
     ]);
     return el(
       "header",
       { "data-testid": "gathering-participant-header", "data-gathering-phase": state.view.phase },
-      [titleRow, progressBar, renderNameControl(true)]
+      [titleRow, renderNameControl(true)]
     );
+  }
+
+  // Board c2r2/F2: one segment per candidate date (answered going/maybe =
+  // green, 行けない = grey, unanswered = outline, current = ringed), with
+  // 「答えた n / N」 above and the 「日の一覧」button beside it.
+  function renderProgressRow(order, answered, total, dayListToggle) {
+    var segments = order.map(function (question) {
+      var cls = "gth-seg";
+      if (question.yourResponse === "GOING") {
+        cls += " gth-seg--going";
+      } else if (question.yourResponse === "MAYBE") {
+        cls += " gth-seg--maybe";
+      } else if (question.yourResponse === "NOT_GOING") {
+        cls += " gth-seg--not";
+      }
+      if (question.candidateDateId === state.currentCandidateDateId) {
+        cls += " gth-seg--current";
+      }
+      return el("i", { class: cls }, []);
+    });
+    var left = el("div", { class: "gth-progress-col" }, [
+      el("div", { class: "gth-count" }, [
+        "答えた " + answered + " ",
+        el("span", {}, ["/ " + total]),
+      ]),
+      el("div", { class: "gth-seg-row", style: "grid-template-columns: repeat(" + total + ", minmax(0, 1fr))" }, segments),
+    ]);
+    return el("div", { class: "gth-progress-row" }, [left, dayListToggle]);
   }
 
   /**
@@ -1051,6 +1071,21 @@
    *   "名前を変える操作も置かない"). gathering-participant-name-status
    *   itself always renders regardless.
    */
+  function renderNameOpenButton() {
+    var openButton = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "gathering-participant-name-open",
+        "data-gathering-control-purpose": "gathering-participant-name-open",
+        class: "gth-name-open",
+      },
+      ["名前をつける"]
+    );
+    openButton.addEventListener("click", openNameControl);
+    return openButton;
+  }
+
   function renderNameControl(allowEdit) {
     var named = state.view.displayName !== null;
     var status = el(
@@ -1067,19 +1102,7 @@
       return el("div", { class: "gth-who" }, [status]);
     }
 
-    var openButton = el(
-      "button",
-      {
-        type: "button",
-        "data-testid": "gathering-participant-name-open",
-        "data-gathering-control-purpose": "gathering-participant-name-open",
-        class: "gth-who-action",
-      },
-      ["名前を付ける"]
-    );
-    openButton.addEventListener("click", openNameControl);
-
-    var whoRow = el("div", { class: "gth-who" }, [status, openButton]);
+    var whoRow = el("div", { class: "gth-who" }, [status]);
 
     if (!state.nameOpen) {
       return whoRow;
@@ -1120,7 +1143,7 @@
           "aria-pressed": yourResponse === value ? "true" : "false",
           class: "gth-opt" + (compact ? " gth-opt--compact" : "") + (yourResponse === value ? " gth-opt--on" : ""),
         },
-        [RESPONSE_LABELS[value]]
+        [responseGlyph(value), RESPONSE_LABELS[value]]
       );
       option.addEventListener("click", function () {
         answerScheduleQuestion(question.candidateDateId, value);
@@ -1168,11 +1191,40 @@
   }
   // --- current-leader-cascade END ---
 
+  var RESPONSE_GLYPHS = { GOING: "○", MAYBE: "△", NOT_GOING: "×" };
+  var RESPONSE_GLYPH_CLASSES = { GOING: "go", MAYBE: "mb", NOT_GOING: "no" };
+
+  function responseGlyph(value, extraClass) {
+    return el(
+      "b",
+      { class: "gth-glyph gth-glyph--" + RESPONSE_GLYPH_CLASSES[value] + (extraClass ? " " + extraClass : ""), "aria-hidden": "true" },
+      [RESPONSE_GLYPHS[value]]
+    );
+  }
+
+  // Board c2r2/F2 「みんなの答え（n人）」: one bar per tier, scaled to the
+  // number of people who have answered this date.
   function renderTally(question, leaders) {
     if (!question.tally) {
       return null;
     }
     var isLeader = Boolean(leaders && leaders[question.candidateDateId]);
+    var counts = {
+      GOING: question.tally.goingCount,
+      MAYBE: question.tally.maybeCount,
+      NOT_GOING: question.tally.notGoingCount,
+    };
+    var people = counts.GOING + counts.MAYBE + counts.NOT_GOING;
+    var rows = RESPONSE_VALUES.map(function (value) {
+      var percent = people > 0 ? Math.round((counts[value] / people) * 100) : 0;
+      return el("div", { class: "gth-tally-row" }, [
+        el("span", {}, [responseGlyph(value), " " + RESPONSE_LABELS[value]]),
+        el("span", { class: "gth-tally-track" }, [
+          el("i", { class: "gth-tally-fill gth-tally-fill--" + RESPONSE_GLYPH_CLASSES[value], style: "width: " + percent + "%" }, []),
+        ]),
+        el("span", { class: "gth-tally-count" }, [String(counts[value])]),
+      ]);
+    });
     return el(
       "div",
       {
@@ -1183,11 +1235,7 @@
         "data-current-leader": isLeader ? "true" : "false",
         class: "gth-tally" + (isLeader ? " gth-tally--leader" : ""),
       },
-      [
-        el("span", {}, ["行ける ", el("b", {}, [String(question.tally.goingCount)])]),
-        el("span", {}, ["たぶん ", el("b", {}, [String(question.tally.maybeCount)])]),
-        el("span", {}, ["むり ", el("b", {}, [String(question.tally.notGoingCount)])]),
-      ]
+      [el("div", { class: "gth-tally-title" }, ["みんなの答え（" + people + "人）"])].concat(rows)
     );
   }
 
@@ -1214,8 +1262,10 @@
           class: "gth-respondent-item",
         },
         [
-          el("span", { class: "gth-respondent-response" }, [RESPONSE_LABELS[respondent.response]]),
-          el("span", { class: "gth-respondent-name" }, [named ? respondent.displayName : "名無し"]),
+          responseGlyph(respondent.response, "gth-respondent-response"),
+          el("span", { class: "gth-respondent-name" + (named ? "" : " gth-respondent-name--anon") }, [
+            named ? respondent.displayName : "名無し",
+          ]),
         ]
       );
     });
@@ -1241,25 +1291,20 @@
    */
   function renderCurrentQuestionCard(question, leaders) {
     var yourResponse = question.yourResponse;
+    var dateParts = formatGatheringDateTime(question.startAt).split(" ");
     var children = [
-      el("div", { class: "gth-open-label" }, ["この日、行けそう？"]),
-      el("div", { class: "gth-open-date" }, [formatGatheringDateTime(question.startAt)]),
+      el("div", { class: "gth-open-dateline" }, [
+        el("span", { class: "gth-open-date" }, [dateParts[0]]),
+        el("span", { class: "gth-open-weekday" }, [dateParts[1]]),
+        el("span", { class: "gth-open-time" }, [dateParts[2] + " から"]),
+      ]),
     ];
-    if (yourResponse !== null) {
-      // Non-binding confirmation text (this contract fixes no wording here,
-      // the same "N件" latitude ADR-0060 decision 9 already takes) --
-      // board's own "◯/◯は「行ける」にしました" note.
-      children.push(
-        el("div", { class: "gth-open-confirmed" }, [
-          "この日は「" + RESPONSE_LABELS[yourResponse] + "」にしました",
-        ])
-      );
-    }
     var tally = renderTally(question, leaders);
     if (tally) {
       children.push(tally);
     }
     children.push(renderRespondentList(question));
+    children.push(el("div", { class: "gth-open-ask" }, ["あなたは行けますか"]));
     children.push(
       el(
         "div",
@@ -1267,6 +1312,12 @@
         responseOptionButtons(question, yourResponse === null ? "UNANSWERED" : yourResponse, false)
       )
     );
+    var isLeader = Boolean(leaders && leaders[question.candidateDateId]);
+    var cardChildren = [];
+    if (isLeader) {
+      cardChildren.push(el("div", { class: "gth-leader-banner" }, ["有力 ・ いま行ける人がいちばん多い日"]));
+    }
+    cardChildren.push(el("div", { class: "gth-card-body" }, children));
     return el(
       "div",
       {
@@ -1275,7 +1326,7 @@
         "data-your-response": yourResponse === null ? "UNANSWERED" : yourResponse,
         class: "gth-card gth-card--open",
       },
-      children
+      cardChildren
     );
   }
 
@@ -1426,6 +1477,14 @@
    * @returns {toggleButton, sheet} -- the caller places toggleButton in the
    *   header (top right) and sheet as a sibling of .gth-app.
    */
+  function dayListIcon() {
+    var icon = el("span", { class: "gth-day-sheet-open-icon", "aria-hidden": "true" }, []);
+    // Static markup, no data in it.
+    icon.innerHTML =
+      '<svg width="16" height="16" viewBox="0 0 18 18" fill="none"><path d="M6 5h9M6 9h9M6 13h9" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="3" cy="5" r="1" fill="currentColor"/><circle cx="3" cy="9" r="1" fill="currentColor"/><circle cx="3" cy="13" r="1" fill="currentColor"/></svg>';
+    return icon;
+  }
+
   function renderDayListSheet(order, leaders, heading) {
     var list = el(
       "div",
@@ -1450,7 +1509,7 @@
         "data-gathering-control-purpose": "gathering-participant-day-list-open",
         class: "gth-day-sheet-open-btn",
       },
-      ["日の一覧"]
+      [dayListIcon(), "日の一覧"]
     );
     toggleButton.addEventListener("click", openDayListSheet);
 
@@ -1792,6 +1851,13 @@
   // dayList (renderDayList above) now carries the "自分の答えの一覧" role
   // answerLater's confirmation used to.
 
+  function confirmIcon() {
+    var icon = el("span", { class: "gth-confirm-icon", "aria-hidden": "true" }, []);
+    icon.innerHTML =
+      '<svg width="16" height="16" viewBox="0 0 18 18" fill="none"><path d="M4 9.5l3.2 3.2L14 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    return icon;
+  }
+
   function renderProgress(total, answered) {
     return el(
       "div",
@@ -2007,9 +2073,19 @@
           dayListSheetPending = dayListSheetParts.sheet;
         }
 
-        children.push(renderHeader(answered, total, dayListToggle));
+        children.push(renderHeader());
 
         var body = [];
+        body.push(renderProgressRow(questions, answered, total, dayListToggle));
+        if (currentQuestion && currentQuestion.yourResponse !== null) {
+          body.push(
+            el("div", { class: "gth-open-confirmed" }, [
+              confirmIcon(),
+              formatGatheringDateTime(currentQuestion.startAt).split(" ").slice(0, 2).join(" ") +
+                " は「" + RESPONSE_LABELS[currentQuestion.yourResponse] + "」にしました",
+            ])
+          );
+        }
         if (currentQuestion) {
           body.push(renderCurrentQuestionCard(currentQuestion, leaders));
           body.push(renderDayNav(questions, currentIndex));
