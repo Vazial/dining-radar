@@ -1,24 +1,31 @@
-# deploy/ — ECS Fargate publish artifacts (ADR-0067)
+# deploy/ — ECS Fargate + ALB の公開用成果物
 
-Code-side artifacts for the [ADR-0067](../adr/0067-consider-aws-deployment-migration.md)
-migration target (KEN-31). The step-by-step human procedure that uses these files —
-building/pushing images, creating the SSM parameters, registering the task
-definition, wiring the Lambda/EventBridge rule, and cutting over DNS — lives in
-[DEPLOYMENT.md](../DEPLOYMENT.md). This file is only an index of what is here and
-why; it does not duplicate that procedure (P-04).
+[KEN-31](../DEPLOYMENT.md)・KEN-37 の、コード側の成果物。実リソースを作る人間向けの手順は
+[DEPLOYMENT.md](../DEPLOYMENT.md) §7 が持ち、この文書は「何がここにあり、なぜあるか」の索引だけを
+持つ（手順は複製しない、P-04）。作成済みのAWSリソースと削除手順は [RESOURCES.md](RESOURCES.md)。
 
-| Path | What it is |
+構成: ALB（ACM証明書でTLS終端）→ ターゲットグループ（`/livez`）→ Fargateタスク（Djangoのみ、8000番）。
+当初のADR-0067（ALB無し・Elastic IP付け替え）は、Fargateのタスクにelastic IPを付けられず実機で成立
+しなかったため、この構成に置き換えた。
+
+## 使うもの
+
+| パス | 役割 |
 |---|---|
-| `docker-entrypoint.sh` | App container entrypoint (`../Dockerfile`'s `ENTRYPOINT`). Runs `migrate`/`provision_organizer --if-configured`/`check --deploy` once per container start, then execs gunicorn. |
-| `caddy/Dockerfile`, `caddy/Caddyfile` | The TLS-terminating sidecar image. Proxies to the app container over `localhost` inside the shared task network namespace (`awsvpc` mode) — there is no ALB in this topology. |
-| `ecs/task-definition.json` | `aws ecs register-task-definition --cli-input-json file://task-definition.json` input. Two containers (`web`, `caddy`), 0.25 vCPU / 0.5GB, secrets sourced from SSM Parameter Store (never committed values). |
-| `ecs/service-definition.json` | `aws ecs create-service --cli-input-json file://service-definition.json` input. Single task, public subnet, `assignPublicIp: ENABLED`. `minimumHealthyPercent: 0` is deliberate — this topology accepts a brief connection break on redeploy instead of running two tasks that would fight over the one Elastic IP (ADR-0067's accepted tradeoff). |
-| `lambda/reattach_elastic_ip/handler.py` | Re-associates the one Elastic IP onto whichever task is newly `RUNNING`, since every Fargate task restart gets a fresh ENI. |
-| `lambda/reattach_elastic_ip/eventbridge-rule.json` | The EventBridge rule matching `ECS Task State Change` events. Registering it as a target (`put-targets`) is not enough on its own — DEPLOYMENT.md §7-4 step 6 also grants the Lambda's *resource-based* policy permission for EventBridge to invoke it (`aws lambda add-permission`). |
-| `lambda/reattach_elastic_ip/iam-policy.json` | Least-privilege policy for the Lambda's execution role (plus the AWS-managed `AWSLambdaBasicExecutionRole` for its own logs). |
-| `cloudwatch/alarms.json`, `cloudwatch/create-alarms.sh` | Three basic alarms (task CPU, task memory, reattach-Lambda errors). No `AlarmActions`/SNS topic is set — ADR-0067 did not decide a notification channel. |
+| `deploy.sh` | イメージのbuild→ECR push→タスク定義登録→サービス更新→安定待ちを1本で行う。タグはコミットID、作業ツリーはコミット済みであること |
+| `docker-entrypoint.sh` | アプリコンテナのENTRYPOINT（`../Dockerfile`）。起動のたびに`migrate`・`provision_organizer --if-configured`・`check --deploy`を実行してからgunicornを起動する |
+| `ecs/task-definition.json` | `aws ecs register-task-definition --cli-input-json`の入力。webコンテナ1つ、0.25vCPU/0.5GB、secretsはSSM Parameter Store（値は載せない）。ヘルスチェックはDBに触れない`/livez` |
+| `ecs/service-definition.json` | `aws ecs create-service --cli-input-json`の入力。ターゲットグループにつなぎ、100/200で無停止に入れ替え、サーキットブレーカーで失敗を自動で戻す |
+| `cloudwatch/alarms.json`、`cloudwatch/create-alarms.sh` | タスクのCPU・メモリの基本アラーム2件。通知先は未決定 |
+| `RESOURCES.md` | 作成済みAWSリソースの台帳（課金されるもの、削除手順、月次の確認コマンド） |
 
-Every `<PLACEHOLDER>` in these files (account id, region, subnet/security-group ids,
-ECR image tags, Elastic IP allocation id) is environment-specific and unknown until
-the AWS resources exist, so a human fills them in at the point of use — none of
-them are secret values, unlike the SSM-sourced `secrets` entries.
+## 使わないもの（ALB無しの代替構成の素材として残す）
+
+| パス | 何か |
+|---|---|
+| `caddy/` | TLS終端のサイドカー。ALBがTLSを終端するこの構成では不要。ALB無しでEC2やタスクの公開IPを直接公開する構成では使える |
+| `lambda/reattach_elastic_ip/` | Elastic IPをタスクのENIへ付け替えるLambda。**Fargateのタスクには付けられず動かない**（EC2インスタンスへ付ける構成なら不要）。タスクの公開IPをRoute 53へ反映する構成の叩き台にはなる |
+
+`<PLACEHOLDER>`はすべて環境固有（アカウントID、リージョン、サブネット・セキュリティグループ・
+ターゲットグループのID、イメージのタグ）で、AWSリソースができるまで分からない。使う時点で人間が
+置換する（`deploy.sh`はタスク定義の分を自動で置換する）。いずれもsecretではない。
