@@ -1891,6 +1891,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         直接検査する。戻り道、会の名前だけのh1、見出しから除かれた日付を確かめる。
         """
         self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
         thursday = self.dsl.next_weekday_iso(3)
         self.steps.organizer_has_a_selecting_shop_gathering("会確定見出し", [thursday])
         shop_id = self.steps.open_shop_ids_for_the_confirmed_date()[0]

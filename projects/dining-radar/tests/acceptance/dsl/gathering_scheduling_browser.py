@@ -2174,9 +2174,7 @@ class GatheringSchedulingBrowserDsl:
 
     def assert_in_progress_gathering_count_dot(self, expected_count: int) -> None:
         dot = wait_for_at_least_one(self.page, PRIMARY_NAV_MENU_DOT)
-        self.assertions.assertEqual(
-            dot.first.get_attribute(IN_PROGRESS_GATHERING_COUNT_ATTR), str(expected_count)
-        )
+        expect(dot).to_have_attribute(IN_PROGRESS_GATHERING_COUNT_ATTR, str(expected_count))
 
     def open_gathering_entry_from_candidate_screen(self) -> None:
         by_test_id(self.page, PRIMARY_NAV_MENU_TOGGLE).click()

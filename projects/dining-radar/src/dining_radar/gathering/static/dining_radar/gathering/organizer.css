@@ -192,6 +192,18 @@ body:has(#gathering-app) .app-shell {
   }
 }
 
+/* The finalized map is flushed through app-card's padding, so its remaining
+   containing block must itself coincide with the viewport.  The generic
+   dashboard width rules above have higher specificity than the earlier
+   finalized-screen width rule; keep this selector specific enough that the
+   mobile width rule cannot reintroduce an outer gutter. */
+body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
+  width: 100%;
+  max-width: none;
+  margin-left: 0;
+  margin-right: 0;
+}
+
 /* --- shared buttons/inputs (both gathering- and gth- prefixes) --------- */
 
 .gathering-btn,
@@ -1982,16 +1994,11 @@ body:has(#gathering-app) .app-shell {
   gap: 0;
 }
 .gth-dash--finalized .gth-pane--flush {
-  margin-left: calc(-1 * clamp(1.25rem, 4vw, 2rem));
-  margin-right: calc(-1 * clamp(1.25rem, 4vw, 2rem));
-  width: calc(100% + 2 * clamp(1.25rem, 4vw, 2rem));
-}
-@media (max-width: 47.9375rem) {
-  .gth-dash--finalized .gth-pane--flush {
-    margin-left: -0.625rem;
-    margin-right: -0.625rem;
-    width: calc(100% + 1.25rem);
-  }
+  /* Anchor to the viewport rather than mirroring app-card's responsive
+     padding.  The latter also changes for short landscape viewports. */
+  margin-left: calc(50% - 50vw);
+  margin-right: 0;
+  width: 100vw;
 }
 /* 2026-09-19 fix (real render-invariant finding, L5): gth-bottom-bar's own
    rendered height is a button (.gth-btn's 2.75rem floor) plus its own
