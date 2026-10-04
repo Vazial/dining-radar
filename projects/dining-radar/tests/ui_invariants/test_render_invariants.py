@@ -2962,6 +2962,63 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         dialog_close.press("Enter")
         expect(dialog).to_have_count(0)
 
+    def test_c_gathering_dashboard_link_issue_dialog_matches_board_c1b_shape(self) -> None:
+        """Board c2/C1-b (audit C1): a dimmed background, 「回答リンクを発行しました」
+        heading, the URL shortened (never shown in full), a large 「リンクをコピー」
+        and 「閉じる」. Mobile is a sheet sitting on the viewport's bottom edge,
+        full width; PC is a card centered in the viewport. The just-issued
+        row in 回答リンク carries 「いま発行」, and each row says 答えた/まだ."""
+        self._sign_in_as_organizer()
+        for width, height, label, is_phone in (
+            (390, 844, "phone-390x844", True),
+            (1440, 900, "desktop-1440x900", False),
+        ):
+            self.page.set_viewport_size({"width": width, "height": height})
+            self._create_gathering_via_ui(f"発行シート形の確認会{label}")
+            by_test_id(self.page, "gathering-participant-link-copy").click()
+            dialog = by_test_id(self.page, "gathering-participant-link-issue-dialog")
+            expect(dialog).to_be_visible()
+            full_url = dialog.get_attribute("data-issued-link-url") or ""
+            box = dialog.bounding_box()
+            assert box is not None
+            if is_phone:
+                self.assertAlmostEqual(box["x"], 0, delta=1, msg=label)
+                self.assertAlmostEqual(box["width"], width, delta=1, msg=label)
+                self.assertAlmostEqual(box["y"] + box["height"], height, delta=1, msg=label)
+            else:
+                self.assertAlmostEqual(box["x"] + box["width"] / 2, width / 2, delta=1, msg=label)
+                self.assertAlmostEqual(box["y"] + box["height"] / 2, height / 2, delta=1, msg=label)
+                self.assertLessEqual(box["width"], 520, label)
+            text = dialog.inner_text()
+            self.assertIn("回答リンクを発行しました", text, label)
+            self.assertIn("リンクをコピー", text, label)
+            self.assertIn("閉じる", text, label)
+            self.assertIn("…", text, label)
+            self.assertNotIn(full_url, text, f"{label}: the full URL must not be shown")
+            scrim = self.page.locator(".gth-issue-backdrop")
+            expect(scrim).to_have_count(1)
+            scrim_box = scrim.bounding_box()
+            assert scrim_box is not None
+            self.assertGreaterEqual(scrim_box["width"], width - 1, label)
+            self.assertGreaterEqual(scrim_box["height"], height - 1, label)
+            copy_box = by_test_id(
+                self.page, "gathering-participant-link-issue-dialog-copy"
+            ).bounding_box()
+            assert copy_box is not None
+            self.assertGreaterEqual(copy_box["height"], 52 - 1, label)
+            by_test_id(self.page, "gathering-participant-link-issue-dialog-close").click()
+            expect(dialog).to_have_count(0)
+            expect(self.page.locator(".gth-issue-backdrop")).to_have_count(0)
+
+        row = by_test_id(self.page, "gathering-participant-link-item").last
+        self.assertIn("まだ", row.inner_text())
+        self.assertNotIn("いま発行", row.inner_text())
+        by_test_id(self.page, "gathering-participant-link-copy").click()
+        new_row = by_test_id(self.page, "gathering-participant-link-item").last
+        expect(new_row).to_contain_text("いま発行")
+        pane_title = self.page.locator(".gth-link-pane-title")
+        expect(pane_title.first).to_contain_text("回答リンク")
+
     def test_e_gathering_dashboard_link_issue_dialog_controls_meet_44px_minimum_target(
         self,
     ) -> None:
