@@ -452,7 +452,29 @@
 # - 具体的なYAML編集は本ADRに同梱する`.spec/conformance.spec`が持つ（本ラウンドで作成済み）。
 #   architect自身は`contracts/`配下のYAMLへ直接書き込まない。
 
-contractVersion: '1.14.0'
+# 2026-10-04 追補 (architect、ADR-0069。人間裁定「案2: 候補検索画面の右上チップ
+# （candidate-gathering-entry）をやめ、ランチ会への行き先は≡の中だけにする。≡の右上に進行中の会が
+# あることを示す点を付ける」（板 party2/f1 N1-b）への対応。ADR-0059決定2・ADR-0054決定1の残りと
+# ADR-0066決定3の一部を覆す。contractVersionを1.14.0から1.15.0へ上げる）:
+# - **`gatheringEntry.entry`（チップ、candidate-gathering-entry）を廃止する**（ADR-0069決定1）:
+#   `requiredTestIds.entry`を外し、`entry`節は廃止の記録だけを残す。`candidate-gathering-entry`と
+#   `candidate-gathering-entry-badge`は、候補検索画面・会モード・会の画面群のどこにも出現してはならない
+#   （`browserEntry.authenticatedInitialOutcome.absent`へ追加）。
+# - **`gatheringEntry.menuDot`を新設する**（ADR-0069決定2、testId`candidate-primary-nav-menu-dot`）:
+#   menuToggleの右上に出る表示専用の点。進行中の会の数が1以上のときだけ出現する。旧`entry.badge`が
+#   持っていた`data-in-progress-gathering-count`の規則（件数>0のときだけ出現・10進整数文字列）を
+#   そのまま引き継ぐ。会の画面群の中では出さない（旧チップと同じ裁定、板G1で≡に点が無い）。
+# - **旧`entry.activeGathering`の`data-active-gathering-id`を`menuDestinationGathering`へ移す**
+#   （ADR-0069決定2）: 会モードのときだけ非null、通常画面では属性自体が無い、という規則は無変更。
+# - `browserActions.openGatheringEntry`・`returnToGatheringFromEntry`の`input`から
+#   `candidate-gathering-entry`を外す（入力は2つ: `candidate-primary-nav-gathering`・
+#   `candidate-primary-nav-menu-gathering`）。2つのactionの排他・網羅の関係は無変更。
+# - `primaryNavigationGeometry.twoColumnLayout`から「チップはmenuToggleの左隣」の1文を外し、
+#   「点はmenuToggleの右上の角」へ置き換える。mapPrimaryTouchLayout側は無変更（モバイルには
+#   元からチップが無い）。
+# - 本追補はYAMLの下書きである（architect起草、人間の承認後に確定する。ADR-0069の`approved_by`参照）。
+
+contractVersion: '1.15.0'
 kind: acceptance-browser-interface
 scope: candidate-search
 profiles:
@@ -495,7 +517,8 @@ browserEntry:
              candidate-filter-pending-note,
              candidate-filter-apply, candidate-filter-revert,
              candidate-manual-ordering, candidate-gathering-mode-band,
-             candidate-card-gathering-toggle]
+             candidate-card-gathering-toggle, candidate-gathering-entry,
+             candidate-gathering-entry-badge]
     note: >-
       This is the ordinary (non-gathering) authenticated entry, reached
       without a gatheringId (see gatheringMode below for the distinct
@@ -505,10 +528,10 @@ browserEntry:
       test ids are therefore absent here, added to this outcome's absent
       list by adr/0049. candidate-gathering-entry is removed from this
       list 2026-09-16 (ADR-0059) -- its presence is no longer viewport-
-      independent (renderModes and gatheringEntry.entry.requirement below
-      now govern it entirely: absent under mapPrimaryTouchLayout, and even
-      under twoColumnLayout absent when data-in-progress-gathering-count
-      is zero or this screen is not the one being loaded).
+      independent. **2026-10-04 (ADR-0069)**: the chip is retired outright
+      and candidate-gathering-entry (with its badge) is now listed in
+      this outcome's absent list instead -- it is absent under every
+      render mode and every screen, not merely conditionally.
 
 renderModes:
   description: >-
@@ -663,7 +686,7 @@ browserControlSurface:
         accompanying text, the shape the human ruling explicitly retired).
         The exact wording, icon, font size, and shape remain implementation
         choices this contract does not fix, mirroring
-        gatheringEntry.entry's own visible-label Must and
+        the (since retired, ADR-0069) gatheringEntry.entry's own visible-label Must and
         walkingTimeEstimateWording's content-only-Must style elsewhere in
         this contract. This control's underlying behavior (re-search under
         the currently applied filters, per shownPoolPriority) and its
@@ -1385,8 +1408,9 @@ browserControlSurface:
         pure status line (the "◯/◯（◯）に開いている店・入れた店 N / 5"
         text, per band.presenceRule above). The return path is now
         shortlistToast below (immediately after adding a shop) and, once
-        that toast has dismissed, gatheringEntry.entry (desktop chip) /
-        gatheringEntry.mobileBarGathering (mobile) via
+        that toast has dismissed, gatheringEntry.menuDestinationGathering
+        (desktop, inside menuPanel; the former chip was retired by
+        ADR-0069) / gatheringEntry.mobileBarGathering (mobile) via
         browserActions.returnToGatheringFromEntry -- see those for their
         own requiredOutcome. browserActions.returnToGatheringFromBand is
         retired along with this navigation role.
@@ -1989,7 +2013,7 @@ browserActions:
         for a provider-unavailable (503) cause, which has no matching
         deterministic Given.
   openGatheringEntry:
-    input: [candidate-gathering-entry, candidate-primary-nav-gathering,
+    input: [candidate-primary-nav-gathering,
             candidate-primary-nav-menu-gathering]
     precondition: response.gatheringContext-is-null
     requiredOutcome:
@@ -2007,7 +2031,9 @@ browserActions:
       (candidate-gathering-entry) to the three render-mode/location-specific
       shapes of the same navigation destination -- the mobile bottom-nav
       item and the desktop menu-panel item both trigger this same action
-      when activated outside gathering mode. This action's precondition
+      when activated outside gathering mode. **2026-10-04 (ADR-0069)**:
+      the chip is retired, so the input is now just those two (the mobile
+      bottom-nav item and the desktop menu-panel item). This action's precondition
       (gatheringContext is null) and returnToGatheringFromEntry's own
       opposite precondition below are mutually exclusive and jointly
       exhaustive over the same three inputs -- exactly one of the two
@@ -2057,7 +2083,7 @@ browserActions:
       distinct visible error surface for this action beyond that
       no-op-on-failure guarantee.
   returnToGatheringFromEntry:
-    input: [candidate-gathering-entry, candidate-primary-nav-gathering,
+    input: [candidate-primary-nav-gathering,
             candidate-primary-nav-menu-gathering]
     precondition: response.gatheringContext-is-non-null
     requiredOutcome:
@@ -2134,7 +2160,7 @@ gatheringEntry:
     chip) is now one shape among several the same underlying navigation
     destination takes, not the only one.
   requiredTestIds:
-    entry: candidate-gathering-entry
+    menuDot: candidate-primary-nav-menu-dot
     menuToggle: candidate-primary-nav-menu-toggle
     menuPanel: candidate-primary-nav-menu-panel
     menuDestinationSearch: candidate-primary-nav-menu-search
@@ -2144,81 +2170,61 @@ gatheringEntry:
     mobileBarGathering: candidate-primary-nav-gathering
     mobileBarAccount: candidate-primary-nav-account
   entry:
-    testId: candidate-gathering-entry
-    formControl: false
+    retired: true
+    retiredBy: ADR-0069
     requirement: >-
-      2026-09-16 (ADR-0059): present only while twoColumnLayout holds
-      (this chip has no mobile counterpart of its own -- see mobileBar
-      below for the equivalent mobile element), only when
-      data-in-progress-gathering-count is greater than zero (badge below),
-      and only when the current screen is not one of
-      gathering-scheduling-browser-interface.yaml's organizer-facing
-      screens (organizerGatheringList, organizerGatheringCreate,
-      organizerDashboard) -- 2026-09-16 human ruling (party2/a-nav-r5
-      board): the chip sits beside menuToggle only when there is an
-      in-progress gathering to jump back to, and is redundant (so omitted)
-      on a screen that already is that gathering. **This reverses part of
-      ADR-0054 decision 1**, which had required this element present
-      unconditionally on every one of those same organizer-facing screens
-      and with a non-empty label at every viewport width without
-      exception -- ADR-0054 decision 1's underlying concern
-      ("会に入ると出られない", a first-time user losing all way back to
-      the gathering feature once inside it) is no longer carried by this
-      chip on mobile at all: mobileBar below (present whenever
-      mapPrimaryTouchLayout holds, on every one of these same screens, per
-      ADR-0059) is the element that continues to satisfy it,
-      unconditionally and regardless of in-progress-gathering count,
-      exactly as ADR-0054 decision 1 originally required. On desktop,
-      menuToggle (always present whenever twoColumnLayout holds, on every
-      one of these same screens) is the unconditional way back into the
-      gathering feature; this chip is merely a shortcut menuToggle's own
-      panel would otherwise require opening. gathering-scheduling-browser-
-      interface.yaml itself declares no test id of its own for any of this
-      cross-screen presence (see that file's own header note on this
-      point); this paragraph remains the sole normative source for it. The
-      participant screen (participantAnswer, reached only through a signed
-      link) remains exempt (ADR-0054 decision 7, unchanged). Implemented
-      as a plain link/navigation element (an `<a href>`, or a
-      tabindex-carrying `<div>` mirroring candidate-map-open's existing
-      style) rather than a `<button>` or an element with an interactive
-      ARIA role -- this keeps it outside
-      unavailableControls.allCandidateScreenFormControlsMustDeclarePurpose's
-      scan, so no new allowedPurposes entry is required (mirrors
-      candidate-origin-marker and candidate-map-open's existing
-      "display/navigation-only, no purpose declared" precedent). Activating
-      it changes no proposal request, no displayed candidate/marker/filter
-      state, and no configured origin/range or map viewport -- see
-      browserActions.openGatheringEntry and returnToGatheringFromEntry
-      below (which of the two fires depends on whether gatheringMode is
-      active at the moment of activation). Its visible label text (the
-      "ランチ会 N" wording) is a Must whenever the chip itself is present
-      at all (the presence rule above, not a separate viewport rule, now
-      governs when that is) -- the exact width thresholds, font size, and
-      icon remain rendered-geometry/visual choices this contract does not
-      fix.
-    badge:
-      testId: candidate-gathering-entry-badge
-      attribute: data-in-progress-gathering-count
-      presenceRule: >-
-        Present exactly when the count is greater than zero; absent when it
-        is zero (designer's judgment, Handoff.dc.html: "0のときはバッジを
-        出さない"). When present, the attribute is a decimal integer string
-        equal to the count.
-    activeGathering:
-      testId: candidate-gathering-entry
-      attribute: data-active-gathering-id
-      presenceRule: >-
-        Present, with the current gathering's opaque id as its exact
-        string value, exactly when this screen was reached in gathering
-        mode (response.gatheringContext is non-null, see gatheringMode
-        above); absent (the attribute itself is missing, not merely empty)
-        on the ordinary, non-gathering screen this same entry element also
-        serves (ADR-0056 decision 8) -- mirroring gatheringMode.cardToggle's
-        own non-null-only-in-gathering-mode convention elsewhere in this
-        contract. This attribute lives on the same candidate-gathering-entry
-        element entry.badge above describes; badge's own presenceRule
-        (in-progress count) is unaffected and independent of this
-        attribute.
+      **Retired 2026-10-04 (ADR-0069 decision 1, human ruling 案2, board
+      party2/f1 N1-b).** The "ランチ会 N" chip (testId
+      candidate-gathering-entry, with its badge candidate-gathering-entry-
+      badge) no longer exists on any screen: neither element may be
+      present on the authenticated candidate-search screen, in gathering
+      mode, or on any of gathering-scheduling-browser-interface.yaml's
+      organizer-facing screens (browserEntry.authenticatedInitialOutcome.
+      absent). On desktop the chip and menuDestinationGathering were two
+      entrances to the same destination; the human removed the chip so
+      that menuPanel's menuDestinationGathering is the only desktop way
+      to the gathering feature, with menuDot below as the signal that an
+      in-progress gathering exists. This **reverses** ADR-0059 decision
+      2's remaining chip clause (chip beside menuToggle whenever an
+      in-progress gathering exists outside the gathering screens) and
+      ADR-0066 decision 3's primaryNavigationGeometry clause placing the
+      chip immediately to menuToggle's left. Mobile is unaffected:
+      mobileBar never had a chip and keeps its three children. The former
+      entry.badge and entry.activeGathering rules are not lost -- see
+      menuDot and menuDestinationGathering.activeGatheringId below, which
+      carry the same attributes under the same rules.
+  menuDot:
+    testId: candidate-primary-nav-menu-dot
+    formControl: false
+    attribute: data-in-progress-gathering-count
+    presenceRule: >-
+      Added 2026-10-04 (ADR-0069 decision 2, board party2/f1 N1-b: ≡の
+      右上に進行中の会があることを示す点). Present exactly when all of
+      the following hold: twoColumnLayout holds; menuToggle is present;
+      the in-progress gathering count is greater than zero; and the
+      current screen is not one of gathering-scheduling-browser-
+      interface.yaml's organizer-facing screens (organizerGatheringList,
+      organizerGatheringCreate, organizerDashboard) -- the same screens
+      the retired chip was already omitted from by the 2026-09-16 human
+      ruling (a dot announcing "there is a gathering to go to" is
+      redundant on a screen that already is that gathering, and board
+      d4r G1/G2 draws the menuToggle there with no dot). Absent when the
+      count is zero. Absent under mapPrimaryTouchLayout (mobileBar's own
+      mobileBarGathering.badgeCount is the mobile counterpart).
+    requirement: >-
+      A display-only element (no interactive role, no purpose
+      declaration, outside unavailableControls.
+      allCandidateScreenFormControlsMustDeclarePurpose's scan, the same
+      precedent candidate-origin-marker already establishes). When
+      present, data-in-progress-gathering-count is a decimal integer
+      string equal to the count -- the same value and the same
+      count-greater-than-zero presence rule the retired
+      candidate-gathering-entry-badge carried, moved here unchanged so
+      the count stays machine-observable without the chip. It is
+      positioned at menuToggle's top-right corner
+      (primaryNavigationGeometry below). Its size, color, and exact
+      offset remain visual choices this contract does not fix.
+      Activating it is not a recognized input.
   menuToggle:
     testId: candidate-primary-nav-menu-toggle
     purpose: candidate-primary-nav-menu-toggle
@@ -2242,7 +2248,10 @@ gatheringEntry:
       widening auth-account-menu-toggle's own narrower, already-approved
       scope (ADR-0013 decision 5). auth-account-menu-toggle itself is
       unchanged and is not used on desktop -- see mobileBarAccount below
-      for its one remaining use.
+      for its one remaining use. **2026-10-04 (ADR-0069)**: with the chip
+      retired (entry above), this control and its menuPanel are the only
+      desktop entrance to the gathering feature; menuDot above is the
+      signal, on this control, that an in-progress gathering exists.
   menuPanel:
     testId: candidate-primary-nav-menu-panel
     formControl: false
@@ -2279,6 +2288,17 @@ gatheringEntry:
   menuDestinationGathering:
     testId: candidate-primary-nav-menu-gathering
     attribute: data-primary-nav-current
+    activeGatheringId:
+      attribute: data-active-gathering-id
+      presenceRule: >-
+        Moved here 2026-10-04 (ADR-0069 decision 2) from the retired
+        entry.activeGathering. Present, with the current gathering's
+        opaque id as its exact string value, exactly when this screen
+        was reached in gathering mode (response.gatheringContext is
+        non-null, see gatheringMode above); absent (the attribute itself
+        is missing, not merely empty) on the ordinary, non-gathering
+        screen -- the rule entry.activeGathering stated (ADR-0056
+        decision 8), unchanged except for the element it lives on.
     requirement: >-
       Added 2026-09-16 (ADR-0059). A plain link/navigation element (same
       style as entry above) inside menuPanel. Its data-primary-nav-current
@@ -2325,7 +2345,8 @@ gatheringEntry:
     requirement: >-
       Added 2026-09-16 (ADR-0059). Same current-marker rule as
       menuDestinationGathering above. Its badgeCount attribute follows
-      entry.badge's own presenceRule above (present, as a decimal integer
+      the count rule the retired entry.badge carried and menuDot's
+      attribute now carries (ADR-0069) (present, as a decimal integer
       string, exactly when the count is greater than zero; absent when it
       is zero) -- unlike entry's chip, this bar item's own "ランチ会"
       label remains present either way, since mobileBar itself is
@@ -2372,9 +2393,12 @@ gatheringEntry:
     twoColumnLayout: >-
       Whenever twoColumnLayout holds: menuToggle sits at the right end of
       this screen's top row (the row carrying this screen's own
-      heading). entry (the "ランチ会 N" chip), exactly when entry.
-      requirement's own presence rule holds, sits immediately to
-      menuToggle's left in that same row, never elsewhere on the screen.
+      heading). menuDot, exactly when menuDot.presenceRule holds, sits at
+      menuToggle's top-right corner, overlapping menuToggle's own box,
+      never elsewhere on the screen. (The "ランチ会 N" chip that
+      ADR-0066 placed immediately to menuToggle's left no longer exists
+      -- ADR-0069 retired it; there is nothing else in that row to the
+      left of menuToggle that this clause fixes.)
       menuPanel, once disclosed, opens directly below menuToggle with its
       own right edge aligned with menuToggle's own right edge (opens
       "from the right", per the board ruling), and stays entirely within
@@ -2401,7 +2425,9 @@ gatheringEntry:
         children (adr/0065 decision 5(h)(ii), test_render_invariants.py --
         candidate-primary-nav-bar is already that check's named subject).
         Neither existing check yet separately asserts menuToggle's own
-        row-right position, entry's own left-of-menuToggle adjacency, or
+        row-right position, menuDot's own top-right-corner position on
+        menuToggle (added by ADR-0069, replacing the retired entry
+        chip's left-of-menuToggle adjacency clause), or
         mobileBar's own three-children completeness as standalone
         assertions (as opposed to menuPanel's position relative to
         menuToggle, which (o) already checks, and the sheet-coverage

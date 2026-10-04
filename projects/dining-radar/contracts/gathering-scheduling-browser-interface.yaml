@@ -850,11 +850,33 @@
 #   testId/purpose・allowedPurposes・verifiesScenariosは無変更。.featureは無変更
 #   （置き場所はUIの構造であり業務規則ではない。ADR-0063がタブ構造に.featureを足さなかったのと同じ）。
 #
+# 2026-10-04 追補26 (architect、ADR-0069。人間の指示「確定後の幹事画面の見出しを板 party2/d4r G1/G2
+#   の形にする、地図を見出しの下で端から端まで埋める」への対応。板G1/G2（PC・スマホ）が描く見出しは、
+#   上部バーに「ランチ会」と≡、その下に「‹ ランチ会」の戻り道と会の名前、その下から地図いっぱい。
+#   監査 audit-board-vs-implementation-2026-09-22.md の D6・D7 に当たる。D5（回答タブの表）はKEN-42の
+#   範囲でこの追補は触らない。contractVersionを0.26.0から0.27.0へ上げる):
+# - **`organizerDashboard.headingBar`をFINALIZED局面にも広げた**（ADR-0069決定3）: これまで
+#   SELECTING_SHOPだけで出現していたが、SELECTING_SHOPとFINALIZEDで出現する。`title`は両局面で
+#   出現し、`confirmedDate`はSELECTING_SHOPだけで出現する（FINALIZEDでは同じ事実を
+#   `finalizedSummary.decisionBanner`の`data-confirmed-candidate-date`が持つ）。`phaseIndicatorAttributes`
+#   （SCHEDULING・FINALIZEDで出現）は無変更で、FINALIZEDの「確定」の札はそのまま残る。
+# - **`headingBar.backLink`を新設した**（ADR-0069決定3、testId`gathering-dashboard-back`）: FINALIZEDで
+#   だけ出現する、会の一覧への平叙なリンク（板の「‹ ランチ会」）。`formControlExemptTestIds`へ登録した。
+# - **FINALIZEDの見出し構造をMustにした**（ADR-0069決定3、ADR-0066決定2に従い、板が裁定した並びは
+#   契約に書く）: 戻り道が会の名前の上、会の名前は画面で唯一のレベル1見出し。現行実装の汎用見出し
+#   「会の日程調整」は出さない。「確定」の札を会の名前の横に置くこと・「この会を削除」を見出し行の
+#   右に置くことは板に描かれていない部分で、契約はMustにしない（`deleteButtonPlacement`の注記）。
+# - **`finalizedSummary.decisionBanner.map.layout`を新設した**（ADR-0069決定4）: 地図は見出しの下から
+#   端から端まで埋め、外側の余白・枠・角丸を持たない（板G1/G2の`inset:0; border:0; border-radius:0`）。
+#   浮かせたパネル（ADR-0062決定4）は地図の上に重なる形のまま。
+# - `profiles.localAcceptance.verifiesScenarios`・`.feature`は無変更。この追補は画面の構造と配置の
+#   決定で、業務規則を足さない（ADR-0054決定4が同じ理由で業務シナリオを足さなかった先例に倣う）。
+#
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.26.0'
+contractVersion: '0.27.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -1161,7 +1183,13 @@ unavailableControls:
      gathering-participant-decision-map-marker,
      gathering-participant-decision-origin-marker,
      gathering-participant-decision-page-link,
-     gathering-decision-shop-page-link]
+     gathering-decision-shop-page-link, gathering-dashboard-back]
+  formControlExemptTestIdsNoteAdr0069: >-
+    One display-only element added (ADR-0069 decision 3, 2026-10-04):
+    gathering-dashboard-back (organizerDashboard.headingBar.backLink), a
+    plain `<a href>` anchor outside forbiddenFormControlCategories' scan,
+    the same precedent gathering-decision-shop-page-link above already
+    establishes. It carries no purpose and needs no allowedPurposes entry.
   formControlExemptTestIdsNoteAdr0062: >-
     One display-only element added (ADR-0062 decision 4, 2026-09-17):
     gathering-decision-shop-page-link (organizerDashboard.finalizedSummary.
@@ -1964,14 +1992,37 @@ browserControlSurface:
     headingBar:
       description: >-
         Added 2026-09-19 (architect, ADR-0063 decision 2, board
-        S4-SpSelect/S4-PcSelect). Present exactly while phase is
-        SELECTING_SHOP (same condition as shopSelectionEntry below) --
-        the map-first layout this phase now adopts (ADR-0063 decision 1)
-        replaces phaseIndicatorAttributes' own badge, absent for this one
-        phase, with this heading. Supports TDR-GTH-67.
+        S4-SpSelect/S4-PcSelect). Present while phase is SELECTING_SHOP
+        or FINALIZED (**widened 2026-10-04, ADR-0069 decision 3**, board
+        party2/d4r G1/G2; until contractVersion 0.26.0 it was present
+        for SELECTING_SHOP only, same condition as shopSelectionEntry
+        below) -- the map-first layout these two phases adopt (ADR-0063
+        decision 1, ADR-0062 decision 4) replaces
+        phaseIndicatorAttributes' own badge, absent for SELECTING_SHOP,
+        with this heading there; in FINALIZED the badge remains present
+        (see phaseIndicatorAttributes) alongside this heading. Absent
+        while phase is SCHEDULING. Supports TDR-GTH-67.
       requiredTestIds:
+        backLink: gathering-dashboard-back
         title: gathering-dashboard-title
         confirmedDate: gathering-dashboard-confirmed-date
+      backLink:
+        testId: gathering-dashboard-back
+        formControl: false
+        presenceRule: >-
+          Added 2026-10-04 (ADR-0069 decision 3, board party2/d4r
+          G1/G2's "‹ ランチ会" return path). Present exactly while phase
+          is FINALIZED. Absent for SELECTING_SHOP -- no board has ruled
+          a return path for that phase's heading yet (ADR-0069 flags
+          this as an open question rather than extending the ruling).
+        requirement: >-
+          A plain `<a href>` (outside forbiddenFormControlCategories'
+          scan; registered in formControlExemptTestIds) whose
+          destination is organizerGatheringList (browserEntry.
+          organizerGatheringList), so activating it leaves the
+          dashboard for the gathering list and changes no gathering
+          record. Its visible wording (the board draws "ランチ会" with a
+          leading chevron) is not fixed by this contract.
       title:
         testId: gathering-dashboard-title
         formControl: false
@@ -1982,14 +2033,28 @@ browserControlSurface:
           title equals Gathering.title exactly -- the same attribute name
           and value organizerGatheringList.list.item already establishes
           above (no new API field; this is that same value projected onto
-          organizerDashboard for the first time).
+          organizerDashboard for the first time). **Added 2026-10-04
+          (ADR-0069 decision 3; a board-ruled structure, so a Must per
+          ADR-0066 decision 2)**: while phase is FINALIZED, this element
+          is the one level-1 heading (`<h1>`) of the screen, and the
+          screen renders no other level-1 heading -- in particular not
+          the generic heading 「会の日程調整」 an earlier implementation
+          rendered above the gathering's own name (board G1/G2 has the
+          gathering's own name as the heading, below the top bar). In
+          FINALIZED, backLink above comes before this element in document
+          order and is rendered directly above it (board G1/G2).
       confirmedDate:
         testId: gathering-dashboard-confirmed-date
         formControl: false
         attributes:
           confirmedCandidateDate: data-confirmed-candidate-date
         requirement: >-
-          Present whenever headingBar itself is present. data-confirmed-
+          **Narrowed 2026-10-04 (ADR-0069 decision 3)**: present while
+          phase is SELECTING_SHOP only, not FINALIZED -- the board
+          G1/G2 heading carries no date (the decided date is the large
+          figure on the panel, finalizedSummary.decisionBanner's own
+          data-confirmed-candidate-date, which already carries the same
+          value for FINALIZED). While present: data-confirmed-
           candidate-date equals the startAt of the gathering-candidate-date
           whose data-confirmed is "true" (candidateDateList.candidateDate
           below), the same ISO-8601 date-time string
@@ -2000,7 +2065,14 @@ browserControlSurface:
           instance can be, since reaching SELECTING_SHOP phase requires
           confirmDate to have already succeeded).
       deleteButtonPlacement: >-
-        The organizer's request to place deleteGathering.open
+        **Extended 2026-10-04 (ADR-0069 decision 3) to FINALIZED**: in
+        FINALIZED the same applies -- the delete button stays on the
+        right of the heading row and the phase badge
+        (gathering-phase-indicator, present in FINALIZED) sits beside
+        the gathering's name. Neither placement is drawn on board
+        G1/G2, so neither is made a Must here; ADR-0069 records both as
+        points the human approves. The organizer's earlier request to
+        place deleteGathering.open
         (gathering-delete-open, existing, unconditional across all three
         phases) as a text button directly in this same heading row, not
         nested inside any menu, is geometry this contract does not fix
@@ -3405,6 +3477,25 @@ browserControlSurface:
           presenceRule: >-
             Present whenever gathering-decision-banner itself is present
             (i.e. whenever phase is FINALIZED).
+          layout: >-
+            Added 2026-10-04 (ADR-0069 decision 4, board party2/d4r
+            G1/G2: the map is `inset: 0; border: 0; border-radius: 0`
+            under the heading; a board-ruled position and shape, so a
+            Must per ADR-0066 decision 2). The map fills the screen from
+            the lower edge of headingBar down to the bottom of the
+            screen's own content area (the top edge of mobileBar under
+            mapPrimaryTouchLayout, the viewport's lower edge otherwise)
+            and across the whole width of the viewport: its left and
+            right edges coincide with the viewport's left and right
+            edges, with no outer margin or inset on either side, no
+            visible border, and no rounded corners (computed
+            border-radius 0). Nothing but headingBar sits between the
+            top bar and the map. The floating panel
+            (finalizedSummary's decisionBanner, answersOpen, linksOpen)
+            overlaps this map and is not part of its box, so the panel's
+            own inset and rounded corners (ADR-0062 decision 4) are
+            unaffected. Exact heights and the panel's size remain
+            visual choices this contract does not fix.
           scope: >-
             Shows exactly two points: the finalized shop's own pin (marker
             below) and this organizer's own configured search origin
