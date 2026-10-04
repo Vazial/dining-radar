@@ -44,14 +44,13 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 8000
 
-# Read directly by the app container's own ECS health check (bypasses the
-# Caddy sidecar entirely -- there is no ALB target group in this topology,
-# ADR-0067). Plain HTTP against localhost inside the task's network
-# namespace, same as Render's probe reaching this service without going
-# through a TLS-terminating edge; the existing SECURE_REDIRECT_EXEMPT for
-# "^healthz$" in settings.py already covers this path, no code change
-# needed for Fargate.
+# The app container's own health check. Plain HTTP against localhost inside the
+# task's network namespace. /livez answers without touching the database: this
+# probe runs every 30s around the clock, and a /healthz (SELECT 1) probe would
+# keep the scale-to-zero Neon database awake all day and exhaust its monthly
+# allowance (DEPLOYMENT.md section 4). HealthCheckMiddleware answers it before
+# Host validation, so no ALLOWED_HOSTS entry for localhost is needed.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:8000/healthz || exit 1
+    CMD curl -f http://localhost:8000/livez || exit 1
 
 ENTRYPOINT ["docker-entrypoint.sh"]

@@ -151,6 +151,28 @@ class HealthCheckHostExemptionTests(TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertNotIn(b"secret", response.content)
 
+    def test_livez_answers_a_probe_by_ip_without_touching_the_database(self):
+        middleware = ["dining_radar.health.HealthCheckMiddleware", *settings.MIDDLEWARE]
+        with (
+            override_settings(MIDDLEWARE=middleware),
+            patch("dining_radar.health.connection.cursor") as cursor,
+        ):
+            response = Client().get("/livez", HTTP_HOST=self.PROBE_HOST)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"ok")
+        cursor.assert_not_called()
+
+    def test_livez_stays_up_while_the_database_is_down(self):
+        middleware = ["dining_radar.health.HealthCheckMiddleware", *settings.MIDDLEWARE]
+        with (
+            override_settings(MIDDLEWARE=middleware),
+            patch("dining_radar.health.connection.cursor", side_effect=DatabaseError("secret")),
+        ):
+            response = Client().get("/livez", HTTP_HOST=self.PROBE_HOST)
+
+        self.assertEqual(response.status_code, 200)
+
     def test_the_middleware_does_not_exempt_any_other_path_from_host_validation(self):
         middleware = ["dining_radar.health.HealthCheckMiddleware", *settings.MIDDLEWARE]
         with override_settings(MIDDLEWARE=middleware):

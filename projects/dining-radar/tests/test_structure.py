@@ -391,7 +391,7 @@ class EcsFargateDeployStructureTests(SimpleTestCase):
             self.assertTrue(secret["valueFrom"].startswith("arn:aws:ssm:"))
         self.assertIn({"name": "AWS_ECS_FARGATE", "value": "1"}, web["environment"])
         self.assertEqual(web["healthCheck"]["command"][0], "CMD-SHELL")
-        self.assertIn("localhost:8000/healthz", web["healthCheck"]["command"][1])
+        self.assertIn("localhost:8000/livez", web["healthCheck"]["command"][1])
 
         caddy = containers["caddy"]
         caddy_ports = {p["containerPort"] for p in caddy["portMappings"]}
@@ -448,7 +448,7 @@ class EcsFargateDeployStructureTests(SimpleTestCase):
 
         self.assertIn("collectstatic --no-input", dockerfile)
         self.assertIn("HEALTHCHECK", dockerfile)
-        self.assertIn("localhost:8000/healthz", dockerfile)
+        self.assertIn("localhost:8000/livez", dockerfile)
         self.assertIn('ENTRYPOINT ["docker-entrypoint.sh"]', dockerfile)
 
         entrypoint = (PROJECT_ROOT / "deploy" / "docker-entrypoint.sh").read_text(encoding="utf-8")
