@@ -288,9 +288,8 @@ python manage.py runserver 127.0.0.1:8741 --settings=dining_radar.settings_local
 3. **`design-preview` の残骸を人間が消す**（`adr/0028` 決定2）:
    `projects/dining-radar/design-preview/` と `.claude/launch.json` の
    `dining-radar-design-preview` エントリ。
-4. **`candidate.js` のクライアント側 JS 単体検証層**（`adr/0014`）は未実装。ADR 自身が「この層で
-   見つかったはずの欠陥は、これまでのところ1件も無い」と明記している——価値は将来の回帰捕捉であって、
-   過去の埋め合わせではない。
+4. **`candidate.js` のクライアント側 JS 単体検証層**（`adr/0014`）は `client-js-tests/` に実装済み（KEN-20。Vitest+jsdom・
+   ESLint・Stryker。CI の `l1-client-js`）。
 5. **余白とボタンの小ささの是正**は、カレンダーと削除ダイアログの新規 CSS で部分的に対応したのみ。
    既存画面全体を designer のボードに対して px 単位で突き合わせる作業は**していない**。
 6. **スマホでカードが1枚ずつきっちり止まるか**は未計測。人間の実機報告（スワイプでカードが見切れる）は

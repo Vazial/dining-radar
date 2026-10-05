@@ -72,9 +72,6 @@
   // overflow keeps the filter row's height fixed no matter how many the
   // provider returns.
   var GENRE_PREVIEW_COUNT = 4;
-  // Mirrors recommendation.pipeline._DISPLAY_CAP, used only to phrase the
-  // apply control honestly when more candidates match than can be displayed.
-  var DISPLAY_CAP = 5;
   // adr/0025 decision 3: mirrors
   // dining_radar.recommendation.pipeline.WALKING_TIME_MAX_PRESET_MINUTES
   // exactly -- the browser's offered walking-time-max options and the
@@ -243,13 +240,11 @@
   var hasDisplayedProposal = false;
 
   // There is exactly one Leaflet map instance throughout a render.
-  // selectedCandidateRef mirrors the currently selected candidate outside of
-  // selectCandidate's own DOM bookkeeping; latLngByRef lets a later re-center
+  // latLngByRef lets a later re-center
   // (selectMarker's deckVisibility) re-use a candidate's coordinates without
   // re-deriving them. orderedCardElements/cardsContainerEl support the
   // mobile deck's own sliding-window paging (recomputeDeckWindow) without
   // ever cloning a candidate-card element.
-  var selectedCandidateRef = null;
   var latLngByRef = {};
   var orderedCardElements = [];
   var cardsContainerEl = null;
@@ -277,7 +272,6 @@
   // candidate-deck-swipe-surface (mapPrimaryTouchLayout only; see
   // attachSwipeGesture below).
   var isTwoColumnLayout = false;
-  var isMapPrimaryTouchLayout = false;
   var deckWindowStart = 1;
   var deckWindowSize = 1;
   var deckViewportEl = null;
@@ -492,7 +486,6 @@
   }
 
   function selectCandidate(candidateRef, revealCard) {
-    selectedCandidateRef = candidateRef;
     Object.keys(cardElementsByRef).forEach(function (ref) {
       var state = ref === candidateRef ? "selected" : "unselected";
       cardElementsByRef[ref].setAttribute("data-selection-state", state);
@@ -2510,7 +2503,6 @@
   function renderResult(body) {
     cardElementsByRef = {};
     orderedCardElements = [];
-    selectedCandidateRef = null;
     cardsContainerEl = null;
     mapWrapperEl = null;
     // adr/0049 decision 1: this response's own gatheringContext -- null
@@ -2621,7 +2613,6 @@
     // fresh proposal response (search-again/filter apply both call
     // renderResult again, which re-reads them).
     isTwoColumnLayout = window.matchMedia && window.matchMedia("(min-width: 64rem)").matches;
-    isMapPrimaryTouchLayout = !isTwoColumnLayout;
 
     var cardsContainer = el("div", { "data-testid": "candidate-proposal-cards" }, []);
     body.candidates.forEach(function (candidate, index) {
@@ -2630,7 +2621,6 @@
       cardsContainer.appendChild(card);
     });
     cardsContainerEl = cardsContainer;
-    selectedCandidateRef = body.candidates.length > 0 ? body.candidates[0].candidateRef : null;
 
     // adr/0049 decision4: isTwoColumnLayout places the card list in its own
     // column beside the map (no deck overlay -- every card is visible at
@@ -2747,7 +2737,6 @@
   // ADR-0069: the in-progress count is observed on a dot over the desktop
   // menu toggle; the mobile bar keeps its existing count attribute.
   function loadGatheringEntryBadge() {
-    var desktopNav = document.querySelector("[data-primary-nav-desktop]");
     fetch("/gatherings/in-progress-count", { credentials: "same-origin" })
       .then(function (response) {
         return response.status === 200 ? response.json() : null;
