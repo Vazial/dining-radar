@@ -1,9 +1,9 @@
 ---
 id: 0037
 scope: project/dining-radar
-status: 提案中
+status: 承認済み
 date: 2026-08-30
-approved_by: null
+approved_by: "人間裁定（2026-09-26 チャット: 提案中のまま運用されていた設計判断5本を、実態どおり承認して閉じる。orchestratorが「承認して閉じる／1本ずつ要約を見て決める／このまま置く」を提示し「承認して閉じる」が選ばれた）"
 supersedes: []
 superseded_by: null
 relates_to: [P-01, P-02, P-05, P-07, P-08, P-10, P-11, ADR-0008, ADR-0023, ADR-0025, ADR-0034, ADR-0035, ADR-0036]
