@@ -284,9 +284,6 @@ python manage.py runserver 127.0.0.1:8741 --settings=dining_radar.settings_local
 4. **`design-preview` の残骸を人間が消す**（`adr/0028` 決定2）:
    `projects/dining-radar/design-preview/` と `.claude/launch.json` の
    `dining-radar-design-preview` エントリ。
-5. **govlint の `SCENARIO_ID` パターンが `TDR-CS-01`・`TDR-AUTH-01` にマッチしない**ので、
-   TDR 系のシナリオ ID は L0 で一度も検査されていない。修正には `meta/tools/**` の人間による解錠
-   コミットが要る（`meta/adr/0046`）。
 6. **`candidate.js` のクライアント側 JS 単体検証層**（`adr/0014`）は未実装。ADR 自身が「この層で
    見つかったはずの欠陥は、これまでのところ1件も無い」と明記している——価値は将来の回帰捕捉であって、
    過去の埋め合わせではない。
