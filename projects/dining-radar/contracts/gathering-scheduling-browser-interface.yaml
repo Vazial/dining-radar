@@ -872,11 +872,41 @@
 # - `profiles.localAcceptance.verifiesScenarios`・`.feature`は無変更。この追補は画面の構造と配置の
 #   決定で、業務規則を足さない（ADR-0054決定4が同じ理由で業務シナリオを足さなかった先例に倣う）。
 #
+# 2026-10-05 追補27 (architect、ADR-0070【提案中】。人間の指示「確定後の幹事画面の回答タブを、板
+#   party2/b2 Q5-a（PC）・Q5-a-SpDetail（スマホ）と同形の人×日の表に戻す」への対応。監査
+#   audit-board-vs-implementation-2026-09-22.md の D5。contractVersionを0.27.0から0.28.0へ上げる。
+#   ドラフトであり、人間が承認するまで確定しない):
+# - **`organizerDashboard.responseTable.layout`を新設した**（ADR-0070決定1）: 表は行=人・列=候補日
+#   （日付の順）の格子で、1マスに○（GOING）・△（MAYBE）・×（NOT_GOING）の1字だけを置く。いまの実装の
+#   「9/17(木) 行ける」という文字入りのセルと「誰が・どの日に答えたか」の見出し行は、板に無い形なので
+#   外す。回答が無いマスは`gathering-response-table-cell`を置かないまま、格子の位置だけは空白で残す
+#   （存在規則は無変更）。列が多くて幅を超えるときは、表の入れ物の中で横にスクロールし、ページ全体は
+#   横にあふれない。
+# - **`responseTable.paintedColumn`を新設した**（ADR-0070決定2）: 見出しのセルと全行のセルを通して、
+#   塗る列を1つ持つ。SCHEDULINGでは有力な日（ADR-0060決定7、無変更）、SELECTING_SHOPとFINALIZEDでは
+#   確定済みの日。塗られた列は、他の列と背景色（computed）が違う。どの列かは、同じ
+#   `data-candidate-date-id`を持つ`gathering-candidate-date`の`data-current-leader`/`data-confirmed`
+#   から読み、表の側に属性を足さない（ADR-0060決定7の重複を避ける判断のまま）。
+# - **`responseTable.goingCountRow`を新設した**（ADR-0070決定3）: 表の最下行に「○の数」を日ごとに
+#   1マス置く（testId`gathering-response-table-going-count-cell`）。値は同じ日の
+#   `gathering-candidate-date`の`data-going-count`と等しい。
+# - **確定後の「回答」タブの中身を表だけにした**（ADR-0070決定4、`finalizedSummary.answersOpen`）:
+#   これまで同じタブに並んでいた集計の行（`gathering-responded-summary`/`-unanswered-summary`）・「日程」の
+#   カード（`gathering-candidate-date-list`）は、DOMに残したまま画面では見せない（ADR-0063が店を選び中の
+#   集計の行を`visually-hidden`で残した先例）。「決める」操作はFINALIZEDに元から無く、足さない。
+#   「回答リンク N本」（`linksOpen`・`participantLinkList`）は無変更。
+# - 表の部品は、SCHEDULING・SELECTING_SHOP・FINALIZEDで同じ`gathering-response-table`の1つであり、
+#   実装も`renderResponseTable`の1関数である（ADR-0070決定5）。したがって上の`layout`・
+#   `goingCountRow`は、確定前の日程画面（監査B3）の表にも同じく及ぶ。B3の残り（候補日の札・
+#   「決める」ボタン・見出しの「日を決める」）はこの追補の範囲外で、別の起草で扱う。
+# - `profiles.localAcceptance.verifiesScenarios`・`allowedPurposes`・`formControlExemptTestIds`・
+#   `.feature`は無変更。押せる部品は増えず、業務規則も増えない（ADR-0069と同じ扱い）。
+#
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.27.0'
+contractVersion: '0.28.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -3355,6 +3385,112 @@ browserControlSurface:
         round extends it to also show each person's shop vote is an open
         question ADR-0056 left to human confirmation (ADR-0056 未決事項1);
         this contract does not anticipate that extension.
+      layout:
+        description: >-
+          Added 2026-10-05 (ADR-0070 decision 1, board party2/b2
+          Q5-a-PcDetail / Q5-a-SpDetail, the same grid party2/d4r G1
+          draws inside the finalized panel's answers tab; a board-ruled
+          structure, so a Must per ADR-0066 decision 2). Draft until the
+          human approves ADR-0070. The cell/header/row/leaderSummary
+          testIds, attributes and cardinalities above are unchanged; this
+          fixes how they are laid out, which the cell requirement above
+          had left open ("does not fix this table's visual layout"). That
+          sentence is read as superseded by this block.
+        grid: >-
+          One row per gathering-response-table-row, one column per
+          gathering-response-table-header-cell, plus a leading name column
+          (board: 「だれ」). Columns run in DOM order of the header cells
+          (startAt ascending, unchanged). A cell sits in the column of
+          its own data-candidate-date-id, so cells of one candidate date
+          line up vertically across rows. Where a row has no
+          gathering-response-table-cell for a candidate date, that grid
+          position is rendered blank (no glyph) and carries no test id,
+          so the columns stay aligned.
+        cellContent: >-
+          A gathering-response-table-cell's visible text is exactly one
+          character: ○ when data-response-status is GOING, △ for MAYBE,
+          × for NOT_GOING. No date, no word ("行ける"/"たぶん"/"むり") and
+          no other text is rendered inside the cell. The glyph is a
+          visible-text Must only; whether the cell also carries an
+          accessible name is not fixed here (ADR-0070 確認事項4).
+        headerCellContent: >-
+          A header cell shows the day of month and the weekday of its
+          candidate date (board: 「15」「火」), and the month only on the
+          first column and on the first column after the month changes
+          (board: 「9月」…「10月」). The exact wording and the 12:00 time
+          are not fixed. Header-cell order is unchanged.
+        noHeading: >-
+          The table has no heading line of its own (the current
+          「誰が・どの日に答えたか」 is removed): board Q5-a and G1 draw the
+          grid with nothing above it but the screen's own heading, in
+          SCHEDULING the 「日を決める」 block, and in FINALIZED the tab
+          strip. The leaderSummary above is unchanged (SCHEDULING only).
+        overflow: >-
+          Board columns are fixed-width and the grid is as wide as its
+          columns (112px name column plus 44px per date in the board), so
+          it can exceed the viewport on narrow screens. The grid scrolls
+          horizontally inside its own container; the page itself must not
+          scroll horizontally (ADR-0066 decision 1's overflow check
+          applies). Whether the name column stays fixed while the dates
+          scroll is not drawn on the board and not fixed here (ADR-0070
+          確認事項3).
+      paintedColumn:
+        description: >-
+          Added 2026-10-05 (ADR-0070 decision 2, board Q5-a: the leading
+          date's column is filled from the header cell down through the
+          last row; board G1 fills the decided date, 10/8, the same way).
+          Draft until ADR-0070 is approved.
+        requirement: >-
+          Exactly zero or one column is painted at a time. The painted
+          column is: while phase is SCHEDULING, the column(s) of the
+          candidate date(s) whose gathering-candidate-date carries
+          data-current-leader="true" (ADR-0060 decision 7, unchanged --
+          more than one when tied); while phase is SELECTING_SHOP or
+          FINALIZED, the column of the candidate date whose
+          gathering-candidate-date carries data-confirmed="true". In the
+          painted column, the header cell, every gathering-response-table-
+          cell and every blank grid position of that column, and the
+          going-count cell (goingCountRow below) all have a computed
+          background-color different from the background-color of the
+          same row's cells in every non-painted column. When no
+          candidate date qualifies (no leader yet in SCHEDULING), no
+          column is painted. No attribute is added to the table: which column is
+          painted is read from the correlated gathering-candidate-date's
+          own attributes by data-candidate-date-id (the no-duplication
+          judgment ADR-0060 decision 7 recorded for headerCell).
+          ADR-0066's text-vs-background contrast check (4.5 / 3.0) applies
+          to the painted cells.
+        openQuestion: >-
+          The board draws only the FINALIZED header cell filled in G1 (the
+          body cells there are not tinted), while Q5-a tints the body
+          cells of the leading column. This contract follows Q5-a (whole
+          column) for all phases; ADR-0070 確認事項1 asks the human
+          whether FINALIZED should instead fill the header cell only.
+          SELECTING_SHOP's painted column is likewise this draft's
+          reading, not a board's (確認事項2).
+      goingCountRow:
+        description: >-
+          Added 2026-10-05 (ADR-0070 decision 3, board Q5-a / G1's last
+          row 「○ の数」). Draft until ADR-0070 is approved.
+        cell:
+          testId: gathering-response-table-going-count-cell
+          formControl: false
+          cardinality: one-per-currently-present-CandidateDate
+          attributes:
+            candidateDateId: data-candidate-date-id
+          requirement: >-
+            Present on the last row of the grid, one per header cell, in
+            the same column as the header cell of the same
+            data-candidate-date-id. Display-only (no activatable behavior,
+            no purpose declaration; not a form control). Its visible text is the
+            decimal integer that equals the same candidate date's
+            gathering-candidate-date data-going-count -- the number of
+            gathering-response-table-cell in that column whose
+            data-response-status is GOING -- and nothing else. The count
+            is not duplicated onto this element as an attribute
+            (candidateDateList.candidateDate already owns it). The row
+            label (board: 「○ の数」) is non-binding wording. Present in
+            all three phases, with the table.
     deleteGathering:
       description: >-
         The organizer's explicit, irreversible gathering-deletion operation
@@ -3619,6 +3755,28 @@ browserControlSurface:
           required participantLinkList above; participantLinkList's own
           presenceRule/fields (above) are unchanged by this control's
           existence.
+      answersContent:
+        description: >-
+          Added 2026-10-05 (ADR-0070 decision 4, audit D5; board party2/d4r
+          G1 draws the answers tab as the person-by-day grid and nothing
+          else). Draft until ADR-0070 is approved.
+        requirement: >-
+          What answersOpen makes visible is organizerDashboard.responseTable
+          only, in the layout fixed at responseTable.layout, with the
+          confirmed date's column painted (responseTable.paintedColumn).
+          The tally row (gathering-responded-summary,
+          gathering-unanswered-summary), the schedule record
+          (gathering-candidate-date-list and its gathering-candidate-date
+          cards) and the former pane headings 「日程」「誰が・どの日に答えた
+          か」 are not visible while the answers group is open. They stay
+          in the DOM with every attribute unchanged (the
+          data-confirmed/data-going-count values the rest of this file
+          reads from them), exactly as ADR-0063 kept the tally row for
+          SELECTING_SHOP -- their presenceRule does not change, only
+          visibility. No control that decides a date is present or
+          visible here: confirmDate is absent once phase leaves SCHEDULING
+          (confirmDate.presenceRule, unchanged). 回答リンク N本 (linksOpen,
+          participantLinkList) is untouched by this block.
       unchangedRecords: >-
         gathering-phase-indicator, gathering-responded-summary,
         gathering-unanswered-summary, gathering-candidate-date-list/
