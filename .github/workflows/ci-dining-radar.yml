@@ -73,6 +73,27 @@ jobs:
             tests/test_test_support.py
           python tools/check_mutation_score.py
 
+  l1-client-js:
+    name: "L1: client JS (unit, lint, coverage, mutation) - adr/0014"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: projects/dining-radar/client-js-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: projects/dining-radar/client-js-tests/package-lock.json
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests with branch coverage (threshold in vitest.config.js)
+        run: npm test
+      - name: Mutation testing (break threshold in stryker.config.mjs)
+        run: npm run mutation
+
   l2-structure:
     name: "L2: structural boundaries"
     runs-on: ubuntu-latest
