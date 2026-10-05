@@ -1,5 +1,5 @@
 ---
-id: 0070
+id: 0071
 scope: project/dining-radar
 status: 提案中
 date: 2026-10-05
@@ -10,7 +10,7 @@ relates_to:
   [P-02, P-06, P-08, ADR-0056, ADR-0060, ADR-0062, ADR-0063, ADR-0066, ADR-0069]
 ---
 
-# ADR-0070: 確定後の幹事画面の回答タブを板 Q5-a と同形の人×日の表に戻し、その表を確定前の日程画面と同じ部品にする
+# ADR-0071: 確定後の幹事画面の回答タブを板 Q5-a と同形の人×日の表に戻し、その表を確定前の日程画面と同じ部品にする
 
 > **承認者向けサマリ**: `adr/0066`が記録した板と実装の突き合わせ
 > （`audit-board-vs-implementation-2026-09-22.md`）の **D5**（確定後の幹事画面の回答タブの中身が、
@@ -42,8 +42,8 @@ relates_to:
 確認していないもの: コードのCSS（`.gth-response-*`の寸法）、テスト・L4のDSLの中身（`RESPONSE_TABLE_*`の
 定数が`tests/acceptance/dsl/gathering_scheduling_browser.py`に、セルの形を見る検査が
 `tests/ui_invariants/test_render_invariants.py`にあることまでしか見ていない）。実行は一切していない。
-ADR番号は、全ローカル・リモートのブランチの`projects/dining-radar/adr/`を見て最大が0069であることを
-確かめて0070を取った。
+ADR番号は、全ローカル・リモートのブランチの`projects/dining-radar/adr/`を見て最大が0069であることを確かめたが、同時に出たKEN-36のPR #21が0070を先に取っていたため
+、0071を取った。
 
 ### 1. 板と実装の差（監査D5）
 
