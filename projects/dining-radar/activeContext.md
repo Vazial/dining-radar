@@ -156,6 +156,12 @@ PRにしていた。画像で見る工程は束Dから）。記録の消失で�
   `Powered by <a href="http://webservice.recruit.co.jp/">ホットペッパーグルメ Webサービス</a>` で、
   API を使う全ページに出す。`serializers.PROVIDER_CREDIT` がこの文字列と完全一致し、`candidate.js`
   が描くので満たしている。飲食店から金を取るサイトでの利用は禁止（アフィリエイト収益は可）。
+- **生 JSON のフィールド名は 2026-10-05 に現行の公式リファレンス**（`webservice.recruit.co.jp/doc/hotpepper/reference.html`、
+  api_version 1.20）**と突き合わせ済み**（KEN-22）。`normalize.py` が読む `results.shop`・`name`・`genre.name`・
+  `urls.pc`・`lat`・`lng`・`catch`・`close`・`capacity`・`non_smoking`・`card`・`budget.name`、`client.py` が使う
+  `results_available`・`results_returned`・`results_start` はすべて記載どおり。名称の食い違いは無い。
+  注意: 公式の `budget.name` の例は「～1000」（円なし）だが、実測（上）は「3,001〜4,000円」と円つき。
+  `normalize.py` の円抽出は円つきを前提にするので、円なしの値は `None`（断定しない側）に落ちる。
 - **キャッシュ条項は存在する。**利用規約に
   `個別に定める規定がない場合はキャッシュの更新頻度を24時間以内と定めます` がある。取得情報を
   第三者のデータベースへ複製することも禁じている（このオリジンの `sessionStorage` はそれに当たらない）。
@@ -275,24 +281,22 @@ python manage.py runserver 127.0.0.1:8741 --settings=dining_radar.settings_local
 
 1. 実機フィードバック第2便の束A〜D を、板を見て1束ずつ裁定してもらい、実装する（上の「実機フィードバック第2便」）。
    束E（店を絞る画面の3件）はその後。徒歩◯分は人間から計測の対をもらってから。
-2. **Hot Pepper の生 JSON のフィールド名**を、現行の公式ドキュメントに対して再確認する
-   （provider 表記・無料プラン・health check の規約は 2026-08-12 に再確認済みで上記に記録済み）。
-3. **`project/toyama-dining-radar` ブランチの処遇を決める。**ブランチ名と ruleset は旧名のまま
+2. **`project/toyama-dining-radar` ブランチの処遇を決める。**ブランチ名と ruleset は旧名のまま
    （2026-08-20 の改名が意図的に触らなかった）。`main` はこのブランチより大きく先行し 0 behind なので、
    このブランチは遅れるだけである。fast-forward するか、`main` から直接スライスを切る（最近のスライスが
    実際にやっていること）方へ寄せて捨てるかを決める。
-4. **`design-preview` の残骸を人間が消す**（`adr/0028` 決定2）:
+3. **`design-preview` の残骸を人間が消す**（`adr/0028` 決定2）:
    `projects/dining-radar/design-preview/` と `.claude/launch.json` の
    `dining-radar-design-preview` エントリ。
-5. **govlint の `SCENARIO_ID` パターンが `TDR-CS-01`・`TDR-AUTH-01` にマッチしない**ので、
+4. **govlint の `SCENARIO_ID` パターンが `TDR-CS-01`・`TDR-AUTH-01` にマッチしない**ので、
    TDR 系のシナリオ ID は L0 で一度も検査されていない。修正には `meta/tools/**` の人間による解錠
    コミットが要る（`meta/adr/0046`）。
-6. **`candidate.js` のクライアント側 JS 単体検証層**（`adr/0014`）は未実装。ADR 自身が「この層で
+5. **`candidate.js` のクライアント側 JS 単体検証層**（`adr/0014`）は未実装。ADR 自身が「この層で
    見つかったはずの欠陥は、これまでのところ1件も無い」と明記している——価値は将来の回帰捕捉であって、
    過去の埋め合わせではない。
-7. **余白とボタンの小ささの是正**は、カレンダーと削除ダイアログの新規 CSS で部分的に対応したのみ。
+6. **余白とボタンの小ささの是正**は、カレンダーと削除ダイアログの新規 CSS で部分的に対応したのみ。
    既存画面全体を designer のボードに対して px 単位で突き合わせる作業は**していない**。
-8. **スマホでカードが1枚ずつきっちり止まるか**は未計測。人間の実機報告（スワイプでカードが見切れる）は
+7. **スマホでカードが1枚ずつきっちり止まるか**は未計測。人間の実機報告（スワイプでカードが見切れる）は
    再現しなかった。`candidate.js` の `deckSwipeState` には既に手の込んだ実装がある。
 
 ## Open questions
