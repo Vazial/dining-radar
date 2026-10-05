@@ -150,7 +150,11 @@ Leaflet/OSM の公開運用は `Referrer-Policy: strict-origin-when-cross-origin
   このゲートの対象から名指しで除外してよく、その範囲は引き続きL4（次項）とL5（実機測定）が検証する。
   このテスト専用のNode/npmプロジェクトは出荷される`candidate.js`のビルド・バンドルとは無関係であり、
   画面設計レビュー用の受け皿（`ADR-0003`が定めていたが`ADR-0028`が廃止した`design-preview/`。現在の
-  画面設計の成果物は`design/wireframes/`が持つ）とも同居しない。
+  画面設計の成果物は`design/wireframes/`が持つ）とも同居しない。実体は`client-js-tests/`（`"private": true`・
+  `devDependencies`のみ・Vitest+jsdom・ESLint・Stryker）で、`candidate.js`を無変更のままロードして検証する。
+  `npm ci`の後に`npm test`（branch coverage 90%の閾値込み）・`npm run lint`・`npm run mutation`（mutation score
+  80%を下回ると失敗）を`client-js-tests/`で実行する。実ブラウザ依存として除外した範囲は
+  `client-js-tests/stryker.config.json`と`client-js-tests/vitest.config.js`に名指しし、理由をコメントで残す。
 - L2: provider固有依存のadapter外流出、`web`からadapter/ORMへの直接アクセス、`recommendation`へのframework依存を検出する。
 - L3: 合成fixtureでadapterの正規化・redactionを検証する。資格情報を用いるlive APIテストはしない。
 - L3: TDR-AUTH-06 の deployment 向け cookie/CSRF/CORS/token 非使用は設定・security-boundary 検証で確認する。ローカル acceptance profile の HTTP は public HTTPS の代替ではなく、実 transport は deployment slice が確認する。
