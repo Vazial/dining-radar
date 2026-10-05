@@ -955,6 +955,59 @@ class TestCheckScenarioIds(GovlintTestCase):
         self.assertTrue(any("RSV-A-01" in e and "重複している" in e for e in govlint.errors))
 
 
+class TestMultiLetterMiddleScenarioIds(GovlintTestCase):
+    """中間が複数文字のID（`TDR-CS-01`・`TDR-AUTH-01`）も検査の対象になる（KEN-19）。
+
+    以前は `[A-Z]{2,}-[A-Z]-\\d{2}` で中間が1文字に固定されており、TDR系の全IDが
+    定義としても参照としても見えず、L0で一度も検査されていなかった。
+    """
+
+    def test_dangling_reference_to_multi_letter_id_is_error(self) -> None:
+        write(
+            self.root / "projects" / "dining-radar" / "contracts" / "a.feature",
+            "Feature: X\n  # TDR-CS-01: 定義\n  Given 何か\n",
+        )
+        write(
+            self.root / "projects" / "dining-radar" / "contracts" / "a.yaml",
+            "note: TDR-CS-02 を参照\n",
+        )
+        govlint.check_scenario_ids()
+        self.assertTrue(any("TDR-CS-02" in e and "定義されていない" in e for e in govlint.errors))
+
+    def test_definition_followed_by_fullwidth_paren_counts_as_defined(self) -> None:
+        """`# TDR-CS-01（改訂。…` の形でも定義として数える。"""
+        write(
+            self.root / "projects" / "dining-radar" / "contracts" / "a.feature",
+            "Feature: X\n  # TDR-AUTH-01（新規。説明）\n  Given 何か\n",
+        )
+        write(
+            self.root / "projects" / "dining-radar" / "contracts" / "a.yaml",
+            "note: TDR-AUTH-01 を参照\n",
+        )
+        govlint.check_scenario_ids()
+        self.assertEqual(govlint.errors, [])
+
+    def test_duplicate_multi_letter_definition_is_error(self) -> None:
+        feature = "Feature: X\n  # TDR-GTH-01（新規）\n  Given 何か\n"
+        write(self.root / "projects" / "dining-radar" / "contracts" / "a.feature", feature)
+        write(self.root / "projects" / "dining-radar" / "contracts" / "b.feature", feature)
+        govlint.check_scenario_ids()
+        self.assertTrue(any("TDR-GTH-01" in e and "重複している" in e for e in govlint.errors))
+
+    def test_ticket_ids_are_not_scenario_ids(self) -> None:
+        """`KEN-21` のようなチケット番号は、中間が無いのでシナリオIDと誤認しない。"""
+        write(
+            self.root / "projects" / "dining-radar" / "contracts" / "a.feature",
+            "Feature: X\n  # TDR-CS-01: 定義\n  Given 何か\n",
+        )
+        write(
+            self.root / "projects" / "dining-radar" / "contracts" / "a.yaml",
+            "note: KEN-21 と ADR-0046 と TDR-CS-01\n",
+        )
+        govlint.check_scenario_ids()
+        self.assertEqual(govlint.errors, [])
+
+
 # ---------------------------------------------------------------- 実装待ちシナリオ（friction-log FR-014）
 class TestPendingScenarios(GovlintTestCase):
     """@pending-implementation の棚卸しREPORT。
