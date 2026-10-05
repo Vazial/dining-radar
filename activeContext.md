@@ -26,4 +26,4 @@
    このリポジトリの main へのマージで自動デプロイが走ることの確認がまだ
 2. テンプレ側から dining-radar を消し、ここへのポインタを残す（テンプレのルート `activeContext.md` が持つ）
 3. テンプレの govlint に `TEMPLATE_SYNC` のハッシュ検査を足し、`scripts/template-pull.sh` で取り込む
-4. テンプレに出ていた dining-radar の ADR 7本の承認記録（テンプレ PR #208）を、こちらへ出し直す
+4. ~~テンプレに出ていた dining-radar の ADR 7本の承認記録（テンプレ PR #208）を、こちらへ出し直す~~ 済み（KEN-23。adr/0037・0039・0043・0046・0048・0065・0066）
