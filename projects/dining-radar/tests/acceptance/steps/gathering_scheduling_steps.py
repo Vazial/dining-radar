@@ -765,6 +765,9 @@ class GatheringSchedulingSteps:
     def response_table_matches(self, expected: dict[str, dict[str, str]]) -> None:
         self.dsl.assert_response_table_matches(expected)
 
+    def response_table_has_board_layout(self) -> None:
+        self.dsl.assert_response_table_has_board_layout()
+
     def response_table_leader_summary_is_present(self) -> None:
         self.dsl.assert_response_table_leader_summary_is_present()
 

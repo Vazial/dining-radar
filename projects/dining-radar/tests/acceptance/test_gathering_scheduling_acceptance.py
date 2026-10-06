@@ -1588,6 +1588,9 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
                 link_ids[1]: {candidate_date_b: "MAYBE"},
             }
         )
+        # ADR-0071: the table's observed shape (grid, ○△×, painted leader
+        # column, ○の数 last row) is part of the same TDR-GTH-49 observation.
+        self.steps.response_table_has_board_layout()
         self.steps.screen_has_no_forbidden_controls_or_disclosures()
 
     def test_tdr_gth_50_organizer_removes_a_candidate_date(self) -> None:

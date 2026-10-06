@@ -149,6 +149,7 @@
   // "たぶん"/"むり"), reused here so the same status reads the same word
   // everywhere on this screen.
   var SCHEDULE_RESPONSE_LABELS = { GOING: "行ける", MAYBE: "たぶん", NOT_GOING: "むり" };
+  var SCHEDULE_RESPONSE_MARKS = { GOING: "○", MAYBE: "△", NOT_GOING: "×" };
 
   var state = {
     gathering: null,
@@ -2473,6 +2474,13 @@
   // neither testId's own presenceRule changes.
   // statsRow/schedulePane move here from above the map (board G1/G2) --
   // their own testIds' presenceRule is unchanged, only where they render.
+  // ADR-0071 decision 4: the answers tab shows only the table; the tally row
+  // and the schedule cards stay in the DOM (other contract rules read their
+  // data-* values), not visible (hidden attribute on the wrapper; display:none, contract 0.28.0).
+  function renderHiddenAnswersAggregates(statsRow, schedulePane) {
+    return el("div", { hidden: true }, [statsRow, schedulePane]);
+  }
+
   function renderDecisionAnswersLinksGroups(candidateDateLeaders, statsRow, schedulePane) {
     var desktop = isDesktopDecisionLayout();
     var answersLabel = "回答 " + state.gathering.respondedParticipantCount + "人";
@@ -2525,7 +2533,7 @@
     if (desktop) {
       var activePane = state.decisionLinksOpen
         ? [renderParticipantLinkPane()]
-        : [statsRow, schedulePane, renderResponseTable(candidateDateLeaders)];
+        : [renderHiddenAnswersAggregates(statsRow, schedulePane), renderResponseTable(candidateDateLeaders)];
       return el("div", { class: "gth-decision-groups" }, [
         el("div", { class: "gth-decision-tabs", role: "tablist" }, [answersButton, linksEntrance]),
         el("div", { class: "gth-decision-tabpanel" }, activePane),
@@ -2536,8 +2544,7 @@
     if (state.decisionAnswersOpen) {
       children.push(
         el("div", { class: "gth-decision-disclosure-panel" }, [
-          statsRow,
-          schedulePane,
+          renderHiddenAnswersAggregates(statsRow, schedulePane),
           renderResponseTable(candidateDateLeaders),
         ])
       );
@@ -2962,35 +2969,46 @@
   // coordination point), so an absent value renders as an all-empty row
   // rather than throwing.
   function renderResponseTable(leaders) {
-    var candidateDateStartAtById = {};
-    state.gathering.candidateDates.forEach(function (candidateDate) {
-      candidateDateStartAtById[candidateDate.id] = candidateDate.startAt;
+    var candidateDates = state.gathering.candidateDates;
+    // ADR-0071 decision 2: SCHEDULING paints the leading date(s), later
+    // phases paint the confirmed date.
+    var paintedById = {};
+    candidateDates.forEach(function (candidateDate) {
+      paintedById[candidateDate.id] = state.gathering.phase === "SCHEDULING"
+        ? Boolean(leaders[candidateDate.id])
+        : Boolean(candidateDate.isConfirmed);
     });
-    // ADR-0060 decision 7 (2026-09-16): header/headerCell make "column" a
-    // real, orderable DOM concept for the first time -- DOM order equals
-    // candidateDateList.orderingInvariant's own order (startAt ascending,
-    // decision 6), which state.gathering.candidateDates already carries
-    // (services.candidate_dates_with_tallies now sorts by startAt). The
-    // header cell itself carries no data-current-leader -- callers read
-    // that fact from the corresponding gathering-candidate-date element
-    // instead (architect design judgment, avoids a second source of truth).
-    var headerCells = state.gathering.candidateDates.map(function (candidateDate) {
+    var gridStyle = "--gth-response-columns: " + candidateDates.length;
+    function columnClass(base, candidateDateId) {
+      return base + (paintedById[candidateDateId] ? " gth-response-painted" : "");
+    }
+    // ADR-0060 decision 7: header cells make "column" an orderable DOM
+    // concept (startAt ascending). The header cell carries no leader/confirmed
+    // attribute -- read it from the matching gathering-candidate-date.
+    // ADR-0071 decision 1: month only on the first column and when it changes.
+    var previousMonth = null;
+    var headerCells = candidateDates.map(function (candidateDate) {
+      var date = new Date(candidateDate.startAt);
+      var month = date.getUTCMonth() + 1;
+      var label = (month !== previousMonth ? month + "/" : "") + date.getUTCDate() +
+        "（" + WEEKDAY_LABELS_JA[date.getUTCDay()] + "）";
+      previousMonth = month;
       return el("span", {
         "data-testid": "gathering-response-table-header-cell",
         "data-candidate-date-id": candidateDate.id,
-        class: "gth-response-header-cell" + (leaders[candidateDate.id] ? " gth-response-header-cell--leader" : ""),
-      }, [formatGatheringDate(candidateDate.startAt)]);
+        class: columnClass("gth-response-header-cell", candidateDate.id),
+      }, [label]);
     });
     var header = el(
       "div",
-      { "data-testid": "gathering-response-table-header", class: "gth-response-header" },
-      headerCells
+      { "data-testid": "gathering-response-table-header", class: "gth-response-header", style: gridStyle },
+      [el("span", { class: "gth-response-name-head" }, ["だれ"])].concat(headerCells)
     );
     // Only while phase is SCHEDULING (the row exists to help pick a date;
     // once one is picked, absent regardless of any leader still tied).
     var leaderSummary = null;
     if (state.gathering.phase === "SCHEDULING") {
-      var leaderSummaryItems = state.gathering.candidateDates
+      var leaderSummaryItems = candidateDates
         .filter(function (candidateDate) {
           return Boolean(leaders[candidateDate.id]);
         })
@@ -3015,21 +3033,27 @@
         leaderSummaryChildren
       );
     }
+    // ADR-0071 decision 1: one grid position per candidate date; a date this
+    // link did not answer keeps a blank position but gets no cell testId.
     var rows = state.participantLinks.map(function (link) {
-      var responses = link.scheduleResponses || [];
-      var cells = responses.map(function (entry) {
-        var startAt = candidateDateStartAtById[entry.candidateDateId];
-        var label = (startAt ? formatGatheringDate(startAt) + " " : "") +
-          (SCHEDULE_RESPONSE_LABELS[entry.status] || "");
+      var statusByDateId = {};
+      (link.scheduleResponses || []).forEach(function (entry) {
+        statusByDateId[entry.candidateDateId] = entry.status;
+      });
+      var cells = candidateDates.map(function (candidateDate) {
+        var status = statusByDateId[candidateDate.id];
+        if (!status) {
+          return el("span", { class: columnClass("gth-response-blank", candidateDate.id) }, []);
+        }
         return el(
           "span",
           {
             "data-testid": "gathering-response-table-cell",
-            "data-candidate-date-id": entry.candidateDateId,
-            "data-response-status": entry.status,
-            class: "gth-response-cell gth-response-cell--" + entry.status.toLowerCase(),
+            "data-candidate-date-id": candidateDate.id,
+            "data-response-status": status,
+            class: columnClass("gth-response-cell gth-response-cell--" + status.toLowerCase(), candidateDate.id),
           },
-          [label]
+          [SCHEDULE_RESPONSE_MARKS[status] || ""]
         );
       });
       return el(
@@ -3038,27 +3062,38 @@
           "data-testid": "gathering-response-table-row",
           "data-participant-link-id": link.id,
           class: "gth-response-row",
+          style: gridStyle,
         },
         [
           el("span", { class: "gth-response-row-name" }, [
             link.displayName === null ? "名無し" : link.displayName,
           ]),
-          el(
-            "div",
-            { class: "gth-response-row-cells" },
-            cells.length > 0 ? cells : [el("span", { class: "gth-response-row-empty" }, ["未回答"])]
-          ),
-        ]
+        ].concat(cells)
       );
     });
+    // ADR-0071 decision 3: bottom row, one going-count mark per date.
+    var goingCountRow = el(
+      "div",
+      { class: "gth-response-row gth-response-count-row", style: gridStyle },
+      [el("span", { class: "gth-response-row-name" }, ["○ の数"])].concat(
+        candidateDates.map(function (candidateDate) {
+          return el("span", {
+            "data-testid": "gathering-response-table-going-count-cell",
+            "data-candidate-date-id": candidateDate.id,
+            class: columnClass("gth-response-count-cell", candidateDate.id),
+          }, [String(candidateDate.goingCount)]);
+        })
+      )
+    );
     return el("div", { class: "gth-pane" }, [
-      el("div", { class: "gth-pane-head" }, ["誰が・どの日に答えたか"]),
       leaderSummary,
-      el(
-        "div",
-        { "data-testid": "gathering-response-table", class: "gth-response-table" },
-        [header].concat(rows)
-      ),
+      el("div", { class: "gth-response-scroll" }, [
+        el(
+          "div",
+          { "data-testid": "gathering-response-table", class: "gth-response-table" },
+          [header].concat(rows, [goingCountRow])
+        ),
+      ]),
     ]);
   }
 

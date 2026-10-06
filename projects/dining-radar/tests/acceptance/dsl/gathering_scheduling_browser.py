@@ -254,6 +254,69 @@ RESPONSE_STATUS_ATTR = "data-response-status"
 # cell) keeps its own unconditional presenceRule -- only this one child
 # element narrows.
 RESPONSE_TABLE_LEADER_SUMMARY = "gathering-response-table-leader-summary"
+# responseTable.layout/paintedColumn/goingCountRow (ADR-0071, contract 0.28.0
+# 追補27): the board-ruled person-by-day grid.
+_RESPONSE_GLYPH_BY_STATUS = {"GOING": "○", "MAYBE": "△", "NOT_GOING": "×"}
+# Former pane headings finalizedSummary.answersContent says are not visible.
+_FORMER_ANSWERS_PANE_HEADINGS = ("誰が・どの日に答えたか",)
+
+# Measures the rendered grid (geometry + computed background) per column and
+# row. Reads only rendered state (ADR-0065 / tester.md: DOM only).
+_RESPONSE_GRID_PROBE_JS = """
+(table) => {
+  const tid = (el, id) => Array.from(el.querySelectorAll(`[data-testid="${id}"]`));
+  const effectiveBg = (el) => {
+    for (let n = el; n && n !== table.parentElement; n = n.parentElement) {
+      const bg = getComputedStyle(n).backgroundColor;
+      if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') return bg;
+    }
+    return 'transparent';
+  };
+  const bgAt = (x, y) => {
+    const el = document.elementFromPoint(x, y);
+    return el && table.contains(el) ? effectiveBg(el) : null;
+  };
+  const headers = tid(table, 'gathering-response-table-header-cell');
+  const rows = tid(table, 'gathering-response-table-row');
+  const counts = tid(table, 'gathering-response-table-going-count-cell');
+  const out = {columns: [], pageOverflowsX:
+    document.documentElement.scrollWidth > document.documentElement.clientWidth + 1};
+  for (const h of headers) {
+    h.scrollIntoView({block: 'nearest', inline: 'nearest'});
+    const hr = h.getBoundingClientRect();
+    const cx = hr.left + hr.width / 2;
+    const col = {id: h.getAttribute('data-candidate-date-id'), headerText: h.innerText.trim(),
+      left: hr.left, right: hr.right,
+      headerBg: bgAt(cx, hr.top + hr.height / 2), cells: [], blanks: [], count: null};
+    for (const [i, row] of rows.entries()) {
+      row.scrollIntoView({block: 'nearest', inline: 'nearest'});
+      const rr = row.getBoundingClientRect();
+      const cell = tid(row, 'gathering-response-table-cell')
+        .find((c) => c.getAttribute('data-candidate-date-id') === col.id);
+      if (cell) {
+        const cr = cell.getBoundingClientRect();
+        col.cells.push({row: i, text: cell.innerText.trim(),
+          status: cell.getAttribute('data-response-status'),
+          centerX: cr.left + cr.width / 2,
+          bg: bgAt(cr.left + cr.width / 2, cr.top + cr.height / 2)});
+      } else {
+        col.blanks.push({row: i, bg: bgAt(cx, rr.top + rr.height / 2)});
+      }
+    }
+    const cnt = counts.find((c) => c.getAttribute('data-candidate-date-id') === col.id);
+    if (cnt) {
+      cnt.scrollIntoView({block: 'nearest', inline: 'nearest'});
+      const cr = cnt.getBoundingClientRect();
+      col.count = {text: cnt.innerText.trim(), centerX: cr.left + cr.width / 2, top: cr.top,
+        bg: bgAt(cr.left + cr.width / 2, cr.top + cr.height / 2)};
+    }
+    out.columns.push(col);
+  }
+  out.lastRowBottom = Math.max(0, ...rows.map((r) => r.getBoundingClientRect().bottom));
+  out.countCellTotal = counts.length;
+  return out;
+}
+"""
 # Calendar month-navigation / remove-selected (ADR-0054 decision 3 / ADR-0056
 # decision 3): each screen owns its own, distinct pair of test ids (the same
 # "distinct test id per screen, shared input shape" design already governing
@@ -1419,6 +1482,118 @@ class GatheringSchedulingBrowserDsl:
         """
         assert_present(self.assertions, self.page, RESPONSE_TABLE)
         self.assertions.assertEqual(self._read_response_table(), expected)
+
+    def _candidate_date_flags(self, attribute: str) -> set[str]:
+        """candidate-date-ids whose gathering-candidate-date carries
+        attribute="true", read from the DOM attributes only (the card is
+        kept in the DOM even where answersContent hides it)."""
+        nodes = by_test_id(self.page, CANDIDATE_DATE)
+        expect(nodes.first).to_be_attached()
+        return {
+            nodes.nth(i).get_attribute(CANDIDATE_DATE_ID_ATTR)
+            for i in range(nodes.count())
+            if nodes.nth(i).get_attribute(attribute) == "true"
+        }
+
+    def _candidate_date_going_counts(self) -> dict[str, str]:
+        nodes = by_test_id(self.page, CANDIDATE_DATE)
+        return {
+            nodes.nth(i).get_attribute(CANDIDATE_DATE_ID_ATTR): nodes.nth(i).get_attribute(
+                GOING_COUNT_ATTR
+            )
+            for i in range(nodes.count())
+        }
+
+    def assert_response_table_has_board_layout(self) -> None:
+        """responseTable.layout / paintedColumn / goingCountRow (ADR-0071
+        decisions 1-3, contract 0.28.0 追補27), observed on the rendered
+        grid: (1) each cell's visible text is exactly one of ○△×
+        matching data-response-status; (2) cells and the going-count cell
+        sit in the horizontal span of their own date's header cell, so one
+        date's cells line up across rows; (3) the going-count row is below
+        every person row and its text is the decimal GOING count of that
+        column, equal to the candidate date's data-going-count; (4) the
+        painted column(s) -- leaders in SCHEDULING, the confirmed date
+        otherwise -- differ in background from the other columns in the
+        header, every row (cell or blank position) and the count cell, and
+        no column is painted when none qualifies; (5) the table has no
+        heading of its own; (6) the page does not overflow horizontally.
+        """
+        self.ensure_finalized_answers_are_open()
+        self.ensure_selecting_shop_answers_tab_is_open()
+        table = assert_present(self.assertions, self.page, RESPONSE_TABLE)
+        expect(table).to_be_visible()
+        probe = table.evaluate(_RESPONSE_GRID_PROBE_JS)
+        columns = probe["columns"]
+        self.assertions.assertGreater(len(columns), 0, "no header cell rendered")
+        self.assertions.assertEqual(probe["countCellTotal"], len(columns))
+        self.assertions.assertFalse(probe["pageOverflowsX"], "page overflows horizontally")
+        going_counts = self._candidate_date_going_counts()
+        for column in columns:
+            self.assertions.assertNotEqual(column["headerText"], "")
+            for cell in column["cells"]:
+                self.assertions.assertEqual(cell["text"], _RESPONSE_GLYPH_BY_STATUS[cell["status"]])
+                self.assertions.assertTrue(
+                    column["left"] - 1 <= cell["centerX"] <= column["right"] + 1,
+                    f"cell of {column['id']} is outside its header column",
+                )
+            count = column["count"]
+            self.assertions.assertIsNotNone(count, f"no going-count cell for {column['id']}")
+            self.assertions.assertTrue(
+                column["left"] - 1 <= count["centerX"] <= column["right"] + 1,
+                f"going-count cell of {column['id']} is outside its header column",
+            )
+            self.assertions.assertEqual(
+                count["text"],
+                str(sum(1 for cell in column["cells"] if cell["status"] == "GOING")),
+            )
+            self.assertions.assertEqual(count["text"], going_counts[column["id"]])
+            self.assertions.assertGreaterEqual(
+                count["top"] + 1, probe["lastRowBottom"], "going-count row is not last"
+            )
+        phase = self._read_gathering_phase_from_dom()
+        painted_ids = self._candidate_date_flags(
+            CURRENT_LEADER_ATTR if phase == "SCHEDULING" else CONFIRMED_ATTR
+        )
+        painted = [c for c in columns if c["id"] in painted_ids]
+        plain = [c for c in columns if c["id"] not in painted_ids]
+
+        def backgrounds(column: dict) -> list[str]:
+            return (
+                [column["headerBg"], column["count"]["bg"]]
+                + [cell["bg"] for cell in column["cells"]]
+                + [blank["bg"] for blank in column["blanks"]]
+            )
+
+        if painted and plain:
+            plain_bgs = {bg for column in plain for bg in backgrounds(column)}
+            for column in painted:
+                for bg in backgrounds(column):
+                    self.assertions.assertNotIn(
+                        bg, plain_bgs, f"painted column {column['id']} is not tinted"
+                    )
+        if not painted:
+            for column in columns:
+                self.assertions.assertEqual(
+                    column["headerBg"], columns[0]["headerBg"], "a column is painted"
+                )
+        for heading in _FORMER_ANSWERS_PANE_HEADINGS:
+            expect(table.get_by_text(heading)).to_have_count(0)
+
+    def assert_answers_group_shows_only_the_response_table(self) -> None:
+        """finalizedSummary.answersContent (ADR-0071 decision 4): with the
+        answers group open, responseTable is visible and the tally row,
+        the schedule record and the former pane headings are not visible
+        yet stay attached in the DOM (their data-* are read elsewhere).
+        No date-deciding control is present here.
+        """
+        expect(by_test_id(self.page, RESPONSE_TABLE)).to_be_visible()
+        for test_id in (RESPONDED_SUMMARY, UNANSWERED_SUMMARY, CANDIDATE_DATE_LIST, CANDIDATE_DATE):
+            expect(by_test_id(self.page, test_id).first).to_be_attached()
+            expect(by_test_id(self.page, test_id).first).not_to_be_visible()
+        for heading in _FORMER_ANSWERS_PANE_HEADINGS:
+            expect(self.page.get_by_text(heading)).not_to_be_visible()
+        expect(by_test_id(self.page, CONFIRM_DATE_SELECT)).to_have_count(0)
 
     def assert_response_table_leader_summary_is_present(self) -> None:
         """responseTable.leaderSummary.presenceRule (追補23): present while
@@ -4242,6 +4417,7 @@ class GatheringSchedulingBrowserDsl:
                 links_open.get_attribute("aria-selected"), "false", context_label
             )
             expect(by_test_id(self.page, RESPONSE_TABLE)).to_be_visible()
+            self.assert_answers_group_shows_only_the_response_table()
             expect(by_test_id(self.page, PARTICIPANT_LINK_LIST)).not_to_be_visible()
 
             links_open.click()
@@ -4262,6 +4438,7 @@ class GatheringSchedulingBrowserDsl:
             answers_open.click()
             expect(answers_open).to_have_attribute("aria-expanded", "true")
             expect(by_test_id(self.page, RESPONSE_TABLE)).to_be_visible()
+            self.assert_answers_group_shows_only_the_response_table()
             self.assertions.assertEqual(
                 links_open.get_attribute("aria-expanded"), "false", context_label
             )

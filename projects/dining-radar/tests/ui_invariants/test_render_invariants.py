@@ -3411,6 +3411,19 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         expect(table).to_be_visible()
         expect(self.page.locator('[data-testid="gathering-response-table-row"]')).to_have_count(2)
 
+        # ADR-0071: a grid -- no table heading, one header cell and one
+        # going-count cell per candidate date, blank positions kept in rows.
+        header_cells = self.page.locator('[data-testid="gathering-response-table-header-cell"]')
+        count_cells = self.page.locator('[data-testid="gathering-response-table-going-count-cell"]')
+        self.assertGreaterEqual(header_cells.count(), 1)
+        expect(count_cells).to_have_count(header_cells.count())
+        expect(table).not_to_contain_text("誰が・どの日に答えたか")
+        first_row_children = self.page.evaluate(
+            """() => document.querySelector(
+                '[data-testid="gathering-response-table-row"]').children.length"""
+        )
+        self.assertEqual(first_row_children, header_cells.count() + 1)
+
     def test_gathering_dashboard_heading_bar_replaces_phase_indicator_only_while_selecting_shop(
         self,
     ) -> None:
