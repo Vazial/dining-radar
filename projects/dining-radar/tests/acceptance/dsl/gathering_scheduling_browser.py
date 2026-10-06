@@ -1667,10 +1667,27 @@ class GatheringSchedulingBrowserDsl:
                         f" against {plain_column['id']}",
                     )
         if not painted:
-            for column in columns[1:]:
-                self.assertions.assertEqual(
-                    measured[column["id"]], measured[columns[0]["id"]], "a column is painted"
-                )
+            # No column qualifies: compare "painted or not" only. A position's
+            # background is compared across columns that show the same kind of
+            # thing there (header, count, a blank, or a cell of the same
+            # status) -- a cell's own ○△× state colour, or a blank where
+            # another column has a cell, is not a paint.
+            def kinds(column: dict) -> dict[object, object]:
+                by_position = {"header": "header", "count": "count"}
+                by_position.update({("row", c["row"]): c["status"] for c in column["cells"]})
+                by_position.update({("row", b["row"]): "blank" for b in column["blanks"]})
+                return by_position
+
+            seen: dict[tuple[object, object], tuple[str, object]] = {}
+            for column in columns:
+                for position, kind in kinds(column).items():
+                    bg = measured[column["id"]][position]
+                    first_id, first_bg = seen.setdefault((position, kind), (column["id"], bg))
+                    self.assertions.assertEqual(
+                        bg,
+                        first_bg,
+                        f"a column is painted at {position}: {column['id']} vs {first_id}",
+                    )
         self._assert_no_former_pane_headings_visible(phase)
 
     def assert_answers_group_shows_only_the_response_table(self) -> None:

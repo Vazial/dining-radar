@@ -1890,6 +1890,21 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.gathering_phase_is("FINALIZED")
         self.steps.response_table_has_board_layout()
 
+    def test_gth_response_table_board_layout_paints_no_column_without_a_leader(self) -> None:
+        """専用シナリオの無い契約Must（responseTable.paintedColumn、追補27 /
+        ADR-0071）の「塗る列がない」分岐。SCHEDULING で誰も答えていない
+        （有力な日が無い、TDR-GTH-59）Given: リンクは2本発行して行はあるが
+        セルは無く、どの列も塗られないこと、他の○の数・見出し・列そろえは
+        そのまま観測する。"""
+        self._sign_in()
+        first, second, third = self.dsl.month_crossing_thursday_isos()
+        self.steps.organizer_has_a_scheduling_gathering("会追補27塗り無し", [first, second, third])
+        self.steps.a_participant_link_is_issued()
+        self.steps.a_participant_link_is_issued()
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.candidate_date_current_leaders_are(set())
+        self.steps.response_table_has_board_layout()
+
     # TDR-GTH-67 (new, ADR-0063決定2, 2026-09-19人間裁定「見出しのすぐ下から
     # 地図いっぱい」。見出しに会の名前と決まった開催日時を示す) --------------
 
