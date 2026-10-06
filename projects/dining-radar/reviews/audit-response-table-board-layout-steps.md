@@ -164,3 +164,45 @@
 ## Observable acceptance
 
 **Critical 0件、Major 1件（M1-残）、Minor 4件（m3・m4・m6・m7）。** 前回 Major 2件のうち M2 は解消、M1 は確定後の塗り列について解消。差し戻し先は tester（M1-残）。
+
+---
+
+# 再々監査（再監査 M1-残・m6・m7 への tester 修正）
+
+- **対象**: `git diff HEAD~1 -- projects/dining-radar/tests/acceptance`（`6cfb4a6`）。DSL の `not painted` 分岐の書き換え（+21/-4）と、新テスト
+  `test_gth_response_table_board_layout_paints_no_column_without_a_leader`（+15）。静的監査で、テストは**実行していない**。
+  実装は描画関数 `renderResponseTable`（`gathering.js`）の該当部分だけ読んだ（書いていない）。
+
+- **結論（先頭サマリ）: Critical 0件 / Major 0件 / Minor 4件（新規1・持ち越し3）。** 再監査の Major（M1-残）は解消、m7 は解消、m6 は未変更（承認時に了承を取る）。
+
+## 前回指摘の判定
+
+| 指摘 | 判定 | 根拠 |
+|---|---|---|
+| **M1-残** 「塗る列なし」分岐が実行されない | **解消** | 新テストは候補日3本・リンク2本発行・回答なしの SCHEDULING で、`candidate_date_current_leaders_are(set())` により有力な日が無いことを確認してから `response_table_has_board_layout` を呼ぶ。`painted_ids` は `data-current-leader` から作られ空になるので `painted == []`、`if not painted:` に必ず入る。実装側も、リンクごとに行を出し（`state.participantLinks.map`）、回答の無い日は testid 無しの空白位置になる。よって列は3、○の数行は全列「0」、行は2、セルは0、空白は各列2。見出し・○の数行・各行の背景を比べる本分岐が実際に走る。 |
+| **m7** 塗らない場合の誤赤 | **解消** | 比較を「同じ位置・同じ種類」に限定（`kinds`: 見出し・○の数・空白・同じ状態のセル）。回答の有無や○△×の状態色が列ごとに違っても、種類が違えば比べないので誤赤にならない。塗りの検出力は保たれる: 1列でも塗られると、その列の見出し・○の数・各空白位置が他列と同種の位置で食い違い、位置キー付きで赤になる（空白は全列に同数あり、新テストの Given では全位置が比較対象）。背景が測れない位置は `row_backgrounds` が先に失敗にする。 |
+| **m6** 「日程」旧見出しは SCHEDULING で見ない | 未解消（持ち越し・許容、承認時に了承） | 変更なし。新テストは SCHEDULING なので、この検査経路を通らない点は同じ。契約が旧見出しとして挙げる回答グループの見出し「誰が・どの日に答えたか」は SCHEDULING でも見ている。 |
+| m3・m4 | 未解消（持ち越し） | 変更なし（空白位置の格子枠／コントラスト・入れ物内スクロール）。 |
+
+## 新規・残りの指摘
+
+### Critical: 0件
+
+### Major: 0件
+
+### Minor
+
+- **m8.（新規）** 新テストは「リンク2本・行がある」ことを docstring が前提にしているが、行数・空白位置の数を検査していない。
+  行が0本でも `assert_response_table_has_board_layout` は通り（`rows` が空、`blanks` も空）、その場合は見出しと○の数の背景しか比べない。
+  Given の `a_participant_link_is_issued` が2回成功した後は表が行を持つことを DSL 側で1行 `assertGreaterEqual(len(rows), 2)` 相当で押さえると、
+  塗りの本文側（空白位置）の検査が空振りしないことが保証される。重大ではない（行の出力は実装の `state.participantLinks.map` で担保、他テストでも見ている）。
+- **m3・m4・m6**: 上の表のとおり持ち越し。
+
+## 未確認事項
+
+- 新テストの実行結果（特に回答なしの表が SCHEDULING で描画されること、見出し3つの背景が実際に同色であること）は未確認。
+- 実装が将来、リーダー無しでも別の目的で列を塗る（例: 週末の見出し色）場合、本分岐は誤赤になりうる。現行の `renderResponseTable` はそのような塗りを行わない。
+
+## Observable acceptance
+
+**Critical 0件、Major 0件、Minor 4件（m3・m4・m6・m8）。** 再監査の M1-残・m7 は解消、m6 は持ち越し（許容）。差し戻しは不要。人間の承認事項は D1・D2・m6 の了承。
