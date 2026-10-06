@@ -257,8 +257,16 @@ RESPONSE_TABLE_LEADER_SUMMARY = "gathering-response-table-leader-summary"
 # responseTable.layout/paintedColumn/goingCountRow (ADR-0071, contract 0.28.0
 # 追補27): the board-ruled person-by-day grid.
 _RESPONSE_GLYPH_BY_STATUS = {"GOING": "○", "MAYBE": "△", "NOT_GOING": "×"}
-# Former pane headings finalizedSummary.answersContent says are not visible.
-_FORMER_ANSWERS_PANE_HEADINGS = ("誰が・どの日に答えたか",)
+# Former pane headings (finalizedSummary.answersContent 「日程」「誰が・どの日に
+# 答えたか」; responseTable.layout.noHeading): none may be visible anywhere on
+# the page, in any phase, the table's surroundings included.
+_REMOVED_TABLE_HEADING = "誰が・どの日に答えたか"
+# 「日程」 names the schedule record, which SCHEDULING legitimately shows; it
+# is a former heading only where the answers group is what is open.
+_SCHEDULE_PANE_HEADING = "日程"
+_JP_WEEKDAYS = "月火水木金土日"  # date.weekday(): Monday=0
+# Wording is not fixed (contract headerCellContent): "10月" and "10/" both count.
+_MONTH_LABEL = re.compile(r"(\d{1,2})(?:月|/)")
 
 # Measures the rendered grid (geometry + computed background) per column and
 # row. Reads only rendered state (ADR-0065 / tester.md: DOM only).
@@ -1504,6 +1512,68 @@ class GatheringSchedulingBrowserDsl:
             for i in range(nodes.count())
         }
 
+    def month_crossing_thursday_isos(self) -> list[str]:
+        """Three business-day Thursdays, ascending: the first, one in a later
+        month, and the week after that (same month as the second), so the
+        header row has to show a month label on the first column and on the
+        first column after the change only."""
+        first = self.next_weekday_iso(3)
+        probe = datetime.fromisoformat(first)
+        while probe.month == datetime.fromisoformat(first).month:
+            probe += timedelta(days=7)
+        second = self._resolve_thursday_iso(probe)
+        third = self._resolve_thursday_iso(datetime.fromisoformat(second) + timedelta(days=7))
+        return [first, second, third]
+
+    def _resolve_thursday_iso(self, start: datetime) -> str:
+        """``start`` resolved to a business day the API accepts (weekly steps)."""
+        return resolve_business_day_iso(
+            start.isoformat().replace("+00:00", "Z"),
+            self._probe_candidate_date_is_a_business_day,
+            step_days=7,
+        )
+
+    def _assert_no_former_pane_headings_visible(self, phase: str) -> None:
+        """noHeading / answersContent: the removed table heading text is
+        visible nowhere on the page in any phase (whole page, not the table
+        subtree); 「日程」 is checked as a heading element (the schedule tab
+        and SCHEDULING's schedule record legitimately carry that word) once
+        phase has left SCHEDULING."""
+        locators = [self.page.get_by_text(_REMOVED_TABLE_HEADING, exact=True)]
+        locators.append(self.page.get_by_role("heading", name=_REMOVED_TABLE_HEADING, exact=True))
+        if phase != "SCHEDULING":
+            locators.append(
+                self.page.get_by_role("heading", name=_SCHEDULE_PANE_HEADING, exact=True)
+            )
+        for locator in locators:
+            for i in range(locator.count()):
+                self.assertions.assertFalse(
+                    locator.nth(i).is_visible(),
+                    "former heading is visible: "
+                    + locator.nth(i).evaluate("e => e.outerHTML.slice(0, 160)"),
+                )
+
+    def _expected_header_parts(
+        self, candidate_date_ids: list[str]
+    ) -> list[tuple[str, str, int | None]]:
+        """(day of month, weekday char, month number to be shown, or None) per column, from
+        the start times this DSL sent (columns run startAt ascending)."""
+        start_by_id = {v: k for k, v in self._candidate_date_id_by_start_at.items()}
+        parts = []
+        previous_month = None
+        for candidate_date_id in candidate_date_ids:
+            self.assertions.assertIn(candidate_date_id, start_by_id)
+            day = datetime.fromisoformat(start_by_id[candidate_date_id])
+            parts.append(
+                (
+                    str(day.day),
+                    _JP_WEEKDAYS[day.weekday()],
+                    day.month if day.month != previous_month else None,
+                )
+            )
+            previous_month = day.month
+        return parts
+
     def assert_response_table_has_board_layout(self) -> None:
         """responseTable.layout / paintedColumn / goingCountRow (ADR-0071
         decisions 1-3, contract 0.28.0 追補27), observed on the rendered
@@ -1519,6 +1589,14 @@ class GatheringSchedulingBrowserDsl:
         no column is painted when none qualifies; (5) the table has no
         heading of its own; (6) the page does not overflow horizontally.
         """
+        # The schedule record's attributes (leader / confirmed / going count)
+        # are read first: in SELECTING_SHOP its cards live on the schedule tab.
+        self.ensure_selecting_shop_schedule_tab_is_open()
+        phase = self._read_gathering_phase_from_dom()
+        painted_ids = self._candidate_date_flags(
+            CURRENT_LEADER_ATTR if phase == "SCHEDULING" else CONFIRMED_ATTR
+        )
+        going_counts = self._candidate_date_going_counts()
         self.ensure_finalized_answers_are_open()
         self.ensure_selecting_shop_answers_tab_is_open()
         table = assert_present(self.assertions, self.page, RESPONSE_TABLE)
@@ -1528,9 +1606,21 @@ class GatheringSchedulingBrowserDsl:
         self.assertions.assertGreater(len(columns), 0, "no header cell rendered")
         self.assertions.assertEqual(probe["countCellTotal"], len(columns))
         self.assertions.assertFalse(probe["pageOverflowsX"], "page overflows horizontally")
-        going_counts = self._candidate_date_going_counts()
-        for column in columns:
-            self.assertions.assertNotEqual(column["headerText"], "")
+        self.assertions.assertEqual({c["id"] for c in columns}, set(going_counts))
+        expected_headers = self._expected_header_parts([c["id"] for c in columns])
+        for column, (day, weekday, month_label) in zip(columns, expected_headers, strict=True):
+            header_text = column["headerText"]
+            month_match = _MONTH_LABEL.search(header_text)
+            self.assertions.assertEqual(
+                int(month_match.group(1)) if month_match else None,
+                month_label,
+                f"month label of column {column['id']}: {header_text!r}",
+            )
+            rest = _MONTH_LABEL.sub("", header_text)
+            self.assertions.assertIsNotNone(
+                re.search(rf"(?<!\d){day}(?!\d)", rest), f"day {day} not in {header_text!r}"
+            )
+            self.assertions.assertIn(weekday, rest, f"weekday not in {header_text!r}")
             for cell in column["cells"]:
                 self.assertions.assertEqual(cell["text"], _RESPONSE_GLYPH_BY_STATUS[cell["status"]])
                 self.assertions.assertTrue(
@@ -1551,34 +1641,37 @@ class GatheringSchedulingBrowserDsl:
             self.assertions.assertGreaterEqual(
                 count["top"] + 1, probe["lastRowBottom"], "going-count row is not last"
             )
-        phase = self._read_gathering_phase_from_dom()
-        painted_ids = self._candidate_date_flags(
-            CURRENT_LEADER_ATTR if phase == "SCHEDULING" else CONFIRMED_ATTR
-        )
         painted = [c for c in columns if c["id"] in painted_ids]
         plain = [c for c in columns if c["id"] not in painted_ids]
 
-        def backgrounds(column: dict) -> list[str]:
-            return (
-                [column["headerBg"], column["count"]["bg"]]
-                + [cell["bg"] for cell in column["cells"]]
-                + [blank["bg"] for blank in column["blanks"]]
-            )
+        def row_backgrounds(column: dict) -> dict[object, object]:
+            """Background per position of the column: header, count and each
+            row (the cell's, or the blank position's)."""
+            by_position = {"header": column["headerBg"], "count": column["count"]["bg"]}
+            by_position.update({("row", c["row"]): c["bg"] for c in column["cells"]})
+            by_position.update({("row", b["row"]): b["bg"] for b in column["blanks"]})
+            for position, bg in by_position.items():
+                self.assertions.assertIsNotNone(
+                    bg, f"background at {position} of {column['id']} could not be measured"
+                )
+            return by_position
 
-        if painted and plain:
-            plain_bgs = {bg for column in plain for bg in backgrounds(column)}
-            for column in painted:
-                for bg in backgrounds(column):
-                    self.assertions.assertNotIn(
-                        bg, plain_bgs, f"painted column {column['id']} is not tinted"
+        measured = {c["id"]: row_backgrounds(c) for c in columns}
+        for painted_column in painted:
+            for plain_column in plain:
+                for position, bg in measured[painted_column["id"]].items():
+                    self.assertions.assertNotEqual(
+                        bg,
+                        measured[plain_column["id"]][position],
+                        f"painted column {painted_column['id']} is not tinted at {position}"
+                        f" against {plain_column['id']}",
                     )
         if not painted:
-            for column in columns:
+            for column in columns[1:]:
                 self.assertions.assertEqual(
-                    column["headerBg"], columns[0]["headerBg"], "a column is painted"
+                    measured[column["id"]], measured[columns[0]["id"]], "a column is painted"
                 )
-        for heading in _FORMER_ANSWERS_PANE_HEADINGS:
-            expect(table.get_by_text(heading)).to_have_count(0)
+        self._assert_no_former_pane_headings_visible(phase)
 
     def assert_answers_group_shows_only_the_response_table(self) -> None:
         """finalizedSummary.answersContent (ADR-0071 decision 4): with the
@@ -1589,10 +1682,11 @@ class GatheringSchedulingBrowserDsl:
         """
         expect(by_test_id(self.page, RESPONSE_TABLE)).to_be_visible()
         for test_id in (RESPONDED_SUMMARY, UNANSWERED_SUMMARY, CANDIDATE_DATE_LIST, CANDIDATE_DATE):
-            expect(by_test_id(self.page, test_id).first).to_be_attached()
-            expect(by_test_id(self.page, test_id).first).not_to_be_visible()
-        for heading in _FORMER_ANSWERS_PANE_HEADINGS:
-            expect(self.page.get_by_text(heading)).not_to_be_visible()
+            nodes = by_test_id(self.page, test_id)
+            expect(nodes.first).to_be_attached()
+            for i in range(nodes.count()):
+                expect(nodes.nth(i)).not_to_be_visible()
+        self._assert_no_former_pane_headings_visible(self._read_gathering_phase_from_dom())
         expect(by_test_id(self.page, CONFIRM_DATE_SELECT)).to_have_count(0)
 
     def assert_response_table_leader_summary_is_present(self) -> None:

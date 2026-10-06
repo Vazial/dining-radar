@@ -1855,6 +1855,41 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.finalized_answers_and_links_entrance_is_functional("スマホ幅")
         self.steps.screen_has_no_forbidden_controls_or_disclosures()
 
+    def test_gth_response_table_board_layout_follows_the_confirmed_date(self) -> None:
+        """専用シナリオの無い契約Must（responseTable.layout / paintedColumn /
+        goingCountRow、追補27 / ADR-0071）。確定した日がリーダー（有力な日）と
+        食い違う Given: 3候補日（月をまたぐ）のうち、一番多く「行ける」を集めた
+        日は1日目、幹事が確定した日は2日目。店選び中と確定後の両方で、塗られる
+        のは確定済みの2日目の列であること、○の数・○△×・列そろえ・日付見出し
+        （日・曜日、月は最初と月替わりの列だけ）を観測する。"""
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        first, second, third = self.dsl.month_crossing_thursday_isos()
+        self.steps.organizer_has_a_scheduling_gathering("会追補27", [first, second, third])
+        date_a, date_b, date_c = (self.dsl.candidate_date_id_at(i) for i in range(3))
+        link_one = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_one)
+        self.steps.participant_answers_the_candidate_date(date_a, "GOING")
+        self.steps.participant_answers_the_candidate_date(date_b, "MAYBE")
+        link_two = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_two)
+        self.steps.participant_answers_the_candidate_date(date_a, "GOING")
+        self.steps.participant_answers_the_candidate_date(date_c, "NOT_GOING")
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.organizer_tentatively_selects_the_candidate_date(date_b)
+        self.steps.organizer_confirms_the_tentatively_selected_date()
+        self.steps.gathering_phase_is("SELECTING_SHOP")
+        self.steps.gathering_state_is_refreshed()
+        self.steps.response_table_has_board_layout()
+
+        shop_a = self.steps.open_shop_ids_for_the_confirmed_date()[0]
+        self.steps.organizer_shortlists_shops_via_api([shop_a])
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.organizer_selects_a_shop_for_finalize(shop_a)
+        self.steps.organizer_finalizes_via_dashboard()
+        self.steps.gathering_phase_is("FINALIZED")
+        self.steps.response_table_has_board_layout()
+
     # TDR-GTH-67 (new, ADR-0063決定2, 2026-09-19人間裁定「見出しのすぐ下から
     # 地図いっぱい」。見出しに会の名前と決まった開催日時を示す) --------------
 
