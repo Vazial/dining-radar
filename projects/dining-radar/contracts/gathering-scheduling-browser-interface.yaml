@@ -902,9 +902,9 @@
 # - `profiles.localAcceptance.verifiesScenarios`・`allowedPurposes`・`formControlExemptTestIds`・
 #   `.feature`は無変更。押せる部品は増えず、業務規則も増えない（ADR-0069と同じ扱い）。
 #
-# 2026-10-08 追補28 (architect、ADR-0072【提案中】。KEN-13、監査B3「日程を聞いている幹事画面を板の表形式に
+# 2026-10-08 追補28 (architect、ADR-0072【承認済み】。KEN-13、監査B3「日程を聞いている幹事画面を板の表形式に
 #   作り直す」への対応。板 party2/b2 Q5-a（PC）・Q5-a-SpDetail（スマホ）。contractVersionを0.28.0から
-#   0.29.0へ上げる。ドラフトであり、人間が承認するまで確定しない。表そのものは追補27で揃えたので触らない):
+#   0.29.0へ上げる。人間が2026-10-07に合意し確定。表そのものは追補27で揃えたので触らない):
 # - **`organizerDashboard.schedulingLayout`を新設した**（ADR-0072決定1）: SCHEDULINGの幹事画面の上から下の
 #   並びを固定する。見出し「日を決める　候補日N日・回答N人」→有力の札→人×日の表→「M/D(曜) に決める」
 #   ボタン→候補日の札の列と「候補日を足す」→回答リンク。いまの「日程」見出しと、候補日1件ずつの大きな
