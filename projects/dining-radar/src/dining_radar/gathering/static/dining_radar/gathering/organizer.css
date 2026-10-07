@@ -2651,85 +2651,86 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
   box-shadow: 0 0 0 1px #23302a;
 }
 
-/* --- organizerDashboard.responseTable (ADR-0056 decision 1) -------------
-   One row per participant link, one chip per candidate date that link
-   answered -- this file does not fix the visual layout (contract's own
-   note: "whether an absent cell renders as an empty grid cell or is simply
-   not laid out"); chips wrap freely rather than aligning to a fixed
-   per-date column. */
+/* --- organizerDashboard.responseTable (ADR-0056 decision 1, ADR-0071) ----
+   Grid: one row per participant link, one fixed-width column per candidate
+   date (board Q5-a/G1), one character per cell. The scroll box holds the
+   overflow so the page itself never scrolls sideways. */
+.gth-response-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
 .gth-response-table {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-}
-.gth-response-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  min-height: 2.75rem;
-  padding: 0.3rem 0.6rem;
+  width: max-content;
+  min-width: 100%;
   border: 1px solid #e7ebe6;
   border-radius: 0.5rem;
 }
-.gth-response-row-name {
-  flex: 0 0 auto;
-  min-width: 5.5rem;
+.gth-response-header,
+.gth-response-row {
+  display: grid;
+  grid-template-columns: 5.5rem repeat(var(--gth-response-columns, 1), 2.75rem);
+  align-items: stretch;
+  min-height: 2.5rem;
+  border-bottom: 1px solid #e7ebe6;
+}
+.gth-response-row:last-child {
+  border-bottom: 0;
+}
+.gth-response-row-name,
+.gth-response-name-head {
+  display: flex;
+  align-items: center;
+  padding: 0 0.5rem;
   font-size: 0.8125rem;
   font-weight: 700;
   color: #17201b;
 }
-.gth-response-row-cells {
-  flex: 1 1 auto;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.375rem;
-}
-.gth-response-cell {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.2rem 0.5rem;
-  border-radius: 999px;
-  background: #f2f4f0;
-  border: 1px solid #dfe4de;
-  color: #4b564e;
+.gth-response-name-head {
   font-size: 0.6875rem;
-  font-weight: 600;
-  white-space: nowrap;
+  color: #77827a;
+}
+.gth-response-cell,
+.gth-response-blank,
+.gth-response-count-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: #4b564e;
 }
 .gth-response-cell--going {
-  background: #e3efe9;
-  border-color: #14614a;
   color: #14614a;
 }
 .gth-response-cell--not_going {
   color: #8a3b2c;
 }
-.gth-response-row-empty {
-  font-size: 0.75rem;
-  color: #a7b0a8;
+.gth-response-count-row {
+  background: #fafbf9;
+}
+.gth-response-count-cell {
+  font-size: 0.8125rem;
+}
+.gth-response-painted {
+  background: #eaf4ee;
 }
 
 /* --- responseTable.header/leaderSummary (ADR-0060 decision 7) -----------
    header/headerCell make the table's own column structure (日付順)
-   machine-observable; the leader highlight itself is read from the
-   corresponding gathering-candidate-date's own data-current-leader
-   (architect design judgment, no duplicated value -- see this file's own
-   JS comment). */
-.gth-response-header {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.375rem;
-  padding: 0 0.6rem;
-}
+   machine-observable; the painted column is read from the corresponding
+   gathering-candidate-date's own data-current-leader / data-confirmed
+   (no duplicated value -- see this file's own JS comment). */
 .gth-response-header-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
   font-size: 0.6875rem;
   font-weight: 700;
-  color: #77827a;
-  padding: 0.1rem 0.5rem;
-}
-.gth-response-header-cell--leader {
-  color: #b98900;
+  color: #4b564e;
+  line-height: 1.2;
 }
 .gth-response-leader-summary {
   display: flex;

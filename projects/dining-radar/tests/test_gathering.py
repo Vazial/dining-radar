@@ -6591,3 +6591,40 @@ class Adr0060Addendum23LeaderSummaryPresenceRuleSourceTests(SimpleTestCase):
 
         self.assertIn('state.gathering.phase === "SCHEDULING"', body)
         self.assertIn("var leaderSummary = null;", body)
+
+
+class Adr0071ResponseTableGridSourceTests(SimpleTestCase):
+    """ADR-0071 (contract 0.28.0, addendum 27): the response table is a
+    person-by-date grid with one-character cells, a painted column chosen by
+    phase, a bottom going-count row; the finalized answers tab shows only the
+    table while the tally row and schedule cards stay hidden in the DOM."""
+
+    def _body(self):
+        source = GATHERING_JS.read_text(encoding="utf-8")
+        start = source.index("function renderResponseTable(leaders) {")
+        return source, source[start : source.index("focus-restore-across-rerender BEGIN", start)]
+
+    def test_cells_carry_one_character_marks_not_labelled_text(self):
+        source, body = self._body()
+        self.assertIn('{ GOING: "○", MAYBE: "△", NOT_GOING: "×" }', source)
+        self.assertIn("SCHEDULE_RESPONSE_MARKS[status]", body)
+        self.assertNotIn("SCHEDULE_RESPONSE_LABELS", body)
+        self.assertNotIn("誰が・どの日に答えたか", body)
+
+    def test_painted_column_is_leader_while_scheduling_else_confirmed(self):
+        _, body = self._body()
+        self.assertIn('state.gathering.phase === "SCHEDULING"', body)
+        self.assertIn("Boolean(leaders[candidateDate.id])", body)
+        self.assertIn("Boolean(candidateDate.isConfirmed)", body)
+
+    def test_going_count_row_cells_are_present_per_date(self):
+        _, body = self._body()
+        self.assertIn("gathering-response-table-going-count-cell", body)
+        self.assertIn("String(candidateDate.goingCount)", body)
+
+    def test_finalized_answers_tab_hides_tally_and_schedule_but_keeps_them(self):
+        source = GATHERING_JS.read_text(encoding="utf-8")
+        self.assertIn("function renderHiddenAnswersAggregates(statsRow, schedulePane)", source)
+        # desktop tab pane and mobile disclosure panel both go through it
+        self.assertEqual(source.count("renderHiddenAnswersAggregates(statsRow, schedulePane)"), 3)
+        self.assertIn('el("div", { hidden: true }, [statsRow, schedulePane])', source)
