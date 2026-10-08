@@ -13,9 +13,11 @@ division of labor with ``dining_radar.suggestions``/``dining_radar
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import uuid
 from collections import Counter, defaultdict
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -173,17 +175,37 @@ class InvalidShopSelectionError(Exception):
 
 
 def _get_owned_gathering(organizer: AbstractBaseUser, gathering_id: object) -> Gathering:
+    # The confirmed candidate date is joined in (KEN-47): shop lookups and the
+    # decision read its start_at, each a round trip (~70ms to the remote
+    # production database) when fetched lazily.
     try:
-        return Gathering.objects.get(id=gathering_id, organizer=organizer)
+        return Gathering.objects.select_related("confirmed_candidate_date").get(
+            id=gathering_id, organizer=organizer
+        )
     except (Gathering.DoesNotExist, ValueError, TypeError) as error:
         raise GatheringNotFoundError from error
 
 
 def _get_candidate_date(gathering: Gathering, candidate_date_id: object) -> CandidateDate:
+    """The candidate date of ``gathering`` with this id.
+
+    Loads the gathering's candidate dates once (KEN-47) and looks the id up in
+    memory: the response built right after the caller reads the same list, so
+    validating the id costs no round trip of its own.
+    """
     try:
-        return gathering.candidate_dates.get(id=candidate_date_id)
-    except (CandidateDate.DoesNotExist, ValueError, TypeError) as error:
+        wanted = (
+            candidate_date_id
+            if isinstance(candidate_date_id, uuid.UUID)
+            else uuid.UUID(str(candidate_date_id))
+        )
+    except (ValueError, TypeError, AttributeError) as error:
         raise CandidateDateNotFoundError from error
+    prefetch_related_objects([gathering], "candidate_dates")
+    for candidate_date in gathering.candidate_dates.all():
+        if candidate_date.id == wanted:
+            return candidate_date
+    raise CandidateDateNotFoundError
 
 
 def _get_participant_link(gathering: Gathering, link_id: object) -> ParticipantLink:
@@ -280,7 +302,11 @@ def list_gatherings(organizer: AbstractBaseUser) -> list[Gathering]:
     explicit about both keys rather than relying on ``Gathering.Meta
     .ordering``.
     """
-    return list(Gathering.objects.filter(organizer=organizer).order_by("-created_at", "id"))
+    return list(
+        Gathering.objects.filter(organizer=organizer)
+        .select_related("confirmed_candidate_date")
+        .order_by("-created_at", "id")
+    )
 
 
 def count_in_progress_gatherings(organizer: AbstractBaseUser) -> int:
@@ -366,6 +392,8 @@ def remove_candidate_date(
         raise GatheringNotInSchedulingPhaseError
     candidate_date = _get_candidate_date(gathering, candidate_date_id)
     candidate_date.delete()
+    # The list loaded by _get_candidate_date still holds the deleted row.
+    gathering._prefetched_objects_cache.pop("candidate_dates", None)
     return gathering
 
 
@@ -475,6 +503,68 @@ class CandidateDateTally:
     not_going_count: int
 
 
+@dataclass(frozen=True)
+class GatheringScheduleSummary:
+    """Everything ``Gathering`` serialization reads from the schedule responses."""
+
+    tallies: list[CandidateDateTally]
+    responded_count: int
+    anonymous_count: int
+
+
+def gathering_schedule_summaries(
+    gatherings: Sequence[Gathering],
+) -> dict[uuid.UUID, GatheringScheduleSummary]:
+    """``candidate_dates_with_tallies`` and ``response_summary`` for every gathering at once.
+
+    KEN-47: two queries in all (the candidate dates, one response query joined to
+    the answering link's display name), however many gatherings and candidate
+    dates there are. The per-gathering functions below were three queries per
+    gathering, and ``GET /gatherings`` ran them for every gathering in the list;
+    each query is a round trip (~70ms) to the remote production database.
+    """
+    gatherings = list(gatherings)
+    if len(gatherings) > 1:
+        # One query for every gathering's dates. A single gathering reads
+        # ``candidate_dates.all()`` directly: a cached list is reused, and a
+        # fresh read is never frozen onto an instance the caller keeps changing.
+        prefetch_related_objects(gatherings, "candidate_dates")
+    counts: dict[uuid.UUID, Counter] = defaultdict(Counter)
+    responded: dict[uuid.UUID, dict[uuid.UUID, str | None]] = defaultdict(dict)
+    rows = ScheduleResponse.objects.filter(
+        candidate_date__gathering__in=[gathering.id for gathering in gatherings]
+    ).values_list(
+        "candidate_date__gathering_id",
+        "candidate_date_id",
+        "participant_link_id",
+        "participant_link__display_name",
+        "status",
+    )
+    for gathering_id, candidate_date_id, link_id, display_name, status in rows:
+        counts[candidate_date_id][status] += 1
+        responded[gathering_id][link_id] = display_name
+
+    summaries = {}
+    for gathering in gatherings:
+        tallies = [
+            CandidateDateTally(
+                candidate_date=candidate_date,
+                going_count=counts[candidate_date.id][ScheduleResponseStatus.GOING],
+                maybe_count=counts[candidate_date.id][ScheduleResponseStatus.MAYBE],
+                not_going_count=counts[candidate_date.id][ScheduleResponseStatus.NOT_GOING],
+            )
+            for candidate_date in gathering.candidate_dates.all()
+        ]
+        tallies.sort(key=lambda tally: tally.candidate_date.start_at)
+        names = responded[gathering.id]
+        summaries[gathering.id] = GatheringScheduleSummary(
+            tallies=tallies,
+            responded_count=len(names),
+            anonymous_count=sum(1 for display_name in names.values() if display_name is None),
+        )
+    return summaries
+
+
 def candidate_dates_with_tallies(gathering: Gathering) -> list[CandidateDateTally]:
     """``Gathering.candidateDates``, ordered ``startAt`` ascending (開催日の早い順).
 
@@ -490,25 +580,7 @@ def candidate_dates_with_tallies(gathering: Gathering) -> list[CandidateDateTall
     order key can never occur -- unlike the retired ``goingCount`` key,
     which ties (and, worse, a non-deterministic tie-break) in production.
     """
-    candidate_dates = list(gathering.candidate_dates.all())
-    counts: dict[uuid.UUID, Counter] = defaultdict(Counter)
-    responses = ScheduleResponse.objects.filter(candidate_date__gathering=gathering).values_list(
-        "candidate_date_id", "status"
-    )
-    for candidate_date_id, status in responses:
-        counts[candidate_date_id][status] += 1
-
-    tallies = [
-        CandidateDateTally(
-            candidate_date=candidate_date,
-            going_count=counts[candidate_date.id][ScheduleResponseStatus.GOING],
-            maybe_count=counts[candidate_date.id][ScheduleResponseStatus.MAYBE],
-            not_going_count=counts[candidate_date.id][ScheduleResponseStatus.NOT_GOING],
-        )
-        for candidate_date in candidate_dates
-    ]
-    tallies.sort(key=lambda tally: tally.candidate_date.start_at)
-    return tallies
+    return gathering_schedule_summaries([gathering])[gathering.id].tallies
 
 
 def participant_link_schedule_responses(
@@ -598,17 +670,8 @@ def response_summary(gathering: Gathering) -> tuple[int, int]:
     ``revoke_participant_link`` only ever succeeds while ``has_responded`` is
     false.
     """
-    responded_link_ids = set(
-        ScheduleResponse.objects.filter(candidate_date__gathering=gathering)
-        .values_list("participant_link_id", flat=True)
-        .distinct()
-    )
-    if not responded_link_ids:
-        return 0, 0
-    anonymous_count = ParticipantLink.objects.filter(
-        id__in=responded_link_ids, display_name__isnull=True
-    ).count()
-    return len(responded_link_ids), anonymous_count
+    summary = gathering_schedule_summaries([gathering])[gathering.id]
+    return summary.responded_count, summary.anonymous_count
 
 
 _PopulationSource = tuple[Sequence[NormalizedCandidate], Origin]
@@ -640,10 +703,37 @@ def resolve_population_source() -> _PopulationSource | None:
     source = acceptance_state.gathering_population_source()
     if source is not None:
         return source
+    scope = _population_scope.get()
+    if scope is not None and "source" in scope:
+        return scope["source"]
     try:
-        return fetch_real_candidates()
+        resolved: _PopulationSource | None = fetch_real_candidates()
     except CandidateSourceUnavailableError:
-        return None
+        resolved = None
+    if scope is not None:
+        scope["source"] = resolved
+    return resolved
+
+
+# A request-local memo of one real provider fetch (KEN-47). It lives only for
+# the ``with`` block of one request and is never stored anywhere else, so this
+# is not a cache in the sense of ADR-0018: the next request fetches again.
+_population_scope: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "gathering_population_scope", default=None
+)
+
+
+@contextlib.contextmanager
+def request_population_scope() -> Iterator[None]:
+    """Inside the block, ``resolve_population_source`` fetches from the provider at
+    most once. A request that resolves the population in its service call and
+    again to serialize its response (``setShortlistedShops``) would otherwise
+    call the provider twice."""
+    token = _population_scope.set({})
+    try:
+        yield
+    finally:
+        _population_scope.reset(token)
 
 
 def open_shop_population_for_candidate_date(
@@ -766,7 +856,9 @@ def finalize_gathering(
     gathering = _get_owned_gathering(organizer, gathering_id)
     if gathering.phase == GatheringPhase.SCHEDULING:
         raise GatheringNotInSelectingShopPhaseError
-    current_shop_ids = set(gathering.shortlisted_shops.values_list("shop_id", flat=True))
+    # Loaded once; the response serializes the same shortlist (KEN-47).
+    prefetch_related_objects([gathering], "shortlisted_shops")
+    current_shop_ids = {shop.shop_id for shop in gathering.shortlisted_shops.all()}
     if not current_shop_ids:
         raise ShopVotingNotStartedError
     if gathering.phase == GatheringPhase.FINALIZED:
@@ -790,10 +882,26 @@ class ShortlistedShopTally:
     responded_participant_count: int
 
 
+def vote_submission_rows(
+    gathering_ids: Sequence[uuid.UUID],
+) -> dict[uuid.UUID, list[tuple[uuid.UUID, datetime, dict]]]:
+    """``(participant_link_id, submitted_at, votes)`` of every ``ShopVoteSubmission``,
+    grouped by gathering -- one query for any number of gatherings (KEN-47)."""
+    rows: dict[uuid.UUID, list[tuple[uuid.UUID, datetime, dict]]] = defaultdict(list)
+    for gathering_id, link_id, submitted_at, votes in ShopVoteSubmission.objects.filter(
+        participant_link__gathering__in=list(gathering_ids)
+    ).values_list("participant_link__gathering_id", "participant_link_id", "submitted_at", "votes"):
+        rows[gathering_id].append((link_id, submitted_at, votes))
+    return rows
+
+
 def shortlisted_shops_with_tallies(
     gathering: Gathering,
     shop_lookup: dict | None = None,
     origin: Origin | None = None,
+    *,
+    shops: Sequence[ShortlistedShop] | None = None,
+    submissions: Sequence[tuple[datetime, dict]] | None = None,
 ) -> list[ShortlistedShopTally]:
     """``Gathering.shortlistedShops``, ordered ``wantToGoCount + okToGoCount`` descending,
     ties broken by distance from ``origin`` ascending (near-first), then ``shop_id``
@@ -826,14 +934,25 @@ def shortlisted_shops_with_tallies(
     no shortlisted shops yet) -- omitting them collapses the distance
     tie-break to always-``None``, leaving only the final ``shop_id``
     safety net.
+
+    ``shops`` and ``submissions`` (KEN-47) are what the caller has already
+    loaded for this gathering -- ``shops`` in ``gathering.shortlisted_shops.all()``
+    order, ``submissions`` as ``(submitted_at, votes)`` pairs -- so serializing
+    several gatherings, or one gathering twice, reads each only once. Without
+    them this loads its own, and skips the submissions query when the
+    gathering has no shortlisted shop.
     """
     shop_lookup = shop_lookup or {}
-    shops = list(gathering.shortlisted_shops.all())
-    submissions = list(
-        ShopVoteSubmission.objects.filter(participant_link__gathering=gathering).values_list(
-            "submitted_at", "votes"
+    if shops is None:
+        shops = list(gathering.shortlisted_shops.all())
+    if not shops:
+        return []
+    if submissions is None:
+        submissions = list(
+            ShopVoteSubmission.objects.filter(participant_link__gathering=gathering).values_list(
+                "submitted_at", "votes"
+            )
         )
-    )
     tallies = []
     for shop in shops:
         counts: Counter = Counter()
@@ -884,7 +1003,11 @@ def set_shop_votes(token: str, votes: Sequence[tuple[str, str]]) -> ParticipantL
     link = _get_participant_link_by_token(token)
     _authorize_participant_link(link)
     gathering = link.gathering
-    current_shop_ids = set(gathering.shortlisted_shops.values_list("shop_id", flat=True))
+    # Loaded once and reused by the response view built right after this call
+    # (participant_shop_vote_options reads gathering.shortlisted_shops.all()),
+    # so checking the shop ids costs no extra round trip (KEN-47).
+    prefetch_related_objects([gathering], "shortlisted_shops")
+    current_shop_ids = {shop.shop_id for shop in gathering.shortlisted_shops.all()}
     if not current_shop_ids:
         raise ShopVotingNotStartedError
     if gathering.phase == GatheringPhase.FINALIZED:
@@ -894,9 +1017,26 @@ def set_shop_votes(token: str, votes: Sequence[tuple[str, str]]) -> ParticipantL
         raise InvalidShopSelectionError
     if not set(shop_ids) <= current_shop_ids:
         raise InvalidShopSelectionError
-    ShopVoteSubmission.objects.update_or_create(
-        participant_link=link, defaults={"votes": dict(votes)}
-    )
+    # One autocommit upsert statement, one round trip (KEN-47, the same shape as
+    # set_schedule_response): update_or_create costs a transaction, a SELECT and
+    # a write -- four round trips to the remote production database.
+    table = ShopVoteSubmission._meta.db_table
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"INSERT INTO {table} (participant_link_id, votes, submitted_at) "
+            "VALUES (%s, %s, %s) "
+            "ON CONFLICT (participant_link_id) "
+            "DO UPDATE SET votes = EXCLUDED.votes, submitted_at = EXCLUDED.submitted_at",
+            [
+                ParticipantLink._meta.pk.get_db_prep_value(link.pk, connection),
+                ShopVoteSubmission._meta.get_field("votes").get_db_prep_value(
+                    dict(votes), connection
+                ),
+                ShopVoteSubmission._meta.get_field("submitted_at").get_db_prep_value(
+                    timezone.now(), connection
+                ),
+            ],
+        )
     return link
 
 
@@ -925,7 +1065,10 @@ def _shop_distance_or_none(
 
 
 def shortlisted_shops_nearest_first(
-    gathering: Gathering, shop_lookup: dict, origin: Origin | None
+    gathering: Gathering,
+    shop_lookup: dict,
+    origin: Origin | None,
+    shops: Sequence[ShortlistedShop] | None = None,
 ) -> list[ShortlistedShop]:
     """``Gathering.shortlistedShops``, ordered nearest-first from ``origin`` (adr/0044 decision 2),
     a tie in the raw distance itself broken by ``shop_id`` ascending (adr/0048).
@@ -950,7 +1093,8 @@ def shortlisted_shops_nearest_first(
     ``added_at`` value at this database's timestamp resolution, the same
     class of gap adr/0048 closes elsewhere in this module.
     """
-    shops = list(gathering.shortlisted_shops.all())
+    if shops is None:
+        shops = list(gathering.shortlisted_shops.all())
     decorated = [(shop, _shop_distance_or_none(shop, shop_lookup, origin)) for shop in shops]
     decorated.sort(
         key=lambda pair: (
@@ -991,18 +1135,30 @@ def participant_shop_vote_options(
     submission's ``votes`` mapping simply omits this shop id (this
     participant answered other shops but not this one yet).
     """
+    # KEN-47: the shortlist and every submission of the gathering are read once;
+    # this viewer's own submission is picked out of the same rows.
+    shops = list(link.gathering.shortlisted_shops.all())
+    if not shops:
+        return []
+    rows = vote_submission_rows([link.gathering_id])[link.gathering_id]
     tallies_by_shop_id = {
         tally.shortlisted_shop.shop_id: tally
-        for tally in shortlisted_shops_with_tallies(link.gathering, shop_lookup, origin)
+        for tally in shortlisted_shops_with_tallies(
+            link.gathering,
+            shop_lookup,
+            origin,
+            shops=shops,
+            submissions=[(submitted_at, votes) for _link_id, submitted_at, votes in rows],
+        )
     }
-    submission = ShopVoteSubmission.objects.filter(participant_link=link).first()
+    own = next(((at, votes) for link_id, at, votes in rows if link_id == link.id), None)
     options = []
-    for shop in shortlisted_shops_nearest_first(link.gathering, shop_lookup, origin):
+    for shop in shortlisted_shops_nearest_first(link.gathering, shop_lookup, origin, shops):
         tally = tallies_by_shop_id[shop.shop_id]
-        if submission is None or submission.submitted_at < shop.added_at:
+        if own is None or own[0] < shop.added_at:
             your_vote = None
         else:
-            your_vote = (submission.votes or {}).get(shop.shop_id)
+            your_vote = (own[1] or {}).get(shop.shop_id)
         options.append(
             ParticipantShopVoteOption(
                 shortlisted_shop=shop,
@@ -1018,7 +1174,11 @@ def participant_shop_vote_options(
 
 def _get_participant_link_by_token(token: str) -> ParticipantLink:
     try:
-        return ParticipantLink.objects.select_related("gathering").get(token=token)
+        # The confirmed candidate date rides along (KEN-47): the decision and the
+        # shop lookup read its start_at, each a round trip when fetched lazily.
+        return ParticipantLink.objects.select_related(
+            "gathering", "gathering__confirmed_candidate_date"
+        ).get(token=token)
     except ParticipantLink.DoesNotExist as error:
         raise LinkNotFoundError from error
 
@@ -1072,15 +1232,11 @@ def set_schedule_response(token: str, candidate_date_id: object, status: str) ->
     gathering = link.gathering
     if gathering.phase == GatheringPhase.FINALIZED:
         raise GatheringFinalizedError
-    # Loaded once and reused by the response view built right after this call
-    # (participant_schedule_view_data reads gathering.candidate_dates.all()), so
-    # validating the id costs no extra round trip (KEN-46).
-    prefetch_related_objects([gathering], "candidate_dates")
-    candidate_date = next(
-        (cd for cd in gathering.candidate_dates.all() if cd.id == candidate_date_id), None
-    )
-    if candidate_date is None:
-        raise CandidateDateNotFoundError
+    # The candidate dates are loaded once and reused by the response view built
+    # right after this call (participant_schedule_view_data reads
+    # gathering.candidate_dates.all()), so validating the id costs no extra
+    # round trip (KEN-46).
+    candidate_date = _get_candidate_date(gathering, candidate_date_id)
     # One autocommit upsert statement, one round trip (KEN-46): update_or_create
     # costs a transaction, a SELECT and a write, and bulk_create wraps its write in
     # a transaction (an extra COMMIT round trip) -- each round trip is ~70ms to the
