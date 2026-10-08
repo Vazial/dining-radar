@@ -913,12 +913,30 @@
       });
   }
 
+  // ADR-0072 decision 3: the tentatively selected chip, else the one and only
+  // current leader, else none.
+  function confirmDateTarget() {
+    var candidateDates = state.gathering.candidateDates;
+    var tentative = candidateDates.filter(function (candidateDate) {
+      return candidateDate.id === state.tentativeSelectedId;
+    })[0];
+    if (tentative) {
+      return tentative;
+    }
+    var leaders = computeCandidateDateLeaders(candidateDates);
+    var leading = candidateDates.filter(function (candidateDate) {
+      return Boolean(leaders[candidateDate.id]);
+    });
+    return leading.length === 1 ? leading[0] : null;
+  }
+
   function confirmDate() {
-    if (!state.tentativeSelectedId) {
+    var target = confirmDateTarget();
+    if (!target) {
       return;
     }
     requestJson("POST", gatheringUrl() + "/confirm-date", {
-      candidateDateId: state.tentativeSelectedId,
+      candidateDateId: target.id,
     }).then(function (result) {
       if (result.status === 200) {
         // adr/0035 decision 1 item 1: tentativeSelectedId/openShopPreview are
@@ -1459,7 +1477,7 @@
     }
 
     var topChildren = [
-      el("span", { class: "gth-date-value" }, [formatGatheringDateTime(candidateDate.startAt)]),
+      el("span", { class: "gth-date-value" }, [formatGatheringDate(candidateDate.startAt)]),
       candidateDate.isConfirmed ? el("span", { class: "gth-date-badge" }, ["決定"]) : null,
     ];
 
@@ -1476,7 +1494,7 @@
           "aria-label": "この候補日を削除",
           class: "gth-date-remove",
         },
-        ["削除"]
+        ["×"]
       );
       removeButton.addEventListener("click", function (event) {
         // Stop this from also bubbling into the parent's own
@@ -1490,14 +1508,10 @@
       topChildren.push(removeButton);
     }
 
-    var node = el("div", attrs, [
-      el("div", { class: "gth-date-top" }, topChildren),
-      el("div", { class: "gth-date-tally" }, [
-        el("span", {}, ["行ける ", el("b", {}, [String(candidateDate.goingCount)])]),
-        el("span", {}, ["たぶん ", el("b", {}, [String(candidateDate.maybeCount)])]),
-        el("span", {}, ["むり ", el("b", {}, [String(candidateDate.notGoingCount)])]),
-      ]),
-    ]);
+    // ADR-0072 decision 2: one small chip (date + remove control); the
+    // going/maybe/not-going tally lives in the response table and the
+    // data-*-count attributes above, not on the chip.
+    var node = el("div", attrs, topChildren);
     if (isSchedulingPhase) {
       node.addEventListener("click", function () {
         tentativelySelectCandidateDate(candidateDate.id);
@@ -1622,16 +1636,17 @@
   }
 
   function renderConfirmDate() {
+    var target = confirmDateTarget();
     var button = el(
       "button",
       {
         type: "button",
         "data-testid": "gathering-confirm-date-select",
         "data-gathering-control-purpose": "gathering-confirm-date-select",
-        disabled: !state.tentativeSelectedId,
-        class: "gth-btn gth-btn-primary gth-btn-block",
+        disabled: !target,
+        class: "gth-btn gth-btn-primary gth-confirm-date",
       },
-      ["この日にする"]
+      [target ? formatGatheringDate(target.startAt) + " に決める" : "日を選んでください"]
     );
     button.addEventListener("click", confirmDate);
     return button;
@@ -3248,20 +3263,13 @@
       candidateDateListChildren
     );
 
-    var schedulePaneChildren = [
+    // FINALIZED reuses schedulePane (candidate chips) inside its summary.
+    var schedulePane = el("div", { class: "gth-pane" }, [
       el("div", { class: "gth-pane-head" }, ["日程"]),
       candidateDateList,
-    ];
-    if (phase === "SCHEDULING") {
-      schedulePaneChildren.push(renderOpenShopPreview());
-      schedulePaneChildren.push(renderConfirmDate());
-    }
-    var schedulePane = el("div", { class: "gth-pane" }, schedulePaneChildren);
+    ]);
 
     var sections = [header];
-    if (phase === "SCHEDULING") {
-      sections.push(schedulePane);
-    }
 
     // ADR-0063 decision 3 (2026-09-19, board S4): the tally row
     // (respondedSummary/unansweredSummary) and the schedule panel this
@@ -3294,7 +3302,24 @@
     } else if (phase === "SCHEDULING") {
       // ADR-0056 decision 1: always present, alongside (not replacing) the
       // per-candidate-date tally above and the link-management list below.
+      // ADR-0072 decision 1 (board Q5-a): heading, leader summary + table,
+      // confirm button, open-shop preview, chips + add, link pane.
+      sections.push(
+        el("h2", { class: "gth-pane-head gth-scheduling-head" }, [
+          "日を決める",
+          el("span", { class: "gth-pane-sub" }, [
+            "候補日" + state.gathering.candidateDates.length + "日・回答" +
+              state.gathering.respondedParticipantCount + "人",
+          ]),
+        ])
+      );
       sections.push(renderResponseTable(candidateDateLeaders));
+      sections.push(renderConfirmDate());
+      var previewNode = renderOpenShopPreview();
+      if (previewNode) {
+        sections.push(previewNode);
+      }
+      sections.push(el("div", { class: "gth-pane" }, [candidateDateList]));
       sections.push(renderParticipantLinkPane());
     }
 

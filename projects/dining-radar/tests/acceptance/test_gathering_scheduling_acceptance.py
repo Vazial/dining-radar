@@ -1905,6 +1905,77 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.candidate_date_current_leaders_are(set())
         self.steps.response_table_has_board_layout()
 
+    def test_gth_scheduling_screen_follows_the_board_and_confirms_the_sole_leader(self) -> None:
+        """専用シナリオの無い契約Must（schedulingLayout / candidateDateAppearance /
+        confirmDate.target、追補28 / ADR-0072）。3候補日のうち1日目だけが有力な
+        Given: 並び（見出し→有力→表→決めるボタン→札→リンク）と札の形を観測し、
+        仮選択が無くても対象は有力な1日で、ボタンはその日を確定する。"""
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        first, second, third = self.dsl.month_crossing_thursday_isos()
+        self.steps.organizer_has_a_scheduling_gathering("会追補28", [first, second, third])
+        date_a, date_b, _date_c = (self.dsl.candidate_date_id_at(i) for i in range(3))
+        link_one = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_one)
+        self.steps.participant_answers_the_candidate_date(date_a, "GOING")
+        self.steps.participant_answers_the_candidate_date(date_b, "MAYBE")
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.candidate_date_current_leaders_are({date_a})
+        self.steps.scheduling_layout_follows_the_board()
+        self.steps.candidate_dates_are_small_chips()
+        self.steps.confirm_date_follows_its_target()
+        self.steps.organizer_confirms_the_target_date()
+        self.steps.gathering_phase_is("SELECTING_SHOP")
+
+    def test_gth_scheduling_confirm_target_prefers_the_tentative_chip(self) -> None:
+        """confirmDate.target（追補28 / ADR-0072決定3・4）。有力な日（1日目）がある
+        Given: 2日目の札を押して仮選択すると、ボタンの対象は2日目に移り、
+        そのボタンは2日目を確定する。"""
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        first, second, third = self.dsl.month_crossing_thursday_isos()
+        self.steps.organizer_has_a_scheduling_gathering("会追補28仮選択", [first, second, third])
+        date_a, date_b, _date_c = (self.dsl.candidate_date_id_at(i) for i in range(3))
+        link_one = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_one)
+        self.steps.participant_answers_the_candidate_date(date_a, "GOING")
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.candidate_date_current_leaders_are({date_a})
+        self.steps.organizer_tentatively_selects_the_candidate_date(date_b)
+        self.steps.confirm_date_follows_its_target()
+        self.steps.organizer_confirms_the_target_date()
+        self.steps.gathering_phase_is("SELECTING_SHOP")
+
+    def test_gth_scheduling_confirm_has_no_target_when_leaders_tie(self) -> None:
+        """confirmDate.target / disabledState（追補28 / ADR-0072決定3）。有力が
+        同点で複数（1日目・2日目が「行ける」1つずつ）の Given: 対象なしで、
+        ボタンは無効、文言は「日を選んでください」。先頭の日を黙って
+        対象にしてはならない。"""
+        self._sign_in()
+        first, second, third = self.dsl.month_crossing_thursday_isos()
+        self.steps.organizer_has_a_scheduling_gathering("会追補28同点", [first, second, third])
+        date_a, date_b, _date_c = (self.dsl.candidate_date_id_at(i) for i in range(3))
+        link_one = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_one)
+        self.steps.participant_answers_the_candidate_date(date_a, "GOING")
+        link_two = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_two)
+        self.steps.participant_answers_the_candidate_date(date_b, "GOING")
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.candidate_date_current_leaders_are({date_a, date_b})
+        self.steps.confirm_date_follows_its_target()
+
+    def test_gth_scheduling_confirm_has_no_target_without_a_leader(self) -> None:
+        """confirmDate.target / disabledState（追補28 / ADR-0072決定3）。誰も答えて
+        いない（有力な日が無い）Given: 対象なしで、ボタンは無効、文言は
+        「日を選んでください」。"""
+        self._sign_in()
+        first, second, third = self.dsl.month_crossing_thursday_isos()
+        self.steps.organizer_has_a_scheduling_gathering("会追補28対象なし", [first, second, third])
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.candidate_date_current_leaders_are(set())
+        self.steps.confirm_date_follows_its_target()
+
     # TDR-GTH-67 (new, ADR-0063決定2, 2026-09-19人間裁定「見出しのすぐ下から
     # 地図いっぱい」。見出しに会の名前と決まった開催日時を示す) --------------
 

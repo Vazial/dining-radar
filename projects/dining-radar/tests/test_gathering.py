@@ -6107,11 +6107,13 @@ class GatheringDateTimeFormattingSourceTests(SimpleTestCase):
         gathering_source = GATHERING_JS.read_text(encoding="utf-8")
         self.assertNotIn("[candidateDate.startAt]", gathering_source)
         self.assertNotIn("[confirmed ? confirmed.startAt", gathering_source)
-        self.assertIn("formatGatheringDateTime(candidateDate.startAt)", gathering_source)
+        # ADR-0072 decision 2 (board Q5-a): the chip shows the date only
+        # (M/D(曜)); candidate dates are always 12:00 (ADR-0054), which the
+        # board does not draw on the chip either.
+        self.assertIn("formatGatheringDate(candidateDate.startAt)", gathering_source)
         # Board D4 (ADR-0062 decision 4): the decision panel's own date
         # splits into a big date + separate time (formatGatheringDate/
-        # formatGatheringTime), not the combined formatGatheringDateTime
-        # gathering-candidate-date above still uses.
+        # formatGatheringTime), not the combined formatGatheringDateTime.
         self.assertIn("formatGatheringDate(confirmed.startAt)", gathering_source)
         self.assertIn("formatGatheringTime(confirmed.startAt)", gathering_source)
 

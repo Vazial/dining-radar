@@ -902,11 +902,29 @@
 # - `profiles.localAcceptance.verifiesScenarios`・`allowedPurposes`・`formControlExemptTestIds`・
 #   `.feature`は無変更。押せる部品は増えず、業務規則も増えない（ADR-0069と同じ扱い）。
 #
+# 2026-10-08 追補28 (architect、ADR-0072【承認済み】。KEN-13、監査B3「日程を聞いている幹事画面を板の表形式に
+#   作り直す」への対応。板 party2/b2 Q5-a（PC）・Q5-a-SpDetail（スマホ）。contractVersionを0.28.0から
+#   0.29.0へ上げる。人間が2026-10-07に合意し確定。表そのものは追補27で揃えたので触らない):
+# - **`organizerDashboard.schedulingLayout`を新設した**（ADR-0072決定1）: SCHEDULINGの幹事画面の上から下の
+#   並びを固定する。見出し「日を決める　候補日N日・回答N人」→有力の札→人×日の表→「M/D(曜) に決める」
+#   ボタン→候補日の札の列と「候補日を足す」→回答リンク。いまの「日程」見出しと、候補日1件ずつの大きな
+#   カードの縦並びは外す。
+# - **`candidateDateList.candidateDate`の見た目を札にした**（ADR-0072決定2）: 1日=小さな札1つ（日付と×
+#   だけ）。「行ける/たぶん/むり」の内訳は札から外す（表と`data-*-count`が持つ）。属性・順序・存在規則は
+#   無変更。削除は札の×（`removeCandidateDate`、purposeと存在規則は無変更）。
+# - **`confirmDate`の対象と無効の条件を変えた**（ADR-0072決定3）: ボタンの文言は対象の日を含む
+#   「M/D(曜) に決める」。対象は、仮に選んだ札があればその日、無ければ有力な日が1つだけのときその日、
+#   それ以外（有力なし・同点で複数）は対象なしでボタンは`disabled`。
+# - **仮選択の入口を札に移した**（ADR-0072決定4）: `tentativeSelectionAndPreview.trigger`は札を押す操作に
+#   なる（大きなカードを押す操作ではなくなる）。仮選択の意味・店の件数プレビューは無変更。
+# - `profiles.localAcceptance.verifiesScenarios`・`allowedPurposes`・`formControlExemptTestIds`・
+#   `.feature`は無変更。押せる部品は増えず、業務規則も増えない。
+#
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.28.0'
+contractVersion: '0.29.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -2978,6 +2996,26 @@ browserControlSurface:
           shopTab, scheduleTab or answersTab makes participantLinkCopy not
           visible (see participantLinkCopy.presenceRule above). Calls no
           additional public operation.
+    schedulingLayout:
+      description: >-
+        Added 2026-10-08 (追補28, ADR-0072決定1, board party2/b2 Q5-a). Applies
+        only while phase is SCHEDULING; the other two phases are unchanged.
+      order: >-
+        In DOM and on screen, top to bottom: (1) heading "日を決める" with the
+        candidate-date count and the responded-participant count
+        (gathering-responded-summary's number; wording not fixed); (2)
+        responseTable.leaderSummary; (3) responseTable (layout, paintedColumn
+        and goingCountRow as 追補27); (4) confirmDate; (5)
+        gathering-open-shop-preview when present; (6) candidateDateList
+        followed by addCandidateDateOpen; (7) participantLinkList. The
+        previous standalone "日程" heading is removed.
+      candidateDateAppearance: >-
+        Each gathering-candidate-date is one small chip holding the date
+        (M/D(曜)) and its remove control, laid out in a wrapping row inside
+        candidateDateList (not one full-width card per date). The
+        行ける/たぶん/むり tally text is not shown on the chip. The chip is
+        at least 44px tall for activation (ADR-0066 ui invariants apply).
+        Chips never overflow the page horizontally.
     confirmDate:
       testId: gathering-confirm-date-select
       purpose: gathering-confirm-date-select
@@ -2994,9 +3032,19 @@ browserControlSurface:
         while closing the FINALIZED observation gap, adr/0042;
         Organizer.dc.html state②'s footer replaces this button entirely
         with shopSelectionEntry.open/shortlistedShopVotes.finalizeSubmit).
+      target: >-
+        Added 2026-10-08 (追補28, ADR-0072決定3). The date this control would
+        confirm is, in order: the gathering-candidate-date with
+        data-tentative-selected="true" if any; else the one
+        gathering-candidate-date with data-current-leader="true" if exactly
+        one carries it; else none. The visible label contains that date
+        (M/D(曜)) and "に決める" ("日を選んでください" when there is no target;
+        exact wording otherwise not fixed). Activating it confirms the target.
       disabledState: >-
-        While present, carries the native disabled state whenever no
-        gathering-candidate-date currently has data-tentative-selected="true"
+        **Changed 2026-10-08 (追補28)**: carries the native disabled state
+        exactly when `target` above is none. (Previously: whenever no
+        gathering-candidate-date had data-tentative-selected="true".)
+        Original rule: whenever no gathering-candidate-date currently has data-tentative-selected="true"
         (mirrors candidate-search-browser-interface.yaml's
         deckNavigation.disabledState convention for a boundary condition
         rather than removing the control).

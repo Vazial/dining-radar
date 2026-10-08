@@ -1723,6 +1723,165 @@ class GatheringSchedulingBrowserDsl:
         """
         assert_absent(self.assertions, self.page, RESPONSE_TABLE_LEADER_SUMMARY)
 
+    # organizerDashboard.schedulingLayout / candidateDate chip / confirmDate
+    # target (ADR-0072, contract 0.29.0 追補28) -----------------------------
+
+    def _chip_press_position(self, chip: Locator) -> dict[str, float]:
+        """A point inside ``chip`` on the side away from its remove control
+        (the middle of the chip when it has none)."""
+        box = chip.bounding_box()
+        self.assertions.assertIsNotNone(box, "candidate-date chip has no box")
+        remove = by_test_id(chip, CANDIDATE_DATE_REMOVE)
+        if remove.count() == 0:
+            return {"x": box["width"] / 2, "y": box["height"] / 2}
+        remove_box = remove.first.bounding_box()
+        self.assertions.assertIsNotNone(remove_box, "remove control has no box")
+        left_free = remove_box["x"] - box["x"]
+        right_free = box["x"] + box["width"] - (remove_box["x"] + remove_box["width"])
+        if left_free >= right_free:
+            return {"x": left_free / 2, "y": box["height"] / 2}
+        return {"x": box["width"] - right_free / 2, "y": box["height"] / 2}
+
+    def _chip_date_parts(self, candidate_date_id: str) -> tuple[int, int, str]:
+        """(month, day, weekday char) of the candidate date, from the start
+        time this DSL sent (same source as _expected_header_parts)."""
+        start_by_id = {v: k for k, v in self._candidate_date_id_by_start_at.items()}
+        self.assertions.assertIn(candidate_date_id, start_by_id)
+        day = datetime.fromisoformat(start_by_id[candidate_date_id])
+        return day.month, day.day, _JP_WEEKDAYS[day.weekday()]
+
+    def _expected_confirm_target(self) -> str | None:
+        """confirmDate.target (追補28): the tentatively selected date, else the
+        one current leader if exactly one, else none -- read from the
+        gathering-candidate-date data-* attributes only."""
+        tentative = self._candidate_date_flags(TENTATIVE_SELECTED_ATTR)
+        if tentative:
+            self.assertions.assertEqual(len(tentative), 1, "more than one tentative selection")
+            return next(iter(tentative))
+        leaders = self._candidate_date_flags(CURRENT_LEADER_ATTR)
+        return next(iter(leaders)) if len(leaders) == 1 else None
+
+    def assert_scheduling_layout_follows_the_board(self) -> None:
+        """schedulingLayout.order (ADR-0072 decision 1), SCHEDULING only:
+        top to bottom -- heading 「日を決める」 carrying the candidate-date
+        count and the responded count, leaderSummary, responseTable,
+        confirmDate, the open-shop preview when present, candidateDateList,
+        addCandidateDateOpen, participantLinkList. Checked both in DOM order
+        and by on-screen top. The standalone 「日程」 heading is not visible.
+        """
+        self.assertions.assertEqual(self._read_gathering_phase_from_dom(), "SCHEDULING")
+        probe = (
+            "(el) => ({top: el.getBoundingClientRect().top + window.scrollY,"
+            " dom: Array.from(document.getElementsByTagName('*')).indexOf(el)})"
+        )
+        heading = self.page.get_by_role("heading", name=re.compile("日を決める"))
+        expect(heading.first).to_be_visible()
+        candidate_count = by_test_id(self.page, CANDIDATE_DATE).count()
+        responded = assert_present(self.assertions, self.page, RESPONDED_SUMMARY).get_attribute(
+            RESPONDED_COUNT_ATTR
+        )
+        heading_text = heading.first.inner_text()
+        for number in (str(candidate_count), responded):
+            self.assertions.assertIsNotNone(
+                re.search(rf"(?<!\d){number}(?!\d)", heading_text),
+                f"heading {heading_text!r} does not carry {number}",
+            )
+        ordered_test_ids = [
+            RESPONSE_TABLE_LEADER_SUMMARY,
+            RESPONSE_TABLE,
+            CONFIRM_DATE_SELECT,
+            *([OPEN_SHOP_PREVIEW] if by_test_id(self.page, OPEN_SHOP_PREVIEW).count() else []),
+            CANDIDATE_DATE_LIST,
+            ADD_CANDIDATE_DATE_OPEN,
+            PARTICIPANT_LINK_LIST,
+        ]
+        names = ["heading", *ordered_test_ids]
+        positions = [heading.first.evaluate(probe)] + [
+            assert_present(self.assertions, self.page, test_id).evaluate(probe)
+            for test_id in ordered_test_ids
+        ]
+        for i in range(len(names) - 1):
+            a, b = positions[i], positions[i + 1]
+            self.assertions.assertLess(
+                a["dom"], b["dom"], f"DOM order: {names[i]} before {names[i + 1]}"
+            )
+            self.assertions.assertLessEqual(
+                a["top"], b["top"], f"on-screen order: {names[i]} above {names[i + 1]}"
+            )
+        old_heading = self.page.get_by_role("heading", name=_SCHEDULE_PANE_HEADING, exact=True)
+        for i in range(old_heading.count()):
+            self.assertions.assertFalse(
+                old_heading.nth(i).is_visible(), "the standalone 日程 heading is visible"
+            )
+
+    def assert_candidate_dates_are_small_chips(self) -> None:
+        """candidateDateAppearance (ADR-0072 decision 2): each
+        gathering-candidate-date is a small chip -- visible text holds its
+        M/D(曜) and nothing of the 行ける/たぶん/むり tally; its remove control
+        sits inside it; at least 44px tall; chips wrap in a row (more than one
+        per line, no full-width card per date); none runs past the page's
+        right edge."""
+        nodes = by_test_id(self.page, CANDIDATE_DATE)
+        count = nodes.count()
+        self.assertions.assertGreaterEqual(count, 2, "needs two or more candidate dates")
+        viewport_width = self.page.evaluate("document.documentElement.clientWidth")
+        rows = set()
+        for i in range(count):
+            chip = nodes.nth(i)
+            expect(chip).to_be_visible()
+            text = chip.inner_text()
+            month, day, weekday = self._chip_date_parts(chip.get_attribute(CANDIDATE_DATE_ID_ATTR))
+            self.assertions.assertIsNotNone(
+                re.search(rf"(?<!\d){month}/{day}\s*[(（]{weekday}[)）]", text),
+                f"chip text {text!r} has no {month}/{day}({weekday})",
+            )
+            for tally_word in ("行ける", "たぶん", "むり"):
+                self.assertions.assertNotIn(tally_word, text)
+            box = chip.bounding_box()
+            self.assertions.assertGreaterEqual(box["height"], 44, f"chip {i} is under 44px tall")
+            self.assertions.assertLessEqual(box["x"] + box["width"], viewport_width + 1)
+            remove = by_test_id(chip, CANDIDATE_DATE_REMOVE)
+            expect(remove).to_have_count(1)
+            remove_box = remove.first.bounding_box()
+            self.assertions.assertTrue(
+                box["x"] - 1 <= remove_box["x"]
+                and remove_box["x"] + remove_box["width"] <= box["x"] + box["width"] + 1
+                and box["y"] - 1 <= remove_box["y"]
+                and remove_box["y"] + remove_box["height"] <= box["y"] + box["height"] + 1,
+                f"remove control is not inside chip {i}",
+            )
+            rows.add(round(box["y"] / box["height"]))
+        self.assertions.assertLess(len(rows), count, "every chip is on its own line")
+
+    def assert_confirm_date_follows_its_target(self) -> None:
+        """confirmDate.target / disabledState (ADR-0072 decision 3): with a
+        target (tentative selection, else the single current leader) the
+        button is enabled and its label holds that date's M/D(曜) and
+        「に決める」; with none it is disabled and reads 「日を選んでください」."""
+        button = assert_present(self.assertions, self.page, CONFIRM_DATE_SELECT)
+        target = self._expected_confirm_target()
+        if target is None:
+            expect(button).to_be_disabled()
+            expect(button).to_contain_text("日を選んでください")
+            return
+        expect(button).to_be_enabled()
+        month, day, weekday = self._chip_date_parts(target)
+        text = button.inner_text()
+        self.assertions.assertIsNotNone(
+            re.search(rf"(?<!\d){month}/{day}\s*[(（]{weekday}[)）]", text),
+            f"button label {text!r} does not name {month}/{day}({weekday})",
+        )
+        self.assertions.assertIn("に決める", text)
+
+    def confirm_the_target_date(self) -> None:
+        """confirmDate.target: activating the button confirms exactly the
+        target, whether it came from a tentative selection or the sole leader."""
+        target = self._expected_confirm_target()
+        self.assertions.assertIsNotNone(target, "confirmDate has no target to confirm")
+        self.confirm_tentatively_selected_date()
+        confirmed = [d["id"] for d in self._read_candidate_dates() if d["confirmed"]]
+        self.assertions.assertEqual(confirmed, [target])
+
     # organizerDashboard.candidateDateList.removeCandidateDate (ADR-0056
     # decision 2, TDR-GTH-50/51) --------------------------------------------
 
@@ -2677,8 +2836,12 @@ class GatheringSchedulingBrowserDsl:
 
     def tentatively_select_candidate_date(self, candidate_date_id: str) -> None:
         node = self._candidate_date_locator(candidate_date_id)
+        # tentativeSelectionAndPreview.trigger (ADR-0072 decision 4, 0.29.0):
+        # the chip itself is pressed. Its remove control lives inside the chip,
+        # so press on the side of the chip away from it, never on the control.
         self._current_open_shop_preview = self._capture_gathering_response(
-            "open-shop-preview", lambda: node.click()
+            "open-shop-preview",
+            lambda: node.click(position=self._chip_press_position(node)),
         )
         expect(node).to_have_attribute(TENTATIVE_SELECTED_ATTR, "true")
 

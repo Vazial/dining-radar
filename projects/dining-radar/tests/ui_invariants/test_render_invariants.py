@@ -3388,6 +3388,60 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         by_test_id(self.page, "gathering-shop-select-tab-answers").click()
         expect(by_test_id(self.page, "gathering-response-table-leader-summary")).to_have_count(0)
 
+    def test_gathering_dashboard_scheduling_layout_and_confirm_target(self) -> None:
+        """ADR-0072 / contract 0.29.0 (追補28, board Q5-a): while SCHEDULING the
+        organizer screen reads top to bottom as heading → leader summary →
+        response table → confirm button → candidate-date chips → link pane;
+        a chip is only a date and its remove control; the confirm button
+        targets the tentatively selected chip, else the single leader, else
+        nothing (disabled, "日を選んでください").
+        """
+        self._sign_in_as_organizer()
+        self._create_gathering_via_ui("日を決める並びの確認会", candidate_date_count=2)
+        confirm = by_test_id(self.page, "gathering-confirm-date-select")
+
+        # No answers yet: no leader, nothing tentatively selected -> no target.
+        expect(confirm).to_be_disabled()
+        expect(confirm).to_have_text("日を選んでください")
+
+        def top_of(locator) -> float:
+            return locator.first.bounding_box()["y"]
+
+        heading = self.page.get_by_text("日を決める", exact=False).first
+        chips = by_test_id(self.page, "gathering-candidate-date")
+        ordered = [
+            top_of(heading),
+            top_of(by_test_id(self.page, "gathering-response-table")),
+            top_of(confirm),
+            top_of(chips),
+            top_of(by_test_id(self.page, "gathering-participant-link-copy")),
+        ]
+        self.assertEqual(ordered, sorted(ordered), ordered)
+        self.assertNotIn("行ける", chips.first.inner_text())
+        self.assertGreaterEqual(chips.first.bounding_box()["height"], 44)
+
+        # One answer makes exactly one leader the target without any click.
+        link_url = self._issue_participant_link_url()
+        participant_page = self._open_participant_view(link_url)
+        by_test_id(participant_page, "gathering-schedule-response-option").first.click()
+        self.page.reload()
+        leader = self.page.locator(
+            '[data-testid="gathering-candidate-date"][data-current-leader="true"]'
+        )
+        expect(leader).to_have_count(1)
+        expect(confirm).to_be_enabled()
+        expect(confirm).to_contain_text("に決める")
+        leader_label = confirm.inner_text()
+
+        # A tentatively selected chip overrides the leader as the target.
+        other = self.page.locator(
+            '[data-testid="gathering-candidate-date"][data-current-leader="false"]'
+        )
+        other.first.click()
+        expect(other.first).to_have_attribute("data-tentative-selected", "true")
+        expect(confirm).to_contain_text("に決める")
+        self.assertNotEqual(confirm.inner_text(), leader_label)
+
     def test_gathering_dashboard_response_table_reflects_one_row_per_participant_link(
         self,
     ) -> None:

@@ -8,8 +8,8 @@ documented response (``tests/test_hotpepper_adapter.py``). Reconfirm the
 exact field names against the current official documentation before public
 operation, alongside the other provider-terms checks ``design.md`` already
 requires (reconfirmed against the official reference, api_version 1.20, on
-2026-10-05; see ``activeContext.md``) -- ADR-0019 decision 9 specifically flags ``non_smoking``, ``card``,
-and ``budget`` (all newly read by this module) as needing the same
+2026-10-05; see ``activeContext.md``) -- ADR-0019 decision 9 specifically flags
+``non_smoking``, ``card``, and ``budget`` (all newly read by this module) as needing the same
 reconfirmation ``genre`` has already received.
 
 A 2026-08-10 field-survey correction found ``budget.average`` unreliable
