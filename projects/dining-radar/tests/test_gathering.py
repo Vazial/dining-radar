@@ -6664,3 +6664,30 @@ class ParticipantViewQueryCountTests(TestCase):
         few, many = self._view_query_count(2), self._view_query_count(14)
         self.assertEqual(few, many)
         self.assertLessEqual(many, 4)
+
+    def test_put_query_count_is_four_and_independent_of_candidate_date_count(self):
+        counts = []
+        for date_count in (2, 14):
+            user = get_user_model().objects.create_user(f"p{date_count}", password="x")
+            gathering = services.create_gathering(
+                user, "t", [_next_business_datetime(day) for day in range(1, date_count + 1)]
+            )
+            _gathering, links = services.issue_participant_links(user, gathering.id, 1)
+            target = gathering.candidate_dates.all()[0]
+            client = Client()
+            for status in ("GOING", "MAYBE"):  # first answer (insert), then a change (update)
+                with CaptureQueriesContext(connection) as queries:
+                    response = client.put(
+                        f"/participant-links/{links[0].token}/responses/{target.id}",
+                        data=json.dumps({"status": status}),
+                        content_type="application/json",
+                    )
+                self.assertEqual(response.status_code, 200)
+                counts.append(len(queries))
+            self.assertEqual(
+                ScheduleResponse.objects.get(
+                    participant_link=links[0], candidate_date=target
+                ).status,
+                "MAYBE",
+            )
+        self.assertEqual(set(counts), {4})
