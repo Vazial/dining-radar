@@ -21,7 +21,9 @@ from pathlib import Path
 from unittest import mock
 
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import Client, SimpleTestCase, TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -6630,3 +6632,35 @@ class Adr0071ResponseTableGridSourceTests(SimpleTestCase):
         # desktop tab pane and mobile disclosure panel both go through it
         self.assertEqual(source.count("renderHiddenAnswersAggregates(statsRow, schedulePane)"), 3)
         self.assertIn('el("div", { hidden: true }, [statsRow, schedulePane])', source)
+
+
+class ParticipantViewQueryCountTests(TestCase):
+    """KEN-46: each query is a database round trip (Neon is remote in production), so
+    the participant view's query count must not grow with the number of candidate dates."""
+
+    def _view_query_count(self, date_count: int) -> int:
+        user = get_user_model().objects.create_user(f"o{date_count}", password="x")
+        gathering = services.create_gathering(
+            user,
+            "t",
+            [_next_business_datetime(day) for day in range(1, date_count + 1)],
+        )
+        _gathering, links = services.issue_participant_links(user, gathering.id, 1)
+        for candidate_date in gathering.candidate_dates.all():
+            ScheduleResponse.objects.create(
+                participant_link=links[0],
+                candidate_date=candidate_date,
+                status=ScheduleResponseStatus.GOING,
+            )
+        with CaptureQueriesContext(connection) as queries:
+            response = Client().get(
+                f"/participant-links/{links[0].token}",
+                HTTP_ACCEPT="application/json",
+            )
+        self.assertEqual(response.status_code, 200)
+        return len(queries)
+
+    def test_get_query_count_is_independent_of_candidate_date_count(self):
+        few, many = self._view_query_count(2), self._view_query_count(14)
+        self.assertEqual(few, many)
+        self.assertLessEqual(many, 4)

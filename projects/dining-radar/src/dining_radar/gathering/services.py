@@ -1072,10 +1072,13 @@ def set_schedule_response(token: str, candidate_date_id: object, status: str) ->
     if gathering.phase == GatheringPhase.FINALIZED:
         raise GatheringFinalizedError
     candidate_date = _get_candidate_date(gathering, candidate_date_id)
-    ScheduleResponse.objects.update_or_create(
-        participant_link=link,
-        candidate_date=candidate_date,
-        defaults={"status": status},
+    # One upsert statement (KEN-46): update_or_create costs a transaction, a
+    # SELECT and a write -- four round trips to the database.
+    ScheduleResponse.objects.bulk_create(
+        [ScheduleResponse(participant_link=link, candidate_date=candidate_date, status=status)],
+        update_conflicts=True,
+        unique_fields=["participant_link", "candidate_date"],
+        update_fields=["status", "updated_at"],
     )
     return link
 
@@ -1097,6 +1100,55 @@ def participant_schedule_status(
         participant_link=link, candidate_date=candidate_date
     ).first()
     return None if response is None else response.status
+
+
+def participant_schedule_view_data(
+    link: ParticipantLink,
+) -> tuple[
+    list[CandidateDateTally],
+    dict[uuid.UUID, list[tuple[str | None, str]]],
+    dict[uuid.UUID, str],
+]:
+    """Everything the participant view's schedule section reads, from one
+    response query: ``(tallies, respondents_by_candidate_date_id, your_responses)``.
+
+    Same values and ordering as ``candidate_dates_with_tallies`` (startAt
+    ascending), ``schedule_response_respondents`` (answering link's
+    ``issued_at``, then id) and this link's own answers (absent = unanswered).
+    KEN-46: those three were separate queries, plus one per candidate date
+    for the viewer's own answer; each is a database round trip.
+    """
+    gathering = link.gathering
+    candidate_dates = list(gathering.candidate_dates.all())
+    rows = (
+        ScheduleResponse.objects.filter(candidate_date__gathering=gathering)
+        .order_by("participant_link__issued_at", "participant_link_id")
+        .values_list(
+            "candidate_date_id",
+            "participant_link_id",
+            "participant_link__display_name",
+            "status",
+        )
+    )
+    counts: dict[uuid.UUID, Counter] = defaultdict(Counter)
+    respondents: dict[uuid.UUID, list[tuple[str | None, str]]] = defaultdict(list)
+    yours: dict[uuid.UUID, str] = {}
+    for candidate_date_id, link_id, display_name, status in rows:
+        counts[candidate_date_id][status] += 1
+        respondents[candidate_date_id].append((display_name, status))
+        if link_id == link.id:
+            yours[candidate_date_id] = status
+    tallies = [
+        CandidateDateTally(
+            candidate_date=candidate_date,
+            going_count=counts[candidate_date.id][ScheduleResponseStatus.GOING],
+            maybe_count=counts[candidate_date.id][ScheduleResponseStatus.MAYBE],
+            not_going_count=counts[candidate_date.id][ScheduleResponseStatus.NOT_GOING],
+        )
+        for candidate_date in candidate_dates
+    ]
+    tallies.sort(key=lambda tally: tally.candidate_date.start_at)
+    return tallies, respondents, yours
 
 
 def bundled_holiday_isos() -> list[str]:
