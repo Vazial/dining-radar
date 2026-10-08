@@ -1920,6 +1920,7 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.participant_answers_the_candidate_date(date_a, "GOING")
         self.steps.participant_answers_the_candidate_date(date_b, "MAYBE")
         self.steps.organizer_opens_the_dashboard()
+        self.steps.candidate_date_current_leaders_are({date_a})
         self.steps.scheduling_layout_follows_the_board()
         self.steps.candidate_dates_are_small_chips()
         self.steps.confirm_date_follows_its_target()
@@ -1939,10 +1940,30 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.participant_opens_the_link(link_one)
         self.steps.participant_answers_the_candidate_date(date_a, "GOING")
         self.steps.organizer_opens_the_dashboard()
+        self.steps.candidate_date_current_leaders_are({date_a})
         self.steps.organizer_tentatively_selects_the_candidate_date(date_b)
         self.steps.confirm_date_follows_its_target()
         self.steps.organizer_confirms_the_target_date()
         self.steps.gathering_phase_is("SELECTING_SHOP")
+
+    def test_gth_scheduling_confirm_has_no_target_when_leaders_tie(self) -> None:
+        """confirmDate.target / disabledState（追補28 / ADR-0072決定3）。有力が
+        同点で複数（1日目・2日目が「行ける」1つずつ）の Given: 対象なしで、
+        ボタンは無効、文言は「日を選んでください」。先頭の日を黙って
+        対象にしてはならない。"""
+        self._sign_in()
+        first, second, third = self.dsl.month_crossing_thursday_isos()
+        self.steps.organizer_has_a_scheduling_gathering("会追補28同点", [first, second, third])
+        date_a, date_b, _date_c = (self.dsl.candidate_date_id_at(i) for i in range(3))
+        link_one = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_one)
+        self.steps.participant_answers_the_candidate_date(date_a, "GOING")
+        link_two = self.steps.a_participant_link_is_issued()
+        self.steps.participant_opens_the_link(link_two)
+        self.steps.participant_answers_the_candidate_date(date_b, "GOING")
+        self.steps.organizer_opens_the_dashboard()
+        self.steps.candidate_date_current_leaders_are({date_a, date_b})
+        self.steps.confirm_date_follows_its_target()
 
     def test_gth_scheduling_confirm_has_no_target_without_a_leader(self) -> None:
         """confirmDate.target / disabledState（追補28 / ADR-0072決定3）。誰も答えて
