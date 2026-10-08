@@ -273,6 +273,7 @@ def serialize_schedule_question(
     link: ParticipantLink,
     tally: services.CandidateDateTally,
     respondents: Sequence[tuple[str | None, str]] = (),
+    your_responses: dict | None = None,
 ) -> dict:
     """``ParticipantScheduleQuestion``.
 
@@ -302,7 +303,13 @@ def serialize_schedule_question(
     ADR-0062 decision 1).
     """
     candidate_date = tally.candidate_date
-    your_response = services.participant_schedule_status(link, candidate_date)
+    # ``your_responses`` (KEN-46): this viewer's answers for every candidate date,
+    # fetched once by the caller; the per-date lookup remains as the fallback.
+    your_response = (
+        your_responses.get(candidate_date.id)
+        if your_responses is not None
+        else services.participant_schedule_status(link, candidate_date)
+    )
     return {
         "candidateDateId": str(candidate_date.id),
         "startAt": candidate_date.start_at.isoformat(),
@@ -351,7 +358,9 @@ def serialize_decision(
 
 def serialize_participant_view(link: ParticipantLink) -> dict:
     gathering = link.gathering
-    tallies = services.candidate_dates_with_tallies(gathering)
+    tallies, respondents_by_candidate_date_id, your_responses = (
+        services.participant_schedule_view_data(link)
+    )
     voting_started = gathering.voting_started_at is not None
     # Resolved once per request and reused for every candidate date and every
     # shop lookup, rather than triggering one real provider fetch per
@@ -396,7 +405,6 @@ def serialize_participant_view(link: ParticipantLink) -> dict:
     # ADR-0061 decision 2: one query for the whole gathering, reused for
     # every tally below (the same discipline population_source/shop_lookup
     # above already follow) rather than one query per candidate date.
-    respondents_by_candidate_date_id = services.schedule_response_respondents(gathering)
     return {
         "gatheringTitle": gathering.title,
         "phase": gathering.phase,
@@ -412,6 +420,7 @@ def serialize_participant_view(link: ParticipantLink) -> dict:
                 link,
                 tally,
                 respondents_by_candidate_date_id.get(tally.candidate_date.id, []),
+                your_responses,
             )
             for tally in tallies
         ],
