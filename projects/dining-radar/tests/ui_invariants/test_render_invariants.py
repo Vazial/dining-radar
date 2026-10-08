@@ -3547,6 +3547,34 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         )
         expect(by_test_id(self.page, "gathering-dashboard-confirmed-date")).to_have_count(0)
 
+    def test_b_gathering_dashboard_schedule_tab_shows_only_the_confirmed_date(self) -> None:
+        """ADR-0073: with the schedule tab open in SELECTING_SHOP, exactly one
+        gathering-candidate-date (the data-confirmed="true" one) is visible;
+        the others stay in the DOM with their data-* unchanged, hidden."""
+        self._sign_in_as_organizer()
+        gathering_id = self._create_gathering_via_ui("日程タブ畳みの確認会", candidate_date_count=2)
+        by_test_id(self.page, "gathering-candidate-date").first.click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        self._seed_one_shortlisted_shop(gathering_id)
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+
+        by_test_id(self.page, "gathering-shop-select-tab-schedule").click()
+        cards = self.page.locator('[data-testid="gathering-candidate-date"]')
+        expect(cards).to_have_count(2)
+        expect(by_test_id(self.page, "gathering-candidate-date-list")).to_be_visible()
+        confirmed = self.page.locator(
+            '[data-testid="gathering-candidate-date"][data-confirmed="true"]'
+        )
+        others = self.page.locator(
+            '[data-testid="gathering-candidate-date"][data-confirmed="false"]'
+        )
+        expect(confirmed).to_have_count(1)
+        expect(confirmed).to_be_visible()
+        expect(others).to_have_count(1)
+        expect(others).to_be_hidden()
+        expect(others).to_have_attribute("data-confirmed", "false")
+
     def test_b_gathering_dashboard_shop_select_tabs_are_keyboard_operable_and_toggle_content(
         self,
     ) -> None:
