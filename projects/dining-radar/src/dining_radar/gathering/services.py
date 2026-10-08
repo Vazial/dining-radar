@@ -20,7 +20,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from django.contrib.auth.base_user import AbstractBaseUser
-from django.db import transaction
+from django.db import connection, transaction
+from django.db.models import prefetch_related_objects
 from django.utils import timezone
 
 from dining_radar.recommendation.pipeline import (
@@ -1071,15 +1072,35 @@ def set_schedule_response(token: str, candidate_date_id: object, status: str) ->
     gathering = link.gathering
     if gathering.phase == GatheringPhase.FINALIZED:
         raise GatheringFinalizedError
-    candidate_date = _get_candidate_date(gathering, candidate_date_id)
-    # One upsert statement (KEN-46): update_or_create costs a transaction, a
-    # SELECT and a write -- four round trips to the database.
-    ScheduleResponse.objects.bulk_create(
-        [ScheduleResponse(participant_link=link, candidate_date=candidate_date, status=status)],
-        update_conflicts=True,
-        unique_fields=["participant_link", "candidate_date"],
-        update_fields=["status", "updated_at"],
+    # Loaded once and reused by the response view built right after this call
+    # (participant_schedule_view_data reads gathering.candidate_dates.all()), so
+    # validating the id costs no extra round trip (KEN-46).
+    prefetch_related_objects([gathering], "candidate_dates")
+    candidate_date = next(
+        (cd for cd in gathering.candidate_dates.all() if cd.id == candidate_date_id), None
     )
+    if candidate_date is None:
+        raise CandidateDateNotFoundError
+    # One autocommit upsert statement, one round trip (KEN-46): update_or_create
+    # costs a transaction, a SELECT and a write, and bulk_create wraps its write in
+    # a transaction (an extra COMMIT round trip) -- each round trip is ~70ms to the
+    # remote production database.
+    table = ScheduleResponse._meta.db_table
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"INSERT INTO {table} (participant_link_id, candidate_date_id, status, updated_at) "
+            "VALUES (%s, %s, %s, %s) "
+            "ON CONFLICT (participant_link_id, candidate_date_id) "
+            "DO UPDATE SET status = EXCLUDED.status, updated_at = EXCLUDED.updated_at",
+            [
+                ParticipantLink._meta.pk.get_db_prep_value(link.pk, connection),
+                CandidateDate._meta.pk.get_db_prep_value(candidate_date.pk, connection),
+                status,
+                ScheduleResponse._meta.get_field("updated_at").get_db_prep_value(
+                    timezone.now(), connection
+                ),
+            ],
+        )
     return link
 
 
