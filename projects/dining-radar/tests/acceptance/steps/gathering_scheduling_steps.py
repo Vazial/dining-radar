@@ -156,6 +156,18 @@ class GatheringSchedulingSteps:
     def organizer_confirms_the_tentatively_selected_date(self) -> None:
         self.dsl.confirm_tentatively_selected_date()
 
+    def organizer_confirms_the_target_date(self) -> None:
+        self.dsl.confirm_the_target_date()
+
+    def scheduling_layout_follows_the_board(self) -> None:
+        self.dsl.assert_scheduling_layout_follows_the_board()
+
+    def candidate_dates_are_small_chips(self) -> None:
+        self.dsl.assert_candidate_dates_are_small_chips()
+
+    def confirm_date_follows_its_target(self) -> None:
+        self.dsl.assert_confirm_date_follows_its_target()
+
     def organizer_attempts_to_confirm_another_candidate_date_via_the_api(
         self, candidate_date_id: str
     ) -> object:

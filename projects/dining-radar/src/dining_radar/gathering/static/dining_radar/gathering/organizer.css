@@ -1253,21 +1253,26 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
   justify-content: flex-end;
 }
 
+/* ADR-0072 decision 2: candidate dates are small chips in a wrapping row. */
 .gth-date-list {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 0.5rem;
 }
 .gth-date {
   background: #fff;
   border: 1px solid #dfe4de;
-  border-radius: 0.625rem;
+  border-radius: 999px;
   box-sizing: border-box;
-  min-height: 3rem;
-  padding: 0.5rem 0.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
+  min-height: 2.75rem;
+  max-width: 100%;
+  padding: 0 0.25rem 0 0.875rem;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.25rem;
 }
 .gth-date--pickable {
   cursor: pointer;
@@ -1297,6 +1302,13 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
   align-items: center;
   gap: 0.5rem;
 }
+.gth-scheduling-head {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
 .gth-date-value {
   font-weight: 700;
   font-size: 0.9375rem;
@@ -1310,17 +1322,6 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
   border-radius: 999px;
   padding: 0.1rem 0.5rem;
 }
-.gth-date-tally {
-  display: flex;
-  gap: 0.75rem;
-  font-size: 0.75rem;
-  color: #77827a;
-}
-.gth-date-tally b {
-  color: #17201b;
-  font-weight: 700;
-}
-
 .gth-add-date {
   display: flex;
   flex-direction: column;
@@ -2536,13 +2537,13 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
   box-sizing: border-box;
   min-height: 2.75rem;
   min-width: 2.75rem;
-  padding: 0 0.75rem;
-  margin-left: auto;
-  border: 1px solid #e0c4bc;
-  border-radius: 0.5rem;
-  background: #fff;
+  padding: 0;
+  margin-left: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
   color: #8a3b2c;
-  font-size: 0.75rem;
+  font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
 }
@@ -2925,4 +2926,9 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
 .primary-nav-account-sheet-form { margin: 0; width: 100%; }
 @media (max-width: 63.999rem) {
   body { padding-bottom: 3.75rem; }
+}
+
+/* ADR-0072: the add-date form needs the full row once opened. */
+.gth-date-list > .gth-add-date:has(.gth-inline-form) {
+  flex: 1 1 100%;
 }
