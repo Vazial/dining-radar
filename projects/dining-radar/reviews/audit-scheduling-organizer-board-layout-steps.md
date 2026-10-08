@@ -120,3 +120,44 @@
 - 契約自体の欠陥の疑い: なし。ただし追補28の3つのMustにシナリオ（`.feature`）が無く、`verifiesScenarios` にも載らない。ADR-0072 が `.feature` 無変更と決めているので意図どおりだが、
   承認者は「これらの検査はシナリオではなく契約のMustだけに根拠がある」ことを知ったうえで承認されたい。
 - 判断できなかった箇所: 実機の見た目（板 Q5-a と並べた目視）は本監査の範囲外。実装を読んでいないので、F4・F16 の弱さが実際に起きるかは分からない。
+
+## 7. 再監査（commit 490ecaa: 同点テストと有力の断言の追加）
+
+- **監査対象**: `git show 490ecaa -- projects/dining-radar/tests/acceptance`（`test_gathering_scheduling_acceptance.py` +21行のみ。DSL・stepの変更なし）。
+  使うstep `candidate_date_current_leaders_are` は既存（`gathering_scheduling_steps.py:403` → DSL `assert_candidate_date_current_leaders`）で、
+  全候補日の `data-current-leader` を集合として等値比較する（過剰印も不足印も落ちる）。
+- **独立性**: 前回と同じ。テストとDSLのみを読み、実装（`gathering.js`・CSS）は読んでいない。コミットメッセージは判断材料にしていない。
+- **実行**: 6・7・8番と新規の同点テストを `-k` で実行し **5 passed**（11.15s。`sole_leader` 等のパターンが既存の別テスト1件にも一致したため5件）。実装の変異注入は所有範囲外のため行っていない。
+
+### 再監査の結論
+
+**Critical: 0件。Major: 0件（前回の2件とも解消）。新規の Critical/Major: なし。** Minor は前回の m1〜m6 が据え置き（下記）。承認判断は人間。
+
+### 前回 Major の解消確認
+
+| 前回 | 対応 | 判定 | 根拠（コードから） |
+|---|---|---|---|
+| Major 1 同点で有力が複数→対象なし | 新規 `test_gth_scheduling_confirm_has_no_target_when_leaders_tie` | **解消** | 参加者2人が日Aと日Bにそれぞれ GOING。`candidate_date_current_leaders_are({date_a, date_b})` で有力が正確に2つと断言し、仮選択はせず `confirm_date_follows_its_target`。`_expected_confirm_target` は仮選択なし・有力2件で None を返し、None 分岐が「ボタン disabled・『日を選んでください』」を確かめる。 |
+| Major 2 有力がどの日かを断言していない | 6番・7番に `candidate_date_current_leaders_are({date_a})` を追加 | **解消** | どちらも Given（日A=GOING 1／日B=MAYBE、日A=GOING 1）から有力は日Aだけ。断言は幹事画面を開いた直後・以降の操作の前にある。7番は有力日A≠仮選択日B が前提として固定された。 |
+
+### Fault injection の再評価（机上）
+
+| # | 実装がこう壊れたら | どの検査で落ちるか | 判定 |
+|---|---|---|---|
+| F11 | 同点で先頭の日を対象にする | 同点テスト: 有力は{A,B}のまま（属性は変わらない）で期待対象 None だが、ボタンが enabled になり disabled の断言で失敗 | **落ちる**（前回: すり抜け） |
+| F16 | 有力の属性が日Bに付く／付かない | 6番・7番: `leaders_are({date_a})` の集合比較で失敗 | **落ちる**（前回: 一部すり抜け） |
+| F9 | ボタンが仮選択を無視し常に有力の日を指す | 7番: 有力=日Aが確定したうえで、ボタン文言が日Bでないため失敗 | 落ちる（前提が断言で担保された） |
+| 同点で disabled だが文言が「日を選んでください」でない | 同点テストの None 分岐の文言検査 | 落ちる |
+
+### 新たな疑義の確認（Critical/Major に当たるものは無し）
+
+- **誤って緑になる検査**: 同点テストの期待対象は DOM の `data-*` から導出されるが、有力の集合は Given から独立に断言されているため、導出と実態のズレは先に落ちる。循環はない。
+- **失敗の握りつぶし・孤児step・重複**: 追加は既存stepの組み合わせのみ。try/except・skip なし。孤児・新規の同義重複なし。
+- **同点の作り方**: GOING 1 対 GOING 1 の単純な同数のみ。MAYBE を含む重み付けの同点などは見ない（契約の定義が属性ベースなので許容。Minor m7）。
+
+### 据え置きの Minor（前回の m1〜m6 は未変更）と新規
+
+- m1〜m5: 変更なし（数字の包含検査の弱さ／`.first`・`≤` の緩さ／行の近似／デスクトップ幅のみ／同義step）。
+- **m6**（有力なしで仮選択すれば有効になる分岐）は今回も未検査。追加は同点テストと断言のみ。
+- **m7（新規）**: 同点テストは仮選択を伴わない。同点の局面で札を押せば有効になる経路（仮選択＞同点）は m6 とあわせて未実行。
+- 以上、いずれも Critical/Major ではない。

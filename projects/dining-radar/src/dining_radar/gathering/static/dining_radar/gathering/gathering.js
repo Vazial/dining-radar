@@ -1477,7 +1477,7 @@
     }
 
     var topChildren = [
-      el("span", { class: "gth-date-value" }, [formatGatheringDateTime(candidateDate.startAt)]),
+      el("span", { class: "gth-date-value" }, [formatGatheringDate(candidateDate.startAt)]),
       candidateDate.isConfirmed ? el("span", { class: "gth-date-badge" }, ["決定"]) : null,
     ];
 
@@ -1644,7 +1644,7 @@
         "data-testid": "gathering-confirm-date-select",
         "data-gathering-control-purpose": "gathering-confirm-date-select",
         disabled: !target,
-        class: "gth-btn gth-btn-primary gth-btn-block",
+        class: "gth-btn gth-btn-primary gth-confirm-date",
       },
       [target ? formatGatheringDate(target.startAt) + " に決める" : "日を選んでください"]
     );
