@@ -47,6 +47,7 @@ from . import services
 from .models import ScheduleResponseStatus, ShopVoteStatus
 from .serializers import (
     serialize_gathering,
+    serialize_gatherings,
     serialize_issued_participant_link,
     serialize_open_shop_preview,
     serialize_participant_link_summary,
@@ -336,7 +337,7 @@ def gatherings(request):
     if request.method == "GET":
         gathering_list = services.list_gatherings(request.user)
         return JsonResponse(
-            {"gatherings": [serialize_gathering(gathering) for gathering in gathering_list]},
+            {"gatherings": serialize_gatherings(gathering_list)},
             status=200,
         )
 
@@ -477,7 +478,11 @@ def participant_links(request, gathering_id):
         return JsonResponse(
             {
                 "participantLinks": [
-                    serialize_participant_link_summary(link, responses_by_link.get(link.id, []))
+                    serialize_participant_link_summary(
+                        link,
+                        responses_by_link.get(link.id, []),
+                        has_responded=link.id in responses_by_link,
+                    )
                     for link in links
                 ]
             },
@@ -543,12 +548,11 @@ def revoke_participant_link(request, gathering_id, link_id):
         services.ParticipantLinkAlreadyAnsweredError,
     ) as error:
         return _organizer_error_response(error)
-    responses_by_link = services.participant_link_schedule_responses(gathering)
+    # revoke_participant_link only accepts a link with no answer, so there is
+    # nothing to look up (KEN-47: that lookup was two more round trips).
     return JsonResponse(
         {
-            "participantLink": serialize_participant_link_summary(
-                link, responses_by_link.get(link.id, [])
-            ),
+            "participantLink": serialize_participant_link_summary(link, [], has_responded=False),
             "gathering": serialize_gathering(gathering),
         },
         status=200,
@@ -600,16 +604,18 @@ def shortlisted_shops(request, gathering_id):
     except MalformedRequestError:
         return _problem(*_REQUEST_REJECTED)
 
-    try:
-        gathering = services.set_shortlisted_shops(request.user, gathering_id, shop_ids)
-    except (
-        services.GatheringNotFoundError,
-        services.GatheringNotInSelectingShopPhaseError,
-        services.GatheringFinalizedError,
-        services.InvalidShopSelectionError,
-    ) as error:
-        return _organizer_error_response(error)
-    return JsonResponse(serialize_gathering(gathering), status=200)
+    # One provider fetch for both the shop-id check and the response (KEN-47).
+    with services.request_population_scope():
+        try:
+            gathering = services.set_shortlisted_shops(request.user, gathering_id, shop_ids)
+        except (
+            services.GatheringNotFoundError,
+            services.GatheringNotInSelectingShopPhaseError,
+            services.GatheringFinalizedError,
+            services.InvalidShopSelectionError,
+        ) as error:
+            return _organizer_error_response(error)
+        return JsonResponse(serialize_gathering(gathering), status=200)
 
 
 @csrf_exempt
