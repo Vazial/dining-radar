@@ -587,6 +587,64 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
   }
 }
 
+/* KEN-51 / board b2-q4r3/N1-Pc1 (PC only; phones keep the stacked layout
+   above): the calendar fills the column, the month head groups the
+   "ほかの月にも N日" badge with a joined pair of arrows at the right, and
+   the summary becomes a full-width band over a full-width "つくる". */
+@media (min-width: 64rem) {
+  .gathering-create-form .gth-cal-grid {
+    width: 100%;
+  }
+  .gathering-create-form .gth-cal-day {
+    height: 3.125rem;
+  }
+  .gathering-create-form .gth-cal-head {
+    flex-wrap: nowrap;
+  }
+  .gathering-create-form .gth-cal-month {
+    order: 1;
+    text-align: left;
+  }
+  .gathering-create-form .gth-cal-outside-badge {
+    order: 2;
+    flex-basis: auto;
+  }
+  .gathering-create-form .gth-cal-nav--prev {
+    order: 3;
+    border-radius: 0.5rem 0 0 0.5rem;
+  }
+  .gathering-create-form .gth-cal-nav--next {
+    order: 4;
+    margin-left: calc(-0.5rem - 1px);
+    border-radius: 0 0.5rem 0.5rem 0;
+  }
+  .gathering-create-summary-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    padding-top: 0;
+    border-top: 0;
+  }
+  .gathering-create-summary {
+    flex-direction: row;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    box-sizing: border-box;
+    padding: 0.875rem 1rem;
+    background: #fff;
+    border: 1px solid #d9e0d8;
+    border-radius: 0.625rem;
+  }
+  .gathering-create-summary-months {
+    font-size: 0.75rem;
+  }
+  .gathering-create-summary-row .gathering-btn-primary {
+    width: 100%;
+    min-height: 3.25rem;
+  }
+}
+
 /* ADR-0060 decision 5: gathering-create-review-dialog (board
    party2/b2-q4r/R1-*Modal, b2-q4r3/N1-*). Phones: a sheet rising from the
    bottom over a dimmed screen (the scrim is the dialog's own huge spread
@@ -608,13 +666,21 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
   overflow: hidden;
 }
 @media (min-width: 64rem) {
+  /* Board b2-q4r3/N1-Pc1 (KEN-51): a small window sized to its content
+     (about 450px wide), centred both ways -- not a tall sheet stretched to
+     the viewport. inset:0 + margin:auto + height:fit-content centres a
+     fixed box that is only as tall as its rows. */
   .gathering-review-dialog {
     inset: 0;
-    max-width: 32rem;
-    margin: 4dvh auto;
+    width: min(28.125rem, calc(100vw - 2rem));
+    height: fit-content;
+    margin: auto;
     max-height: 92dvh;
     border-radius: 0.875rem;
     border: 1px solid #dfe4de;
+  }
+  .gathering-review-grip {
+    display: none;
   }
 }
 .gathering-review-dialog:focus-visible,
