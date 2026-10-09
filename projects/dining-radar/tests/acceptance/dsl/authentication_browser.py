@@ -27,7 +27,6 @@ from tests.acceptance.dsl.browser_mechanics import (
     assert_test_ids,
     require,
     submit_form,
-    test_id_node,
 )
 from tests.acceptance.dsl.openapi_schema import assert_matches_openapi_schema
 
@@ -187,17 +186,8 @@ class AuthenticationBrowserDsl:
                 APPLICATION_SHELL,
                 "auth-sign-out",
                 "auth-password-change-open",
-                "auth-individual-account-guidance",
             ],
             absent=[SIGN_IN_FORM],
-        )
-        self._assert_test_id_attributes(
-            response,
-            "auth-individual-account-guidance",
-            {
-                "data-auth-account-use": "individual-only",
-                "data-auth-credential-sharing": "not-requested",
-            },
         )
 
     def assert_persistent_authenticated_session(self) -> None:
@@ -312,13 +302,6 @@ class AuthenticationBrowserDsl:
         if submitted_password is not None:
             self.assertions.assertNotIn(submitted_password, response.body)
         assert_test_ids(self.assertions, response, present=[], absent=DISCLOSURE_TEST_IDS)
-
-    def _assert_test_id_attributes(
-        self, response: BrowserResponse, test_id: str, expected: dict[str, str]
-    ) -> None:
-        node = test_id_node(response.document(), test_id)
-        for name, value in expected.items():
-            self.assertions.assertEqual(node.attributes.get(name), value)
 
     def _normalized_public_content(self, response: BrowserResponse) -> str:
         return repr(self._normalized_node(response.document()))

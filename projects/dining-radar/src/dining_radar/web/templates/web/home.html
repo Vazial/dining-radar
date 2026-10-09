@@ -70,17 +70,6 @@
     }
     header[data-testid="authenticated-application-shell"] .app-header h1 { margin: 0; font-size: 1.35rem; }
 
-    /* Point 1: a small native-tooltip marker instead of a full paragraph
-       (ADR-0013 decision 8: no contract change, since it has no click
-       handler/purpose -- see the HTML comment above it). */
-    .candidate-account-note {
-      display: inline-flex; align-items: center; justify-content: center;
-      width: 1.5rem; height: 1.5rem; border-radius: 50%;
-      background: #eef2ee; color: #43524a; font-size: 0.85rem; font-weight: 700;
-      cursor: help;
-    }
-    .candidate-account-note:focus-visible { outline: 2px solid #155c42; outline-offset: 2px; }
-
     /* --- persistent primary nav (ADR-0059, 2026-09-16 束A "上部ナビと会への
        戻り道") -----------------------------------------------------------
        Replaces ADR-0054 decision 1's single always-visible-label nav with
@@ -948,7 +937,6 @@
         flex-wrap: nowrap; background: #fff;
       }
       header[data-testid="authenticated-application-shell"] .app-header h1 { font-size: 1.08rem; }
-      .candidate-account-note { width: 2.75rem; height: 2.75rem; background: transparent; }
       /* ADR-0059: [data-primary-nav-desktop] (the ≡ menu and the
          candidate-gathering-entry chip) is removed outright by
          initializePrimaryNav() at this width -- there is nothing left to
@@ -1461,28 +1449,6 @@
     <header data-testid="authenticated-application-shell">
       <div class="app-header">
         <h1>ランチ候補をさがす</h1>
-        {% comment %}
-          ADR-0013 point 1: shrunk from a full-width paragraph to a small,
-          native-tooltip info marker. The element itself, its test id, and
-          its two data-* attributes are unchanged (authentication-browser-
-          interface.yaml's individualAccountGuidance requires exactly
-          those, "deliberately [without prescribing] visible wording,
-          layout, or a new public operation"). It carries no click handler
-          and no button role, so it needs no new
-          data-candidate-control-purpose -- hover/focus reveal only, per
-          ADR-0013 decision 8's no-operable-trigger path (no contract
-          change required). aria-label carries the full text to assistive
-          technology; title is the native mouse-hover tooltip.
-        {% endcomment %}
-        <span
-          data-testid="auth-individual-account-guidance"
-          data-auth-account-use="individual-only"
-          data-auth-credential-sharing="not-requested"
-          class="candidate-account-note"
-          tabindex="0"
-          title="管理者から案内された個別アカウントで利用してください。認証情報は共有しないでください。"
-          aria-label="管理者から案内された個別アカウントで利用してください。認証情報は共有しないでください。"
-        >ⓘ</span>
       </div>
     </header>
     <main>

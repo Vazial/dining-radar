@@ -1814,6 +1814,32 @@ class GatheringSchedulingBrowserDsl:
                 old_heading.nth(i).is_visible(), "the standalone 日程 heading is visible"
             )
 
+    def assert_schedule_tab_shows_only_the_decided_date_chip(self, total_dates: int) -> None:
+        """shopSelectionPanel.scheduleTab.requiredOutcome (追補29, ADR-0073
+        decision 1): while SELECTING_SHOP's schedule tab is selected, the only
+        visible gathering-candidate-date is the data-confirmed="true" one;
+        every other one stays in the DOM, attributes unchanged, not shown.
+        candidateDateList itself stays visible. No dedicated TDR-GTH-6x
+        scenario names this Must."""
+        assert_present(self.assertions, self.page, GATHERING_SHOP_SELECT_TAB_SCHEDULE)
+        self.ensure_selecting_shop_schedule_tab_is_open()
+        expect(by_test_id(self.page, CANDIDATE_DATE_LIST)).to_be_visible()
+        nodes = by_test_id(self.page, CANDIDATE_DATE)
+        self.assertions.assertEqual(nodes.count(), total_dates)
+        visible_ids = []
+        confirmed_ids = []
+        for i in range(nodes.count()):
+            node = nodes.nth(i)
+            candidate_date_id = node.get_attribute(CANDIDATE_DATE_ID_ATTR)
+            if node.is_visible():
+                visible_ids.append(candidate_date_id)
+            if node.get_attribute(CONFIRMED_ATTR) == "true":
+                confirmed_ids.append(candidate_date_id)
+            else:
+                self.assertions.assertEqual(node.get_attribute(CONFIRMED_ATTR), "false")
+        self.assertions.assertEqual(len(confirmed_ids), 1)
+        self.assertions.assertEqual(visible_ids, confirmed_ids)
+
     def assert_candidate_dates_are_small_chips(self) -> None:
         """candidateDateAppearance (ADR-0072 decision 2): each
         gathering-candidate-date is a small chip -- visible text holds its
