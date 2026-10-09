@@ -3,7 +3,7 @@ id: 0075
 scope: project/dining-radar
 status: 承認済み
 date: 2026-10-09
-approved_by: "人間裁定（2026-10-09 Linear KEN-53 のコメント: 監査 B-2「板どおり。PC では ≡ と見出しを同じ行に置く」、B-3「店選び中・日程を聞いている幹事画面にも『‹ ランチ会』の戻り道を足す」を選択。確認事項1〜4は起草者の読みで、人間は未確認）"
+approved_by: "人間裁定（2026-10-09 Linear KEN-53 のコメント: 監査 B-2「板どおり。PC では ≡ と見出しを同じ行に置く」、B-3「店選び中・日程を聞いている幹事画面にも『‹ ランチ会』の戻り道を足す」を選択。確認事項1=A（バー左は汎用の「ランチ会」）・付随3点=既定どおり、を人間が2026-10-09にチャットで選択（調整役ken-18-28経由）。確認事項4は契約で必須にも禁止にもしない）"
 supersedes: []
 superseded_by: null
 relates_to: [P-02, P-06, P-08, ADR-0059, ADR-0063, ADR-0066, ADR-0069, ADR-0072]
@@ -140,7 +140,7 @@ relates_to: [P-02, P-06, P-08, ADR-0059, ADR-0063, ADR-0066, ADR-0069, ADR-0072]
 
 - 契約（YAML編集は `.spec/conformance.spec` の OP 1〜11）:
   `candidate-search-browser-interface.yaml` 1.15.0→1.16.0（追補コメント、`primaryNavigationGeometry.topBar` 新設）。
-  `gathering-scheduling-browser-interface.yaml` 0.30.0→0.31.0（追補29コメント、`topBarLabel` 新設、`headingBar` の
+  `gathering-scheduling-browser-interface.yaml` 0.30.0→0.31.0（追補30コメント、`topBarLabel` 新設、`headingBar` の
   出現範囲・`backLink` の出現と位置 BL-1〜BL-3・`title` の h1 規則の拡張、`schedulingLayout.order` の注記、
   `crossFileSharedNavigationNoteAdr0075`）。
 - `.feature`・`design.md`・`ARCHITECTURE.md`: 変更なし（決定4）。
