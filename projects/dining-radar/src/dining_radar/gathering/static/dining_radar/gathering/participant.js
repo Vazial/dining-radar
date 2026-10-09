@@ -1379,6 +1379,45 @@
     return total > 0 && answered === total ? total + "件すべて答えました" : "日の一覧";
   }
 
+  // Wide shape's row cells (board c2r2/F2-PcDay): 「9/24 (木)」+ 有力 札 /
+  // three count columns (the ○ count in full ink, the rest grey) / the
+  // viewer's own answer as a filled circle (dashed ring = not yet
+  // answered). The row button itself and its data-* attributes are shared
+  // with the narrow shape (renderDayListRow).
+  function renderWideDayListColumns(question, isLeader) {
+    var dateChildren = [
+      el("span", { class: "gth-day-wide-date" }, [
+        formatGatheringDateTime(question.startAt).split(" ").slice(0, 2).join(" "),
+      ]),
+    ];
+    if (isLeader) {
+      dateChildren.push(el("span", { class: "gth-day-wide-leader" }, ["有力"]));
+    }
+    var counts = [question.tally.goingCount, question.tally.maybeCount, question.tally.notGoingCount];
+    var countCells = counts.map(function (count, index) {
+      return el("span", { class: "gth-day-wide-count" + (index === 0 ? " gth-day-wide-count--going" : "") }, [String(count)]);
+    });
+    var mark;
+    if (question.yourResponse === null) {
+      mark = el("span", { class: "gth-day-wide-mark gth-day-wide-mark--none", role: "img", "aria-label": "未回答" }, []);
+    } else {
+      mark = el(
+        "span",
+        {
+          class: "gth-day-wide-mark gth-day-wide-mark--" + RESPONSE_GLYPH_CLASSES[question.yourResponse],
+          role: "img",
+          "aria-label": RESPONSE_LABELS[question.yourResponse],
+        },
+        [RESPONSE_GLYPHS[question.yourResponse]]
+      );
+    }
+    return [
+      el("span", { class: "gth-day-wide-datecell" }, dateChildren),
+      el("span", { class: "gth-day-wide-counts" }, countCells),
+      el("span", { class: "gth-day-wide-you" }, [mark]),
+    ];
+  }
+
   /**
    * dayList (ADR-0061 decision 3, board's 「日｜○△×の数｜あなた」 three-
    * column row, c2r/D1-PcDay・D1-SpList): one gathering-participant-day-item
@@ -1389,7 +1428,7 @@
    * gathering-candidate-date/data-current-leader precedent, computed here
    * from the same scheduleQuestions array, no API change).
    */
-  function renderDayListRow(question, leaders) {
+  function renderDayListRow(question, leaders, wide) {
     var isCurrent = question.candidateDateId === state.currentCandidateDateId;
     var isLeader = Boolean(leaders && leaders[question.candidateDateId]);
     var yourResponse = question.yourResponse === null ? "UNANSWERED" : question.yourResponse;
@@ -1398,6 +1437,22 @@
       dateChildren.push(el("span", { class: "gth-day-leader-badge" }, ["有力"]));
     }
     dateChildren.push(formatGatheringDateTime(question.startAt));
+    var columns = wide
+      ? renderWideDayListColumns(question, isLeader)
+      : [
+          el("span", { class: "gth-day-col gth-day-col-date" }, dateChildren),
+          el("span", { class: "gth-day-col gth-day-col-counts" }, [
+            "○" +
+              question.tally.goingCount +
+              " △" +
+              question.tally.maybeCount +
+              " ×" +
+              question.tally.notGoingCount,
+          ]),
+          el("span", { class: "gth-day-col gth-day-col-you" }, [
+            question.yourResponse === null ? "未回答" : RESPONSE_LABELS[question.yourResponse],
+          ]),
+        ];
     var row = el(
       "button",
       {
@@ -1410,22 +1465,10 @@
         class:
           "gth-day-row" +
           (isCurrent ? " gth-day-row--current" : "") +
-          (isLeader ? " gth-day-row--leader" : ""),
+          (isLeader ? " gth-day-row--leader" : "") +
+          (wide ? " gth-day-row--wide" : ""),
       },
-      [
-        el("span", { class: "gth-day-col gth-day-col-date" }, dateChildren),
-        el("span", { class: "gth-day-col gth-day-col-counts" }, [
-          "○" +
-            question.tally.goingCount +
-            " △" +
-            question.tally.maybeCount +
-            " ×" +
-            question.tally.notGoingCount,
-        ]),
-        el("span", { class: "gth-day-col gth-day-col-you" }, [
-          question.yourResponse === null ? "未回答" : RESPONSE_LABELS[question.yourResponse],
-        ]),
-      ]
+      columns
     );
     row.addEventListener("click", function () {
       navigateToScheduleQuestion(question.candidateDateId);
@@ -1436,7 +1479,18 @@
   // The shared 3-column header labels ("日｜○△×の数｜あなた") both shapes
   // below show above their own row list -- board's own column heading, not
   // fixed by this contract (no test id, purely descriptive).
-  function renderDayListColumnLabels() {
+  function renderDayListColumnLabels(wide) {
+    if (wide) {
+      return el("div", { class: "gth-day-panel-header gth-day-panel-header--wide" }, [
+        el("span", {}, ["日"]),
+        el("span", { class: "gth-day-wide-counts" }, [
+          el("span", { class: "gth-glyph--go" }, ["○"]),
+          el("span", { class: "gth-glyph--mb" }, ["△"]),
+          el("span", { class: "gth-glyph--no" }, ["×"]),
+        ]),
+        el("span", { class: "gth-day-wide-you" }, ["あなた"]),
+      ]);
+    }
     return el("div", { class: "gth-day-panel-header" }, [
       el("span", {}, ["日"]),
       el("span", {}, ["○△×の数"]),
@@ -1449,19 +1503,22 @@
    * close affordance at all -- gathering-participant-day-list is simply
    * always on screen alongside the current question card.
    */
-  function renderDayListPanel(order, leaders, heading) {
+  function renderDayListPanel(order, leaders, heading, progressRow, allAnswered) {
     var list = el(
       "div",
       { "data-testid": "gathering-participant-day-list", class: "gth-day-list" },
       order.map(function (question) {
-        return renderDayListRow(question, leaders);
+        return renderDayListRow(question, leaders, true);
       })
     );
-    return el("aside", { class: "gth-day-panel" }, [
-      el("div", { class: "gth-day-panel-heading" }, [heading]),
-      renderDayListColumnLabels(),
-      list,
-    ]);
+    // Board c2r2/F2-PcDay: one card -- 「答えた n / N」 and the segment bar on
+    // top, the 日｜○△×｜あなた table below (no separate heading; the
+    // all-answered completion text still shows, as a line under the bar).
+    var head = el("div", { class: "gth-day-panel-top" }, [progressRow]);
+    if (allAnswered) {
+      head.appendChild(el("div", { class: "gth-day-panel-heading" }, [heading]));
+    }
+    return el("aside", { class: "gth-day-panel" }, [head, renderDayListColumnLabels(true), list]);
   }
 
   /**
@@ -2009,6 +2066,7 @@
     // dayList/day-item cardinality stays exactly one set regardless.
     var dayListSidebarPending = null;
     var dayListSheetPending = null;
+    var wideLayout = false;
     if (state.view) {
       if (state.view.decision) {
         // finalizedView (adr/0042): replaces scheduleQuestion/progress/
@@ -2066,7 +2124,13 @@
         var heading = dayListHeading(total, answered);
         var dayListToggle = null;
         if (isWideDayListLayout) {
-          dayListSidebarPending = renderDayListPanel(questions, leaders, heading);
+          dayListSidebarPending = renderDayListPanel(
+            questions,
+            leaders,
+            heading,
+            renderProgressRow(questions, answered, total, null),
+            total > 0 && answered === total
+          );
         } else {
           var dayListSheetParts = renderDayListSheet(questions, leaders, heading);
           dayListToggle = dayListSheetParts.toggleButton;
@@ -2076,7 +2140,9 @@
         children.push(renderHeader());
 
         var body = [];
-        body.push(renderProgressRow(questions, answered, total, dayListToggle));
+        if (!isWideDayListLayout) {
+          body.push(renderProgressRow(questions, answered, total, dayListToggle));
+        }
         if (currentQuestion && currentQuestion.yourResponse !== null) {
           body.push(
             el("div", { class: "gth-open-confirmed" }, [
@@ -2095,7 +2161,14 @@
           body.push(shopVoteSection.node);
           shopVoteMapPending = shopVoteSection;
         }
-        children.push(el("main", { class: "gth-body" }, body));
+        if (isWideDayListLayout) {
+          // Board c2r2/F2-PcDay: left card (progress + day table) | right
+          // column (「…にしました」 above the question card, then nav).
+          body = [dayListSidebarPending, el("div", { class: "gth-wide-main" }, body)];
+          dayListSidebarPending = null;
+          wideLayout = true;
+        }
+        children.push(el("main", { class: "gth-body" + (wideLayout ? " gth-body--wide" : "") }, body));
         children.push(renderProgress(total, answered));
       }
     }
