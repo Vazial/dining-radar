@@ -669,7 +669,7 @@
     return Object.keys(counts)
       .sort()
       .map(function (key) {
-        return monthOnlyLabel(key) + " " + counts[key];
+        return monthOnlyLabel(key) + " " + counts[key] + "日";
       })
       .join(" ・ ");
   }
