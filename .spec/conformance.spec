@@ -4,7 +4,7 @@
 # 適用は orchestrator（または developer）が行う。記法は ADR-0066 の同梱 .spec と同じ最善の推測:
 #   「## OP n: <相対パス>」の見出し、FIND/REPLACE は <<< と >>> で囲む。FIND は実ファイルからの逐語コピー。
 #   apply_spec.py の実際の記法と違う場合は区切りだけ直して適用すること（本文は変えない）。
-# 適用後の確認: contractVersion が candidate 1.16.0 / gathering 0.30.0 になっていること、YAML として読めること、
+# 適用後の確認: contractVersion が candidate 1.16.0 / gathering 0.31.0 になっていること、YAML として読めること、
 #   govlint・契約スキーマ lint が通ること。FIND が1回だけ一致することを各OPで確かめること。
 
 ## OP 1: projects/dining-radar/contracts/candidate-search-browser-interface.yaml
@@ -147,7 +147,7 @@ REPLACE:
 # 2026-10-09 追補 (architect、ADR-0075【承認済み】。KEN-53、監査 audit-board-vs-implementation-2026-10-08.md の
 #   B-2・B-3。人間裁定「B-2: 板どおり、PCでは≡と見出しを同じ行に置く。B-3: 店選び中・日程を聞いている
 #   幹事画面にも『‹ ランチ会』の戻り道を足す（確定後と同じ形）」。板 party2/d7 S4（店選び中）・
-#   party2/b2 Q5-a（日程を聞き中）。contractVersionを0.29.0から0.30.0へ上げる):
+#   party2/b2 Q5-a（日程を聞き中）。contractVersionを0.30.0から0.31.0へ上げる):
 # - **`organizerDashboard.headingBar`をSCHEDULING局面にも広げた**（ADR-0075決定2）: これまでSELECTING_SHOPと
 #   FINALIZEDで出現していたが、SCHEDULING・SELECTING_SHOP・FINALIZEDの3局面すべてで出現する。ただし
 #   `confirmedDate`はSELECTING_SHOPだけ（無変更）。SCHEDULINGの「会の名前」はこれまでtestIdを持たない
@@ -171,11 +171,11 @@ openapi_note: >-
 ## OP 4: projects/dining-radar/contracts/gathering-scheduling-browser-interface.yaml
 FIND:
 <<<
-contractVersion: '0.29.0'
+contractVersion: '0.30.0'
 >>>
 REPLACE:
 <<<
-contractVersion: '0.30.0'
+contractVersion: '0.31.0'
 >>>
 
 ## OP 5: projects/dining-radar/contracts/gathering-scheduling-browser-interface.yaml

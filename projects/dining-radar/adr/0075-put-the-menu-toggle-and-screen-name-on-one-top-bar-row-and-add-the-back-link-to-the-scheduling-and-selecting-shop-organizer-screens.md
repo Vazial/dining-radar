@@ -1,7 +1,7 @@
 ---
 id: 0075
 scope: project/dining-radar
-status: 提案中
+status: 承認済み
 date: 2026-10-09
 approved_by: "人間裁定（2026-10-09 Linear KEN-53 のコメント: 監査 B-2「板どおり。PC では ≡ と見出しを同じ行に置く」、B-3「店選び中・日程を聞いている幹事画面にも『‹ ランチ会』の戻り道を足す」を選択。確認事項1〜4は起草者の読みで、人間は未確認）"
 supersedes: []
@@ -20,7 +20,7 @@ relates_to: [P-02, P-06, P-08, ADR-0059, ADR-0063, ADR-0066, ADR-0069, ADR-0072]
 > （`headingBar` を3局面に広げる）。会の名前（`gathering-dashboard-title`）は3局面とも画面唯一の `<h1>` にする。
 > **決定3**: ADR-0069・0063・0066 との矛盾箇所を、部分的な置き換えとして表で明記する。
 > **決定4**: `.feature` は変更しない。実装の影響範囲は末尾の「申し送り」。
-> **契約**: 候補画面の観測面 1.15.0→1.16.0、会の観測面 0.29.0→0.30.0。YAML 編集は逐語 FIND/REPLACE
+> **契約**: 候補画面の観測面 1.15.0→1.16.0、会の観測面 0.30.0→0.31.0。YAML 編集は逐語 FIND/REPLACE
 > （`.spec/conformance.spec`）で同梱する。
 
 ## 文脈
@@ -31,7 +31,7 @@ relates_to: [P-02, P-06, P-08, ADR-0059, ADR-0063, ADR-0066, ADR-0069, ADR-0072]
 （`git show c419080:…` はBashが無く使えなかったため、同じ内容が入っている兄弟 worktree ken-48 の
 ファイルを**読むだけ**した。変更はしていない）の B-2・B-3・A-1、`contracts/candidate-search-browser-interface.yaml`
 （1.15.0）の `gatheringEntry` 全体と `primaryNavigationGeometry`、`contracts/gathering-scheduling-browser-interface.yaml`
-（0.29.0）の `headingBar`・`schedulingLayout`・`confirmDate`・`crossFileSharedNavigation`、
+（0.30.0）の `headingBar`・`schedulingLayout`・`confirmDate`・`crossFileSharedNavigation`、
 実装の `home.html`・`organizer_gathering_list.html`・`organizer_gathering_create.html`・`organizer_dashboard.html`・
 `gathering.js` の見出し周り、既存テスト `test_render_invariants.py`（見出しの局面別テスト）・`test_layout_sanity.py`
 （`test_primary_navigation_geometry`）。板は `.orca/drops/dsg-out/party2/` の `d7/S4-PcSelect`・`S4-SpSelect`、
@@ -140,7 +140,7 @@ relates_to: [P-02, P-06, P-08, ADR-0059, ADR-0063, ADR-0066, ADR-0069, ADR-0072]
 
 - 契約（YAML編集は `.spec/conformance.spec` の OP 1〜11）:
   `candidate-search-browser-interface.yaml` 1.15.0→1.16.0（追補コメント、`primaryNavigationGeometry.topBar` 新設）。
-  `gathering-scheduling-browser-interface.yaml` 0.29.0→0.30.0（追補29コメント、`topBarLabel` 新設、`headingBar` の
+  `gathering-scheduling-browser-interface.yaml` 0.30.0→0.31.0（追補29コメント、`topBarLabel` 新設、`headingBar` の
   出現範囲・`backLink` の出現と位置 BL-1〜BL-3・`title` の h1 規則の拡張、`schedulingLayout.order` の注記、
   `crossFileSharedNavigationNoteAdr0075`）。
 - `.feature`・`design.md`・`ARCHITECTURE.md`: 変更なし（決定4）。
