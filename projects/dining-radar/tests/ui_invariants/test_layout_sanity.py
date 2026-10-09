@@ -1792,6 +1792,30 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         )
         assert not findings, "\n".join(findings)
 
+    def test_mobile_bottom_nav_legible_with_account_sheet_open(self) -> None:
+        """KEN-52 (audit A-5): opening the account sheet leaves the pointer
+        on the アカウント button, and base.html's global ``button:hover``
+        (dark green) used to paint the bar's label dark-on-dark. Check 8
+        reads computed colours, so scanning right after the click (pointer
+        still over the button) catches it; the hover sweep covers the bar's
+        other controls under a real pointer as well."""
+        findings: list[str] = []
+        self._sign_in_as_organizer()
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        self.dsl.reset_candidate_state()
+        self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING")
+        self.page.goto(f"{self.base_url}/")
+        wait_for_at_least_one(self.page, "candidate-card")
+        by_test_id(self.page, ACCOUNT_MENU_TOGGLE_TEST_ID).click()
+        expect(self.page.locator(f"#{ACCOUNT_MENU_PANEL_ID}")).to_be_visible()
+        label = "candidate-account-sheet-open (phone-390x844)"
+        _check_8_contrast(_run_layout_scan(self.page), label, findings)
+        _sweep_controls_for_hover_contrast(self.page, label, findings)
+        # Page content under the sheet's dimming backdrop is out of scope
+        # here (audit A-5 is about the bar itself).
+        findings = [f for f in findings if "primary-nav-bar" in f]
+        assert not findings, "\n".join(findings)
+
     def test_toggle_direction_filter_panel(self) -> None:
         findings: list[str] = []
         self._sign_in_as_organizer()
