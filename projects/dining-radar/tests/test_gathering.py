@@ -6691,3 +6691,271 @@ class ParticipantViewQueryCountTests(TestCase):
                 "MAYBE",
             )
         self.assertEqual(set(counts), {4})
+
+
+def _synthetic_population(count: int = 12) -> tuple[list[NormalizedCandidate], Origin]:
+    shops = [
+        NormalizedCandidate(
+            name=f"shop{index}",
+            genre="和食",
+            description=None,
+            regular_holiday=None,
+            total_seats=20,
+            non_smoking_status="FULL",
+            card_payment_available=True,
+            budget_average=1000.0,
+            latitude=35.0 + index * 0.001,
+            longitude=139.0,
+            provider_page_url=f"https://example.test/shop/{index}",
+        )
+        for index in range(count)
+    ]
+    return shops, Origin(latitude=35.0, longitude=139.0)
+
+
+class QueryBudgetTests(TestCase):
+    """KEN-47: every query is a round trip (~70ms to the remote production database), so
+    how many an endpoint runs must not grow with candidate dates, participants, shops or
+    gatherings, and must stay within a budget.
+
+    Budgets count the two queries every authenticated request pays for its session and
+    user. The same measurement is the table in the KEN-47 PR description.
+    """
+
+    def setUp(self):
+        self.population = _synthetic_population()
+        patcher = mock.patch(
+            "dining_radar.gathering.services.fetch_real_candidates",
+            return_value=self.population,
+        )
+        self.fetch = patcher.start()
+        self.addCleanup(patcher.stop)
+        self.shop_ids = [shop.provider_page_url for shop in self.population[0][:5]]
+
+    def _world(self, tag: str, dates: int, people: int, gatherings: int = 1):
+        user = get_user_model().objects.create_user(f"budget-{tag}", password="x")
+        client = Client()
+        client.force_login(user)
+        made = []
+        for index in range(gatherings):
+            gathering = services.create_gathering(
+                user, f"g{index}", [_next_business_datetime(day + 1) for day in range(dates)]
+            )
+            _gathering, links = services.issue_participant_links(user, gathering.id, people)
+            candidate_dates = list(gathering.candidate_dates.all())
+            for link in links:
+                for candidate_date in candidate_dates:
+                    ScheduleResponse.objects.create(
+                        participant_link=link,
+                        candidate_date=candidate_date,
+                        status=ScheduleResponseStatus.GOING,
+                    )
+            made.append((gathering, links, candidate_dates))
+        return user, client, made
+
+    def _to_voting(self, user, gathering, candidate_date, links):
+        services.confirm_candidate_date(user, gathering.id, candidate_date.id)
+        services.set_shortlisted_shops(user, gathering.id, self.shop_ids)
+        for link in links:
+            ShopVoteSubmission.objects.create(
+                participant_link=link, votes={shop_id: "WANT_TO_GO" for shop_id in self.shop_ids}
+            )
+        return Gathering.objects.get(id=gathering.id)
+
+    def _count(self, send, expected_status=200):
+        with CaptureQueriesContext(connection) as queries:
+            response = send()
+        self.assertEqual(response.status_code, expected_status, response.content[:200])
+        return len(queries)
+
+    def _assert_flat(self, make_send, budget, expected_status=200):
+        """``make_send(size)`` returns a no-argument request; the counts at two sizes match."""
+        small = self._count(make_send("small", 2, 2), expected_status)
+        large = self._count(make_send("large", 12, 9), expected_status)
+        self.assertEqual(small, large)
+        self.assertLessEqual(large, budget)
+
+    @staticmethod
+    def _json(client, method, path, body=None):
+        extra = {}
+        if body is not None:
+            extra = {"data": json.dumps(body), "content_type": "application/json"}
+        return getattr(client, method)(path, HTTP_ACCEPT="application/json", **extra)
+
+    def test_gathering_list_does_not_grow_with_the_number_of_gatherings(self):
+        counts = []
+        for tag, gatherings in (("few", 2), ("many", 7)):
+            user, client, made = self._world(tag, 3, 2, gatherings)
+            gathering, links, candidate_dates = made[0]
+            self._to_voting(user, gathering, candidate_dates[0], links)
+            self._to_voting(user, *made[1][:1], made[1][2][0], made[1][1])
+            self.fetch.reset_mock()
+            counts.append(self._count(lambda c=client: self._json(c, "get", "/gatherings")))
+            # Both voting gatherings share one provider call, not one each.
+            self.assertEqual(self.fetch.call_count, 1)
+        self.assertEqual(counts[0], counts[1])
+        self.assertLessEqual(counts[1], 8)
+
+    def test_serializing_gatherings_together_matches_one_by_one(self):
+        user, _client, made = self._world("same", 3, 3, 4)
+        self._to_voting(user, made[0][0], made[0][2][0], made[0][1])
+        confirmed = self._to_voting(user, made[1][0], made[1][2][1], made[1][1])
+        services.finalize_gathering(user, confirmed.id, self.shop_ids[0])
+        everything = services.list_gatherings(user)
+        together = serializers.serialize_gatherings(everything)
+        one_by_one = [
+            serializers.serialize_gathering(Gathering.objects.get(id=gathering.id))
+            for gathering in everything
+        ]
+        self.assertEqual(together, one_by_one)
+        self.assertEqual(
+            {entry["phase"] for entry in together}, {"SCHEDULING", "SELECTING_SHOP", "FINALIZED"}
+        )
+
+    def test_gathering_detail(self):
+        def make(tag, dates, people):
+            _user, client, made = self._world(f"detail-{tag}", dates, people)
+            return lambda: self._json(client, "get", f"/gatherings/{made[0][0].id}")
+
+        self._assert_flat(make, 6)
+
+    def test_gathering_detail_while_voting(self):
+        def make(tag, dates, people):
+            user, client, made = self._world(f"voting-{tag}", dates, people)
+            gathering = self._to_voting(user, made[0][0], made[0][2][0], made[0][1])
+            return lambda: self._json(client, "get", f"/gatherings/{gathering.id}")
+
+        self._assert_flat(make, 7)
+
+    def test_participant_links_list_does_not_grow_with_the_number_of_links(self):
+        def make(tag, dates, people):
+            _user, client, made = self._world(f"links-{tag}", dates, people)
+            return lambda: self._json(
+                client, "get", f"/gatherings/{made[0][0].id}/participant-links"
+            )
+
+        self._assert_flat(make, 5)
+
+    def test_participant_view_while_voting_and_after_finalizing(self):
+        def make_voting(tag, dates, people):
+            user, _client, made = self._world(f"pv-{tag}", dates, people)
+            self._to_voting(user, made[0][0], made[0][2][0], made[0][1])
+            return lambda: self._json(Client(), "get", f"/participant-links/{made[0][1][0].token}")
+
+        self._assert_flat(make_voting, 5)
+
+        def make_finalized(tag, dates, people):
+            user, _client, made = self._world(f"pf-{tag}", dates, people)
+            gathering = self._to_voting(user, made[0][0], made[0][2][0], made[0][1])
+            services.finalize_gathering(user, gathering.id, self.shop_ids[0])
+            return lambda: self._json(Client(), "get", f"/participant-links/{made[0][1][0].token}")
+
+        self._assert_flat(make_finalized, 5)
+
+    def test_put_shop_votes_is_one_write_and_stores_the_votes(self):
+        stored = []
+
+        def make(tag, dates, people):
+            user, _client, made = self._world(f"sv-{tag}", dates, people)
+            self._to_voting(user, made[0][0], made[0][2][0], made[0][1])
+            link = made[0][1][0]
+            stored.append(link)
+            votes = [{"shopId": shop_id, "status": "OK_TO_GO"} for shop_id in self.shop_ids]
+            return lambda: self._json(
+                Client(), "put", f"/participant-links/{link.token}/shop-votes", {"votes": votes}
+            )
+
+        self._assert_flat(make, 6)
+        for link in stored:
+            submission = ShopVoteSubmission.objects.get(participant_link=link)
+            self.assertEqual(set(submission.votes.values()), {"OK_TO_GO"})
+            self.assertEqual(set(submission.votes), set(self.shop_ids))
+        # Voting again replaces the row rather than adding one.
+        link = stored[0]
+        self._json(
+            Client(),
+            "put",
+            f"/participant-links/{link.token}/shop-votes",
+            {"votes": [{"shopId": self.shop_ids[0], "status": "NOT_GOING"}]},
+        )
+        submission = ShopVoteSubmission.objects.get(participant_link=link)
+        self.assertEqual(submission.votes, {self.shop_ids[0]: "NOT_GOING"})
+
+    def test_organizer_writes_stay_flat(self):
+        def revoke(tag, dates, people):
+            user, client, made = self._world(f"rv-{tag}", dates, people)
+            _gathering, fresh = services.issue_participant_links(user, made[0][0].id, 1)
+            return lambda: self._json(
+                client,
+                "post",
+                f"/gatherings/{made[0][0].id}/participant-links/{fresh[0].id}/revoke",
+            )
+
+        self._assert_flat(revoke, 12)
+
+        def confirm(tag, dates, people):
+            _user, client, made = self._world(f"cf-{tag}", dates, people)
+            return lambda: self._json(
+                client,
+                "post",
+                f"/gatherings/{made[0][0].id}/confirm-date",
+                {"candidateDateId": str(made[0][2][0].id)},
+            )
+
+        self._assert_flat(confirm, 7)
+
+        def remove(tag, dates, people):
+            _user, client, made = self._world(f"rm-{tag}", dates, people)
+            return lambda: self._json(
+                client,
+                "delete",
+                f"/gatherings/{made[0][0].id}/candidate-dates/{made[0][2][-1].id}",
+            )
+
+        self._assert_flat(remove, 10)
+
+        def add(tag, dates, people):
+            _user, client, made = self._world(f"ad-{tag}", dates, people)
+            return lambda: self._json(
+                client,
+                "post",
+                f"/gatherings/{made[0][0].id}/candidate-dates:batch",
+                {"candidateDates": [{"startAt": _next_business_datetime(60).isoformat()}]},
+            )
+
+        self._assert_flat(add, 10, expected_status=201)
+
+        def finalize(tag, dates, people):
+            user, client, made = self._world(f"fz-{tag}", dates, people)
+            gathering = self._to_voting(user, made[0][0], made[0][2][0], made[0][1])
+            return lambda: self._json(
+                client, "post", f"/gatherings/{gathering.id}/finalize", {"shopId": self.shop_ids[0]}
+            )
+
+        self._assert_flat(finalize, 8)
+
+    def test_put_shortlisted_shops_calls_the_provider_once(self):
+        user, client, made = self._world("sl", 3, 2)
+        gathering = made[0][0]
+        services.confirm_candidate_date(user, gathering.id, made[0][2][0].id)
+        self.fetch.reset_mock()
+        count = self._count(
+            lambda: self._json(
+                client,
+                "put",
+                f"/gatherings/{gathering.id}/shortlisted-shops",
+                {"shopIds": self.shop_ids},
+            )
+        )
+        self.assertEqual(self.fetch.call_count, 1)
+        self.assertLessEqual(count, 12)
+
+    def test_removing_a_candidate_date_does_not_leave_it_in_the_response(self):
+        _user, client, made = self._world("stale", 3, 1)
+        gathering, _links, candidate_dates = made[0]
+        response = self._json(
+            client, "delete", f"/gatherings/{gathering.id}/candidate-dates/{candidate_dates[1].id}"
+        )
+        self.assertEqual(response.status_code, 200)
+        ids = [entry["id"] for entry in response.json()["candidateDates"]]
+        self.assertEqual(ids, [str(candidate_dates[0].id), str(candidate_dates[2].id)])

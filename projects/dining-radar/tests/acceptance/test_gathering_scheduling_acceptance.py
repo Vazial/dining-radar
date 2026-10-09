@@ -2054,6 +2054,24 @@ class GatheringSchedulingAcceptanceTests(StaticLiveServerTestCase):
         self.steps.selecting_shop_tab_panel_is_functional("スマホ幅")
         self.steps.screen_has_no_forbidden_controls_or_disclosures()
 
+    def test_gth_schedule_tab_shows_only_the_decided_date_chip(self) -> None:
+        """専用シナリオの無い契約Must（追補29 / ADR-0073決定1）。3候補日の
+        SELECTING_SHOPで日程タブを開くと、見える札は決まった日の1枚だけで、
+        他の札はDOMに属性つきで残る。PC幅・スマホ幅の両方で検査する。"""
+        self._sign_in()
+        self.steps.gathering_open_shop_population_is_available()
+        first, second, third = self.dsl.month_crossing_thursday_isos()
+        self.steps.organizer_has_a_selecting_shop_gathering("会追補29", [first, second, third])
+        self.steps.organizer_opens_the_dashboard()
+
+        self.steps.organizer_uses_a_desktop_viewport()
+        self.dsl.page.reload()
+        self.steps.schedule_tab_shows_only_the_decided_date_chip(3)
+
+        self.steps.organizer_uses_a_narrow_viewport()
+        self.dsl.page.reload()
+        self.steps.schedule_tab_shows_only_the_decided_date_chip(3)
+
     def test_gth_finalize_selection_does_not_change_the_vote_ordered_dom_position(
         self,
     ) -> None:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from django.db.models import prefetch_related_objects
 from django.http import HttpRequest
 from django.urls import reverse
 
@@ -37,8 +38,20 @@ def serialize_candidate_date(tally: services.CandidateDateTally, gathering: Gath
 
 
 def serialize_gathering(gathering: Gathering) -> dict:
-    tallies = services.candidate_dates_with_tallies(gathering)
-    responded_count, anonymous_count = services.response_summary(gathering)
+    return serialize_gatherings([gathering])[0]
+
+
+def serialize_gatherings(gatherings: Sequence[Gathering]) -> list[dict]:
+    """``serialize_gathering`` for several gatherings at once (KEN-47).
+
+    The schedule responses, shortlisted shops and shop-vote submissions of every
+    gathering are read once, and the provider population is resolved once, however
+    many gatherings there are -- ``GET /gatherings`` used to run all of them per
+    gathering, each query a ~70ms round trip to the remote production database
+    (and each voting gathering a separate provider call).
+    """
+    gatherings = list(gatherings)
+    summaries = services.gathering_schedule_summaries(gatherings)
     # Gated on votingStartedAt (not on the shortlisted-shops tally list
     # itself, adr/0048) -- the tally list's own tie-break now needs
     # shop_lookup/origin to sort by distance, so resolving them can no
@@ -46,40 +59,65 @@ def serialize_gathering(gathering: Gathering) -> dict:
     # non-null and shortlistedShops non-empty are the same condition (see
     # that field's own schema description), so this mirrors
     # serialize_participant_view's identical gate.
-    voting_started = gathering.voting_started_at is not None
+    voting = [gathering for gathering in gatherings if gathering.voting_started_at is not None]
     # Resolved once per request and reused for every shortlisted shop's
     # display fields (adr/0044's location/walkingTimeMinutes/providerPageUrl)
-    # rather than triggering one real provider fetch per shop.
-    population_source = services.resolve_population_source() if voting_started else None
+    # of every gathering, rather than triggering one real provider fetch per
+    # shop (or per gathering).
+    population_source = services.resolve_population_source() if voting else None
     origin = population_source[1] if population_source is not None else None
-    shop_lookup = (
-        services.shop_lookup_for_gathering(gathering, population_source) if voting_started else {}
-    )
-    shortlisted_tallies = services.shortlisted_shops_with_tallies(gathering, shop_lookup, origin)
-    return {
-        "id": str(gathering.id),
-        "title": gathering.title,
-        "phase": gathering.phase,
-        "createdAt": gathering.created_at.isoformat(),
-        "candidateDates": [serialize_candidate_date(tally, gathering) for tally in tallies],
-        "totalIssuedParticipantLinks": gathering.total_issued_participant_links,
-        "totalRevokedParticipantLinks": gathering.total_revoked_participant_links,
-        "activeParticipantLinkCount": gathering.active_participant_link_count,
-        "respondedParticipantCount": responded_count,
-        "anonymousRespondedParticipantCount": anonymous_count,
-        "confirmedCandidateDateId": (
-            str(gathering.confirmed_candidate_date_id)
-            if gathering.confirmed_candidate_date_id
-            else None
-        ),
-        "votingStartedAt": (
-            gathering.voting_started_at.isoformat() if gathering.voting_started_at else None
-        ),
-        "shortlistedShops": [
-            serialize_shortlisted_shop(tally, shop_lookup, origin) for tally in shortlisted_tallies
-        ],
-        "finalizedShopId": gathering.finalized_shop_id,
-    }
+    prefetch_related_objects(gatherings, "shortlisted_shops")
+    # Only gatherings that really have a shortlist need their submissions.
+    with_shops = [gathering.id for gathering in gatherings if gathering.shortlisted_shops.all()]
+    submissions = services.vote_submission_rows(with_shops) if with_shops else {}
+    serialized = []
+    for gathering in gatherings:
+        summary = summaries[gathering.id]
+        voting_started = gathering.voting_started_at is not None
+        shop_lookup = (
+            services.shop_lookup_for_gathering(gathering, population_source)
+            if voting_started
+            else {}
+        )
+        shortlisted_tallies = services.shortlisted_shops_with_tallies(
+            gathering,
+            shop_lookup,
+            origin,
+            submissions=[
+                (submitted_at, votes)
+                for _link_id, submitted_at, votes in submissions.get(gathering.id, [])
+            ],
+        )
+        serialized.append(
+            {
+                "id": str(gathering.id),
+                "title": gathering.title,
+                "phase": gathering.phase,
+                "createdAt": gathering.created_at.isoformat(),
+                "candidateDates": [
+                    serialize_candidate_date(tally, gathering) for tally in summary.tallies
+                ],
+                "totalIssuedParticipantLinks": gathering.total_issued_participant_links,
+                "totalRevokedParticipantLinks": gathering.total_revoked_participant_links,
+                "activeParticipantLinkCount": gathering.active_participant_link_count,
+                "respondedParticipantCount": summary.responded_count,
+                "anonymousRespondedParticipantCount": summary.anonymous_count,
+                "confirmedCandidateDateId": (
+                    str(gathering.confirmed_candidate_date_id)
+                    if gathering.confirmed_candidate_date_id
+                    else None
+                ),
+                "votingStartedAt": (
+                    gathering.voting_started_at.isoformat() if gathering.voting_started_at else None
+                ),
+                "shortlistedShops": [
+                    serialize_shortlisted_shop(tally, shop_lookup, origin)
+                    for tally in shortlisted_tallies
+                ],
+                "finalizedShopId": gathering.finalized_shop_id,
+            }
+        )
+    return serialized
 
 
 def participant_link_url(request: HttpRequest, link: ParticipantLink) -> str:
@@ -93,7 +131,9 @@ def serialize_issued_participant_link(request: HttpRequest, link: ParticipantLin
 
 
 def serialize_participant_link_summary(
-    link: ParticipantLink, schedule_responses: Sequence[tuple[object, str]] = ()
+    link: ParticipantLink,
+    schedule_responses: Sequence[tuple[object, str]] = (),
+    has_responded: bool | None = None,
 ) -> dict:
     """``ParticipantLinkSummary`` (ADR-0036 decision 7, ``scheduleResponses`` added
     ADR-0056 decision 1, 2026-09-12 human decision).
@@ -104,11 +144,15 @@ def serialize_participant_link_summary(
     mapping (one query for every link, not one per link). Organizer-only:
     this function's output is never reused for ``ParticipantView`` (the
     participant-facing schema), which has no field this value could occupy.
+
+    ``has_responded`` (KEN-47): callers that already hold this link's answers
+    pass whether there are any, so listing the links does not cost one query per
+    link; ``None`` asks the database (``ParticipantLink.has_responded``).
     """
     return {
         "id": str(link.id),
         "issuedAt": link.issued_at.isoformat(),
-        "hasResponded": link.has_responded,
+        "hasResponded": link.has_responded if has_responded is None else has_responded,
         "revoked": link.revoked,
         "displayName": link.display_name,
         "scheduleResponses": [
@@ -331,7 +375,11 @@ def serialize_schedule_question(
 
 
 def serialize_decision(
-    link: ParticipantLink, gathering: Gathering, shop_lookup: dict, origin: Origin | None
+    link: ParticipantLink,
+    gathering: Gathering,
+    shop_lookup: dict,
+    origin: Origin | None,
+    your_responses: dict | None = None,
 ) -> dict:
     """``ParticipantView.decision`` (adr/0040, extended by P5/adr/0041, simplified adr/0050).
 
@@ -344,11 +392,16 @@ def serialize_decision(
     ないかも") -- a participant can still see every shop's live tally via
     ``shopVoteQuestions`` (unaffected by finalization, adr/0050 decision 2).
     """
-    your_schedule_response = (
-        services.participant_schedule_status(link, gathering.confirmed_candidate_date)
-        if gathering.confirmed_candidate_date_id
-        else None
-    )
+    # ``your_responses`` (KEN-47): this viewer's answers for every candidate date,
+    # fetched once by the caller; the per-date lookup remains as the fallback.
+    if not gathering.confirmed_candidate_date_id:
+        your_schedule_response = None
+    elif your_responses is not None:
+        your_schedule_response = your_responses.get(gathering.confirmed_candidate_date_id)
+    else:
+        your_schedule_response = services.participant_schedule_status(
+            link, gathering.confirmed_candidate_date
+        )
     return {
         "confirmedCandidateDate": gathering.confirmed_candidate_date.start_at.isoformat(),
         "shop": serialize_live_projected_shop(gathering.finalized_shop_id, shop_lookup, origin),
@@ -398,7 +451,7 @@ def serialize_participant_view(link: ParticipantLink) -> dict:
         serialize_search_origin(origin) if voting_started and origin is not None else None
     )
     decision = (
-        serialize_decision(link, gathering, shop_lookup, origin)
+        serialize_decision(link, gathering, shop_lookup, origin, your_responses)
         if gathering.phase == GatheringPhase.FINALIZED
         else None
     )

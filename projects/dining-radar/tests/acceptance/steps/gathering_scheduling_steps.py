@@ -829,5 +829,8 @@ class GatheringSchedulingSteps:
 
     # organizerDashboard.shopSelectionPanel (ADR-0063決定3) ------------------
 
+    def schedule_tab_shows_only_the_decided_date_chip(self, total_dates: int) -> None:
+        self.dsl.assert_schedule_tab_shows_only_the_decided_date_chip(total_dates)
+
     def selecting_shop_tab_panel_is_functional(self, context_label: str) -> None:
         self.dsl.assert_selecting_shop_tab_panel_is_functional(context_label)

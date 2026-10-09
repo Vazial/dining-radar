@@ -1340,6 +1340,9 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
   align-items: center;
   gap: 0.25rem;
 }
+.gth-date[hidden] {
+  display: none;
+}
 .gth-date--pickable {
   cursor: pointer;
 }
