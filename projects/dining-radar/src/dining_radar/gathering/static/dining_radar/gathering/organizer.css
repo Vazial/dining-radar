@@ -592,6 +592,12 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
    "ほかの月にも N日" badge with a joined pair of arrows at the right, and
    the summary becomes a full-width band over a full-width "つくる". */
 @media (min-width: 64rem) {
+  /* The board's column is 640px, centred; the white shell around it is wider. */
+  .gathering-create-form {
+    width: 100%;
+    max-width: 40rem;
+    margin-inline: auto;
+  }
   .gathering-create-form .gth-cal-grid {
     width: 100%;
   }
@@ -667,12 +673,12 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
 }
 @media (min-width: 64rem) {
   /* Board b2-q4r3/N1-Pc1 (KEN-51): a small window sized to its content
-     (about 450px wide), centred both ways -- not a tall sheet stretched to
+     (600px wide), centred both ways -- not a tall sheet stretched to
      the viewport. inset:0 + margin:auto + height:fit-content centres a
      fixed box that is only as tall as its rows. */
   .gathering-review-dialog {
     inset: 0;
-    width: min(28.125rem, calc(100vw - 2rem));
+    width: min(37.5rem, calc(100vw - 2rem));
     height: fit-content;
     margin: auto;
     max-height: 92dvh;
@@ -681,6 +687,13 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
   }
   .gathering-review-grip {
     display: none;
+  }
+  .gathering-review-footer {
+    justify-content: flex-end;
+  }
+  .gathering-review-dialog .gathering-review-footer .gathering-btn {
+    flex: 0 0 auto;
+    padding: 0 1.25rem;
   }
 }
 .gathering-review-dialog:focus-visible,
