@@ -24,7 +24,19 @@
 # the same markup-level constraint this file already required for
 # auth-account-menu-toggle. No scenario, test id, or security observation
 # changed.
-contractVersion: '0.3'
+#
+# 2026-10-08 amendment (architect, dining-radar/adr/0074 [承認済み], KEN-24;
+# contractVersion 0.3 -> 0.4): the signed-in screen's small "ⓘ" marker
+# (auth-individual-account-guidance) is retired by human decision, so this
+# file no longer requires it. Removed: requiredTestIds.individualAccountGuidance,
+# semanticObservations.individualAccountGuidance (testId and its two data-*
+# attributes), the testId in browserActions.signIn.success.present, and the
+# matching requiredSemanticObservations entry. Nothing is added: the marker
+# is not made a forbidden test id (an implementation that still renders it
+# is not rejected; this file simply stops asking for it). The individual-account
+# outcome itself stays carried by authentication.feature TDR-AUTH-02, which
+# is unchanged. renderModel's presence-means-DOM-existence rule is unchanged.
+contractVersion: '0.4'
 kind: acceptance-browser-interface
 scope: authentication
 profiles:
@@ -102,7 +114,6 @@ browserControlSurface:
       applicationShell: authenticated-application-shell
       signOut: auth-sign-out
       passwordChangeOpen: auth-password-change-open
-      individualAccountGuidance: auth-individual-account-guidance
     renderModel: >-
       TDR-AUTH is verified by the plain-HTTP DSL (ADR-0009 decision 4): it
       parses the server's HTTP response body and does not execute
@@ -119,8 +130,7 @@ browserControlSurface:
       browser would later render it. Hiding an already-present control with
       the HTML hidden attribute, a CSS class, or an equivalent markup-level
       technique is permitted -- presence means DOM existence, not
-      visibility, exactly as semanticObservations.individualAccountGuidance
-      below already establishes for that control. Only client-JS-only
+      visibility. Only client-JS-only
       insertion (the control does not exist in the raw HTTP response at
       all) is forbidden by this profile. Note that
       gathering-scheduling-browser-interface.yaml's own organizer-facing
@@ -130,17 +140,6 @@ browserControlSurface:
       paragraph's markup-level constraint is specific to TDR-AUTH's own
       test surface (the '/' entry) and does not itself extend enforcement
       to those screens.
-    semanticObservations:
-      individualAccountGuidance:
-        testId: auth-individual-account-guidance
-        requiredDataAttributes:
-          data-auth-account-use: individual-only
-          data-auth-credential-sharing: not-requested
-        description: >-
-          This semantic state records the approved individual-account outcome:
-          the signed-in organizer uses an individual account and is not asked
-          to share credentials. It deliberately does not prescribe visible
-          wording, layout, or a new public operation.
     forbiddenTestIds:
       - auth-sign-in-form
   passwordChange:
@@ -172,10 +171,8 @@ browserActions:
     success:
       present:
         [authenticated-application-shell, auth-sign-out,
-         auth-password-change-open, auth-individual-account-guidance]
+         auth-password-change-open]
       absent: [auth-sign-in-form]
-      requiredSemanticObservations:
-        - browserControlSurface.authenticated.semanticObservations.individualAccountGuidance
       sessionPersistenceProof:
         action: reopen-localAcceptanceRunner-with-same-browser-cookie-jar
         present: [authenticated-application-shell]

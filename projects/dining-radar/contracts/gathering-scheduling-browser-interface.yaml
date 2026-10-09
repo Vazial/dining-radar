@@ -920,11 +920,23 @@
 # - `profiles.localAcceptance.verifiesScenarios`・`allowedPurposes`・`formControlExemptTestIds`・
 #   `.feature`は無変更。押せる部品は増えず、業務規則も増えない。
 #
+# 2026-10-08 追補29 (architect、ADR-0073【承認済み】。KEN-24、監査D3「タブの中身（日程＝決まった日のカード1枚）」
+#   への対応。人間裁定 2026-10-08 KEN-24 コメント。contractVersionを0.29.0から0.30.0へ上げる。
+#   板 .orca/drops/dsg-out に日程タブを畳んだ形は無く、この文言が根拠):
+# - **`shopSelectionPanel.scheduleTab`を開いたとき画面で見えるのは1枚だけにした**（ADR-0073決定1）:
+#   SELECTING_SHOPで日程タブが選ばれている間、見えるのは`data-confirmed="true"`の
+#   `gathering-candidate-date`1枚（決まった日）だけ。他の候補日の`gathering-candidate-date`は
+#   DOMに残し、属性（`data-*`）は一切変えず、画面では見せない（追補27の`answersContent`と同じ扱い）。
+# - `candidateDateList`の存在規則（3フェーズ無条件）・並び順・各`candidateDate`の属性は無変更。
+#   `candidateDateList`の記述に、SELECTING_SHOPでは日程タブの選択状態が「見える枚数」を決めることを足しただけ。
+# - `profiles.localAcceptance.verifiesScenarios`・`allowedPurposes`・`formControlExemptTestIds`・
+#   `.feature`は無変更。押せる部品は増えず、業務規則も増えない。
+#
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.29.0'
+contractVersion: '0.30.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -2171,7 +2183,11 @@ browserControlSurface:
           three phases (Final.dc.html A③'s "日程の記録" panel is this same
           element, frozen as a record once FINALIZED, adr/0042) -- only the
           tentative-select interactivity retires (see
-          tentativeSelectionAndPreview.trigger below). **data-current-leader
+          tentativeSelectionAndPreview.trigger below). **Added 2026-10-08
+          (追補29, ADR-0073)**: while phase is SELECTING_SHOP and
+          shopSelectionPanel.scheduleTab is selected, only the
+          data-confirmed="true" element is visible on screen; the others
+          remain in the DOM unchanged. **data-current-leader
           added 2026-09-16 (ADR-0060 decision 7, human decision: "○が多い日
           を優先。同票なら△が多いほう。それでも同票ならすべてつける")**:
           for a candidate date whose goingCount + maybeCount + notGoingCount
@@ -2964,7 +2980,15 @@ browserControlSurface:
           operation -- candidateDateList's own presenceRule (unconditional
           across all three phases) is unchanged; only whether it is
           currently visible while phase is SELECTING_SHOP now depends on
-          this tab's own aria-selected state.
+          this tab's own aria-selected state. **Narrowed 2026-10-08
+          (追補29, ADR-0073 decision 1)**: while this tab is selected, the
+          only gathering-candidate-date visible on screen is the one whose
+          data-confirmed is "true" (the decided date; exactly one exists in
+          SELECTING_SHOP). Every other gathering-candidate-date stays in the
+          DOM with all its attributes unchanged and is only not shown
+          (same treatment as responseTable's answersContent, 追補27);
+          candidateDateList's own element stays visible. Wording, chip look,
+          and whether other days' counts are shown are not fixed here.
       answersTab:
         testId: gathering-shop-select-tab-answers
         purpose: gathering-shop-select-tab-answers
