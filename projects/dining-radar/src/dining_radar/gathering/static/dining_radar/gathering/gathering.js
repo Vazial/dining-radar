@@ -2048,6 +2048,18 @@
     return el("div", { class: "gth-shop-select-tabs", role: "tablist" }, buttons);
   }
 
+  // ADR-0073: while the schedule tab is open, only the confirmed date's card
+  // is visible; the others stay in the DOM with their data-* untouched.
+  // hide-unconfirmed-candidate-dates:start
+  function hideUnconfirmedCandidateDates(cards) {
+    Array.prototype.forEach.call(cards, function (card) {
+      if (card.getAttribute("data-confirmed") !== "true") {
+        card.hidden = true;
+      }
+    });
+  }
+  // hide-unconfirmed-candidate-dates:end
+
   // Whichever of the 4 tabs is currently selected discloses its own
   // already-required target element -- none of the 4 targets' own
   // presenceRule changes (ADR-0063 decision 3, mirroring ADR-0062
@@ -2064,6 +2076,9 @@
     // (ADR-0068, board S4: the shop tab's head row is just "票が多い順" and
     // "店を絞りなおす"); the other 3 tabs and the 0-shop pane never render it.
     if (state.shopSelectTab === "schedule") {
+      hideUnconfirmedCandidateDates(
+        candidateDateList.querySelectorAll('[data-testid="gathering-candidate-date"]')
+      );
       return el("div", { class: "gth-shop-select-pane" }, [candidateDateList]);
     }
     if (state.shopSelectTab === "answers") {

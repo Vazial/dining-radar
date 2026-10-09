@@ -196,6 +196,8 @@ CSSクラスによる視覚的な非表示は許容するが、クライアン�
 - **指摘3**: `candidate-reproposal-open`の配置（レイアウト）はCSSの問題であり、control surface
   のpurpose・test id・observationのいずれも変更しない。
 
+> 2026-10-08 更新: 指摘1の ⓘ は廃止（ADR-0074）。
+
 ## 検討した代替案
 
 - **案A: `allowedPurposes`をdenylist方式に変更する** / 不採用: 決定5参照。ADR-0005決定4が禁じる

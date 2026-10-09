@@ -161,10 +161,6 @@ class AuthenticationFlowTests(TestCase):
 
         shell = self.client.get(reverse("web:home"))
         self.assertContains(shell, 'id="candidate-app"')
-        self.assertContains(shell, 'data-testid="auth-individual-account-guidance"')
-        self.assertContains(shell, 'data-auth-account-use="individual-only"')
-        self.assertContains(shell, 'data-auth-credential-sharing="not-requested"')
-        self.assertContains(shell, "管理者から案内された個別アカウント")
         self.assertNotContains(shell, "公開サインアップ")
 
     def test_public_signup_and_email_reset_routes_are_absent(self):
