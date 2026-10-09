@@ -42,7 +42,7 @@
          DAY_LIST_WIDE_LAYOUT_QUERY/isTwoColumnLayout already use elsewhere
          in this codebase (candidate.js/gathering.js's own primary nav). */
       @media (min-width: 64rem) {
-        .app-shell { width: min(100% - 4rem, 64rem); }
+        .app-shell { width: min(100% - 4rem, 80rem); }
       }
       .gth-layout--wide-day-list {
         display: flex;
@@ -310,6 +310,98 @@
       }
       .gth-day-panel-heading { font-size: 0.75rem; font-weight: 700; color: #4b564e; }
 
+      /* Wide shape, board c2r2/F2-PcDay: the panel is the LEFT CARD of a
+         440px | 1fr grid inside .gth-body (progress on top, table below),
+         the right column (.gth-wide-main) holds 「…にしました」, the day
+         card and the nav. Dimensions are the board's drawn values. */
+      .gth-body--wide {
+        display: grid;
+        grid-template-columns: 440px minmax(0, 1fr);
+        gap: 24px;
+        align-items: start;
+        padding: 20px 32px 24px;
+      }
+      .gth-wide-main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+      .gth-body--wide .gth-day-panel {
+        flex: none;
+        gap: 0;
+        padding: 0;
+        overflow: hidden;
+        position: static;
+        border: 1px solid #d9e0d8;
+        border-radius: 14px;
+      }
+      .gth-day-panel-top { padding: 14px 16px; border-bottom: 1px solid #d9e0d8; display: flex; flex-direction: column; gap: 6px; }
+      .gth-day-panel-top .gth-day-panel-heading { font-size: 12px; }
+      .gth-day-panel-header--wide {
+        grid-template-columns: minmax(0, 1fr) 96px 64px;
+        align-items: center;
+        gap: 8px;
+        height: 30px;
+        padding: 0 12px 0 16px;
+        background: #eaf0ea;
+        border-bottom: 1px solid #d9e0d8;
+        font-size: 10.5px;
+        font-weight: 700;
+        color: #77827a;
+      }
+      .gth-day-panel-header--wide .gth-day-wide-counts { font-weight: 700; }
+      .gth-day-panel-header--wide .gth-day-wide-you { text-align: center; }
+      .gth-body--wide .gth-day-list { gap: 0; }
+      .gth-day-row--wide {
+        grid-template-columns: minmax(0, 1fr) 96px 64px;
+        gap: 8px;
+        min-height: 48px;
+        padding: 0 12px 0 16px;
+        border: 0;
+        border-bottom: 1px solid #edf0eb;
+        border-radius: 0;
+        background: #fff;
+        box-shadow: inset 4px 0 0 transparent;
+        font: inherit;
+        font-size: 13px;
+        color: #17201b;
+        cursor: pointer;
+      }
+      .gth-day-row--wide.gth-day-row--leader { box-shadow: inset 4px 0 0 #14614a; }
+      .gth-day-row--wide.gth-day-row--current { background: #eaf4ee; box-shadow: inset 4px 0 0 #17201b; }
+      .gth-day-wide-datecell { display: flex; align-items: center; gap: 8px; min-width: 0; }
+      .gth-day-wide-date { font-size: 14px; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+      .gth-day-wide-leader {
+        display: inline-flex;
+        align-items: center;
+        height: 20px;
+        padding: 0 7px;
+        border-radius: 999px;
+        background: #14614a;
+        color: #fff;
+        font-size: 10.5px;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      .gth-day-wide-counts { display: grid; grid-template-columns: repeat(3, 1fr); text-align: center; font-variant-numeric: tabular-nums; }
+      .gth-day-wide-count { color: #77827a; font-weight: 400; }
+      .gth-day-wide-count--going { color: #17201b; font-weight: 700; }
+      .gth-day-wide-you { display: flex; justify-content: center; }
+      .gth-day-wide-mark {
+        width: 30px;
+        height: 30px;
+        border-radius: 999px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        font-size: 15px;
+        font-weight: 700;
+      }
+      .gth-day-wide-mark--go { background: #14614a; }
+      .gth-day-wide-mark--mb { background: #b4531c; }
+      .gth-day-wide-mark--no { background: #77827a; }
+      .gth-day-wide-mark--none { border: 1.5px dashed #c6cfc6; }
+      /* Names in two columns (board: 72px | 1fr cells, 56px tall). */
+      .gth-body--wide .gth-respondent-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+      .gth-body--wide .gth-respondent-item { min-height: 56px; }
+
       /* Narrow shape (c2/C2-a-SpDay top-right button + c2/C2-a-SpList・
          c2r/D1-SpList bottom sheet). gathering-participant-day-list stays
          attached inside .gth-day-sheet at all times (dayList.presenceRule)
@@ -568,6 +660,6 @@
     {% comment %}
       Cache-busting query string on participant.js (FR-025).
     {% endcomment %}
-    <script src="{% static 'dining_radar/gathering/participant.js' %}?v=20260917-adr0061-answer-flow"></script>
+    <script src="{% static 'dining_radar/gathering/participant.js' %}?v=20261009-ken49-pc-day"></script>
   </body>
 </html>
