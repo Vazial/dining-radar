@@ -1226,7 +1226,10 @@ class GatheringSchedulingBrowserDsl:
         indicator = self.page.locator(f'[data-testid="{GATHERING_PHASE_INDICATOR}"]')
         if indicator.count() > 0:
             return indicator.first.get_attribute(GATHERING_PHASE_ATTR)
-        assert_present(self.assertions, self.page, GATHERING_DASHBOARD_TITLE)
+        # ADR-0075 (contract 0.31.0): gathering-dashboard-title now also shows
+        # while SCHEDULING, so only gathering-dashboard-confirmed-date (shown
+        # exactly while SELECTING_SHOP) identifies this phase.
+        assert_present(self.assertions, self.page, GATHERING_DASHBOARD_CONFIRMED_DATE)
         return "SELECTING_SHOP"
 
     def _read_candidate_dates(self) -> list[dict[str, object]]:
@@ -2905,7 +2908,8 @@ class GatheringSchedulingBrowserDsl:
         # while phase is SELECTING_SHOP) is this suite's organizer-side
         # substitute for confirming the transition landed (see
         # _read_gathering_phase_from_dom's own identical 2026-09-19 comment).
-        wait_for_at_least_one(self.page, GATHERING_DASHBOARD_TITLE)
+        # ADR-0075: title is also present while SCHEDULING; use confirmed-date.
+        wait_for_at_least_one(self.page, GATHERING_DASHBOARD_CONFIRMED_DATE)
 
     def attempt_confirm_candidate_date_via_api(self, candidate_date_id: str) -> CapturedApiResponse:
         return self._api(

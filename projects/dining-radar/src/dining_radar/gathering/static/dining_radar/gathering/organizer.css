@@ -75,6 +75,28 @@
   flex: 1 1 auto;
   min-width: 0;
 }
+/* ADR-0075 decision 1: the organizer dashboard's top bar row names the
+   screen with this display-only label (the h1 there is the gathering's
+   name, below the bar and the return link). */
+.app-header-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #17201b;
+}
+/* topBarLabel is present exactly while twoColumnLayout holds (the phone's
+   navigation is the bottom bar, and the bar row's height is worth more to
+   the dashboard's map there). */
+@media (max-width: 63.999rem) {
+  .app-header-label {
+    display: none;
+  }
+}
 
 /* Height chain (body -> ... -> gth-shop-stage/gth-decision-stage), scoped
    to the dashboard only (:has(#gathering-app) -- organizerGatheringList/
@@ -820,6 +842,15 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
   font-weight: 700;
   color: #17201b;
   overflow-wrap: break-word;
+  margin: 0;
+  line-height: 1.4;
+}
+/* ADR-0075 decision 2: the return link sits on its own line directly above
+   the gathering's name in every phase (BL-1/BL-2). */
+.gth-header > .gth-heading-back,
+.gth-heading-bar > .gth-heading-back {
+  flex: 0 0 100%;
+  order: 0;
 }
 
 /* --- organizerDashboard.headingBar (ADR-0063 decision 2, board S4) ------
@@ -861,6 +892,9 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
   min-height: 2.75rem;
   display: inline-flex;
   align-items: center;
+}
+.gth-heading-bar--finalized > .gth-heading-back {
+  flex: 0 0 auto;
 }
 .gth-heading-bar--finalized .gth-title {
   order: 2;

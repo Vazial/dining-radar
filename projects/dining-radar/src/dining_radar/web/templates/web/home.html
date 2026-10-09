@@ -96,6 +96,24 @@
     .primary-nav-desktop { display: flex; flex-direction: row-reverse; align-items: center; gap: 0.5rem; }
     .app-shell > .primary-nav-desktop { position: absolute; top: 1.25rem; right: 0; z-index: 10; }
     .app-shell > header[data-testid="authenticated-application-shell"] { padding-right: 8.5rem; }
+    /* ADR-0075 decision 1 (primaryNavigationGeometry.topBar, TB-1..TB-4):
+       under twoColumnLayout the screen's name (this screen's h1) and the
+       menu toggle share ONE top bar row -- name at the left, toggle at the
+       right, nothing above. The nav is a direct child of .app-card, placed
+       before <header> in the DOM; giving it zero height keeps it out of the
+       flow (no row of its own), so the header row is the bar row, and the
+       toggle is drawn over that row's right end. The header gets the
+       toggle's own 44px as its minimum height so the h1 and the toggle
+       centre on the same line. Same breakpoint as the narrow-width block
+       below (64rem), where initializePrimaryNav() removes this nav. */
+    @media (min-width: 64rem) {
+      .app-card > .primary-nav-desktop {
+        position: relative; z-index: 10; height: 0; align-items: flex-start;
+      }
+      .app-card > header[data-testid="authenticated-application-shell"] {
+        min-height: 2.75rem; padding-right: 4.5rem;
+      }
+    }
     .primary-nav-menu { position: relative; }
     .primary-nav-menu-toggle-wrap { position: relative; display: inline-flex; }
     .primary-nav-menu-toggle {

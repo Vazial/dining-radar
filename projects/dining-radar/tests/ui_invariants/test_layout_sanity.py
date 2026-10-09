@@ -1354,12 +1354,157 @@ class LayoutSanityTests(StaticLiveServerTestCase):
             ]
         )
 
+    # --- ADR-0075: top bar row (TB-1..TB-4) and return link position (BL-1..BL-3) ---
+
+    #: Collects visible elements that carry their own text or are operable
+    #: and whose bottom edge is at or above ``limit`` (TB-3), skipping
+    #: ``skip`` and the ancestors/descendants of the two bar elements.
+    _ABOVE_THE_BAR_JS = """
+    ([sSel, tSel, limit]) => {
+      const s = document.querySelector(sSel);
+      const t = document.querySelector(tSel);
+      const out = [];
+      document.querySelectorAll('body *').forEach((el) => {
+        if (el === s || el === t || el.contains(s) || el.contains(t)
+            || s.contains(el) || t.contains(el)) return;
+        const style = getComputedStyle(el);
+        if (style.display === 'none' || style.visibility === 'hidden') return;
+        const r = el.getBoundingClientRect();
+        if (r.width <= 1 || r.height <= 1) return;
+        const ownText = Array.from(el.childNodes).some(
+          (n) => n.nodeType === 3 && n.textContent.trim() !== '');
+        const operable = el.matches(
+          'a[href], button, input, select, textarea, summary, [tabindex]');
+        if (!(ownText || operable)) return;
+        if (r.bottom <= limit) {
+          out.push((el.getAttribute('data-testid') || el.tagName) + ' bottom=' + r.bottom);
+        }
+      });
+      return out;
+    }
+    """
+
+    def _assert_top_bar_row(self, screen: str, bar_label_selector: str) -> None:
+        """TB-1..TB-4 (candidate-search-browser-interface.yaml
+        gatheringEntry.primaryNavigationGeometry.topBar) at 1440x900."""
+        toggle_selector = '[data-testid="candidate-primary-nav-menu-toggle"]'
+        label = self.page.locator(bar_label_selector)
+        toggle = self.page.locator(toggle_selector)
+        label_box = label.bounding_box()
+        toggle_box = toggle.bounding_box()
+        assert label_box is not None and toggle_box is not None, screen
+        label_center_y = label_box["y"] + label_box["height"] / 2
+        # TB-1: same row.
+        assert label_box["y"] < toggle_box["y"] + toggle_box["height"] + 1, screen
+        assert toggle_box["y"] < label_box["y"] + label_box["height"] + 1, screen
+        assert (
+            toggle_box["y"] - 1 <= label_center_y <= toggle_box["y"] + toggle_box["height"] + 1
+        ), f"{screen}: TB-1 label center y={label_center_y} vs toggle {toggle_box}"
+        # TB-2: the screen name is wholly left of the toggle.
+        assert label_box["x"] + label_box["width"] <= toggle_box["x"] + 1, (
+            f"{screen}: TB-2 label {label_box} not left of toggle {toggle_box}"
+        )
+        # TB-3: nothing carrying its own text / operable above the bar row.
+        limit = min(label_box["y"], toggle_box["y"])
+        above = self.page.evaluate(
+            self._ABOVE_THE_BAR_JS, [bar_label_selector, toggle_selector, limit]
+        )
+        assert not above, f"{screen}: TB-3 elements above the bar row: {above}"
+        # TB-4: exactly one level-1 heading.
+        assert self.page.locator("h1").count() == 1, f"{screen}: TB-4 h1 count"
+
+    def _assert_return_link_position(self, screen: str, check_below_bar: bool) -> None:
+        """BL-1..BL-3 (organizerDashboard.headingBar.backLink)."""
+        back = by_test_id(self.page, "gathering-dashboard-back").bounding_box()
+        name = by_test_id(self.page, "gathering-dashboard-title").bounding_box()
+        assert back is not None and name is not None, screen
+        # BL-1: above the name.
+        assert back["y"] + back["height"] <= name["y"] + 1, f"{screen}: BL-1 {back} vs {name}"
+        assert back["y"] + back["height"] / 2 < name["y"] + name["height"] / 2, screen
+        # BL-2: left edges aligned.
+        assert abs(back["x"] - name["x"]) <= 4, f"{screen}: BL-2 {back} vs {name}"
+        if check_below_bar:
+            # BL-3: wholly below the bar row.
+            bar_label = by_test_id(self.page, "gathering-dashboard-top-label").bounding_box()
+            toggle = by_test_id(self.page, "candidate-primary-nav-menu-toggle").bounding_box()
+            assert bar_label is not None and toggle is not None, screen
+            bar_bottom = max(bar_label["y"] + bar_label["height"], toggle["y"] + toggle["height"])
+            assert back["y"] >= bar_bottom - 1, f"{screen}: BL-3 {back} vs bar bottom {bar_bottom}"
+
+    def test_top_bar_row_and_return_link_geometry(self) -> None:
+        """ADR-0075 decisions 1-2: on every screen that carries the menu toggle
+        the screen name and the toggle share one top bar row (TB-1..TB-4,
+        1440x900), and the organizer dashboard's return link sits above the
+        gathering name in all three phases (BL-1..BL-3; BL-1/BL-2 also at
+        390x844)."""
+        self._sign_in_as_organizer()
+        self.page.set_viewport_size({"width": 1440, "height": 900})
+
+        # Candidate screen, ordinary and gathering mode (S = the h1).
+        self.dsl.reset_candidate_state()
+        self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING", random_seed=20260927)
+        self.page.goto(f"{self.base_url}/")
+        wait_for_at_least_one(self.page, "candidate-card")
+        self._assert_top_bar_row("candidate-normal", "h1")
+        gathering_id = self.dsl.given_a_gathering_with_exactly_one_shortlisted_shop(
+            "上部バー確認会"
+        )
+        self.dsl.open_gathering_mode_from_dashboard(gathering_id)
+        wait_for_at_least_one(self.page, "candidate-gathering-mode-band")
+        self._assert_top_bar_row("candidate-gathering-mode", "h1")
+
+        # Gathering list and create (S = the h1).
+        self.page.goto(f"{self.base_url}{reverse('gathering:organizer-gathering-list')}")
+        wait_for_at_least_one(self.page, "gathering-list-item")
+        self._assert_top_bar_row("gathering-list", "h1")
+        self.page.goto(f"{self.base_url}/gatherings/new/")
+        by_test_id(self.page, "gathering-create-name-input").wait_for()
+        self._assert_top_bar_row("gathering-create", "h1")
+
+        # Organizer dashboard, three phases (S = gathering-dashboard-top-label,
+        # the h1 is the gathering name).
+        top_label = '[data-testid="gathering-dashboard-top-label"]'
+        gathering_id = self._create_gathering_via_ui("上部バー局面確認会")
+        self._assert_top_bar_row("dashboard-scheduling", top_label)
+        self._assert_return_link_position("dashboard-scheduling", check_below_bar=True)
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-dashboard-back")).to_be_visible()
+        self._assert_return_link_position("dashboard-scheduling-phone", check_below_bar=False)
+        self.page.set_viewport_size({"width": 1440, "height": 900})
+        self.page.reload()
+
+        by_test_id(self.page, "gathering-candidate-date").click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        expect(by_test_id(self.page, "gathering-dashboard-confirmed-date")).to_be_visible()
+        self._assert_top_bar_row("dashboard-selecting-shop", top_label)
+        self._assert_return_link_position("dashboard-selecting-shop", check_below_bar=True)
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-dashboard-back")).to_be_visible()
+        self._assert_return_link_position("dashboard-selecting-shop-phone", check_below_bar=False)
+        self.page.set_viewport_size({"width": 1440, "height": 900})
+        self.page.reload()
+
+        self._seed_one_shortlisted_shop(gathering_id)
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+        by_test_id(self.page, "gathering-finalize-shop-select").check(force=True)
+        by_test_id(self.page, "gathering-finalize-open").click()
+        by_test_id(self.page, "gathering-finalize-confirm").click()
+        expect(by_test_id(self.page, "gathering-decision-banner")).to_be_visible()
+        self._assert_top_bar_row("dashboard-finalized", top_label)
+        self._assert_return_link_position("dashboard-finalized", check_below_bar=True)
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-dashboard-back")).to_be_visible()
+        self._assert_return_link_position("dashboard-finalized-phone", check_below_bar=False)
+
     @pytest.mark.xfail(
         strict=True,
         reason=(
-            "報告リスト項目1・2・13: デスクトップ1440x900で候補画面の≡メニューの列が"
-            "折り返し画面左端付近（x=-107〜85）に来ている（h1直前0px間隔・パネルもビュー"
-            "ポート左端の外にはみ出す、check4・check5）。加えてcandidate-provider-credit"
+            "報告リスト項目2・13: （項目1の≡メニュー折り返し・h1直前0px間隔は ADR-0075 の"
+            "上部バー1行化で解消済み）。デスクトップ1440x900でcandidate-provider-credit"
             "（クレジット表記）がカード本文と重なる（最大424x30px、check1）。さらに"
             "候補画面共通の淡いグレー文字（条件バーのラベル等）がコントラスト比4.5をわずかに"
             "下回る（4.1程度、check8。項目13と同じ画面共通パターン）。"
@@ -1409,9 +1554,9 @@ class LayoutSanityTests(StaticLiveServerTestCase):
     @pytest.mark.xfail(
         strict=True,
         reason=(
-            "報告リスト項目1・2・13: 会モードでも候補画面と同じ根本原因（項目1・2・13"
-            "参照、デスクトップ1440x900の≡メニュー折り返し・クレジット表記の重なり・"
-            "淡いグレー文字のコントラスト不足）がそのまま再現する。"
+            "報告リスト項目2・13: 会モードでも候補画面と同じ根本原因（項目2・13参照、"
+            "デスクトップ1440x900のクレジット表記の重なり・淡いグレー文字のコントラスト"
+            "不足）がそのまま再現する（項目1の≡メニュー折り返しは ADR-0075 で解消済み）。"
         ),
     )
     def test_candidate_gathering_mode(self) -> None:
@@ -1440,9 +1585,9 @@ class LayoutSanityTests(StaticLiveServerTestCase):
     @pytest.mark.xfail(
         strict=True,
         reason=(
-            "報告リスト項目7・13: デスクトップ1440x900でh1直前の≡メニューが0px間隔で"
-            "詰まる（項目1と同じ根本原因）。加えて一覧行の状態文言（回答を待っています等）"
-            "がコントラスト比3.6程度で4.5を下回る（check8。項目13と同じ画面共通パターン）。"
+            "報告リスト項目7・13: 一覧行の状態文言（回答を待っています等）がコントラスト比"
+            "3.6程度で4.5を下回る（check8。項目13と同じ画面共通パターン）。h1直前の≡メニュー"
+            "0px間隔（項目1）は ADR-0075 の上部バー1行化で解消済み。"
         ),
     )
     def test_gathering_list(self) -> None:
@@ -1470,9 +1615,9 @@ class LayoutSanityTests(StaticLiveServerTestCase):
     @pytest.mark.xfail(
         strict=True,
         reason=(
-            "報告リスト項目3・11・12: デスクトップ1440x900で、作成画面本体・確認小窓の"
-            "いずれもh1直前の≡メニューが0px間隔で詰まる（項目1と同じ根本原因）。加えて"
-            "gathering-create-candidate-date-day（カレンダーの日付セル）を押しても check7 "
+            "報告リスト項目3・11・12: （h1直前の≡メニュー0px間隔は ADR-0075 の上部バー1行化で"
+            "解消済み）。デスクトップ1440x900でgathering-create-candidate-date-day"
+            "（カレンダーの日付セル）を押しても check7 "
             "からは変化が見えない（未確認）。同じ日付セルはホバー時にコントラスト比1.46まで"
             "落ちる（check8。項目12と同じhover詳細のパターン）。"
         ),
@@ -1520,8 +1665,8 @@ class LayoutSanityTests(StaticLiveServerTestCase):
     @pytest.mark.xfail(
         strict=True,
         reason=(
-            "報告リスト項目4・5・6・13: デスクトップ1440x900でh1直前の≡メニューが0px間隔"
-            "で詰まる（項目1と同じ根本原因）。加えてphone-360x740で候補日追加の小窓が"
+            "報告リスト項目4・5・6・13: （h1直前の≡メニュー0px間隔は ADR-0075 の上部バー1行化で"
+            "解消済み）。phone-360x740で候補日追加の小窓が"
             "ビューポート下端の外（約85px）にはみ出し（check4:小窓）、削除確認の小窓を"
             "開くとh1が画面上端の外（y=-18）に押し出される（check4）。さらに局面表示や"
             "候補日行の淡いグレー文字が4.5をわずかに下回る（check8。項目13と同じ画面共通"
@@ -1568,10 +1713,8 @@ class LayoutSanityTests(StaticLiveServerTestCase):
     @pytest.mark.xfail(
         strict=True,
         reason=(
-            "報告リスト項目4・12・13: デスクトップ1440x900で、4タブ・リンク発行小窓・確定"
-            "確認小窓のいずれでもh1直前の≡メニューが0px間隔で詰まっている（項目1と同じ"
-            "根本原因、gathering-scheduling-browser-interface.yamlの3画面に共通）。加えて"
-            "コーディネーター報告どおり、日程・店・回答・リンクの4タブすべてがクリック直後の"
+            "報告リスト項目12・13: （h1直前の≡メニュー0px間隔は ADR-0075 の上部バー1行化で"
+            "解消済み）。コーディネーター報告どおり、日程・店・回答・リンクの4タブすべてがクリック直後の"
             "ホバー状態でコントラスト比1.4程度まで落ちる（check8。日程タブのみ選択済みの"
             "文字色#14614aが読めなくなる — 報告いただいた実害そのもの。原因はbase.htmlの"
             "汎用button:hover{background:#0e4933}が.gth-shop-select-tab固有のcolorに"
@@ -1650,8 +1793,8 @@ class LayoutSanityTests(StaticLiveServerTestCase):
     @pytest.mark.xfail(
         strict=True,
         reason=(
-            "報告リスト項目4・8・12・13: デスクトップ1440x900でh1直前の≡メニューが0px"
-            "間隔で詰まる（項目1と同じ根本原因）。加えてphone-360x740/390x844で回答・"
+            "報告リスト項目8・12・13: （h1直前の≡メニュー0px間隔は ADR-0075 の上部バー1行化で"
+            "解消済み）。phone-360x740/390x844で回答・"
             "リンクの開閉行を開くと、中身が gathering-decision-links-open 等と重なり "
             "div.gth-decision-disclosure-panel の外にもはみ出す（check1・check4）。"
             "gathering-decision-links-open自身もホバー時コントラスト比1.36（check8、"

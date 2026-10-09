@@ -3478,26 +3478,49 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         )
         self.assertEqual(first_row_children, header_cells.count() + 1)
 
-    def test_gathering_dashboard_heading_bar_replaces_phase_indicator_only_while_selecting_shop(
+    def test_gathering_dashboard_heading_bar_shows_title_h1_and_back_link_in_all_three_phases(
         self,
     ) -> None:
-        """ADR-0063 decisions 1-2 (2026-09-19, board S4): a full round trip
-        (SCHEDULING -> SELECTING_SHOP -> FINALIZED) confirming headingBar
-        (gathering-dashboard-title/-confirmed-date) and phaseIndicator
-        (gathering-phase-indicator) follow the phase-specific contract. The
-        heading is absent in SCHEDULING, includes the date only in
-        SELECTING_SHOP, and in FINALIZED becomes the gathering name's sole
-        h1 with the return link above it (ADR-0069).
+        """ADR-0063 decisions 1-2 (2026-09-19, board S4), widened by ADR-0075
+        decision 2 (2026-10-09): a full round trip (SCHEDULING ->
+        SELECTING_SHOP -> FINALIZED) confirming headingBar
+        (gathering-dashboard-title/-back/-confirmed-date) and phaseIndicator
+        (gathering-phase-indicator) follow the phase-specific contract. In all
+        three phases the gathering name is the screen's sole h1 with the
+        return link directly before it; the date is shown in SELECTING_SHOP
+        only.
         """
         self._sign_in_as_organizer()
         title = "見出し切り替えの確認会"
         gathering_id = self._create_gathering_via_ui(title)
 
-        # SCHEDULING: phaseIndicator present, headingBar absent.
+        def assert_title_is_the_sole_h1_with_back_link_before_it(expected_title: str) -> None:
+            heading = by_test_id(self.page, "gathering-dashboard-title")
+            expect(heading).to_be_visible()
+            self.assertEqual(heading.get_attribute("data-gathering-title"), expected_title)
+            self.assertEqual(heading.evaluate("node => node.tagName"), "H1")
+            self.assertEqual(self.page.locator("h1").count(), 1)
+            expect(by_test_id(self.page, "gathering-dashboard-back")).to_be_visible()
+            self.assertEqual(by_test_id(self.page, "gathering-dashboard-back").count(), 1)
+            # ADR-0069 / ADR-0075: in document order the return link comes
+            # immediately before the gathering name (no other test-id'd
+            # element between them).
+            self.assertTrue(
+                heading.evaluate(
+                    """node => {
+                        const all = Array.from(document.querySelectorAll('[data-testid]'));
+                        const i = all.indexOf(node);
+                        return i > 0 && all[i - 1].dataset.testid === 'gathering-dashboard-back';
+                    }"""
+                )
+            )
+
+        # SCHEDULING: phaseIndicator present; headingBar (title h1 + return
+        # link) present, without the confirmed date (ADR-0075 decision 2).
         expect(by_test_id(self.page, "gathering-phase-indicator")).to_have_attribute(
             "data-gathering-phase", "SCHEDULING"
         )
-        expect(by_test_id(self.page, "gathering-dashboard-title")).to_have_count(0)
+        assert_title_is_the_sole_h1_with_back_link_before_it(title)
         expect(by_test_id(self.page, "gathering-dashboard-confirmed-date")).to_have_count(0)
 
         by_test_id(self.page, "gathering-candidate-date").click()
@@ -3506,9 +3529,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         # SELECTING_SHOP: headingBar present with the real title/date,
         # phaseIndicator absent.
         expect(by_test_id(self.page, "gathering-phase-indicator")).to_have_count(0)
-        heading_title = by_test_id(self.page, "gathering-dashboard-title")
-        expect(heading_title).to_be_visible()
-        self.assertEqual(heading_title.get_attribute("data-gathering-title"), title)
+        assert_title_is_the_sole_h1_with_back_link_before_it(title)
         gathering_response = self.context.request.get(
             f"{self.dsl.base_url}/gatherings/{gathering_id}"
         )
@@ -3527,24 +3548,12 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         by_test_id(self.page, "gathering-finalize-open").click()
         by_test_id(self.page, "gathering-finalize-confirm").click()
 
-        # FINALIZED: phaseIndicator returns; ADR-0069 keeps the heading bar,
-        # changes its title to the sole h1, adds the return link, and removes
-        # the date from this heading.
+        # FINALIZED: phaseIndicator returns; the heading bar keeps the title
+        # h1 and the return link and shows no date.
         expect(by_test_id(self.page, "gathering-phase-indicator")).to_have_attribute(
             "data-gathering-phase", "FINALIZED"
         )
-        finalized_title = by_test_id(self.page, "gathering-dashboard-title")
-        expect(finalized_title).to_be_visible()
-        self.assertEqual(finalized_title.get_attribute("data-gathering-title"), title)
-        self.assertEqual(finalized_title.evaluate("node => node.tagName"), "H1")
-        self.assertEqual(self.page.locator("h1").count(), 1)
-        back = by_test_id(self.page, "gathering-dashboard-back")
-        expect(back).to_be_visible()
-        self.assertTrue(
-            finalized_title.evaluate(
-                "node => node.previousElementSibling?.dataset.testid === 'gathering-dashboard-back'"
-            )
-        )
+        assert_title_is_the_sole_h1_with_back_link_before_it(title)
         expect(by_test_id(self.page, "gathering-dashboard-confirmed-date")).to_have_count(0)
 
     def test_b_gathering_dashboard_schedule_tab_shows_only_the_confirmed_date(self) -> None:
