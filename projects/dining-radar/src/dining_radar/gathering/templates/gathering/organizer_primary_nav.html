@@ -53,20 +53,20 @@
       data-candidate-control-category="button"
       data-candidate-control-purpose="candidate-primary-nav-menu-toggle"
       class="primary-nav-menu-toggle"
-    ><span aria-hidden="true">☰</span><span class="visually-hidden">メニュー</span></summary>
+    ><svg class="primary-nav-icon primary-nav-icon-menu" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M3.5 5.5h13M3.5 10h13M3.5 14.5h13"/></svg><span class="visually-hidden">メニュー</span></summary>
     <div data-testid="candidate-primary-nav-menu-panel" class="primary-nav-menu-panel">
       <a
         href="{% url 'web:home' %}"
         data-testid="candidate-primary-nav-menu-search"
         data-primary-nav-current="false"
         class="primary-nav-menu-link"
-      ><span aria-hidden="true">🔍</span>ランチ候補をさがす</a>
+      ><svg class="primary-nav-icon" width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="5.4"/><path d="M12.2 12.2L16 16"/></svg>ランチ候補をさがす</a>
       <a
         href="{% url 'gathering:organizer-gathering-list' %}"
         data-testid="candidate-primary-nav-menu-gathering"
         data-primary-nav-current="true"
         class="primary-nav-menu-link"
-      ><span aria-hidden="true">🍽</span>ランチ会</a>
+      ><svg class="primary-nav-icon" width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><rect x="3" y="4.2" width="12" height="11" rx="2.2"/><path d="M3 7.6h12M6 3v2.4M12 3v2.4"/></svg>ランチ会</a>
       <h2 class="primary-nav-menu-account-heading">アカウント</h2>
       <a
         href="{% url 'authentication:password_change' %}"
@@ -94,13 +94,13 @@
     data-testid="candidate-primary-nav-search"
     data-primary-nav-current="false"
     class="primary-nav-bar-link"
-  ><span aria-hidden="true">🔍</span><span class="primary-nav-bar-label">さがす</span></a>
+  ><svg class="primary-nav-icon" width="20" height="20" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="5.4"/><path d="M12.2 12.2L16 16"/></svg><span class="primary-nav-bar-label">さがす</span></a>
   <a
     href="{% url 'gathering:organizer-gathering-list' %}"
     data-testid="candidate-primary-nav-gathering"
     data-primary-nav-current="true"
     class="primary-nav-bar-link"
-  ><span aria-hidden="true">🍽</span><span class="primary-nav-bar-label">ランチ会</span></a>
+  ><svg class="primary-nav-icon" width="20" height="20" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><rect x="3" y="4.2" width="12" height="11" rx="2.2"/><path d="M3 7.6h12M6 3v2.4M12 3v2.4"/></svg><span class="primary-nav-bar-label">ランチ会</span></a>
   <button
     type="button"
     data-testid="candidate-primary-nav-account"
@@ -110,7 +110,7 @@
     aria-haspopup="true"
     aria-expanded="false"
     aria-controls="primary-nav-account-sheet"
-  ><span aria-hidden="true">👤</span><span class="primary-nav-bar-label">アカウント</span></button>
+  ><svg class="primary-nav-icon" width="20" height="20" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="9" cy="6.3" r="2.9" stroke-width="1.5"/><path d="M3.8 15c.6-2.8 2.7-4.2 5.2-4.2S13.6 12.2 14.2 15" stroke-width="1.5"/></svg><span class="primary-nav-bar-label">アカウント</span></button>
 </nav>
 <div id="primary-nav-account-sheet" data-primary-nav-mobile class="primary-nav-account-sheet" hidden>
   <h2 class="primary-nav-account-sheet-heading">アカウント</h2>

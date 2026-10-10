@@ -88,6 +88,10 @@ L5 に TB-1〜4・BL-1〜3 の検査を足し、h1直前0pxの xfail 理由を�
 「title があれば SELECTING_SHOP」で、SCHEDULING にも title が出るようになり受け入れ5件が落ちる
 （`confirm_tentatively_selected_date` の待ちと `_read_gathering_phase_from_dom` の代替読みを `gathering-dashboard-confirmed-date` に直す）。
 
+### KEN-55（監査 B-1、`adr/0077`・承認済み、契約 候補画面 1.17.0）の実装
+ナビの絵（≡・メニューの2リンク・スマホ下部バーの3項目）を絵文字から `aria-hidden` の線画 inline SVG にした
+（板 `party2/d6` S2-a・`a-nav-r4-full` S2 と一致）。契約に `navIcons` を足した。「ランチ会 N」の数の丸は範囲外（未対応）。
+
 ### 日程を聞いている幹事画面の残り差（KEN-50、監査 A-3、`adr/0076`・承認済み、契約 会 0.32.0）の実装
 板 Q5-a に戻した（SCHEDULING のみ）。「候補日 N日」と「回答リンク N本」に薄い緑の見出し帯
 （`gathering-candidate-date-heading`・`gathering-participant-link-heading`、表示専用）を置き、「候補日を足す」と
