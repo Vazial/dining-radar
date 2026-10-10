@@ -78,6 +78,16 @@ PRにしていた。画像で見る工程は束Dから）。記録の消失で�
 2. ⓘ は**消すと決着**（2026-10-08、KEN-24、`adr/0074`）。3. 店0件の画面は**いまの契約どおり（変更なし）**と決着。
 4. 日程タブは**畳む（決まった日の札1枚だけ見える）と決着**（`adr/0073`、契約 0.30.0）。実装は KEN-24 の Draft PR。
 
+### KEN-53（監査 B-2・B-3、`adr/0075`・承認済み、契約 候補画面 1.16.0／会 0.31.0）の実装
+PC（`twoColumnLayout`）の最上段を「左に画面名・右に≡」の1行バーにした（候補画面は `home.html` で≡を高さ0の行外に
+置いて見出しの行へ重ね、会の一覧・会をつくるは既存の `.app-header` 1行のまま）。幹事画面は3局面とも
+バー左に `gathering-dashboard-top-label`（「ランチ会」、PC のみ表示）、その下に戻り道 `gathering-dashboard-back`、
+会の名前を唯一の h1 `gathering-dashboard-title` にした（`gathering.js` の `renderHeadingBackLink`・`renderHeadingTitle`）。
+L5 に TB-1〜4・BL-1〜3 の検査を足し、h1直前0pxの xfail 理由を更新（9件は他の理由で xfail のまま）。
+**未解決**: `tests/acceptance/dsl/gathering_scheduling_browser.py`（tester の領分）の局面読み取りが
+「title があれば SELECTING_SHOP」で、SCHEDULING にも title が出るようになり受け入れ5件が落ちる
+（`confirm_tentatively_selected_date` の待ちと `_read_gathering_phase_from_dom` の代替読みを `gathering-dashboard-confirmed-date` に直す）。
+
 ### 束C リンク発行（KEN-14、監査 C1・C2）の実装
 発行シートを板 c2/C1-b に戻した（PC は中央の 480px カード、スマホは下からのシート、背景を暗く、見出し
 「回答リンクを発行しました」＋×、URL は `https://…/a/…` 形に省略、大きな「リンクをコピー」、「閉じる」）。

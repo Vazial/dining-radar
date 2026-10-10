@@ -1361,12 +1361,21 @@
   // not fix (ADR-0062 decision 2 precedent) -- organizer.css's own
   // gth-heading-bar flex order reflows title/date/delete into the human's
   // two requested shapes (PC: one line; mobile: title+delete then date).
-  function renderShopSelectHeadingBar() {
-    var confirmed = state.gathering.candidateDates.filter(function (candidateDate) {
-      return candidateDate.isConfirmed;
-    })[0];
-    var titleEl = el(
-      "span",
+  // ADR-0075 decision 2: the return link (gathering-dashboard-back) is part
+  // of headingBar in all three phases, directly above the gathering's name.
+  function renderHeadingBackLink() {
+    return el(
+      "a",
+      { "data-testid": "gathering-dashboard-back", href: "/gatherings/", class: "gth-heading-back" },
+      ["‹ ランチ会"]
+    );
+  }
+
+  // ADR-0075 decision 2: the gathering's name is the screen's one <h1> in
+  // every phase.
+  function renderHeadingTitle() {
+    return el(
+      "h1",
       {
         "data-testid": "gathering-dashboard-title",
         "data-gathering-title": state.gathering.title,
@@ -1374,6 +1383,13 @@
       },
       [state.gathering.title]
     );
+  }
+
+  function renderShopSelectHeadingBar() {
+    var confirmed = state.gathering.candidateDates.filter(function (candidateDate) {
+      return candidateDate.isConfirmed;
+    })[0];
+    var titleEl = renderHeadingTitle();
     var dateEl = el(
       "span",
       {
@@ -1383,27 +1399,18 @@
       },
       [confirmed ? formatGatheringDateTime(confirmed.startAt) + " から" : ""]
     );
-    return el("div", { class: "gth-heading-bar" }, [titleEl, dateEl, renderDeleteGathering()]);
+    return el("div", { class: "gth-heading-bar" }, [
+      renderHeadingBackLink(),
+      titleEl,
+      dateEl,
+      renderDeleteGathering(),
+    ]);
   }
 
   function renderFinalizedHeadingBar() {
-    var backLink = el(
-      "a",
-      { "data-testid": "gathering-dashboard-back", href: "/gatherings/", class: "gth-heading-back" },
-      ["‹ ランチ会"]
-    );
-    var titleEl = el(
-      "h1",
-      {
-        "data-testid": "gathering-dashboard-title",
-        "data-gathering-title": state.gathering.title,
-        class: "gth-title",
-      },
-      [state.gathering.title]
-    );
     return el("div", { class: "gth-heading-bar gth-heading-bar--finalized" }, [
-      backLink,
-      titleEl,
+      renderHeadingBackLink(),
+      renderHeadingTitle(),
       renderPhaseIndicator(),
     ]);
   }
@@ -3253,10 +3260,8 @@
       header = renderFinalizedHeadingBar();
     } else {
       var headerChildren = [
-        el("div", { class: "gth-header-row" }, [
-          el("div", { class: "gth-title" }, [state.gathering.title]),
-          renderDeleteGathering(),
-        ]),
+        renderHeadingBackLink(),
+        el("div", { class: "gth-header-row" }, [renderHeadingTitle(), renderDeleteGathering()]),
         renderPhaseIndicator(),
       ];
       if (phase !== "FINALIZED") {
