@@ -28,7 +28,10 @@ relates_to: [ADR-0059, ADR-0066, ADR-0075]
 2. 契約 `candidate-search-browser-interface.yaml` に `primaryNavigationGeometry.navIcons` を足す（1.16.0→1.17.0）。
    絵文字・絵記号（U+2600–27BF、U+1F300–1FAFF）をナビの絵に使わない。大きさ・線の太さ・色は固定しない。
 3. testId・文言・並び・`candidate-search.feature` は無変更。
-4. 同じ ADR で「ランチ会 N」の数の丸は扱わない（板にあるが本チケットの範囲外。必要なら別チケット）。
+4. アイコンの幅が増えて PC メニューの「ランチ候補をさがす」が2行に折り返したため、`menuPanel` の幅を内容に合わせ（`max-content`）、
+   リンクを折り返さない（`nowrap`）ようにした。見た目の調整であり契約の条件ではない。
+5. 契約 YAML は architect の `.spec` 経由ではなく、人間選択済みの範囲の指示（KEN-55）に基づき実装と同じ PR で直接編集した。
+6. 同じ ADR で「ランチ会 N」の数の丸は扱わない（板にあるが本チケットの範囲外。必要なら別チケット）。
 
 ## 検討した代替案
 

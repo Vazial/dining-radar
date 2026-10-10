@@ -679,6 +679,23 @@ class PrimaryNavSourceTests(SimpleTestCase):
                 self.assertIn('stroke="currentColor"', svg)
                 self.assertIn('fill="none"', svg)
 
+    def test_nav_svgs_match_between_the_two_hand_synced_templates(self):
+        # home.html and organizer_primary_nav.html carry hand-synced copies.
+        import re
+
+        nav_partial = (
+            PROJECT_ROOT / "src" / "dining_radar" / "gathering" / "templates"
+            / "gathering" / "organizer_primary_nav.html"
+        )
+
+        def svgs(path):
+            source = path.read_text(encoding="utf-8")
+            start = source.index('data-testid="candidate-primary-nav-menu-toggle"')
+            end = source.index('id="primary-nav-account-sheet"')
+            return re.findall(r"<svg\b.*?</svg>", source[start:end], re.S)
+
+        self.assertEqual(svgs(HOME_TEMPLATE), svgs(nav_partial))
+
     def test_home_template_never_server_renders_the_chip(self):
         # gatheringEntry.entry.requirement (revised 2026-09-16): the chip
         # itself (not only its badge) must be entirely absent from the DOM

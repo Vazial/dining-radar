@@ -88,6 +88,10 @@ L5 に TB-1〜4・BL-1〜3 の検査を足し、h1直前0pxの xfail 理由を�
 「title があれば SELECTING_SHOP」で、SCHEDULING にも title が出るようになり受け入れ5件が落ちる
 （`confirm_tentatively_selected_date` の待ちと `_read_gathering_phase_from_dom` の代替読みを `gathering-dashboard-confirmed-date` に直す）。
 
+### KEN-55（監査 B-1、`adr/0077`・承認済み、契約 候補画面 1.17.0）の実装
+ナビの絵（≡・メニューの2リンク・スマホ下部バーの3項目）を絵文字から `aria-hidden` の線画 inline SVG にした
+（板 `party2/d6` S2-a・`a-nav-r4-full` S2 と一致）。契約に `navIcons` を足した。「ランチ会 N」の数の丸は範囲外（未対応）。
+
 ### 束C リンク発行（KEN-14、監査 C1・C2）の実装
 発行シートを板 c2/C1-b に戻した（PC は中央の 480px カード、スマホは下からのシート、背景を暗く、見出し
 「回答リンクを発行しました」＋×、URL は `https://…/a/…` 形に省略、大きな「リンクをコピー」、「閉じる」）。
