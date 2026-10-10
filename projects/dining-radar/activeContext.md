@@ -79,12 +79,39 @@ PRにしていた。画像で見る工程は束Dから）。記録の消失で�
 2. ⓘ は**消すと決着**（2026-10-08、KEN-24、`adr/0074`）。3. 店0件の画面は**いまの契約どおり（変更なし）**と決着。
 4. 日程タブは**畳む（決まった日の札1枚だけ見える）と決着**（`adr/0073`、契約 0.30.0）。実装は KEN-24 の Draft PR。
 
+### KEN-53（監査 B-2・B-3、`adr/0075`・承認済み、契約 候補画面 1.16.0／会 0.31.0）の実装
+PC（`twoColumnLayout`）の最上段を「左に画面名・右に≡」の1行バーにした（候補画面は `home.html` で≡を高さ0の行外に
+置いて見出しの行へ重ね、会の一覧・会をつくるは既存の `.app-header` 1行のまま）。幹事画面は3局面とも
+バー左に `gathering-dashboard-top-label`（「ランチ会」、PC のみ表示）、その下に戻り道 `gathering-dashboard-back`、
+会の名前を唯一の h1 `gathering-dashboard-title` にした（`gathering.js` の `renderHeadingBackLink`・`renderHeadingTitle`）。
+L5 に TB-1〜4・BL-1〜3 の検査を足し、h1直前0pxの xfail 理由を更新（9件は他の理由で xfail のまま）。
+**未解決**: `tests/acceptance/dsl/gathering_scheduling_browser.py`（tester の領分）の局面読み取りが
+「title があれば SELECTING_SHOP」で、SCHEDULING にも title が出るようになり受け入れ5件が落ちる
+（`confirm_tentatively_selected_date` の待ちと `_read_gathering_phase_from_dom` の代替読みを `gathering-dashboard-confirmed-date` に直す）。
+
+### 日程を聞いている幹事画面の残り差（KEN-50、監査 A-3、`adr/0076`・承認済み、契約 会 0.32.0）の実装
+板 Q5-a に戻した（SCHEDULING のみ）。「候補日 N日」と「回答リンク N本」に薄い緑の見出し帯
+（`gathering-candidate-date-heading`・`gathering-participant-link-heading`、表示専用）を置き、「候補日を足す」と
+「リンクを発行」を帯の右の通常ボタンにした。人×日の表は白いカードの外・画面全幅（PC は日付列 44px 以上）。
+PC の回答リンクの行は 名前｜答えた/まだ｜コピー｜取り消す の1行（スマホは積む）。帯の節は `overflow: clip`
+（`hidden` だと縦 flex で節が窓の高さに縮んで中身が切れた。`test_scheduling_board_q5a.py` の切れ検査が守る）。
+板に無い説明2行（回答人数・有効なリンク）は残した（残すなら板を直す小事）。PC の幹事画面は RT-2 の帰結で外側の
+白いカードも外れ全幅の白地になった（板のカード枠は作図の窓）。Minor: 取り消す行だけコピーが数px左へずれる。
+
 ### 束C リンク発行（KEN-14、監査 C1・C2）の実装
 発行シートを板 c2/C1-b に戻した（PC は中央の 480px カード、スマホは下からのシート、背景を暗く、見出し
 「回答リンクを発行しました」＋×、URL は `https://…/a/…` 形に省略、大きな「リンクをコピー」、「閉じる」）。
 一覧は「回答リンク N本｜リンクを発行」の見出しに、行＝名前＋状態（答えた／まだ）＋「取り消す」「コピー」、
 発行直後の行に「いま発行」の札と左端の線。シートは `document.body` 直下に出す（地図いっぱいの骨組みの
 積み重ねの外に出すため）。残っている既存の失敗: `test_e_*_44px`（候補日の削除ボタン幅 40px など、束A/Dの範囲）3件。
+
+### 会をつくる PC（KEN-51、監査 A-4）の実装
+板 b2-q4r3 N1-Pc1/Pc2 に戻した（CSS が主、PC 幅 64rem 以上だけ。スマホは変えていない）。画面の列は幅 640px で
+中央、カレンダーは列いっぱい、月の見出しは左、「ほかの月にも N日」の札と前後の矢印（くっついた1組）は右。
+下は「選んだ日 N　9月 2日 ・ 11月 3日」の帯と、列幅の大きな「つくる」。確認の小窓は幅 600px・中身の高さの
+小窓で、画面の中央に出て、足は右寄せ。契約は変えていない（見た目は契約の外。`adr/0060` 決定5）。
+監査 A-4 の「列約960px・小窓約450px」は板の読み違いで、板の数値（640・600）に合わせた。
+撮影の前後と監査は `reviews/KEN-51-capture/`・`reviews/KEN-51-audit.md`。
 
 ### 次にやること
 1. 切り出しの後始末（ルートの `activeContext.md` の「切り出しの残作業」）。Render はこのリポジトリへ

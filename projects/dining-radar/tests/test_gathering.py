@@ -6133,10 +6133,18 @@ class GatheringDateTimeFormattingSourceTests(SimpleTestCase):
         # which gathering is open from the screen itself. This contract's
         # organizerDashboard section defines no test id for the gathering's
         # own name (unlike organizerGatheringList's data-gathering-title),
-        # so this is rendered as a plain, purposeless element -- no
-        # data-testid, no data-gathering-control-purpose.
+        # so this was a plain, purposeless element. ADR-0075 decision 2
+        # (2026-10-09) gave it the testid gathering-dashboard-title and made
+        # it the screen's one <h1> in every phase, built by one helper that
+        # every phase's heading uses.
         source = GATHERING_JS.read_text(encoding="utf-8")
-        self.assertIn('el("div", { class: "gth-title" }, [state.gathering.title])', source)
+        self.assertIn("function renderHeadingTitle() {", source)
+        helper = source.split("function renderHeadingTitle() {", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn('"h1"', helper)
+        self.assertIn('"data-testid": "gathering-dashboard-title"', helper)
+        self.assertIn("[state.gathering.title]", helper)
+        # SCHEDULING, SELECTING_SHOP and FINALIZED all go through the helper.
+        self.assertEqual(source.count("renderHeadingTitle()") - 1, 3)  # minus the definition
 
 
 @unittest.skipUnless(shutil.which("node"), "Node.js is not on PATH in this environment")

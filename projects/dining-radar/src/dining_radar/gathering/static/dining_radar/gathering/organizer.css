@@ -75,6 +75,28 @@
   flex: 1 1 auto;
   min-width: 0;
 }
+/* ADR-0075 decision 1: the organizer dashboard's top bar row names the
+   screen with this display-only label (the h1 there is the gathering's
+   name, below the bar and the return link). */
+.app-header-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #17201b;
+}
+/* topBarLabel is present exactly while twoColumnLayout holds (the phone's
+   navigation is the bottom bar, and the bar row's height is worth more to
+   the dashboard's map there). */
+@media (max-width: 63.999rem) {
+  .app-header-label {
+    display: none;
+  }
+}
 
 /* Height chain (body -> ... -> gth-shop-stage/gth-decision-stage), scoped
    to the dashboard only (:has(#gathering-app) -- organizerGatheringList/
@@ -587,6 +609,70 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
   }
 }
 
+/* KEN-51 / board b2-q4r3/N1-Pc1 (PC only; phones keep the stacked layout
+   above): the calendar fills the column, the month head groups the
+   "ほかの月にも N日" badge with a joined pair of arrows at the right, and
+   the summary becomes a full-width band over a full-width "つくる". */
+@media (min-width: 64rem) {
+  /* The board's column is 640px, centred; the white shell around it is wider. */
+  .gathering-create-form {
+    width: 100%;
+    max-width: 40rem;
+    margin-inline: auto;
+  }
+  .gathering-create-form .gth-cal-grid {
+    width: 100%;
+  }
+  .gathering-create-form .gth-cal-day {
+    height: 3.125rem;
+  }
+  .gathering-create-form .gth-cal-head {
+    flex-wrap: nowrap;
+  }
+  .gathering-create-form .gth-cal-month {
+    order: 1;
+    text-align: left;
+  }
+  .gathering-create-form .gth-cal-outside-badge {
+    order: 2;
+    flex-basis: auto;
+  }
+  .gathering-create-form .gth-cal-nav--prev {
+    order: 3;
+    border-radius: 0.5rem 0 0 0.5rem;
+  }
+  .gathering-create-form .gth-cal-nav--next {
+    order: 4;
+    margin-left: calc(-0.5rem - 1px);
+    border-radius: 0 0.5rem 0.5rem 0;
+  }
+  .gathering-create-summary-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    padding-top: 0;
+    border-top: 0;
+  }
+  .gathering-create-summary {
+    flex-direction: row;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    box-sizing: border-box;
+    padding: 0.875rem 1rem;
+    background: #fff;
+    border: 1px solid #d9e0d8;
+    border-radius: 0.625rem;
+  }
+  .gathering-create-summary-months {
+    font-size: 0.75rem;
+  }
+  .gathering-create-summary-row .gathering-btn-primary {
+    width: 100%;
+    min-height: 3.25rem;
+  }
+}
+
 /* ADR-0060 decision 5: gathering-create-review-dialog (board
    party2/b2-q4r/R1-*Modal, b2-q4r3/N1-*). Phones: a sheet rising from the
    bottom over a dimmed screen (the scrim is the dialog's own huge spread
@@ -608,13 +694,28 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
   overflow: hidden;
 }
 @media (min-width: 64rem) {
+  /* Board b2-q4r3/N1-Pc1 (KEN-51): a small window sized to its content
+     (600px wide), centred both ways -- not a tall sheet stretched to
+     the viewport. inset:0 + margin:auto + height:fit-content centres a
+     fixed box that is only as tall as its rows. */
   .gathering-review-dialog {
     inset: 0;
-    max-width: 32rem;
-    margin: 4dvh auto;
+    width: min(37.5rem, calc(100vw - 2rem));
+    height: fit-content;
+    margin: auto;
     max-height: 92dvh;
     border-radius: 0.875rem;
     border: 1px solid #dfe4de;
+  }
+  .gathering-review-grip {
+    display: none;
+  }
+  .gathering-review-footer {
+    justify-content: flex-end;
+  }
+  .gathering-review-dialog .gathering-review-footer .gathering-btn {
+    flex: 0 0 auto;
+    padding: 0 1.25rem;
   }
 }
 .gathering-review-dialog:focus-visible,
@@ -820,6 +921,15 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
   font-weight: 700;
   color: #17201b;
   overflow-wrap: break-word;
+  margin: 0;
+  line-height: 1.4;
+}
+/* ADR-0075 decision 2: the return link sits on its own line directly above
+   the gathering's name in every phase (BL-1/BL-2). */
+.gth-header > .gth-heading-back,
+.gth-heading-bar > .gth-heading-back {
+  flex: 0 0 100%;
+  order: 0;
 }
 
 /* --- organizerDashboard.headingBar (ADR-0063 decision 2, board S4) ------
@@ -861,6 +971,9 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
   min-height: 2.75rem;
   display: inline-flex;
   align-items: center;
+}
+.gth-heading-bar--finalized > .gth-heading-back {
+  flex: 0 0 auto;
 }
 .gth-heading-bar--finalized .gth-title {
   order: 2;
@@ -2891,6 +3004,14 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
 }
 .primary-nav-bar-link:focus-visible { outline: 2px solid #14614a; outline-offset: -2px; }
 .primary-nav-bar-link[data-primary-nav-current="true"] { color: #14614a; font-weight: 700; }
+/* KEN-52 (audit A-5): see home.html's own copy of these two rules for the
+   full comment -- kept in sync by hand across the two apps. */
+.primary-nav-bar-link:hover { background: transparent; }
+.primary-nav-bar-link[aria-expanded="true"] { color: #14614a; font-weight: 700; position: relative; }
+.primary-nav-bar-link[aria-expanded="true"]::before {
+  content: ""; position: absolute; top: 0; left: 28%; right: 28%; height: 3px;
+  border-radius: 0 0 3px 3px; background: #14614a;
+}
 .primary-nav-bar-label { font-size: 0.6875rem; line-height: 1; }
 .primary-nav-account-sheet {
   /* KEN-11 (audit A3, party2/a-nav-r5): see home.html's own copy of this
@@ -2944,4 +3065,154 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
 /* ADR-0072: the add-date form needs the full row once opened. */
 .gth-date-list > .gth-add-date:has(.gth-inline-form) {
   flex: 1 1 100%;
+}
+
+/* --- SCHEDULING back to board party2/b2 Q5-a (ADR-0076, KEN-50) ---------
+   Three changes: (1) 「候補日 N日」 and 「回答リンク N本」 are pale bands with
+   their button at the right; (2) the people x dates table runs the full width
+   of the screen, outside any card; (3) a link row is one line on the PC.
+   The screen's own card is flattened while SCHEDULING (as FINALIZED's is) so
+   the table has no card around it; the other children keep the old gutter. */
+body:has(#gathering-app .gth-dash--scheduling) {
+  --gth-sched-gutter: clamp(1.25rem, 4vw, 2rem);
+}
+@media (max-width: 47.9375rem) {
+  body:has(#gathering-app .gth-dash--scheduling) {
+    --gth-sched-gutter: 0.625rem;
+  }
+}
+body:has(#gathering-app .gth-dash--scheduling) .app-shell:has(#gathering-app) {
+  width: 100%;
+  max-width: none;
+  margin-left: 0;
+  margin-right: 0;
+}
+body:has(#gathering-app .gth-dash--scheduling) .app-card {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding-left: 0;
+  padding-right: 0;
+}
+body:has(#gathering-app .gth-dash--scheduling) .app-header,
+.gth-response-section > *:not(.gth-response-scroll) {
+  padding-left: var(--gth-sched-gutter);
+  padding-right: var(--gth-sched-gutter);
+}
+.gth-dash--scheduling > *:not(.gth-response-section) {
+  margin-left: var(--gth-sched-gutter);
+  margin-right: var(--gth-sched-gutter);
+}
+/* A banded section is itself a card (board: pale band over a white face); its
+   own children take no extra gutter. */
+.gth-dash--scheduling > .gth-banded {
+  padding: 0;
+  gap: 0;
+  /* clip, not hidden: `hidden` makes the flex item's minimum height 0, so the
+     section shrank to the window and cut its content (KEN-50 audit C-1). */
+  overflow: clip;
+}
+.gth-banded > .gth-date-list,
+.gth-banded > .gth-link-list {
+  background: #fff;
+  padding: 0.75rem 1rem;
+}
+.gth-banded > .gth-link-list {
+  padding: 0;
+  gap: 0;
+}
+.gth-band {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 3.25rem;
+  padding: 0.375rem 1rem;
+  background: #eaf1ec;
+  border-bottom: 1px solid #dfe4de;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #17201b;
+}
+.gth-band-label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.gth-band .gth-pane-head {
+  border-bottom: 0;
+  padding-bottom: 0;
+  flex-wrap: nowrap;
+}
+.gth-band .gth-btn {
+  flex: 0 0 auto;
+  min-height: 2.75rem;
+  background: #fff;
+}
+
+.gth-response-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.gth-response-section > .gth-response-scroll {
+  border-top: 1px solid #e7ebe6;
+  border-bottom: 1px solid #e7ebe6;
+}
+.gth-response-section .gth-response-table {
+  border: 0;
+  border-radius: 0;
+  min-width: 100%;
+}
+.gth-response-section .gth-response-header,
+.gth-response-section .gth-response-row {
+  grid-template-columns: calc(5rem + var(--gth-sched-gutter)) repeat(var(--gth-response-columns, 1), 2.75rem);
+}
+.gth-response-section .gth-response-row-name,
+.gth-response-section .gth-response-name-head {
+  padding-left: var(--gth-sched-gutter);
+}
+.gth-response-header-cell--stacked {
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+}
+.gth-response-header-cell--stacked .gth-response-header-month,
+.gth-response-header-cell--stacked .gth-response-header-weekday {
+  font-size: 0.5625rem;
+  font-weight: 500;
+  color: #77827a;
+}
+.gth-response-header-cell--stacked .gth-response-header-day {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: #17201b;
+}
+
+@media (min-width: 64rem) {
+  .gth-banded .gth-link-row {
+    flex-wrap: nowrap;
+    padding-right: 1rem;
+  }
+  .gth-banded .gth-link-main {
+    flex: 1 1 auto;
+    flex-direction: row;
+    align-items: center;
+  }
+  .gth-banded .gth-link-name {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .gth-banded .gth-link-status {
+    flex: 0 0 8rem;
+  }
+  .gth-banded .gth-link-actions {
+    flex: 0 0 15rem;
+    align-items: center;
+  }
+  .gth-banded .gth-link-actions .gth-btn {
+    min-width: 7.5rem;
+    min-height: 2.75rem;
+    justify-content: center;
+  }
 }

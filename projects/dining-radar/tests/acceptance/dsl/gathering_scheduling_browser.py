@@ -93,6 +93,8 @@ CONFIRMED_ATTR = "data-confirmed"
 TENTATIVE_SELECTED_ATTR = "data-tentative-selected"
 ADD_CANDIDATE_DATE_OPEN = "gathering-add-candidate-date-open"
 PARTICIPANT_LINK_COPY = "gathering-participant-link-copy"
+CANDIDATE_DATE_HEADING = "gathering-candidate-date-heading"
+PARTICIPANT_LINK_HEADING = "gathering-participant-link-heading"
 ISSUED_LINK_URL_ATTR = "data-issued-link-url"
 # issueDialog (ADR-0061決定1, 2026-09-17: 発行を「発行して小窓が開き、そこで
 # コピー」の2段へ分割。participantLinkCopy自身はもうクリップボードへ書き込ま
@@ -1226,7 +1228,10 @@ class GatheringSchedulingBrowserDsl:
         indicator = self.page.locator(f'[data-testid="{GATHERING_PHASE_INDICATOR}"]')
         if indicator.count() > 0:
             return indicator.first.get_attribute(GATHERING_PHASE_ATTR)
-        assert_present(self.assertions, self.page, GATHERING_DASHBOARD_TITLE)
+        # ADR-0075 (contract 0.31.0): gathering-dashboard-title now also shows
+        # while SCHEDULING, so only gathering-dashboard-confirmed-date (shown
+        # exactly while SELECTING_SHOP) identifies this phase.
+        assert_present(self.assertions, self.page, GATHERING_DASHBOARD_CONFIRMED_DATE)
         return "SELECTING_SHOP"
 
     def _read_candidate_dates(self) -> list[dict[str, object]]:
@@ -1765,8 +1770,10 @@ class GatheringSchedulingBrowserDsl:
         """schedulingLayout.order (ADR-0072 decision 1), SCHEDULING only:
         top to bottom -- heading 「日を決める」 carrying the candidate-date
         count and the responded count, leaderSummary, responseTable,
-        confirmDate, the open-shop preview when present, candidateDateList,
-        addCandidateDateOpen, participantLinkList. Checked both in DOM order
+        confirmDate, the open-shop preview when present, candidateDateHeading
+        (addCandidateDateOpen at its right, ADR-0076), candidateDateList,
+        participantLinkHeading (participantLinkCopy at its right),
+        participantLinkList. Checked both in DOM order
         and by on-screen top. The standalone 「日程」 heading is not visible.
         """
         self.assertions.assertEqual(self._read_gathering_phase_from_dom(), "SCHEDULING")
@@ -1791,8 +1798,11 @@ class GatheringSchedulingBrowserDsl:
             RESPONSE_TABLE,
             CONFIRM_DATE_SELECT,
             *([OPEN_SHOP_PREVIEW] if by_test_id(self.page, OPEN_SHOP_PREVIEW).count() else []),
-            CANDIDATE_DATE_LIST,
+            CANDIDATE_DATE_HEADING,
             ADD_CANDIDATE_DATE_OPEN,
+            CANDIDATE_DATE_LIST,
+            PARTICIPANT_LINK_HEADING,
+            PARTICIPANT_LINK_COPY,
             PARTICIPANT_LINK_LIST,
         ]
         names = ["heading", *ordered_test_ids]
@@ -2905,7 +2915,8 @@ class GatheringSchedulingBrowserDsl:
         # while phase is SELECTING_SHOP) is this suite's organizer-side
         # substitute for confirming the transition landed (see
         # _read_gathering_phase_from_dom's own identical 2026-09-19 comment).
-        wait_for_at_least_one(self.page, GATHERING_DASHBOARD_TITLE)
+        # ADR-0075: title is also present while SCHEDULING; use confirmed-date.
+        wait_for_at_least_one(self.page, GATHERING_DASHBOARD_CONFIRMED_DATE)
 
     def attempt_confirm_candidate_date_via_api(self, candidate_date_id: str) -> CapturedApiResponse:
         return self._api(
