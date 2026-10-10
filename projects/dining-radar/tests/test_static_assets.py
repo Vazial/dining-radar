@@ -656,6 +656,29 @@ class PrimaryNavSourceTests(SimpleTestCase):
         self.assertEqual(source.count('data-testid="auth-sign-out"'), 2)
         self.assertEqual(source.count('data-testid="auth-password-change-open"'), 2)
 
+    def test_nav_icons_are_line_svg_never_emoji(self):
+        # ADR-0077 (KEN-55, audit B-1): navIcons -- every icon in the
+        # primary nav is an aria-hidden stroke-only inline <svg>, no emoji.
+        import re
+
+        nav_partial = (
+            PROJECT_ROOT / "src" / "dining_radar" / "gathering" / "templates"
+            / "gathering" / "organizer_primary_nav.html"
+        )
+        pictograph = re.compile("[\u2600-\u27bf\U0001f300-\U0001faff\u2630]")
+        for template, expected_svgs in ((HOME_TEMPLATE, 6), (nav_partial, 6)):
+            source = template.read_text(encoding="utf-8")
+            start = source.index('data-testid="candidate-primary-nav-menu-toggle"')
+            end = source.index('id="primary-nav-account-sheet"')
+            nav = source[start:end]
+            self.assertIsNone(pictograph.search(nav), template.name)
+            svgs = re.findall(r"<svg\b[^>]*>", nav)
+            self.assertEqual(len(svgs), expected_svgs, template.name)
+            for svg in svgs:
+                self.assertIn('aria-hidden="true"', svg)
+                self.assertIn('stroke="currentColor"', svg)
+                self.assertIn('fill="none"', svg)
+
     def test_home_template_never_server_renders_the_chip(self):
         # gatheringEntry.entry.requirement (revised 2026-09-16): the chip
         # itself (not only its badge) must be entirely absent from the DOM

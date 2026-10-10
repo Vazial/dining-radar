@@ -142,6 +142,17 @@
     .primary-nav-menu-link:hover { background: #f4f5f1; }
     .primary-nav-menu-link:focus-visible { outline: 2px solid #155c42; outline-offset: 2px; }
     .primary-nav-menu-link[data-primary-nav-current="true"] { background: #e9f1eb; font-weight: 700; }
+    /* KEN-55 (audit B-1): nav icons are line SVGs drawn from the board
+       (party2/d6 S2-a, a-nav-r4-full S2) instead of emoji, which render
+       per-OS (or as tofu). stroke is currentColor: bar items follow the
+       link colour (grey, green when current); menu items grey, green when
+       current; the burger is the board's near-black. */
+    .primary-nav-icon { display: block; flex-shrink: 0; }
+    .primary-nav-menu-panel { width: max-content; max-width: calc(100vw - 2rem); }
+    .primary-nav-menu-link { white-space: nowrap; gap: 0.6rem; }
+    .primary-nav-menu-toggle { color: #17201b; }
+    .primary-nav-menu-link .primary-nav-icon { color: #4b564e; }
+    .primary-nav-menu-link[data-primary-nav-current="true"] .primary-nav-icon { color: #14614a; }
     .primary-nav-menu-form { margin: 0; width: 100%; }
     /* KEN-11 (audit A2, party2/a-nav-r5): the board's panel groups the two
        account controls under their own heading, below the destination
@@ -1388,20 +1399,20 @@
           data-candidate-control-category="button"
           data-candidate-control-purpose="candidate-primary-nav-menu-toggle"
           class="primary-nav-menu-toggle"
-        ><span aria-hidden="true">☰</span><span class="visually-hidden">メニュー</span><span data-testid="candidate-primary-nav-menu-dot" class="candidate-primary-nav-menu-dot" hidden></span></summary>
+        ><svg class="primary-nav-icon primary-nav-icon-menu" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M3.5 5.5h13M3.5 10h13M3.5 14.5h13"/></svg><span class="visually-hidden">メニュー</span><span data-testid="candidate-primary-nav-menu-dot" class="candidate-primary-nav-menu-dot" hidden></span></summary>
         <div data-testid="candidate-primary-nav-menu-panel" class="primary-nav-menu-panel">
           <a
             href="{% url 'web:home' %}"
             data-testid="candidate-primary-nav-menu-search"
             data-primary-nav-current="true"
             class="primary-nav-menu-link"
-          ><span aria-hidden="true">🔍</span>ランチ候補をさがす</a>
+          ><svg class="primary-nav-icon" width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="5.4"/><path d="M12.2 12.2L16 16"/></svg>ランチ候補をさがす</a>
           <a
             href="{% url 'gathering:organizer-gathering-list' %}"
             data-testid="candidate-primary-nav-menu-gathering"
             data-primary-nav-current="false"
             class="primary-nav-menu-link"
-          ><span aria-hidden="true">🍽</span>ランチ会</a>
+          ><svg class="primary-nav-icon" width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><rect x="3" y="4.2" width="12" height="11" rx="2.2"/><path d="M3 7.6h12M6 3v2.4M12 3v2.4"/></svg>ランチ会</a>
           <h2 class="primary-nav-menu-account-heading">アカウント</h2>
           <a
             href="{% url 'authentication:password_change' %}"
@@ -1429,13 +1440,13 @@
         data-testid="candidate-primary-nav-search"
         data-primary-nav-current="true"
         class="primary-nav-bar-link"
-      ><span aria-hidden="true">🔍</span><span class="primary-nav-bar-label">さがす</span></a>
+      ><svg class="primary-nav-icon" width="20" height="20" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="5.4"/><path d="M12.2 12.2L16 16"/></svg><span class="primary-nav-bar-label">さがす</span></a>
       <a
         href="{% url 'gathering:organizer-gathering-list' %}"
         data-testid="candidate-primary-nav-gathering"
         data-primary-nav-current="false"
         class="primary-nav-bar-link"
-      ><span aria-hidden="true">🍽</span><span class="primary-nav-bar-label">ランチ会</span></a>
+      ><svg class="primary-nav-icon" width="20" height="20" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><rect x="3" y="4.2" width="12" height="11" rx="2.2"/><path d="M3 7.6h12M6 3v2.4M12 3v2.4"/></svg><span class="primary-nav-bar-label">ランチ会</span></a>
       <button
         type="button"
         data-testid="candidate-primary-nav-account"
@@ -1445,7 +1456,7 @@
         aria-haspopup="true"
         aria-expanded="false"
         aria-controls="primary-nav-account-sheet"
-      ><span aria-hidden="true">👤</span><span class="primary-nav-bar-label">アカウント</span></button>
+      ><svg class="primary-nav-icon" width="20" height="20" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="9" cy="6.3" r="2.9" stroke-width="1.5"/><path d="M3.8 15c.6-2.8 2.7-4.2 5.2-4.2S13.6 12.2 14.2 15" stroke-width="1.5"/></svg><span class="primary-nav-bar-label">アカウント</span></button>
     </nav>
     {% comment %}
       The mobile account bottom sheet: its own copy of auth-sign-out/

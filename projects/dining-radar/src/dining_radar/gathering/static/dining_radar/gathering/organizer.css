@@ -2970,6 +2970,17 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
   font-weight: 700;
   color: #68766c;
 }
+/* KEN-55 (audit B-1): nav icons are line SVGs drawn from the board
+   (party2/d6 S2-a, a-nav-r4-full S2) instead of emoji, which render
+   per-OS (or as tofu). stroke is currentColor: bar items follow the
+   link colour (grey, green when current); menu items grey, green when
+   current; the burger is the board's near-black. */
+.primary-nav-icon { display: block; flex-shrink: 0; }
+.primary-nav-menu-panel { width: max-content; max-width: calc(100vw - 2rem); }
+.primary-nav-menu-link { white-space: nowrap; gap: 0.6rem; }
+.primary-nav-menu-toggle { color: #17201b; }
+.primary-nav-menu-link .primary-nav-icon { color: #4b564e; }
+.primary-nav-menu-link[data-primary-nav-current="true"] .primary-nav-icon { color: #14614a; }
 .primary-nav-menu-form { margin: 0; width: 100%; }
 
 /* Mobile bottom bar (candidate-primary-nav-bar): fixed to the viewport
