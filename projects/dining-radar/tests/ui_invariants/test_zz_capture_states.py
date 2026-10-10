@@ -76,6 +76,8 @@ _ELEMENT_SNAPSHOT_JS = """
       visible: visible,
       rect: {x: rect.x, y: rect.y, width: rect.width, height: rect.height},
       text: (el.innerText || '').trim().slice(0, 40),
+      color: style.color,
+      backgroundColor: style.backgroundColor,
     });
   });
   return out;
@@ -407,6 +409,38 @@ class BoardConformanceCaptureTests(StaticLiveServerTestCase):
         _click(by_test_id(self.page, "gathering-finalize-confirm"))
         expect(by_test_id(self.page, "gathering-decision-banner")).to_be_visible()
 
+    def _issue_participant_tokens(self, gathering_id: str, count: int) -> list[str]:
+        """Raw-API Given: issues ``count`` participant links at once and
+        returns their tokens. ``self.page`` must already carry the CSRF
+        field (any authenticated page render)."""
+        response = self.context.request.post(
+            f"{self.base_url}/gatherings/{gathering_id}/participant-links",
+            data={"count": count},
+            headers={"X-CSRFToken": csrf_token(self.page)},
+        )
+        assert response.status == 201, response.text()
+        return [link["token"] for link in response.json()["issuedLinks"]]
+
+    def _seed_schedule_answers(self, gathering_id: str, answers: list[list[str]]) -> list[str]:
+        """One participant per row of ``answers`` (one status per candidate
+        date, in the gathering's own date order). Answers go through the
+        public ``setScheduleResponse`` API (participant-token-authenticated,
+        no CSRF), mirroring test_render_invariants.py's own raw-API seeding.
+        Returns the participants' tokens in row order."""
+        tokens = self._issue_participant_tokens(gathering_id, len(answers))
+        detail = self.context.request.get(f"{self.base_url}/gatherings/{gathering_id}")
+        assert detail.status == 200, detail.text()
+        date_ids = [d["id"] for d in detail.json()["candidateDates"]]
+        for token, row in zip(tokens, answers, strict=True):
+            assert len(row) == len(date_ids), (row, date_ids)
+            for date_id, status in zip(date_ids, row, strict=True):
+                put = self.context.request.put(
+                    f"{self.base_url}/participant-links/{token}/responses/{date_id}",
+                    data={"status": status},
+                )
+                assert put.status == 200, put.text()
+        return tokens
+
     # --- signin --------------------------------------------------------------
 
     def test_capture_signin(self) -> None:
@@ -565,6 +599,18 @@ class BoardConformanceCaptureTests(StaticLiveServerTestCase):
             return self.page
 
         self._capture_state_across_sizes(screen, "in_progress", given_in_progress)
+
+        # KEN-54 (audit 2026-10-08 D-1/A-5): the bottom nav's current-item
+        # colours are in every element's color/backgroundColor in the .json;
+        # the open account sheet is the state where "アカウント" is current.
+        def given_nav_account_sheet_open(width: int, height: int) -> Page:
+            given_in_progress(width, height)
+            self._open_account_disclosure()
+            return self.page
+
+        self._capture_state_across_sizes(
+            screen, "nav_account_sheet_open", given_nav_account_sheet_open
+        )
 
     # --- gathering_create --------------------------------------------------------
 
@@ -729,6 +775,38 @@ class BoardConformanceCaptureTests(StaticLiveServerTestCase):
 
             self._capture_state_across_sizes(screen, state, given_tab)
 
+        def given_shops_5_voted(width: int, height: int) -> Page:
+            """KEN-54 (audit D-1): 4 participants vote on the 5 shortlisted
+            shops, so the vote bars/leader mark render (not 0 votes)."""
+            self.page.set_viewport_size({"width": width, "height": height})
+            self._reset_gathering_state()
+            gathering_id = _new_confirmed_gathering("店投票ありの撮影会")
+            shops = self._shortlist_n_shops(gathering_id, 5, prefer_longest=True)
+            statuses = [
+                ["WANT_TO_GO", "WANT_TO_GO", "OK_TO_GO", "NOT_GOING", "NOT_GOING"],
+                ["WANT_TO_GO", "OK_TO_GO", "OK_TO_GO", "NOT_GOING", "OK_TO_GO"],
+                ["WANT_TO_GO", "OK_TO_GO", "WANT_TO_GO", "NOT_GOING", "NOT_GOING"],
+                ["OK_TO_GO", "WANT_TO_GO", "NOT_GOING", "OK_TO_GO", "NOT_GOING"],
+            ]
+            for token, row in zip(
+                self._issue_participant_tokens(gathering_id, len(statuses)), statuses, strict=True
+            ):
+                put = self.context.request.put(
+                    f"{self.base_url}/participant-links/{token}/shop-votes",
+                    data={
+                        "votes": [
+                            {"shopId": shop["shopId"], "status": status}
+                            for shop, status in zip(shops, row, strict=True)
+                        ]
+                    },
+                )
+                assert put.status == 200, put.text()
+            self.page.reload()
+            expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+            return self.page
+
+        self._capture_state_across_sizes(screen, "shops_5_voted", given_shops_5_voted)
+
         def given_shop_selected(width: int, height: int) -> Page:
             given_shops_5(width, height)
             _click(by_test_id(self.page, "gathering-finalize-shop-select").first)
@@ -796,6 +874,36 @@ class BoardConformanceCaptureTests(StaticLiveServerTestCase):
 
         self._capture_state_across_sizes(screen, "schedule_3", given_schedule(3))
         self._capture_state_across_sizes(screen, "schedule_14", given_schedule(14))
+
+        def given_schedule_answered_leading(width: int, height: int) -> Page:
+            """KEN-54 (audit D-1): 4 participants answered 3 days; the first
+            day is the only one with 3 GOING (day 2 has 2), so it alone is
+            the 有力 day. Viewer = the first participant; below PC width the
+            day list (where 有力 is shown) is opened so it is on screen."""
+            self._reset_gathering_state()
+            gathering_id = self._create_gathering_via_ui("回答ありの日程撮影会", count=3)
+            tokens = self._seed_schedule_answers(
+                gathering_id,
+                [
+                    ["GOING", "GOING", "MAYBE"],
+                    ["GOING", "MAYBE", "NOT_GOING"],
+                    ["GOING", "GOING", "NOT_GOING"],
+                    ["MAYBE", "MAYBE", "GOING"],
+                ],
+            )
+            page = self._open_participant_view(
+                f"{self.base_url}/participant-links/{tokens[0]}/", viewport=(width, height)
+            )
+            wait_for_at_least_one(page, "gathering-schedule-question")
+            wait_for_at_least_one(page, "gathering-schedule-respondent-item")
+            if width < 1024:
+                _click(by_test_id(page, "gathering-participant-day-list-open"))
+                expect(by_test_id(page, "gathering-participant-day-list")).to_be_visible()
+            return page
+
+        self._capture_state_across_sizes(
+            screen, "schedule_answered_leading", given_schedule_answered_leading
+        )
 
         def given_day_list_open(width: int, height: int) -> Page:
             self._reset_gathering_state()
