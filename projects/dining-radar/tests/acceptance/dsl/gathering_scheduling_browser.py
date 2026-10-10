@@ -93,6 +93,8 @@ CONFIRMED_ATTR = "data-confirmed"
 TENTATIVE_SELECTED_ATTR = "data-tentative-selected"
 ADD_CANDIDATE_DATE_OPEN = "gathering-add-candidate-date-open"
 PARTICIPANT_LINK_COPY = "gathering-participant-link-copy"
+CANDIDATE_DATE_HEADING = "gathering-candidate-date-heading"
+PARTICIPANT_LINK_HEADING = "gathering-participant-link-heading"
 ISSUED_LINK_URL_ATTR = "data-issued-link-url"
 # issueDialog (ADR-0061決定1, 2026-09-17: 発行を「発行して小窓が開き、そこで
 # コピー」の2段へ分割。participantLinkCopy自身はもうクリップボードへ書き込ま
@@ -1768,8 +1770,10 @@ class GatheringSchedulingBrowserDsl:
         """schedulingLayout.order (ADR-0072 decision 1), SCHEDULING only:
         top to bottom -- heading 「日を決める」 carrying the candidate-date
         count and the responded count, leaderSummary, responseTable,
-        confirmDate, the open-shop preview when present, candidateDateList,
-        addCandidateDateOpen, participantLinkList. Checked both in DOM order
+        confirmDate, the open-shop preview when present, candidateDateHeading
+        (addCandidateDateOpen at its right, ADR-0076), candidateDateList,
+        participantLinkHeading (participantLinkCopy at its right),
+        participantLinkList. Checked both in DOM order
         and by on-screen top. The standalone 「日程」 heading is not visible.
         """
         self.assertions.assertEqual(self._read_gathering_phase_from_dom(), "SCHEDULING")
@@ -1794,8 +1798,11 @@ class GatheringSchedulingBrowserDsl:
             RESPONSE_TABLE,
             CONFIRM_DATE_SELECT,
             *([OPEN_SHOP_PREVIEW] if by_test_id(self.page, OPEN_SHOP_PREVIEW).count() else []),
-            CANDIDATE_DATE_LIST,
+            CANDIDATE_DATE_HEADING,
             ADD_CANDIDATE_DATE_OPEN,
+            CANDIDATE_DATE_LIST,
+            PARTICIPANT_LINK_HEADING,
+            PARTICIPANT_LINK_COPY,
             PARTICIPANT_LINK_LIST,
         ]
         names = ["heading", *ordered_test_ids]
