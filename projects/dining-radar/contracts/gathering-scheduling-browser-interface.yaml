@@ -953,11 +953,30 @@
 # - `profiles.localAcceptance.verifiesScenarios`・`allowedPurposes`・`formControlExemptTestIds`・
 #   `.feature`は無変更（押せる部品は増えず、topBarLabelは表示専用の`<span>`、業務規則も増えない）。
 #
+# 2026-10-10 追補31 (architect、ADR-0076【承認済み】。KEN-50、監査 audit-board-vs-implementation-2026-10-08.md の
+#   A-3。人間裁定 = A-3 を KEN-50 として Todo へ移した操作（板 party2/b2 Q5-a に戻す選択）。
+#   contractVersionを0.31.0から0.32.0へ上げる。candidate-search側は触らない):
+# - **`organizerDashboard.schedulingLayout`に見出し帯を足した**（ADR-0076決定1・3）: SCHEDULINGだけ。
+#   「候補日 N日」と「回答リンク N本」の節に、それぞれ見出し帯（新設の表示専用要素
+#   `candidateDateHeading`＝gathering-candidate-date-heading、`participantLinkHeading`＝
+#   gathering-participant-link-heading）を置き、`addCandidateDateOpen`・`participantLinkCopy`を
+#   帯の右の通常のボタンにする。`addCandidateDateOpen`は札の列の末尾の点線の札ではなくなる。
+#   位置・並び・形を幾何条件CH-1〜CH-5、PH-1〜PH-4でMustにした。
+# - **`schedulingLayout.responseTableWidth`を新設した**（ADR-0076決定2）: SCHEDULINGでは
+#   `gathering-response-table`を白いカードの外に出し、画面幅いっぱいにする（RT-1・RT-2）。PCでは
+#   日付列の見出しが読める間隔（RT-3）、スマホは右が切れず横スクロール可で名前の列と日付の列が読める（RT-4）。
+# - **`schedulingLayout.participantLinkRow`を新設した**（ADR-0076決定3）: PCの回答リンクの行を
+#   「名前｜答えた/まだ｜コピー｜取り消す」の1行（LK-1・LK-2）にする。スマホは名前の下に
+#   答えた/まだを積んでよい（LK-3）。取り消すを出す行（まだの行だけ）は無変更。
+# - 板に無い説明2行（回答の人数・有効なリンクの本数）は変えない（ADR-0076確認事項1）。
+# - `profiles.localAcceptance.verifiesScenarios`・`allowedPurposes`・`formControlExemptTestIds`・
+#   `.feature`は無変更（押せる部品は増えず、新設の2要素は表示専用、業務規則も増えない）。
+#
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.31.0'
+contractVersion: '0.32.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -2003,7 +2022,9 @@ browserControlSurface:
       candidateDateList: gathering-candidate-date-list
       candidateDate: gathering-candidate-date
       addCandidateDateOpen: gathering-add-candidate-date-open
+      candidateDateHeading: gathering-candidate-date-heading
       participantLinkCopy: gathering-participant-link-copy
+      participantLinkHeading: gathering-participant-link-heading
       participantLinkList: gathering-participant-link-list
       confirmDate: gathering-confirm-date-select
     phaseIndicatorAttributes:
@@ -2345,6 +2366,11 @@ browserControlSurface:
       addCandidateDateOpen:
         testId: gathering-add-candidate-date-open
         purpose: gathering-add-candidate-date-open
+        position: >-
+          Added 2026-10-10 (ADR-0076 decision 1). While phase is
+          SCHEDULING its position is fixed by schedulingLayout.
+          candidateDateHeading (CH-1 to CH-5): a button at the right of
+          the section's heading band, not a chip inside the chip row.
         presenceRule: >-
           Present only while phase is SCHEDULING; absent once phase is
           SELECTING_SHOP or FINALIZED (addCandidateDates has been rejected
@@ -3125,8 +3151,10 @@ browserControlSurface:
         (gathering-responded-summary's number; wording not fixed); (2)
         responseTable.leaderSummary; (3) responseTable (layout, paintedColumn
         and goingCountRow as 追補27); (4) confirmDate; (5)
-        gathering-open-shop-preview when present; (6) candidateDateList
-        followed by addCandidateDateOpen; (7) participantLinkList. The
+        gathering-open-shop-preview when present; (6) candidateDateHeading
+        (addCandidateDateOpen at its right, ADR-0076) followed by
+        candidateDateList; (7) participantLinkHeading (participantLinkCopy
+        at its right, ADR-0076) followed by participantLinkList. The
         previous standalone "日程" heading is removed. **Above (1)**
         (ADR-0075, 2026-10-09), in DOM and on screen, top to bottom: the
         top bar row (topBarLabel at the left, menuToggle at the right,
@@ -3140,7 +3168,135 @@ browserControlSurface:
         candidateDateList (not one full-width card per date). The
         行ける/たぶん/むり tally text is not shown on the chip. The chip is
         at least 44px tall for activation (ADR-0066 ui invariants apply).
-        Chips never overflow the page horizontally.
+        Chips never overflow the page horizontally. **Amended 2026-10-10
+        (ADR-0076 decision 1)**: addCandidateDateOpen is no longer a
+        trailing chip (dotted outline) at the end of the chip row; it
+        sits in candidateDateHeading (candidateDateHeading below).
+      candidateDateHeading:
+        description: >-
+          Added 2026-10-10 (追補31, ADR-0076 decision 1, board party2/b2
+          Q5-a: 「候補日 20日」 on a pale band, the add control at the
+          band's right, the chips on a white face below). Applies only
+          while phase is SCHEDULING (addCandidateDateOpen is present only
+          then). H = gathering-candidate-date-heading, a display-only
+          element (no purpose, formControl false) holding the section's
+          label and the candidate-date count (wording not fixed) and
+          addCandidateDateOpen as a descendant. L =
+          gathering-candidate-date-list, A = addCandidateDateOpen.
+          Rectangles are the border boxes after layout, tolerance 1px.
+          Colours, sizes and wording are not fixed (ADR-0066 decision 2).
+        geometry:
+          CH-1: >-
+            Band above the chips: H.bottom <= L.top + 1, and H.top < L.top.
+            H is not inside L and L is not inside H.
+          CH-2: >-
+            Button inside the band, at its right: A is a descendant of H,
+            A's rectangle lies inside H's rectangle, A.right >=
+            H.right - 24, and A's vertical centre lies within H's
+            vertical range. A is not a descendant of any
+            gathering-candidate-date and not inside L.
+          CH-3: >-
+            Label at the left: every text run inside H outside A ends at
+            or before A.left, and lies on the same line as A (its
+            vertical centre within A's vertical range).
+          CH-4: >-
+            An ordinary button: A's computed border-style is neither dashed
+            nor dotted and its border width is at least 1px (colour not
+            fixed); its height is at least 44px (ADR-0066 ui invariants).
+          CH-5: >-
+            Band distinct from the face: H's computed background-color
+            differs from L's.
+        formUnchanged: >-
+          addCandidateDateForm's own presenceRule and its position inside
+          gathering-candidate-date-list (addCandidateDateOpen.requiredOutcome)
+          are unchanged: only the control that opens it moves.
+      responseTableWidth:
+        description: >-
+          Added 2026-10-10 (追補31, ADR-0076 decision 2, board party2/b2
+          Q5-a). Applies only while phase is SCHEDULING; in the other two
+          phases the table keeps responseTable.layout (finalized panel).
+          T = the horizontally scrolling container of
+          gathering-response-table (its nearest ancestor whose computed
+          overflow-x is auto or scroll; the table itself when none).
+          V = the viewport's content width (document.documentElement.
+          clientWidth). 追補27's responseTable.layout.overflow is read
+          with this block in SCHEDULING; its "scrolls horizontally inside
+          its own container" and "page must not scroll horizontally" stay.
+        geometry:
+          RT-1: >-
+            Full width: T.left <= 1 and T.right >= V - 1, at 1440px and
+            at 390px.
+          RT-2: >-
+            Not inside a card: T's computed border-radius is 0 and T has
+            no visible left or right border; no ancestor of T up to the
+            dashboard root has a visible border, a non-zero border-radius
+            or a box-shadow. (RT-1 is the measurable consequence of this;
+            this clause names the card that is forbidden.)
+          RT-3: >-
+            PC (twoColumnLayout): every gathering-response-table-header-cell
+            has a border-box width of at least 44px (the board's pitch), and
+            its text runs lie inside its own rectangle (left >= cell.left,
+            right <= cell.right), so neighbouring dates never touch. With
+            20 candidate dates the page itself still does not scroll
+            horizontally.
+          RT-4: >-
+            Phone (mapPrimaryTouchLayout): T.right <= V; the page does not
+            scroll horizontally; T may scroll horizontally. With T at
+            scrollLeft 0, the name column (each row's visible name text)
+            lies wholly inside T, and at least the first
+            gathering-response-table-header-cell lies wholly inside T.
+        notFixed: >-
+          Whether the name column stays fixed while the dates scroll, and
+          whether the right edge fades (the board draws it fading) are not
+          fixed (ADR-0071 確認事項3 unchanged; ADR-0076 確認事項2).
+      participantLinkHeading:
+        description: >-
+          Added 2026-10-10 (追補31, ADR-0076 decision 3, board Q5-a / C2:
+          「回答リンク 9本」 on a pale band, the issue control at the
+          band's right). Applies only while phase is SCHEDULING (the other
+          phases keep their own surfaces: linksOpen's panel). H' =
+          gathering-participant-link-heading, a display-only element
+          holding the label and the link count (wording not fixed) and
+          participantLinkCopy as a descendant; PL =
+          gathering-participant-link-list; P = participantLinkCopy.
+        geometry:
+          PH-1: >-
+            Band above the list: H'.bottom <= PL.top + 1, H'.top < PL.top;
+            neither contains the other.
+          PH-2: >-
+            Issue control inside the band at its right: P is a descendant
+            of H', P's rectangle lies inside H''s, P.right >= H'.right - 24,
+            and P's vertical centre lies within H''s vertical range.
+          PH-3: >-
+            Label at the left: every text run inside H' outside P ends at
+            or before P.left, on the same line as P.
+          PH-4: >-
+            Band distinct from the list face: H''s computed
+            background-color differs from PL's; P has a visible border of
+            at least 1px and is not dashed or dotted.
+      participantLinkRow:
+        description: >-
+          Added 2026-10-10 (追補31, ADR-0076 decision 3, board Q5-a / C2).
+          Applies while phase is SCHEDULING. I = a
+          gathering-participant-link-item; R = its recopy; V = its revoke
+          (present only for a row not yet answered and not revoked,
+          unchanged). "Text runs of I" = the visible text of I outside R
+          and V (the name and the 答えた/まだ wording; no test id is
+          added).
+        geometry:
+          LK-1: >-
+            PC (twoColumnLayout) one line: I.height <= R.height + 24, and
+            the vertical centre of every text run of I, of R and of V
+            lies within R's vertical range.
+          LK-2: >-
+            PC left to right: the text runs of I, in DOM order, run left
+            to right without overlap; the last of them ends at or before
+            R.left; and, when V is present, V.left >= R.right - 1. (Board:
+            name, then 答えた/まだ, then コピー, then 取り消す.)
+          LK-3: >-
+            Phone (mapPrimaryTouchLayout): the 答えた/まだ wording may sit
+            under the name; R and V lie wholly inside I, and nothing in I
+            overflows the page horizontally. Only this is fixed.
     confirmDate:
       testId: gathering-confirm-date-select
       purpose: gathering-confirm-date-select
@@ -3186,6 +3342,11 @@ browserControlSurface:
     participantLinkCopy:
       testId: gathering-participant-link-copy
       purpose: gathering-participant-link-copy
+      position: >-
+        Added 2026-10-10 (ADR-0076 decision 3). While phase is SCHEDULING
+        its position is fixed by schedulingLayout.participantLinkHeading
+        (PH-1 to PH-4): a button at the right of the 「回答リンク N本」
+        heading band. Other phases are unchanged.
       designNote: >-
         Organizer.dc.html shows one "回答リンクをコピー" control, not a
         count input, while issueParticipantLinks accepts a batch `count`.

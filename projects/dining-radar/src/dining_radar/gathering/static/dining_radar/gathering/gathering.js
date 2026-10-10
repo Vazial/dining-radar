@@ -1595,6 +1595,8 @@
     );
   }
 
+  // ADR-0076 decision 1 (board Q5-a): the open control is an ordinary button
+  // at the right of the 「候補日 N日」 band, not a chip at the end of the row.
   function renderAddCandidateDateOpen() {
     var openButton = el(
       "button",
@@ -1602,17 +1604,32 @@
         type: "button",
         "data-testid": "gathering-add-candidate-date-open",
         "data-gathering-control-purpose": "gathering-add-candidate-date-open",
-        class: "gth-link-btn",
+        class: "gth-btn gth-btn-outline",
       },
       ["＋ 候補日を足す"]
     );
     openButton.addEventListener("click", openAddCandidateDate);
+    return openButton;
+  }
 
-    var children = [openButton];
-    if (state.addCandidateDateOpen) {
-      children.push(renderAddCandidateDateForm());
-    }
-    return el("div", { class: "gth-add-date" }, children);
+  // The form itself stays inside gathering-candidate-date-list (contract
+  // addCandidateDateForm position unchanged): only the control that opens it moved.
+  function renderAddCandidateDateFormSlot() {
+    return el("div", { class: "gth-add-date" }, [renderAddCandidateDateForm()]);
+  }
+
+  function renderCandidateDateHeading() {
+    return el(
+      "div",
+      { "data-testid": "gathering-candidate-date-heading", class: "gth-band" },
+      [
+        el("span", { class: "gth-band-label" }, [
+          "候補日",
+          el("span", { class: "gth-pane-sub" }, [String(state.gathering.candidateDates.length) + "日"]),
+        ]),
+        renderAddCandidateDateOpen(),
+      ]
+    );
   }
 
   // ADR-0055 decision 1: participants no longer see "この日に開いている店
@@ -2932,7 +2949,12 @@
       revokeButton.addEventListener("click", function () {
         revokeParticipantLink(link.id);
       });
-      children[1].insertBefore(revokeButton, children[1].firstChild);
+      if (state.gathering.phase === "SCHEDULING") {
+        // ADR-0076 decision 3 (LK-2): コピー, then 取り消す.
+        children[1].appendChild(revokeButton);
+      } else {
+        children[1].insertBefore(revokeButton, children[1].firstChild);
+      }
     }
 
     return el(
@@ -2976,6 +2998,19 @@
   // panel's own answers/links groups (renderDecisionAnswersLinksGroups)
   // instead of rendering it as a separate top-level section.
   function renderParticipantLinkPane() {
+    // ADR-0076 decision 3 (board Q5-a / C2): while SCHEDULING the heading is a
+    // band (「回答リンク N本」 at the left, the issue button at the right) above
+    // the list. The other phases keep their own heading row.
+    if (state.gathering.phase === "SCHEDULING") {
+      return el("div", { class: "gth-pane gth-banded" }, [
+        el(
+          "div",
+          { "data-testid": "gathering-participant-link-heading", class: "gth-band" },
+          [renderParticipantLinkPaneTitle(), renderParticipantLinkCopy()]
+        ),
+        renderParticipantLinkList(),
+      ]);
+    }
     var linkPaneHeadChildren = [renderParticipantLinkPaneTitle()];
     if (state.gathering.phase !== "FINALIZED") {
       linkPaneHeadChildren.push(renderParticipantLinkCopy());
@@ -3029,12 +3064,26 @@
       var month = date.getUTCMonth() + 1;
       var label = (month !== previousMonth ? month + "/" : "") + date.getUTCDate() +
         "（" + WEEKDAY_LABELS_JA[date.getUTCDay()] + "）";
+      var labelChildren = [label];
+      if (state.gathering.phase === "SCHEDULING") {
+        // ADR-0076 decision 2 (RT-3): month (when it changes) over the day over
+        // the weekday, so a 44px column keeps its own text (board Q5-a).
+        labelChildren = [];
+        if (month !== previousMonth) {
+          labelChildren.push(el("span", { class: "gth-response-header-month" }, [month + "/"]));
+        }
+        labelChildren.push(el("span", { class: "gth-response-header-day" }, [String(date.getUTCDate())]));
+        labelChildren.push(
+          el("span", { class: "gth-response-header-weekday" }, ["（" + WEEKDAY_LABELS_JA[date.getUTCDay()] + "）"])
+        );
+      }
       previousMonth = month;
       return el("span", {
         "data-testid": "gathering-response-table-header-cell",
         "data-candidate-date-id": candidateDate.id,
-        class: columnClass("gth-response-header-cell", candidateDate.id),
-      }, [label]);
+        class: columnClass("gth-response-header-cell", candidateDate.id) +
+          (state.gathering.phase === "SCHEDULING" ? " gth-response-header-cell--stacked" : ""),
+      }, labelChildren);
     });
     var header = el(
       "div",
@@ -3122,7 +3171,9 @@
         })
       )
     );
-    return el("div", { class: "gth-pane" }, [
+    // ADR-0076 decision 2: while SCHEDULING the table sits outside a card, so
+    // its scroll container can run the full width of the screen.
+    return el("div", { class: state.gathering.phase === "SCHEDULING" ? "gth-response-section" : "gth-pane" }, [
       leaderSummary,
       el("div", { class: "gth-response-scroll" }, [
         el(
@@ -3274,8 +3325,8 @@
     var candidateDateListChildren = state.gathering.candidateDates.map(function (candidateDate) {
       return renderCandidateDate(candidateDate, candidateDateLeaders);
     });
-    if (phase === "SCHEDULING") {
-      candidateDateListChildren = candidateDateListChildren.concat([renderAddCandidateDateOpen()]);
+    if (phase === "SCHEDULING" && state.addCandidateDateOpen) {
+      candidateDateListChildren = candidateDateListChildren.concat([renderAddCandidateDateFormSlot()]);
     }
     var candidateDateList = el(
       "div",
@@ -3339,11 +3390,13 @@
       if (previewNode) {
         sections.push(previewNode);
       }
-      sections.push(el("div", { class: "gth-pane" }, [candidateDateList]));
+      sections.push(
+        el("div", { class: "gth-pane gth-banded" }, [renderCandidateDateHeading(), candidateDateList])
+      );
       sections.push(renderParticipantLinkPane());
     }
 
-    root.appendChild(el("div", { class: "gth-dash" + (phase === "FINALIZED" ? " gth-dash--finalized" : "" ) }, sections));
+    root.appendChild(el("div", { class: "gth-dash" + (phase === "FINALIZED" ? " gth-dash--finalized" : "") + (phase === "SCHEDULING" ? " gth-dash--scheduling" : "") }, sections));
 
     if (pendingShortlistedShopMap) {
       initializeShortlistedShopMap(
