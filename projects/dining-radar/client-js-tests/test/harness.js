@@ -7,9 +7,13 @@ const PAGE_HTML = `
 <nav data-primary-nav-desktop>
   <details class="primary-nav-menu">
     <summary data-testid="candidate-primary-nav-menu-toggle">menu</summary>
-    <a data-testid="candidate-primary-nav-menu-search" href="/">search</a>
     <a data-testid="candidate-primary-nav-menu-gathering" href="/gatherings/">gatherings</a>
+    <div data-testid="candidate-primary-nav-menu-gatherings"></div>
+    <button data-testid="candidate-primary-nav-menu-gathering-create">create</button>
+    <a data-testid="candidate-primary-nav-menu-search" href="/">search</a>
     <span data-testid="candidate-primary-nav-menu-dot" hidden></span>
+    <button data-testid="candidate-primary-nav-menu-backdrop" hidden></button>
+    <div data-testid="candidate-primary-nav-menu-panel" hidden><button data-testid="candidate-primary-nav-menu-close">close</button></div>
   </details>
 </nav>
 <nav data-primary-nav-mobile>
