@@ -4,6 +4,7 @@
 #
 # Status: this contract became durable when the authentication-boundary PR #67
 # merged under ADR-0035 approval mode (i). It does not authorize a deployment.
+# 2026-10-11 改訂: TDR-AUTH-02（サインイン直後はホームに着く。ADR-0078決定8、回答78-Q1=B。人間裁定は調整役とのチャットで合意済み）
 
 Feature: 招待された幹事だけがインターネット越しに候補探索を利用する
   持ち回りの幹事は、管理者が作成した自分のアカウントでサインインし、
@@ -23,7 +24,8 @@ Feature: 招待された幹事だけがインターネット越しに候補探�
     Given 管理者が幹事の個別アカウントを有効にしている
     When 幹事が正しい認証情報でサインインする
     Then same-origin の認証済み session が開始される
-    And 幹事は候補提案画面を開ける
+    And 幹事は自分のランチ会の一覧（ホーム）に着く
+    And 幹事は候補提案画面へもナビから進める
     And 幹事は自分の認証情報を他の利用者と共有するよう求められない
 
   # TDR-AUTH-03

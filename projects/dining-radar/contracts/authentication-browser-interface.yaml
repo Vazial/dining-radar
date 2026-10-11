@@ -36,7 +36,11 @@
 # is not rejected; this file simply stops asking for it). The individual-account
 # outcome itself stays carried by authentication.feature TDR-AUTH-02, which
 # is unchanged. renderModel's presence-means-DOM-existence rule is unchanged.
-contractVersion: '0.4'
+# 2026-10-11 追補 (architect、ADR-0078決定8、KEN-58。回答78-Q1=B「`/` そのものを会の一覧（ホーム）にする」への対応。contractVersionを0.4から0.5へ上げる):
+# - サインインに成功した直後に着く画面は、候補探索の画面ではなく会の一覧（ホーム）になる。`browserEntry.localAcceptanceRunner.startPath`（`/`）は
+#   変えない。`authenticatedOutcome` は会の一覧でも成り立つ（`authenticated-application-shell` は会の一覧にも出る）。
+# - 認証の操作・境界・テストIDは無変更。`authentication.feature` の TDR-AUTH-02 の「候補提案画面を開ける」を「ホームに着き、候補提案画面へも進める」に直す。
+contractVersion: '0.5'
 kind: acceptance-browser-interface
 scope: authentication
 profiles:
@@ -89,6 +93,12 @@ browserEntry:
     authenticatedOutcome:
       present: [authenticated-application-shell]
       absent: [auth-sign-in-form]
+      note: >-
+        Changed 2026-10-11 (ADR-0078 decision 8): after a successful sign-in
+        (and when an authenticated session opens startPath) the screen is
+        the organizer gathering list (candidate-search-browser-interface.yaml
+        browserEntry.authenticatedHomeOutcome), and authenticated-application-
+        shell is present on it exactly as on every other authenticated screen.
 
 browserControlSurface:
   unauthenticated:
