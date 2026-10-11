@@ -157,6 +157,7 @@
     tentativeSelectedId: null,
     openShopPreview: null,
     addCandidateDateOpen: false,
+    candidateDateEditing: false,
     // addCandidateDateSelectedIsos: { [isoDate]: true } -- every currently
     // pending-selected calendar day (gathering-add-candidate-date-day's own
     // data-selected="true" cells), keyed by "YYYY-MM-DD". Retained across a
@@ -923,11 +924,7 @@
     if (tentative) {
       return tentative;
     }
-    var leaders = computeCandidateDateLeaders(candidateDates);
-    var leading = candidateDates.filter(function (candidateDate) {
-      return Boolean(leaders[candidateDate.id]);
-    });
-    return leading.length === 1 ? leading[0] : null;
+    return null;
   }
 
   function confirmDate() {
@@ -1456,7 +1453,16 @@
     );
   }
 
-  function renderCandidateDate(candidateDate, leaders) {
+  function participantOrdinal(link) {
+    var index = state.participantLinks.indexOf(link);
+    return index < 0 ? 0 : index + 1;
+  }
+
+  function participantDisplayName(link) {
+    return link.displayName === null ? "参加者" + participantOrdinal(link) : link.displayName;
+  }
+
+  function renderCandidateDate(candidateDate, leaders, inHeaderCell, headerLabel, headerWeekday) {
     var isTentative = state.tentativeSelectedId === candidateDate.id;
     var isSchedulingPhase = state.gathering.phase === "SCHEDULING";
     var isLeader = Boolean(leaders[candidateDate.id]);
@@ -1474,23 +1480,39 @@
       "data-current-leader": isLeader ? "true" : "false",
       class:
         "gth-date" +
-        (isSchedulingPhase ? " gth-date--pickable" : "") +
+        (isSchedulingPhase && !state.candidateDateEditing ? " gth-date--pickable" : "") +
         (isLeader ? " gth-date--leader" : ""),
     };
-    if (isSchedulingPhase) {
+    if (state.gathering.phase === "FINALIZED" && !inHeaderCell &&
+        candidateDate.id !== (state.gathering.confirmedCandidateDateId ||
+          state.gathering.candidateDates.filter(function (date) { return date.isConfirmed; })[0].id)) {
+      attrs.hidden = true;
+    }
+    if (isSchedulingPhase && !state.candidateDateEditing) {
       attrs["data-gathering-control-purpose"] = "gathering-candidate-date-tentative-select";
       attrs.role = "button";
       attrs.tabindex = "0";
     }
 
     var topChildren = [
-      el("span", { class: "gth-date-value" }, [formatGatheringDate(candidateDate.startAt)]),
+      el("span", { class: "gth-date-value" }, [headerLabel || formatGatheringDate(candidateDate.startAt)]),
+      headerWeekday ? el("span", { class: "gth-date-weekday" }, [headerWeekday]) : null,
       candidateDate.isConfirmed ? el("span", { class: "gth-date-badge" }, ["決定"]) : null,
     ];
+    if (inHeaderCell && isSchedulingPhase && isLeader) {
+      topChildren.push(el("span", {
+        "data-testid": "gathering-response-table-leader-summary",
+        "data-candidate-date-id": candidateDate.id,
+        class: "gth-response-leader-summary-label",
+      }, ["有力"]));
+    }
+    if (inHeaderCell && isSchedulingPhase && isTentative) {
+      topChildren.push(el("span", { class: "gth-date-selected-mark" }, ["✓ 選択中"]));
+    }
 
     // ADR-0056 decision 2: present once per not-yet-confirmed candidate
     // date, only while SCHEDULING.
-    var canRemove = isSchedulingPhase && !candidateDate.isConfirmed;
+    var canRemove = isSchedulingPhase && state.candidateDateEditing && !candidateDate.isConfirmed;
     if (canRemove) {
       var removeButton = el(
         "button",
@@ -1519,7 +1541,7 @@
     // going/maybe/not-going tally lives in the response table and the
     // data-*-count attributes above, not on the chip.
     var node = el("div", attrs, topChildren);
-    if (isSchedulingPhase) {
+    if (isSchedulingPhase && !state.candidateDateEditing) {
       node.addEventListener("click", function () {
         tentativelySelectCandidateDate(candidateDate.id);
       });
@@ -1632,6 +1654,38 @@
     );
   }
 
+  function renderSchedulingAnswerCard() {
+    var responded = state.gathering.respondedParticipantCount;
+    var total = state.gathering.activeParticipantLinkCount;
+    return el("div", { class: "gth-answer-card" }, [
+      el("div", { class: "gth-answer-card-title" }, ["回答 ", String(responded), "/", String(total), "人"]),
+      el("div", { "data-testid": "gathering-responded-progress", "data-responded-count": responded,
+        "data-active-issued-links": total, class: "gth-responded-progress", role: "progressbar",
+        "aria-valuenow": responded, "aria-valuemax": total }, [
+        el("span", { class: "gth-responded-progress-bar", style: "width:" + (total ? (responded / total * 100) : 0) + "%" }),
+      ]),
+      el("div", { class: "gth-answer-card-badges" }, [
+        renderResponseSummary(),
+        renderUnansweredSummary(),
+      ]),
+    ]);
+  }
+
+  function renderCandidateDateEditToggle() {
+    var button = el("button", { type: "button", "data-testid": "gathering-candidate-date-edit-toggle",
+      "data-gathering-control-purpose": "gathering-candidate-date-edit-toggle",
+      "data-editing": state.candidateDateEditing ? "true" : "false", class: "gth-btn gth-btn-outline" },
+      [state.candidateDateEditing ? "編集をおわる" : "候補日を編集"]);
+    button.addEventListener("click", function () {
+      state.candidateDateEditing = !state.candidateDateEditing;
+      if (!state.candidateDateEditing) {
+        state.addCandidateDateOpen = false;
+      }
+      render();
+    });
+    return button;
+  }
+
   // ADR-0055 decision 1: participants no longer see "この日に開いている店
   // N件" at all; the organizer keeps it, but only for the one candidate
   // date currently tentatively selected -- not shown per candidate date at
@@ -1670,7 +1724,7 @@
         disabled: !target,
         class: "gth-btn gth-btn-primary gth-confirm-date",
       },
-      [target ? formatGatheringDate(target.startAt) + " に決める" : "日を選んでください"]
+      [target ? formatGatheringDate(target.startAt) + " に決める" : "日を選ぶ"]
     );
     button.addEventListener("click", confirmDate);
     return button;
@@ -2908,7 +2962,7 @@
     // Board C1-b/C2: a row is 名前 over 状態 (答えた / まだ) on the left, 取り消す
     // (unanswered only) and コピー on the right; the link just issued while
     // the dialog is open carries an 「いま発行」 tag and a left accent bar.
-    var nameChildren = [link.displayName === null ? "名無し" : link.displayName];
+    var nameChildren = [participantDisplayName(link)];
     if (justIssued) {
       nameChildren.push(el("span", { class: "gth-link-new-tag" }, ["いま発行"]));
     }
@@ -2966,6 +3020,7 @@
         "data-has-responded": link.hasResponded ? "true" : "false",
         "data-revoked": link.revoked ? "true" : "false",
         "data-participant-named": link.displayName === null ? "false" : "true",
+        "data-participant-ordinal": participantOrdinal(link),
         class: "gth-link-row" + (justIssued ? " gth-link-row--new" : ""),
       },
       children
@@ -3062,28 +3117,20 @@
     var headerCells = candidateDates.map(function (candidateDate) {
       var date = new Date(candidateDate.startAt);
       var month = date.getUTCMonth() + 1;
-      var label = (month !== previousMonth ? month + "/" : "") + date.getUTCDate() +
-        "（" + WEEKDAY_LABELS_JA[date.getUTCDay()] + "）";
-      var labelChildren = [label];
-      if (state.gathering.phase === "SCHEDULING") {
-        // ADR-0076 decision 2 (RT-3): month (when it changes) over the day over
-        // the weekday, so a 44px column keeps its own text (board Q5-a).
-        labelChildren = [];
-        if (month !== previousMonth) {
-          labelChildren.push(el("span", { class: "gth-response-header-month" }, [month + "/"]));
-        }
-        labelChildren.push(el("span", { class: "gth-response-header-day" }, [String(date.getUTCDate())]));
-        labelChildren.push(
-          el("span", { class: "gth-response-header-weekday" }, ["（" + WEEKDAY_LABELS_JA[date.getUTCDay()] + "）"])
-        );
-      }
+      var headerLabel = (month !== previousMonth ? month + "/" : "") + date.getUTCDate();
+      var headerWeekday = "（" + WEEKDAY_LABELS_JA[date.getUTCDay()] + "）";
       previousMonth = month;
+      var dateNode = renderCandidateDate(candidateDate, leaders, true, headerLabel, headerWeekday);
       return el("span", {
         "data-testid": "gathering-response-table-header-cell",
         "data-candidate-date-id": candidateDate.id,
         class: columnClass("gth-response-header-cell", candidateDate.id) +
-          (state.gathering.phase === "SCHEDULING" ? " gth-response-header-cell--stacked" : ""),
-      }, labelChildren);
+          (state.gathering.phase === "SCHEDULING" ? " gth-response-header-cell--stacked" : "") +
+          (state.tentativeSelectedId === candidateDate.id ? " gth-response-header-cell--selected" : ""),
+      }, [dateNode].concat(state.gathering.phase === "SCHEDULING" && state.candidateDateEditing &&
+        candidateDates[candidateDates.length - 1].id === candidateDate.id
+        ? [renderAddCandidateDateOpen()]
+        : []));
     });
     var header = el(
       "div",
@@ -3093,32 +3140,6 @@
     // Only while phase is SCHEDULING (the row exists to help pick a date;
     // once one is picked, absent regardless of any leader still tied).
     var leaderSummary = null;
-    if (state.gathering.phase === "SCHEDULING") {
-      var leaderSummaryItems = candidateDates
-        .filter(function (candidateDate) {
-          return Boolean(leaders[candidateDate.id]);
-        })
-        .map(function (candidateDate) {
-          return el("span", {
-            "data-testid": "gathering-response-table-leader-summary",
-            "data-candidate-date-id": candidateDate.id,
-            class: "gth-response-leader-summary-item",
-          }, [
-            formatGatheringDate(candidateDate.startAt) + " 行ける " + candidateDate.goingCount + "/" +
-              state.gathering.activeParticipantLinkCount,
-          ]);
-        });
-      var leaderSummaryChildren = [el("span", { class: "gth-response-leader-summary-label" }, ["有力"])].concat(
-        leaderSummaryItems.length > 0
-          ? leaderSummaryItems
-          : [el("span", { class: "gth-response-leader-summary-empty" }, ["まだありません"])]
-      );
-      leaderSummary = el(
-        "div",
-        { class: "gth-response-leader-summary" },
-        leaderSummaryChildren
-      );
-    }
     // ADR-0071 decision 1: one grid position per candidate date; a date this
     // link did not answer keeps a blank position but gets no cell testId.
     var rows = state.participantLinks.map(function (link) {
@@ -3129,7 +3150,7 @@
       var cells = candidateDates.map(function (candidateDate) {
         var status = statusByDateId[candidateDate.id];
         if (!status) {
-          return el("span", { class: columnClass("gth-response-blank", candidateDate.id) }, []);
+          return el("span", { class: columnClass("gth-response-blank", candidateDate.id) }, ["−"]);
         }
         return el(
           "span",
@@ -3147,17 +3168,20 @@
         {
           "data-testid": "gathering-response-table-row",
           "data-participant-link-id": link.id,
+          "data-has-responded": link.hasResponded ? "true" : "false",
+          "data-participant-ordinal": participantOrdinal(link),
           class: "gth-response-row",
           style: gridStyle,
         },
         [
           el("span", { class: "gth-response-row-name" }, [
-            link.displayName === null ? "名無し" : link.displayName,
+          participantDisplayName(link),
+          el("span", { class: "gth-response-status" }, [link.revoked ? "取り消し済み" : link.hasResponded ? "答えた" : "まだ"]),
           ]),
         ].concat(cells)
       );
     });
-    // ADR-0071 decision 3: bottom row, one going-count mark per date.
+    // ADR-0080 decision 8: bottom row shows going and maybe counts, without a bar.
     var goingCountRow = el(
       "div",
       { class: "gth-response-row gth-response-count-row", style: gridStyle },
@@ -3167,7 +3191,14 @@
             "data-testid": "gathering-response-table-going-count-cell",
             "data-candidate-date-id": candidateDate.id,
             class: columnClass("gth-response-count-cell", candidateDate.id),
-          }, [String(candidateDate.goingCount)]);
+          }, [
+            el("span", { class: "gth-response-going-count" }, ["○" + String(candidateDate.goingCount)]),
+            el("span", {
+              "data-testid": "gathering-response-table-maybe-count",
+              "data-candidate-date-id": candidateDate.id,
+              class: "gth-response-maybe-count",
+            }, ["△" + String(candidateDate.maybeCount)]),
+          ]);
         })
       )
     );
@@ -3315,7 +3346,7 @@
         el("div", { class: "gth-header-row" }, [renderHeadingTitle(), renderDeleteGathering()]),
         renderPhaseIndicator(),
       ];
-      if (phase !== "FINALIZED") {
+      if (phase !== "FINALIZED" && phase !== "SCHEDULING") {
         headerChildren.push(statsRow);
       }
       header = el("div", { class: "gth-header" }, headerChildren);
@@ -3375,24 +3406,17 @@
       // per-candidate-date tally above and the link-management list below.
       // ADR-0072 decision 1 (board Q5-a): heading, leader summary + table,
       // confirm button, open-shop preview, chips + add, link pane.
-      sections.push(
-        el("h2", { class: "gth-pane-head gth-scheduling-head" }, [
-          "日を決める",
-          el("span", { class: "gth-pane-sub" }, [
-            "候補日" + state.gathering.candidateDates.length + "日・回答" +
-              state.gathering.respondedParticipantCount + "人",
-          ]),
-        ])
-      );
+      sections.push(renderSchedulingAnswerCard());
+      sections.push(el("div", { class: "gth-candidate-date-edit-row" }, [renderCandidateDateEditToggle()]));
       sections.push(renderResponseTable(candidateDateLeaders));
       sections.push(renderConfirmDate());
       var previewNode = renderOpenShopPreview();
       if (previewNode) {
         sections.push(previewNode);
       }
-      sections.push(
-        el("div", { class: "gth-pane gth-banded" }, [renderCandidateDateHeading(), candidateDateList])
-      );
+      if (state.candidateDateEditing && state.addCandidateDateOpen) {
+        sections.push(renderAddCandidateDateFormSlot());
+      }
       sections.push(renderParticipantLinkPane());
     }
 

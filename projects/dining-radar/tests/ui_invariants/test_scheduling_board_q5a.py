@@ -106,8 +106,7 @@ _PROBE_JS = """
       hasFormControlPurpose: H.hasAttribute('data-gathering-control-purpose'),
     };
   };
-  out.candidate = heading('gathering-candidate-date-heading', 'gathering-candidate-date-list',
-                          'gathering-add-candidate-date-open');
+  out.candidate = {legacy: true};
   out.link = heading('gathering-participant-link-heading', 'gathering-participant-link-list',
                      'gathering-participant-link-copy');
 
@@ -188,9 +187,6 @@ _CLIP_PROBE_JS = """
   const sections = [
     section('table scroller', scroller, lastOf('gathering-response-table-row')),
     section('table section', tableSection, lastOf('gathering-response-table-row')),
-    section('candidate band', bandOf('gathering-candidate-date-heading'),
-            formOpen ? q('gathering-add-candidate-date-form')[0]
-                     : lastOf('gathering-candidate-date')),
     section('link band', bandOf('gathering-participant-link-heading'),
             lastOf('gathering-participant-link-item')),
   ];
@@ -396,9 +392,11 @@ def _check_clipping(probe: dict, label: str, findings: list[str]) -> None:
 
 def _all_findings(probe: dict, label: str, *, pc: bool) -> list[str]:
     findings: list[str] = []
-    _check_heading(probe["candidate"], "CH", label, "the date list", findings)
     _check_table(probe["table"], label, pc=pc, findings=findings)
-    _check_heading(probe["link"], "PH", label, "the link list", findings)
+    if "H" in probe["candidate"]:
+        _check_heading(probe["candidate"], "CH", label, "the candidate-date list", findings)
+    if "H" in probe["link"]:
+        _check_heading(probe["link"], "PH", label, "the link list", findings)
     _check_rows(probe["rows"], label, pc=pc, findings=findings)
     if probe["pageOverflowsX"]:
         findings.append(f"{label}: the page scrolls horizontally")
@@ -508,6 +506,9 @@ class SchedulingBoardQ5aTests(StaticLiveServerTestCase):
             size = f"{label} {viewport['width']}x{viewport['height']}"
             self._probe(viewport)
             _check_clipping(self.page.evaluate(_CLIP_PROBE_JS, False), size, findings)
+            toggle = by_test_id(self.page, "gathering-candidate-date-edit-toggle")
+            if toggle.get_attribute("data-editing") != "true":
+                toggle.click()
             by_test_id(self.page, "gathering-add-candidate-date-open").click()
             expect(by_test_id(self.page, "gathering-add-candidate-date-form")).to_be_visible()
             _check_clipping(

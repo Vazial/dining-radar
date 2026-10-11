@@ -69,7 +69,17 @@ relates_to: [ADR-0059, ADR-0066, ADR-0069, ADR-0075, ADR-0077, ADR-0078]
 
 ## 帰結
 
-- 契約（ドラフト）: `candidate-search-browser-interface.yaml` 1.17.0→1.18.0 の追補（`menuPane`・`navLabels`・`menuClose`・`menuBackdrop`・`menuGatheringItem`）。
+- 契約（確定）: `candidate-search-browser-interface.yaml` 1.17.0→1.19.0 の追補（`menuPane`・`navLabels`・`menuClose`・`menuBackdrop`・`menuGatheringItem`）。
   `candidate-search.feature`・`gathering-scheduling.feature` は変えない（ナビの位置・文言は UI の構造。ADR-0075 決定4と同じ扱い）。
 - 実装（別チケット）: PC のナビ（`organizer_primary_nav.html`・`home.html`・CSS）、候補画面と会の画面群が一覧を読む処理、L5 の不変条件(o)の置き換え。
 - ADR-0066 は部分的に覆される（決定1・3のメニューの開き方）。ADR-0066 本体の `superseded_by` は埋めない（決定2＝位置は Must、決定4以降は生きている）。
+
+## 確認事項への回答（2026-10-11、人間が調整役とのチャットで合意）
+
+| ID | 回答 | 契約での扱い |
+|---|---|---|
+| Q1 ペインの「次にやること」 | **A** 出す | `menuGatheringItem` の `data-next-action`（ホームと同じ語彙） |
+| Q2 並び順 | **A** 絵に合わせる（ランチ会／店を探す／アカウント） | `navLabels.order` NV-1・NV-2 |
+| Q3 ペインの「ランチ会をつくる」 | **A** 足す | `menuGatheringCreate`（`candidate-primary-nav-menu-gathering-create`） |
+| Q4 幅360px | **A** Must | MP-3 |
+| Q5 探す画面の見出し | **A** 変えない | — |
