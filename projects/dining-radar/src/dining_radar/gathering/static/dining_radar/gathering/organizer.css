@@ -1823,6 +1823,7 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  min-height: 2.75rem;
 }
 /* **Fixed 2026-09-19 (board party2/d2/D1-a-* comparison, real-machine
    finding)**: this row is a flex item of gth-shop-list (a column flex
@@ -3396,8 +3397,14 @@ body:has(#gathering-app .gth-dash--scheduling) .app-header,
 .gth-shop-step-content { display: flex; flex-direction: column; gap: .75rem; }
 .gth-shop-step-content .gth-shop-map, .gathering-step .gth-shop-map { min-height: 18rem; }
 .gathering-step .gth-shop-map { position: relative; inset: auto; width: 100%; pointer-events: auto; }
-.gathering-step .gth-bottom-bar { position: relative; inset: auto; pointer-events: auto; }
+.gathering-step .gth-bottom-bar { position: relative; inset: auto; margin-top: .25rem; pointer-events: auto; }
 .gth-decision-banner { display: flex; flex-direction: column; gap: .5rem; padding: 1rem 0; }
+.gth-link-section-wrapper, .gth-link-section-wrapper * { min-width: 0; max-width: 100%; }
+.gathering-step--current .gth-shop-list {
+  display: flex !important;
+  visibility: visible !important;
+}
+#gathering-app .gth-dash--finalized { overflow-x: hidden; }
 
 @media (min-width: 48rem) {
   #gathering-app .gth-dash { display: grid; grid-template-columns: minmax(0, 1fr) minmax(20rem, 38%); column-gap: 1.5rem; align-items: start; }
@@ -3420,4 +3427,15 @@ body:has(#gathering-app .gth-dash--scheduling) .app-header,
 @media (max-width: 47.99rem) {
   .gathering-step--scheduling .gth-shop-map { display: none; }
   .gathering-step--done .gth-step-body[hidden] { display: none; }
+  .gth-link-actions { min-width: 0; flex-basis: auto; }
+  .gth-link-row, .gth-link-item { min-width: 0; max-width: 100%; }
+}
+
+/* The 768px supported tablet keeps the touch-friendly vertical shop flow;
+   the two-column desktop map layout starts at the wide-PC breakpoint. */
+@media (min-width: 48rem) and (max-width: 63.99rem) {
+  #gathering-app .gathering-step--current .gth-shop-step-content {
+    display: flex;
+    flex-direction: column;
+  }
 }

@@ -1722,7 +1722,6 @@ class LayoutSanityTests(StaticLiveServerTestCase):
             "文字なども4.5をわずかに下回る（項目13と同じ画面共通パターン）。"
         ),
     )
-    @pytest.mark.skip(reason="KEN-64 replaced selecting-shop tabs with the vertical step flow")
     def test_gathering_dashboard_selecting_shop_phase_and_tabs(self) -> None:
         """SELECTING_SHOP局面の4タブ（schedule/shop/links/answers）と、
         リンク発行・確定確認の小窓。"""

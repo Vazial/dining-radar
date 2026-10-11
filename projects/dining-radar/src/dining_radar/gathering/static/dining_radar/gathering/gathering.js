@@ -3353,7 +3353,9 @@
         state.gathering.phase === "SELECTING_SHOP" ? renderParticipantLinkCopy() : renderParticipantLinkIssuanceClosedBadge(),
       ]), open,
     ])];
-    if (state.linkSectionOpen) children.push(renderParticipantLinkPane());
+    // The section header owns the single issuance control; opening it only
+    // discloses the ordered list, avoiding a duplicate copy button.
+    if (state.linkSectionOpen) children.push(renderParticipantLinkList());
     return el("section", { class: "gth-link-section-wrapper" }, children);
   }
 
