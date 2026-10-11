@@ -1644,7 +1644,7 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
             "会UI不変量の確認会", self._next_monday_iso()
         )
 
-        self.page.goto(f"{self.dsl.base_url}/?gatheringId={gathering_id}")
+        self.page.goto(f"{self.dsl.base_url}/search/?gatheringId={gathering_id}")
         band = by_test_id(self.page, "candidate-gathering-mode-band")
         expect(band).to_be_visible()
         band_box = band.bounding_box()
@@ -1715,7 +1715,7 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         # --- mobile bottom nav (mapPrimaryTouchLayout, adr/0033 decision 1) ---
         mobile_width, mobile_height, mobile_label = NARROW_VIEWPORTS[0]
         self.page.set_viewport_size({"width": mobile_width, "height": mobile_height})
-        self.page.goto(f"{self.dsl.base_url}/?gatheringId={gathering_id}")
+        self.page.goto(f"{self.dsl.base_url}/search/?gatheringId={gathering_id}")
         for test_id in (
             "candidate-primary-nav-search",
             "candidate-primary-nav-gathering",
@@ -1736,7 +1736,7 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
         # --- desktop menu + dot (twoColumnLayout, ADR-0069) ---
         desktop_width, desktop_height, desktop_label = TWO_COLUMN_VIEWPORTS[1]
         self.page.set_viewport_size({"width": desktop_width, "height": desktop_height})
-        self.page.goto(f"{self.dsl.base_url}/?gatheringId={gathering_id}")
+        self.page.goto(f"{self.dsl.base_url}/search/?gatheringId={gathering_id}")
         dot = by_test_id(self.page, "candidate-primary-nav-menu-dot")
         expect(dot).to_be_visible()
         expect(dot).to_have_attribute("data-in-progress-gathering-count", "1")
@@ -1757,7 +1757,7 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
                 )
 
         # --- gatheringMode.shortlistToast.returnControl (ADR-0059 decision 5) ---
-        self.page.goto(f"{self.dsl.base_url}/?gatheringId={gathering_id}")
+        self.page.goto(f"{self.dsl.base_url}/search/?gatheringId={gathering_id}")
         cards = wait_for_at_least_one(self.page, "candidate-card")
         cards.first.locator('[data-testid="candidate-card-gathering-toggle"]').click()
         toast_return = by_test_id(self.page, "candidate-gathering-shortlist-toast-return")
@@ -2602,7 +2602,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         cancel = by_test_id(self.page, "gathering-create-cancel")
         self._assert_tabbable(cancel, "gathering-create-cancel")
         cancel.press("Enter")
-        expect(self.page).to_have_url(f"{self.dsl.base_url}/gatherings/")
+        expect(self.page).to_have_url(f"{self.dsl.base_url}/")
 
     # No test_c here: organizerGatheringCreate shows only a free-text name
     # and a plain date calendar -- no Gathering.phase or other API enum is
@@ -3871,7 +3871,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         delete_confirm = by_test_id(self.page, "gathering-delete-confirm")
         self._assert_tabbable(delete_confirm, "gathering-delete-confirm")
         delete_confirm.press("Enter")
-        expect(self.page).to_have_url(f"{self.dsl.base_url}/gatherings/")
+        expect(self.page).to_have_url(f"{self.dsl.base_url}/")
 
     def test_c_gathering_dashboard_phase_is_never_shown_as_raw_enum_text(self) -> None:
         self._sign_in_as_organizer()

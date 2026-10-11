@@ -115,5 +115,5 @@ CACHES = {
 }
 
 LOGIN_URL = "authentication:login"
-LOGIN_REDIRECT_URL = "web:home"
+LOGIN_REDIRECT_URL = "gathering:organizer-home"
 LOGOUT_REDIRECT_URL = "authentication:login"

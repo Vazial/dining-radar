@@ -153,14 +153,16 @@ class AuthenticationFlowTests(TestCase):
             {"username": self.user.username, "password": self.password},
         )
 
-        self.assertRedirects(response, reverse("web:home"), fetch_redirect_response=False)
+        self.assertRedirects(
+            response, reverse("gathering:organizer-home"), fetch_redirect_response=False
+        )
         self.assertIn(settings.SESSION_COOKIE_NAME, response.cookies)
         self.assertFalse(response.cookies[settings.SESSION_COOKIE_NAME]["secure"])
         self.assertTrue(response.cookies[settings.SESSION_COOKIE_NAME]["httponly"])
         self.assertEqual(response.cookies[settings.SESSION_COOKIE_NAME]["samesite"], "Lax")
 
-        shell = self.client.get(reverse("web:home"))
-        self.assertContains(shell, 'id="candidate-app"')
+        shell = self.client.get(reverse("gathering:organizer-home"))
+        self.assertContains(shell, 'id="gathering-list-app"')
         self.assertNotContains(shell, "公開サインアップ")
 
     def test_public_signup_and_email_reset_routes_are_absent(self):
@@ -204,7 +206,9 @@ class AuthenticationFlowTests(TestCase):
             },
         )
 
-        self.assertRedirects(response, reverse("web:home"), fetch_redirect_response=False)
+        self.assertRedirects(
+            response, reverse("gathering:organizer-home"), fetch_redirect_response=False
+        )
         self.client.logout()
         self.assertTrue(
             self.client.login(

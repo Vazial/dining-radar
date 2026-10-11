@@ -14,6 +14,9 @@ from . import views
 app_name = "gathering"
 
 urlpatterns = [
+    # The signed-in landing page is the gathering home; the legacy
+    # /gatherings/ entry remains available for the acceptance contract.
+    path("", views.organizer_gathering_list, name="organizer-home"),
     # Organizer JSON API (organizerSession + CSRF).
     path("gatherings", views.gatherings, name="gatherings"),
     path("gatherings/in-progress-count", views.in_progress_count, name="in-progress-count"),

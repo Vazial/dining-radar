@@ -19,7 +19,7 @@ urlpatterns = [
         "password/change/",
         auth_views.PasswordChangeView.as_view(
             form_class=OrganizerPasswordChangeForm,
-            success_url=reverse_lazy("web:home"),
+            success_url=reverse_lazy("gathering:organizer-home"),
             template_name="authentication/password_change_form.html",
         ),
         name="password_change",
