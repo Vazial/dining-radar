@@ -98,8 +98,74 @@
     );
   }
 
-  function renderItem(gathering) {
+  function currentLeaderDates(gathering) {
+    if (gathering.phase !== "SCHEDULING" || !gathering.candidateDates.length) {
+      return [];
+    }
+    var highest = Math.max.apply(
+      null,
+      gathering.candidateDates.map(function (candidateDate) {
+        return candidateDate.goingCount;
+      })
+    );
+    return highest > 0
+      ? gathering.candidateDates.filter(function (candidateDate) {
+          return candidateDate.goingCount === highest;
+        })
+      : [];
+  }
+
+  function nextActionFor(gathering) {
+    if (gathering.phase === "SCHEDULING") {
+      return gathering.respondedParticipantCount > 0 ? "DECIDE_DATE" : "WAIT_ANSWERS";
+    }
+    if (gathering.phase === "SELECTING_SHOP") {
+      return gathering.votingStartedAt ? "DECIDE_SHOP" : "PICK_SHOPS";
+    }
+    return null;
+  }
+
+  var NEXT_ACTION_LABELS = {
+    WAIT_ANSWERS: "回答を待つ",
+    DECIDE_DATE: "日を決める",
+    PICK_SHOPS: "店を選ぶ",
+    DECIDE_SHOP: "店を決める",
+  };
+
+  function stepFor(gathering) {
+    if (gathering.phase === "SCHEDULING") return "SCHEDULE";
+    if (gathering.phase === "SELECTING_SHOP") return "SHOP";
+    return "FINAL";
+  }
+
+  function renderSteps(gathering) {
+    return el("div", {
+      "data-testid": "gathering-list-steps",
+      "class": "gathering-list-steps",
+      "data-current-step": stepFor(gathering),
+    }, [
+      el("span", { "class": "gathering-list-step" }, ["日程"]),
+      el("span", { "class": "gathering-list-step" }, ["店"]),
+      el("span", { "class": "gathering-list-step" }, ["決まり"]),
+    ]);
+  }
+
+  function renderNumbers(gathering) {
+    var shopVoteRespondedCount = gathering.shortlistedShops.reduce(function (highest, shop) {
+      return Math.max(highest, shop.respondedParticipantCount || 0);
+    }, 0);
+    return el("div", { "class": "gathering-list-item-numbers" }, [
+      el("span", {}, ["候補日 " + gathering.candidateDates.length]),
+      el("span", {}, ["回答 " + gathering.respondedParticipantCount + "/" + gathering.activeParticipantLinkCount]),
+      el("span", {}, ["店 " + gathering.shortlistedShops.length]),
+      el("span", {}, ["票 " + shopVoteRespondedCount]),
+    ]);
+  }
+
+  function renderItem(gathering, isFeatured) {
     var confirmedStartAt = confirmedCandidateDateStartAt(gathering);
+    var leaders = currentLeaderDates(gathering);
+    var nextAction = nextActionFor(gathering);
     var attrs = {
       "data-testid": "gathering-list-item",
       "data-gathering-id": gathering.id,
@@ -110,10 +176,24 @@
       "data-gathering-phase": gathering.phase,
       "data-responded-count": gathering.respondedParticipantCount,
       "data-active-issued-links": gathering.activeParticipantLinkCount,
+      "data-list-role": isFeatured ? "featured" : "row",
+      "data-candidate-date-count": gathering.candidateDates.length,
+      "data-shortlisted-shop-count": gathering.shortlistedShops.length,
+      "data-shop-vote-responded-count": gathering.shortlistedShops.reduce(function (highest, shop) {
+        return Math.max(highest, shop.respondedParticipantCount || 0);
+      }, 0),
       "class": "gathering-list-item",
     };
     if (confirmedStartAt) {
       attrs["data-confirmed-candidate-date"] = confirmedStartAt;
+    }
+    if (leaders.length) {
+      attrs["data-leading-candidate-dates"] = leaders.map(function (candidateDate) {
+        return candidateDate.startAt;
+      }).join(" ");
+    }
+    if (gathering.phase === "FINALIZED" && gathering.finalizedShopId) {
+      attrs["data-finalized-shop-id"] = gathering.finalizedShopId;
     }
 
     var openLink = el(
@@ -127,19 +207,30 @@
       ["開く"]
     );
 
-    return el("li", attrs, [
+    var openContent = el("span", { "class": "gathering-list-item-open-content" }, [
       el("span", { "class": "gathering-list-item-title" }, [gathering.title]),
       el("span", { "class": "gathering-list-item-phase" }, [
         PHASE_LABELS[gathering.phase] || gathering.phase,
       ]),
       el("span", { "class": "gathering-list-item-summary" }, [
-        confirmedStartAt
-          ? confirmedStartAt + " に決定"
-          : "候補日 " + gathering.candidateDates.length + "つ",
+        confirmedStartAt ? confirmedStartAt + " に決定" : "候補日 " + gathering.candidateDates.length + "つ",
       ]),
       el("span", { "class": "gathering-list-item-links" }, [renderLinkSummary(gathering)]),
-      openLink,
+      renderNumbers(gathering),
     ]);
+    openLink.appendChild(openContent);
+    var children = [openLink];
+    if (isFeatured) {
+      children.push(renderSteps(gathering));
+      children.push(el("a", {
+        href: "/gatherings/" + gathering.id + "/",
+        "data-testid": "gathering-list-next-action",
+        "data-gathering-control-purpose": "gathering-list-next-action",
+        "data-next-action": nextAction,
+        "class": "gathering-btn gathering-btn-primary gathering-list-next-action",
+      }, [NEXT_ACTION_LABELS[nextAction] || nextAction]));
+    }
+    return el("li", attrs, children);
   }
 
   function render(gatherings) {
@@ -168,7 +259,17 @@
       el(
         "ul",
         { "data-testid": "gathering-list", "class": "gathering-list" },
-        gatherings.map(renderItem)
+        (function () {
+          var featuredIndex = gatherings.findIndex(function (gathering) {
+            return gathering.phase === "SCHEDULING" || gathering.phase === "SELECTING_SHOP";
+          });
+          var ordered = featuredIndex >= 0
+            ? [gatherings[featuredIndex]].concat(gatherings.slice(0, featuredIndex), gatherings.slice(featuredIndex + 1))
+            : gatherings;
+          return ordered.map(function (gathering, index) {
+            return renderItem(gathering, featuredIndex >= 0 && index === 0);
+          });
+        })()
       )
     );
 
@@ -183,6 +284,12 @@
             "会をつくると、候補日を出して、回答リンクを1本ずつ配れるようになります。",
           ]),
           renderCreateOpen(),
+          el("a", {
+            href: "/search/",
+            "data-testid": "gathering-list-empty-search",
+            "data-gathering-control-purpose": "gathering-list-empty-search-open",
+            "class": "gathering-btn",
+          }, ["会をつくらずに、店だけ探す"]),
         ])
       );
     }

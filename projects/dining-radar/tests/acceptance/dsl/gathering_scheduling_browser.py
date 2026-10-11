@@ -2650,7 +2650,7 @@ class GatheringSchedulingBrowserDsl:
         observation surface under candidate-search-browser-interface.yaml.
         """
         self.page.set_viewport_size(CANDIDATE_SEARCH_DESKTOP_TWO_COLUMN_VIEWPORT)
-        self.page.goto(f"{self.base_url}/")
+        self.page.goto(f"{self.base_url}/search/")
         wait_for_at_least_one(self.page, "candidate-proposal-content")
 
     def assert_in_progress_gathering_count_dot(self, expected_count: int) -> None:

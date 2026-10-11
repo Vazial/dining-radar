@@ -1144,7 +1144,7 @@
   // yaml's gatheringMode, adr/0049 decision 1.)
 
   function navigateToShopSelectionEntry() {
-    window.location.href = "/?gatheringId=" + encodeURIComponent(gatheringId);
+    window.location.href = "/search/?gatheringId=" + encodeURIComponent(gatheringId);
   }
 
   function renderShopSelectionEntry(label, className) {
@@ -1278,7 +1278,7 @@
         // deleteGathering.confirm.requiredOutcome (ADR-0054 decision 6): the
         // organizer's own gathering list -- the only destination that still
         // makes sense once this specific gathering no longer exists.
-        window.location.href = "/gatherings/";
+        window.location.href = "/";
       }
     });
   }

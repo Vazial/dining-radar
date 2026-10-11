@@ -358,7 +358,7 @@ class TopBarRowTests(_BrowserHarness):
         self.dsl.reset_candidate_state()
         self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING", random_seed=20260927)
         self.page.set_viewport_size(PC_VIEWPORT)
-        self.page.goto(f"{self.base_url}/")
+        self.page.goto(f"{self.base_url}/search/")
         wait_for_at_least_one(self.page, "candidate-card")
         self._assert_pc_top_bar_with_h1_label("candidate-screen 1440x900")
 
