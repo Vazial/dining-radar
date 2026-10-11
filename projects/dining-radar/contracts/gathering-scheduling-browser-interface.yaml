@@ -988,12 +988,16 @@
 # - `allowedPurposes` に `gathering-list-next-action`・`gathering-candidate-date-edit-toggle`・`gathering-list-empty-search-open`・
 #   `gathering-step-answers-open` を足し、`gathering-shop-select-tab-*` の4つを外す。
 # - `gathering-scheduling-api.yaml` は変えない。`.feature` は TDR-GTH-68〜73 を確定し、TDR-GTH-74 を足した。
+# - **追補36（2026-10-11、ADR-0080決定8、キャンバス版112「5 日程を聞き中の表」）**: 決める点5の画面の細部を確定する。`answerCard.selectedDate`
+#   （最初は何も選ばない／列見出しを押して仮選択／「✓ 選択中」／有力と選択の両方を出せる／選択の色は有力に勝つ／枠線は使わない）、
+#   `answerCard.totalRow`（「○N」とその下に小さく「△M」、棒なし。新設の表示専用 `gathering-response-table-maybe-count`）、`confirmDate.target`
+#   （有力の日への自動の代入をやめる。未選択のボタンは「日を選ぶ」で押せない）。contractVersionを0.34.0から0.35.0へ上げる。色の値は固定しない。
 #
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.34.0'
+contractVersion: '0.35.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -3408,21 +3412,19 @@ browserControlSurface:
         Organizer.dc.html state②'s footer replaces this button entirely
         with shopSelectionEntry.open/shortlistedShopVotes.finalizeSubmit).
       target: >-
-        Added 2026-10-08 (追補28, ADR-0072決定3). The date this control would
-        confirm is, in order: the gathering-candidate-date with
-        data-tentative-selected="true" if any; else the one
-        gathering-candidate-date with data-current-leader="true" if exactly
-        one carries it; else none. The visible label contains that date
-        (M/D(曜)) and "に決める" ("日を選んでください" when there is no target;
-        exact wording otherwise not fixed). Activating it confirms the target.
+        **Changed 2026-10-11 (追補36, ADR-0080 decision 8; supersedes the
+        2026-10-08 rule that fell back to the leading date)**: the target
+        is the gathering-candidate-date with data-tentative-selected="true"
+        if any, else none. Nothing is selected at first, so the control
+        starts without a target even when a leading date exists. The visible
+        label is 「日を選ぶ」 when there is no target and
+        「M/D(曜) に決める」 (the target's date) otherwise; exact spacing
+        is not fixed. Activating it confirms the target.
       disabledState: >-
-        **Changed 2026-10-08 (追補28)**: carries the native disabled state
-        exactly when `target` above is none. (Previously: whenever no
-        gathering-candidate-date had data-tentative-selected="true".)
-        Original rule: whenever no gathering-candidate-date currently has data-tentative-selected="true"
-        (mirrors candidate-search-browser-interface.yaml's
-        deckNavigation.disabledState convention for a boundary condition
-        rather than removing the control).
+        **Changed 2026-10-11 (追補36)**: carries the native disabled state
+        exactly when `target` above is none (so, initially, and after the
+        selected date is removed). Earlier text (2026-10-08): exactly when
+        neither a tentative selection nor a single leading date exists.
       requiredOutcome: >-
         Activating it while a candidate date is tentatively selected calls
         confirmCandidateDate with that date's id. On success,
@@ -4050,14 +4052,48 @@ browserControlSurface:
           Display-only. Equal to gathering-responded-summary's
           data-responded-count and gathering-unanswered-summary's
           data-active-issued-links. Look and wording not fixed.
-      pending: >-
-        決定待ち (2026-10-11): how the currently selected date is shown and
-        how the total row shows its numbers are being redrawn by the
-        designer (the total cannot be one number because of 「たぶん」, and
-        the green bar under the total is on its way out). Nothing about
-        those two is fixed here; goingCountRow below keeps its ADR-0071
-        text and the bar sentence in responseTable.row is withdrawn. A
-        later 追補 will add them after the human answers.
+      selectedDate:
+        decidedBy: ADR-0080 decision 8 (追補36, canvas version 112, 「5 日程を聞き中の表」)
+        requirement: >-
+          Added 2026-10-11 (追補36). While phase is SCHEDULING the selected
+          date is shown on its column header (the gathering-candidate-date
+          inside the gathering-response-table-header-cell). The state
+          attribute stays gathering-candidate-date's data-tentative-selected
+          ("true"/"false"); no second attribute is added. Initially no date
+          is selected (every data-tentative-selected is "false"); the
+          leading date is no longer selected implicitly. Activating a
+          header cell's gathering-candidate-date (purpose
+          gathering-candidate-date-tentative-select, unchanged) selects it
+          and deselects any other; activating the selected one again leaves
+          it selected.
+        selectedMark: >-
+          SD-1: the header cell of the selected date contains the visible
+          text 「✓ 選択中」; no other header cell does.
+          SD-2: when the selected date is also a leading date
+          (data-current-leader="true"), its header cell contains both 「有力」
+          (the leaderSummary element) and 「✓ 選択中」.
+          SD-3 (look, fixed only as a relation): the selected header cell's
+          computed background-color differs from that of a non-selected,
+          non-leading header cell, and the selection colour wins over the
+          leading date's colour on that cell; the selected header cell has
+          no border that a non-selected header cell lacks (the selection is
+          not drawn with an outline). The colour values are not fixed.
+          ADR-0066's text-vs-background contrast check (4.5 / 3.0) applies.
+          Body cells keep paintedColumn's rule (the leading column only).
+      totalRow:
+        decidedBy: ADR-0080 decision 8 (追補36)
+        requirement: >-
+          Added 2026-10-11 (追補36). goingCountRow's cells show two lines:
+          the going count as 「○N」 and, below it in smaller text, the maybe
+          count as 「△M」 (gathering-response-table-maybe-count, new,
+          display-only, formControl false, attribute data-candidate-date-id,
+          one per header cell, inside the same column's going-count cell).
+          N equals gathering-candidate-date's data-going-count and M equals
+          its data-maybe-count (decimal integers). No bar or other
+          proportional mark is shown in the total row. The row label is
+          non-binding (the board reads 「合計」). This supersedes
+          goingCountRow.cell.requirement's "visible text is the decimal
+          integer ... and nothing else" and withdraws the earlier short bar.
     candidateDateEdit:
       description: >-
         Added 2026-10-11 (ADR-0080 decisions 4 and 5, 追補34, answer

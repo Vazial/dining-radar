@@ -2828,7 +2828,20 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
   background: #fafbf9;
 }
 .gth-response-count-cell {
+  flex-direction: column;
+  gap: 0.1rem;
   font-size: 0.8125rem;
+}
+.gth-response-maybe-count {
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: #77827a;
+}
+.gth-response-status {
+  display: block;
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: #77827a;
 }
 .gth-response-painted {
   background: #eaf4ee;
@@ -2848,7 +2861,44 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
   font-weight: 700;
   color: #4b564e;
   line-height: 1.2;
+  min-height: 3.5rem;
+  flex-direction: column;
+  gap: 0.2rem;
 }
+.gth-response-header-cell--selected {
+  background: #14614a;
+  color: #fff;
+}
+.gth-response-header-cell--selected .gth-date,
+.gth-response-header-cell--selected .gth-date-value,
+.gth-response-header-cell--selected .gth-date-selected-mark {
+  color: #fff;
+}
+.gth-response-header-cell.gth-response-painted > .gth-date {
+  background: #eaf4ee;
+}
+.gth-response-header-cell--selected.gth-response-painted > .gth-date {
+  background: #14614a;
+}
+.gth-date-selected-mark {
+  font-size: 0.625rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.gth-answer-card {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid #dfe8e0;
+  border-radius: 0.75rem;
+  background: #f7fbf8;
+}
+.gth-answer-card-title { font-size: 1rem; font-weight: 800; color: #17201b; }
+.gth-responded-progress { height: 0.4rem; overflow: hidden; border-radius: 999px; background: #dfe8e0; }
+.gth-responded-progress-bar { display: block; height: 100%; border-radius: inherit; background: #14614a; }
+.gth-answer-card-badges { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.gth-answer-badge { padding: 0.2rem 0.6rem; border-radius: 999px; background: #eaf4ee; color: #14614a; font-size: 0.75rem; font-weight: 700; }
+.gth-candidate-date-edit-row { display: flex; justify-content: flex-end; }
 .gth-response-leader-summary {
   display: flex;
   flex-wrap: wrap;
@@ -3177,7 +3227,23 @@ body:has(#gathering-app .gth-dash--scheduling) .app-header,
 }
 .gth-response-section .gth-response-header,
 .gth-response-section .gth-response-row {
-  grid-template-columns: calc(5rem + var(--gth-sched-gutter)) repeat(var(--gth-response-columns, 1), 2.75rem);
+  grid-template-columns: calc(5rem + var(--gth-sched-gutter)) repeat(var(--gth-response-columns, 1), 3rem);
+}
+.gth-response-header-cell > .gth-date {
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  flex-direction: column;
+  gap: 0.1rem;
+  overflow: hidden;
+}
+.gth-response-header-cell > .gth-date .gth-date-value {
+  white-space: nowrap;
+}
+.gth-response-header-cell > .gth-date .gth-date-weekday {
+  white-space: nowrap;
 }
 .gth-response-section .gth-response-row-name,
 .gth-response-section .gth-response-name-head {

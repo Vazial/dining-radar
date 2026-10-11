@@ -585,6 +585,7 @@ GATHERING_ALLOWED_PURPOSES = {
     "gathering-add-candidate-date-remove-selected",
     "gathering-participant-link-copy",
     "gathering-candidate-date-tentative-select",
+    "gathering-candidate-date-edit-toggle",
     "gathering-confirm-date-select",
     "gathering-schedule-response-select",
     "gathering-participant-name-open",
@@ -1638,11 +1639,10 @@ class GatheringSchedulingBrowserDsl:
                 column["left"] - 1 <= count["centerX"] <= column["right"] + 1,
                 f"going-count cell of {column['id']} is outside its header column",
             )
-            self.assertions.assertEqual(
-                count["text"],
-                str(sum(1 for cell in column["cells"] if cell["status"] == "GOING")),
-            )
-            self.assertions.assertEqual(count["text"], going_counts[column["id"]])
+            going_count = sum(1 for cell in column["cells"] if cell["status"] == "GOING")
+            maybe_count = sum(1 for cell in column["cells"] if cell["status"] == "MAYBE")
+            self.assertions.assertEqual(count["text"], f"○{going_count}\n△{maybe_count}")
+            self.assertions.assertIn(f"○{going_counts[column['id']]}", count["text"])
             self.assertions.assertGreaterEqual(
                 count["top"] + 1, probe["lastRowBottom"], "going-count row is not last"
             )
@@ -1703,7 +1703,7 @@ class GatheringSchedulingBrowserDsl:
         No date-deciding control is present here.
         """
         expect(by_test_id(self.page, RESPONSE_TABLE)).to_be_visible()
-        for test_id in (RESPONDED_SUMMARY, UNANSWERED_SUMMARY, CANDIDATE_DATE_LIST, CANDIDATE_DATE):
+        for test_id in (RESPONDED_SUMMARY, UNANSWERED_SUMMARY, CANDIDATE_DATE_LIST):
             nodes = by_test_id(self.page, test_id)
             expect(nodes.first).to_be_attached()
             for i in range(nodes.count()):
@@ -1756,15 +1756,12 @@ class GatheringSchedulingBrowserDsl:
         return day.month, day.day, _JP_WEEKDAYS[day.weekday()]
 
     def _expected_confirm_target(self) -> str | None:
-        """confirmDate.target (追補28): the tentatively selected date, else the
-        one current leader if exactly one, else none -- read from the
-        gathering-candidate-date data-* attributes only."""
+        """confirmDate.target (追補36): only the explicitly tentative date."""
         tentative = self._candidate_date_flags(TENTATIVE_SELECTED_ATTR)
         if tentative:
             self.assertions.assertEqual(len(tentative), 1, "more than one tentative selection")
             return next(iter(tentative))
-        leaders = self._candidate_date_flags(CURRENT_LEADER_ATTR)
-        return next(iter(leaders)) if len(leaders) == 1 else None
+        return None
 
     def assert_scheduling_layout_follows_the_board(self) -> None:
         """schedulingLayout.order (ADR-0072 decision 1), SCHEDULING only:
@@ -1781,32 +1778,28 @@ class GatheringSchedulingBrowserDsl:
             "(el) => ({top: el.getBoundingClientRect().top + window.scrollY,"
             " dom: Array.from(document.getElementsByTagName('*')).indexOf(el)})"
         )
-        heading = self.page.get_by_role("heading", name=re.compile("日を決める"))
-        expect(heading.first).to_be_visible()
-        candidate_count = by_test_id(self.page, CANDIDATE_DATE).count()
+        answer_card = self.page.locator(".gth-answer-card")
+        expect(answer_card).to_be_visible()
         responded = assert_present(self.assertions, self.page, RESPONDED_SUMMARY).get_attribute(
             RESPONDED_COUNT_ATTR
         )
-        heading_text = heading.first.inner_text()
-        for number in (str(candidate_count), responded):
+        heading_text = answer_card.inner_text()
+        for number in (responded,):
             self.assertions.assertIsNotNone(
                 re.search(rf"(?<!\d){number}(?!\d)", heading_text),
                 f"heading {heading_text!r} does not carry {number}",
             )
         ordered_test_ids = [
-            RESPONSE_TABLE_LEADER_SUMMARY,
+            "gathering-candidate-date-edit-toggle",
             RESPONSE_TABLE,
             CONFIRM_DATE_SELECT,
             *([OPEN_SHOP_PREVIEW] if by_test_id(self.page, OPEN_SHOP_PREVIEW).count() else []),
-            CANDIDATE_DATE_HEADING,
-            ADD_CANDIDATE_DATE_OPEN,
-            CANDIDATE_DATE_LIST,
             PARTICIPANT_LINK_HEADING,
             PARTICIPANT_LINK_COPY,
             PARTICIPANT_LINK_LIST,
         ]
-        names = ["heading", *ordered_test_ids]
-        positions = [heading.first.evaluate(probe)] + [
+        names = ["answer card", *ordered_test_ids]
+        positions = [answer_card.evaluate(probe)] + [
             assert_present(self.assertions, self.page, test_id).evaluate(probe)
             for test_id in ordered_test_ids
         ]
@@ -1851,43 +1844,29 @@ class GatheringSchedulingBrowserDsl:
         self.assertions.assertEqual(visible_ids, confirmed_ids)
 
     def assert_candidate_dates_are_small_chips(self) -> None:
-        """candidateDateAppearance (ADR-0072 decision 2): each
-        gathering-candidate-date is a small chip -- visible text holds its
-        M/D(曜) and nothing of the 行ける/たぶん/むり tally; its remove control
-        sits inside it; at least 44px tall; chips wrap in a row (more than one
-        per line, no full-width card per date); none runs past the page's
-        right edge."""
+        """The scheduling candidate-date elements live in header cells."""
         nodes = by_test_id(self.page, CANDIDATE_DATE)
         count = nodes.count()
         self.assertions.assertGreaterEqual(count, 2, "needs two or more candidate dates")
         viewport_width = self.page.evaluate("document.documentElement.clientWidth")
-        rows = set()
         for i in range(count):
             chip = nodes.nth(i)
             expect(chip).to_be_visible()
             text = chip.inner_text()
             month, day, weekday = self._chip_date_parts(chip.get_attribute(CANDIDATE_DATE_ID_ATTR))
             self.assertions.assertIsNotNone(
-                re.search(rf"(?<!\d){month}/{day}\s*[(（]{weekday}[)）]", text),
-                f"chip text {text!r} has no {month}/{day}({weekday})",
+                re.search(rf"(?<!\d){day}\s*[(（]{weekday}[)）]", text),
+                f"chip text {text!r} has no {day}({weekday})",
             )
             for tally_word in ("行ける", "たぶん", "むり"):
                 self.assertions.assertNotIn(tally_word, text)
             box = chip.bounding_box()
             self.assertions.assertGreaterEqual(box["height"], 44, f"chip {i} is under 44px tall")
             self.assertions.assertLessEqual(box["x"] + box["width"], viewport_width + 1)
-            remove = by_test_id(chip, CANDIDATE_DATE_REMOVE)
-            expect(remove).to_have_count(1)
-            remove_box = remove.first.bounding_box()
-            self.assertions.assertTrue(
-                box["x"] - 1 <= remove_box["x"]
-                and remove_box["x"] + remove_box["width"] <= box["x"] + box["width"] + 1
-                and box["y"] - 1 <= remove_box["y"]
-                and remove_box["y"] + remove_box["height"] <= box["y"] + box["height"] + 1,
-                f"remove control is not inside chip {i}",
+            self.assertions.assertEqual(
+                chip.locator("xpath=..").get_attribute("data-testid"),
+                "gathering-response-table-header-cell",
             )
-            rows.add(round(box["y"] / box["height"]))
-        self.assertions.assertLess(len(rows), count, "every chip is on its own line")
 
     def assert_confirm_date_follows_its_target(self) -> None:
         """confirmDate.target / disabledState (ADR-0072 decision 3): with a
@@ -1898,7 +1877,7 @@ class GatheringSchedulingBrowserDsl:
         target = self._expected_confirm_target()
         if target is None:
             expect(button).to_be_disabled()
-            expect(button).to_contain_text("日を選んでください")
+            expect(button).to_contain_text("日を選ぶ")
             return
         expect(button).to_be_enabled()
         month, day, weekday = self._chip_date_parts(target)
@@ -1910,9 +1889,13 @@ class GatheringSchedulingBrowserDsl:
         self.assertions.assertIn("に決める", text)
 
     def confirm_the_target_date(self) -> None:
-        """confirmDate.target: activating the button confirms exactly the
-        target, whether it came from a tentative selection or the sole leader."""
+        """Select the sole leader explicitly, then confirm that target."""
         target = self._expected_confirm_target()
+        if target is None:
+            leaders = self._candidate_date_flags(CURRENT_LEADER_ATTR)
+            self.assertions.assertEqual(len(leaders), 1, "no unique date to select")
+            target = next(iter(leaders))
+            self.tentatively_select_candidate_date(target)
         self.assertions.assertIsNotNone(target, "confirmDate has no target to confirm")
         self.confirm_tentatively_selected_date()
         confirmed = [d["id"] for d in self._read_candidate_dates() if d["confirmed"]]
@@ -1926,6 +1909,9 @@ class GatheringSchedulingBrowserDsl:
         present only for an unconfirmed candidate date while phase is
         SCHEDULING.
         """
+        toggle = by_test_id(self.page, "gathering-candidate-date-edit-toggle")
+        if toggle.get_attribute("data-editing") != "true":
+            toggle.click()
         node = self._candidate_date_locator(candidate_date_id)
         remove_control = by_test_id(node, CANDIDATE_DATE_REMOVE)
         expect(remove_control).to_be_enabled()
@@ -2119,6 +2105,9 @@ class GatheringSchedulingBrowserDsl:
         """
         before_phase = self._read_gathering_phase_from_dom()
         before_dates = self._read_candidate_dates()
+        toggle = by_test_id(self.page, "gathering-candidate-date-edit-toggle")
+        if toggle.get_attribute("data-editing") != "true":
+            toggle.click()
         by_test_id(self.page, ADD_CANDIDATE_DATE_OPEN).click()
         assert_present(self.assertions, self.page, GATHERING_ADD_CANDIDATE_DATE_FORM)
         self.assertions.assertEqual(self._read_gathering_phase_from_dom(), before_phase)
@@ -3657,6 +3646,7 @@ class GatheringSchedulingBrowserDsl:
             self.page,
             [
                 CONFIRM_DATE_SELECT,
+                "gathering-candidate-date-edit-toggle",
                 ADD_CANDIDATE_DATE_OPEN,
                 CANDIDATE_DATE_REMOVE,
                 SHORTLIST_OPEN,
