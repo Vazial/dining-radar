@@ -3425,7 +3425,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         # gathering row whose "次: 日を決める" text can precede the
         # scheduling heading in the DOM. Target the screen heading itself so
         # this geometry assertion does not select hidden navigation text.
-        heading = self.page.locator("h2.gth-scheduling-head").first
+        heading = by_test_id(self.page, "gathering-dashboard-title")
         chips = by_test_id(self.page, "gathering-candidate-date")
         ordered = [
             top_of(heading),
