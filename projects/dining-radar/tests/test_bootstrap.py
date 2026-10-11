@@ -5,8 +5,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from django.conf import settings
 from django.db import DatabaseError
-from django.test import Client, SimpleTestCase, TestCase
+from django.test import Client, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -119,3 +120,62 @@ class DeploymentHealthCheckTests(TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.content, b"unavailable")
         self.assertNotIn(b"secret", response.content)
+
+
+class HealthCheckHostExemptionTests(TestCase):
+    """A load balancer probes by IP, which no ALLOWED_HOSTS list can enumerate."""
+
+    PROBE_HOST = "10.0.1.23:8000"
+
+    def test_without_the_middleware_a_probe_by_ip_is_rejected_by_host_validation(self):
+        response = Client().get(reverse("health-check"), HTTP_HOST=self.PROBE_HOST)
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_the_middleware_answers_the_probe_by_ip_without_host_validation(self):
+        middleware = ["dining_radar.health.HealthCheckMiddleware", *settings.MIDDLEWARE]
+        with override_settings(MIDDLEWARE=middleware):
+            response = Client().get("/healthz", HTTP_HOST=self.PROBE_HOST)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"ok")
+
+    def test_the_middleware_still_reports_database_failure_as_a_generic_503(self):
+        middleware = ["dining_radar.health.HealthCheckMiddleware", *settings.MIDDLEWARE]
+        with (
+            override_settings(MIDDLEWARE=middleware),
+            patch("dining_radar.health.connection.cursor", side_effect=DatabaseError("secret")),
+        ):
+            response = Client().get("/healthz", HTTP_HOST=self.PROBE_HOST)
+
+        self.assertEqual(response.status_code, 503)
+        self.assertNotIn(b"secret", response.content)
+
+    def test_livez_answers_a_probe_by_ip_without_touching_the_database(self):
+        middleware = ["dining_radar.health.HealthCheckMiddleware", *settings.MIDDLEWARE]
+        with (
+            override_settings(MIDDLEWARE=middleware),
+            patch("dining_radar.health.connection.cursor") as cursor,
+        ):
+            response = Client().get("/livez", HTTP_HOST=self.PROBE_HOST)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"ok")
+        cursor.assert_not_called()
+
+    def test_livez_stays_up_while_the_database_is_down(self):
+        middleware = ["dining_radar.health.HealthCheckMiddleware", *settings.MIDDLEWARE]
+        with (
+            override_settings(MIDDLEWARE=middleware),
+            patch("dining_radar.health.connection.cursor", side_effect=DatabaseError("secret")),
+        ):
+            response = Client().get("/livez", HTTP_HOST=self.PROBE_HOST)
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_the_middleware_does_not_exempt_any_other_path_from_host_validation(self):
+        middleware = ["dining_radar.health.HealthCheckMiddleware", *settings.MIDDLEWARE]
+        with override_settings(MIDDLEWARE=middleware):
+            response = Client().get("/", HTTP_HOST=self.PROBE_HOST)
+
+        self.assertEqual(response.status_code, 400)

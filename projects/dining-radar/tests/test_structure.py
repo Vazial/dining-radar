@@ -368,7 +368,7 @@ class EcsFargateDeployStructureTests(SimpleTestCase):
     this project's AI runtimes can reach (no AWS credentials, KEN-31 scope).
     """
 
-    def test_task_definition_matches_the_agreed_single_task_no_alb_topology(self):
+    def test_task_definition_runs_only_the_web_container_behind_the_alb(self):
         task_def = json.loads(
             (PROJECT_ROOT / "deploy" / "ecs" / "task-definition.json").read_text(encoding="utf-8")
         )
@@ -378,8 +378,11 @@ class EcsFargateDeployStructureTests(SimpleTestCase):
         self.assertEqual(task_def["cpu"], "256")
         self.assertEqual(task_def["memory"], "512")
 
+        # TLS ends at the ALB (ACM certificate), so there is no Caddy sidecar:
+        # an Elastic IP cannot be attached to a Fargate task's requester-managed
+        # ENI, which is what the earlier no-ALB design relied on (KEN-37).
         containers = {c["name"]: c for c in task_def["containerDefinitions"]}
-        self.assertEqual(set(containers), {"web", "caddy"})
+        self.assertEqual(set(containers), {"web"})
 
         web = containers["web"]
         web_secret_names = {s["name"] for s in web["secrets"]}
@@ -390,19 +393,13 @@ class EcsFargateDeployStructureTests(SimpleTestCase):
         for secret in web["secrets"]:
             self.assertTrue(secret["valueFrom"].startswith("arn:aws:ssm:"))
         self.assertIn({"name": "AWS_ECS_FARGATE", "value": "1"}, web["environment"])
+        self.assertEqual([p["containerPort"] for p in web["portMappings"]], [8000])
+        # /livez, not /healthz: a probe that runs every 30s around the clock
+        # must not query the scale-to-zero database (Neon Free CU-hours).
         self.assertEqual(web["healthCheck"]["command"][0], "CMD-SHELL")
-        self.assertIn("localhost:8000/healthz", web["healthCheck"]["command"][1])
+        self.assertIn("localhost:8000/livez", web["healthCheck"]["command"][1])
 
-        caddy = containers["caddy"]
-        caddy_ports = {p["containerPort"] for p in caddy["portMappings"]}
-        self.assertEqual(caddy_ports, {80, 443})
-        # There is no ALB target group in this topology (ADR-0067's central
-        # decision) -- the app container's own port is reachable only
-        # inside the task, never mapped for external exposure.
-        self.assertNotIn(8000, caddy_ports)
-        self.assertEqual(caddy["dependsOn"], [{"containerName": "web", "condition": "HEALTHY"}])
-
-    def test_service_definition_accepts_the_agreed_redeploy_downtime_instead_of_two_tasks(self):
+    def test_service_definition_rolls_out_without_downtime_behind_the_target_group(self):
         service_def = json.loads(
             (PROJECT_ROOT / "deploy" / "ecs" / "service-definition.json").read_text(
                 encoding="utf-8"
@@ -411,14 +408,35 @@ class EcsFargateDeployStructureTests(SimpleTestCase):
 
         self.assertEqual(service_def["launchType"], "FARGATE")
         self.assertEqual(service_def["desiredCount"], 1)
-        # Two tasks would fight over the one Elastic IP this service owns
-        # (deploy/lambda/reattach_elastic_ip); ADR-0067 accepts a brief
-        # connection break on redeploy instead of provisioning a second one.
-        self.assertEqual(service_def["deploymentConfiguration"]["minimumHealthyPercent"], 0)
+        # With an ALB two tasks can coexist (there is no single Elastic IP to
+        # fight over), so a new task starts and turns healthy before the old
+        # one stops; a failing rollout is rolled back automatically.
+        deployment = service_def["deploymentConfiguration"]
+        self.assertEqual(deployment["minimumHealthyPercent"], 100)
+        self.assertEqual(deployment["maximumPercent"], 200)
+        self.assertEqual(deployment["deploymentCircuitBreaker"], {"enable": True, "rollback": True})
+        self.assertEqual(
+            [(lb["containerName"], lb["containerPort"]) for lb in service_def["loadBalancers"]],
+            [("web", 8000)],
+        )
+        self.assertGreater(service_def["healthCheckGracePeriodSeconds"], 0)
+        # The task sits in a public subnet and needs a public IP to reach ECR,
+        # SSM and the database (no NAT gateway); the security group admits port
+        # 8000 from the ALB only (see deploy/RESOURCES.md).
         self.assertEqual(
             service_def["networkConfiguration"]["awsvpcConfiguration"]["assignPublicIp"],
             "ENABLED",
         )
+
+    def test_deploy_script_is_strict_and_tags_the_image_with_the_commit(self):
+        script = PROJECT_ROOT / "deploy" / "deploy.sh"
+        text = script.read_text(encoding="utf-8")
+
+        self.assertTrue(os.access(script, os.X_OK))
+        for line in ("set -o errexit", "set -o nounset", "set -o pipefail"):
+            self.assertIn(line, text)
+        self.assertIn("git rev-parse --short HEAD", text)
+        self.assertIn("git status --porcelain", text)
 
     def test_reattach_lambda_only_moves_the_one_elastic_ip_it_is_scoped_to(self):
         iam_policy = json.loads(
@@ -431,15 +449,24 @@ class EcsFargateDeployStructureTests(SimpleTestCase):
             for statement in iam_policy["Statement"]
             if statement["Action"] == "ec2:AssociateAddress"
         ]
-        self.assertEqual(len(associate_statements), 1)
-        self.assertIn("ec2:AllocationId", associate_statements[0]["Condition"]["StringEquals"])
+        # AssociateAddress authorizes two resources at once: the Elastic IP and the
+        # network interface it moves onto. An `ec2:AllocationId` condition on a
+        # `*` resource is not satisfied while the ENI is evaluated (observed on a
+        # real task: UnauthorizedOperation on the ENI), so each resource gets its
+        # own statement and the IP is scoped by its ARN instead.
+        self.assertEqual(len(associate_statements), 2)
+        resources = sorted(statement["Resource"] for statement in associate_statements)
+        self.assertTrue(resources[0].endswith(":elastic-ip/<ELASTIC_IP_ALLOCATION_ID>"))
+        self.assertTrue(resources[1].endswith(":network-interface/*"))
+        for statement in associate_statements:
+            self.assertNotEqual(statement["Resource"], "*")
 
     def test_dockerfile_runs_collectstatic_at_build_time_and_execs_the_entrypoint(self):
         dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
 
         self.assertIn("collectstatic --no-input", dockerfile)
         self.assertIn("HEALTHCHECK", dockerfile)
-        self.assertIn("localhost:8000/healthz", dockerfile)
+        self.assertIn("localhost:8000/livez", dockerfile)
         self.assertIn('ENTRYPOINT ["docker-entrypoint.sh"]', dockerfile)
 
         entrypoint = (PROJECT_ROOT / "deploy" / "docker-entrypoint.sh").read_text(encoding="utf-8")

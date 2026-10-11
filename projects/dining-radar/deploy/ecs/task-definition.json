@@ -8,6 +8,7 @@
     "operatingSystemFamily": "LINUX",
     "cpuArchitecture": "X86_64"
   },
+  "tags": [{ "key": "Project", "value": "dining-radar" }],
   "executionRoleArn": "arn:aws:iam::<AWS_ACCOUNT_ID>:role/dining-radar-ecs-execution",
   "containerDefinitions": [
     {
@@ -41,44 +42,11 @@
         }
       },
       "healthCheck": {
-        "command": ["CMD-SHELL", "curl -f http://localhost:8000/healthz || exit 1"],
+        "command": ["CMD-SHELL", "curl -f http://localhost:8000/livez || exit 1"],
         "interval": 30,
         "timeout": 5,
         "retries": 3,
         "startPeriod": 30
-      }
-    },
-    {
-      "name": "caddy",
-      "image": "<AWS_ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com/dining-radar-caddy:<TAG>",
-      "essential": true,
-      "dependsOn": [
-        { "containerName": "web", "condition": "HEALTHY" }
-      ],
-      "portMappings": [
-        { "containerPort": 80, "protocol": "tcp" },
-        { "containerPort": 443, "protocol": "tcp" },
-        { "containerPort": 443, "protocol": "udp" }
-      ],
-      "secrets": [
-        { "name": "PUBLIC_DOMAIN", "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dining-radar/prod/public_domain" },
-        { "name": "ACME_EMAIL", "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dining-radar/prod/acme_email" }
-      ],
-      "logConfiguration": {
-        "logDriver": "awslogs",
-        "options": {
-          "awslogs-group": "/dining-radar/prod/caddy",
-          "awslogs-region": "<AWS_REGION>",
-          "awslogs-stream-prefix": "caddy",
-          "awslogs-create-group": "true"
-        }
-      },
-      "healthCheck": {
-        "command": ["CMD", "wget", "-q", "-O", "-", "http://localhost:2019/config/"],
-        "interval": 30,
-        "timeout": 5,
-        "retries": 3,
-        "startPeriod": 15
       }
     }
   ]

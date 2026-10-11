@@ -11,6 +11,8 @@ import dj_database_url
 from .settings_base import *  # noqa: F403
 
 MIDDLEWARE = [  # noqa: F405
+    # First, so the probe is answered before any middleware validates Host.
+    "dining_radar.health.HealthCheckMiddleware",
     MIDDLEWARE[0],  # noqa: F405
     "whitenoise.middleware.WhiteNoiseMiddleware",
     *MIDDLEWARE[1:],  # noqa: F405
