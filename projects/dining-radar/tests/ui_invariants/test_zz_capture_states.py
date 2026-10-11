@@ -499,6 +499,19 @@ class BoardConformanceCaptureTests(StaticLiveServerTestCase):
 
         self._capture_state_across_sizes(screen, "normal", given_normal)
 
+        def given_filter_open(width: int, height: int) -> Page:
+            self.page.set_viewport_size({"width": width, "height": height})
+            self.dsl.reset_candidate_state()
+            self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING")
+            self.dsl.open_candidate_screen()
+            filter_open = by_test_id(self.page, "candidate-filter-open")
+            expect(filter_open).to_be_visible()
+            _click(filter_open)
+            expect(by_test_id(self.page, "candidate-filter-panel")).to_be_visible()
+            return self.page
+
+        self._capture_state_across_sizes(screen, "filter_open", given_filter_open)
+
         def given_disclosure(width: int, height: int) -> Page:
             self.page.set_viewport_size({"width": width, "height": height})
             self.dsl.reset_candidate_state()
