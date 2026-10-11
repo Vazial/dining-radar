@@ -170,7 +170,7 @@ class GenreRowPcTests(_BrowserHarness):
         # mistaking intentional overlay geometry for a defect.
         background_at_panel_points = self.page.evaluate(
             """
-            (panel) => {
+            ([panel, extraInset]) => {
               const r = panel.getBoundingClientRect();
               const style = getComputedStyle(panel);
               const radius = Math.max(
@@ -179,7 +179,7 @@ class GenreRowPcTests(_BrowserHarness):
                 parseFloat(style.borderBottomLeftRadius),
                 parseFloat(style.borderBottomRightRadius),
               );
-              const inset = radius + %d;
+              const inset = radius + extraInset;
               const points = [
                 [r.left + inset, r.top + inset],
                 [r.right - inset, r.top + inset],
@@ -198,9 +198,8 @@ class GenreRowPcTests(_BrowserHarness):
               }
               return result;
             }
-            """
-            % PANEL_CORNER_EXTRA_INSET,
-            panel.element_handle(),
+            """,
+            [panel.element_handle(), PANEL_CORNER_EXTRA_INSET],
         )
         assert background_at_panel_points == [], (
             "filter panel does not cover the background at its own hit-test points: "

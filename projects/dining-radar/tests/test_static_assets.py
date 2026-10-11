@@ -662,8 +662,13 @@ class PrimaryNavSourceTests(SimpleTestCase):
         import re
 
         nav_partial = (
-            PROJECT_ROOT / "src" / "dining_radar" / "gathering" / "templates"
-            / "gathering" / "organizer_primary_nav.html"
+            PROJECT_ROOT
+            / "src"
+            / "dining_radar"
+            / "gathering"
+            / "templates"
+            / "gathering"
+            / "organizer_primary_nav.html"
         )
         pictograph = re.compile("[\u2600-\u27bf\U0001f300-\U0001faff\u2630]")
         for template, expected_svgs in ((HOME_TEMPLATE, 6), (nav_partial, 6)):
@@ -684,8 +689,13 @@ class PrimaryNavSourceTests(SimpleTestCase):
         import re
 
         nav_partial = (
-            PROJECT_ROOT / "src" / "dining_radar" / "gathering" / "templates"
-            / "gathering" / "organizer_primary_nav.html"
+            PROJECT_ROOT
+            / "src"
+            / "dining_radar"
+            / "gathering"
+            / "templates"
+            / "gathering"
+            / "organizer_primary_nav.html"
         )
 
         def svgs(path):
