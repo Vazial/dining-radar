@@ -28,9 +28,8 @@ relates_to: [ADR-0038, ADR-0042, ADR-0048, ADR-0059, ADR-0066, ADR-0075]
 実際に `Read` したもの: `contracts/gathering-scheduling-browser-interface.yaml`（0.32.0）の `organizerGatheringList` 全体・
 `crossFileSharedNavigation`、`contracts/gathering-scheduling-api.yaml`（0.18.0）の `Gathering`・`GatheringListResponse`、
 `contracts/gathering-scheduling.feature` の TDR-GTH-21・22・25、`contracts/candidate-search-browser-interface.yaml` の
-`browserEntry`・`gatheringEntry`、`contracts/authentication.feature`、キャンバス（KEN-58、Artifact Design 型。**ネットワークが
-使えず、手元に保存済みの写し `canvas.json` と各 `.dc.html` を読んだ。版67かどうかは確かめられていない**）の付箋と
-HC・Dense・Empty の各ページの文字。確認していないもの: 実装コード（一覧のテンプレートは見出しが「会の一覧」であることだけ確認）。
+`browserEntry`・`gatheringEntry`、`contracts/authentication.feature`、キャンバス（KEN-58、Artifact Design 型、公開版
+`1791707424-0a91`。依頼文の「版67」との対応は未確認）の付箋と HC・Dense・Empty の各ページの文字。確認していないもの: 実装コード（一覧のテンプレートは見出しが「会の一覧」であることだけ確認）。
 
 ### 経緯と現状
 

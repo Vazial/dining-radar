@@ -27,7 +27,7 @@ relates_to: [ADR-0056, ADR-0060, ADR-0071, ADR-0072, ADR-0076, ADR-0079]
 `removeCandidateDate`・`addCandidateDateOpen`・`addCandidateDateForm`・`tentativeSelectionAndPreview`・`schedulingLayout`・
 `confirmDate`・`participantLinkList`・`responseTable`（全体）、`gathering-scheduling-api.yaml` の `Gathering`・`ParticipantLinkSummary`、
 `gathering-scheduling.feature` の TDR-GTH 全シナリオの題、キャンバスの p5・p6 の付箋と GC-PcScheduling・GC-SpScheduling の文字。
-実装は `gathering.js` の表の行を作る部分（`gathering-response-table-row`、名前の出し方）だけ見た。**キャンバスは手元の保存済みの写し（版67かは未確認）。**
+実装は `gathering.js` の表の行を作る部分（`gathering-response-table-row`、名前の出し方）だけ見た。キャンバスは公開版 `1791707424-0a91`（依頼文の「版67」との対応は未確認）。
 
 ### 見つけたこと（キャンバスの記述との差）
 

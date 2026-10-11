@@ -25,7 +25,7 @@ relates_to: [ADR-0063, ADR-0069, ADR-0072, ADR-0073, ADR-0075, ADR-0076, ADR-007
 
 実際に `Read` したもの: `gathering-scheduling-browser-interface.yaml`（0.32.0）の `organizerDashboard`（`schedulingLayout`・
 `shopSelectionPanel`・`finalizedSummary`・`headingBar`・`confirmDate`・`tentativeSelectionAndPreview`）、ADR-0069・0072・0073・0075・0076
-の要旨（契約中の引用から）、キャンバスの付箋と GC・GA・GB 各ページの文字。**キャンバスは手元の保存済みの写しで、版67かどうかは未確認。**
+の要旨（契約中の引用から）、キャンバスの付箋と GC・GA・GB 各ページの文字。キャンバスは公開版 `1791707424-0a91`（依頼文の「版67」との対応は未確認）。
 確認していないもの: 実装コード、ADR-0063 の全文（契約中の引用だけ読んだ）。
 
 ### 現状
