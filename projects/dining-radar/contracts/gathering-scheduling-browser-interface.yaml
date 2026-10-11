@@ -972,11 +972,29 @@
 # - `profiles.localAcceptance.verifiesScenarios`・`allowedPurposes`・`formControlExemptTestIds`・
 #   `.feature`は無変更（押せる部品は増えず、新設の2要素は表示専用、業務規則も増えない）。
 #
+# 2026-10-11 追補32〜35【ドラフト・未承認】 (architect、ADR-0078〜0080、KEN-58。人間の決定1・2・3・5・6を契約の言葉にする
+#   下書き。ADR は「提案中」。人間が調整役とのチャットで1点ずつ合意した点だけを承認済みに進める。確認事項は各 ADR と
+#   contracts/KEN-58-PROPOSAL.md に集約。既存の節は消さず、新設の節の追加と旧節への注記（`ken58Draft`）だけにしてある。
+#   承認までこのファイルの `contractVersion` は 0.33.0 のドラフトであり、実装はこの版に載せない。contractVersionを0.32.0から0.33.0へ上げる):
+# - **追補32（ADR-0078決定1〜5）**: `organizerGatheringList` を「動いている最新の会1件の大きい枠＋小さな行」にする。
+#   `gathering-list-item` に `data-list-role`（featured／row）と数の属性を足し、並びの不変条件を「featured を先頭に出し、残りは API の
+#   並びのまま」に書き直す。`gathering-list-steps`（表示専用）・`gathering-list-next-action`（新設の押す部品）を足す。
+#   小さな行には次にやることを出さない。`gathering-list-item-open` は行全体（LR-1）。見出しの文言は固定しない（変更なし）。
+# - **追補33（ADR-0079、暫定）**: `organizerDashboard.stepFlow`（日程・店・決まりの縦の3手順）と `mapPlacement`（PC は右の列に常設、
+#   スマホは店の手順と決まりの手順の中）を新設。既存のタブ・地図の節は消さない（確認事項Q1〜Q5）。
+# - **追補34（ADR-0080決定1〜5）**: `answerCard`（答えの札）、`responseTable` の行に `data-has-responded`、`leaderSummary` の付け替え、
+#   `candidateDateEdit`（候補日の編集の一本化）。`candidateDateList` と `candidateDateHeading`（CH-1〜CH-5）は廃止の注記。
+#   `gathering-candidate-date` は表の列見出しの子要素へ引っ越す。
+# - **追補35（ADR-0080決定6）**: `participantOrdinal`（名前のない参加者は「参加者N」、`data-participant-ordinal`）。
+# - `.feature` は TDR-GTH-21・22 を変えず、TDR-GTH-68〜73 を下書きで新設（68・69・73=一覧、70=まだ、71=編集、72=呼び名）。`gathering-scheduling-api.yaml` は変えない。
+# - `allowedPurposes` に `gathering-list-next-action`・`gathering-candidate-date-edit-toggle` を足す。`formControlExemptTestIds` は無変更
+#   （新設の表示専用要素は `gathering-list-steps`・`gathering-responded-progress`・`gathering-step`）。
+#
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.32.0'
+contractVersion: '0.33.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -1366,7 +1384,14 @@ unavailableControls:
      gathering-participant-day-list-open, gathering-participant-day-list-close,
      gathering-decision-answers-open, gathering-decision-links-open,
      gathering-shop-select-tab-shop, gathering-shop-select-tab-schedule,
-     gathering-shop-select-tab-answers, gathering-shop-select-tab-links]
+     gathering-shop-select-tab-answers, gathering-shop-select-tab-links,
+     gathering-list-next-action, gathering-candidate-date-edit-toggle]
+  allowedPurposesNote2026_10_11: >-
+    DRAFT (ADR-0078/0080, KEN-58, unapproved). Two purposes added:
+    gathering-list-next-action (organizerGatheringList.list.item.nextAction)
+    and gathering-candidate-date-edit-toggle
+    (organizerDashboard.candidateDateEdit.toggle). Both are operational
+    controls with a requiredOutcome in their own nodes.
   allowedPurposesNote2026_09_12: >-
     Eight purposes added, one removed (this file's own 2026-09-12 revision,
     ADR-0054/ADR-0055/ADR-0056, contracts/REVISION-PLAN.md 2節). Added:
@@ -1605,6 +1630,53 @@ browserControlSurface:
         gathering-scheduling-api.yaml) at all times. No control in
         this list may claim the forbidden manual-ordering purpose (see
         unavailableControls above).
+        **DRAFT change 2026-10-11 (ADR-0078 decision 2, KEN-58 human
+        decision 1; unapproved)**: the sentence above is replaced by this
+        one -- DOM order of gathering-list-item children is a stable
+        front-hoist of that API order: the item whose data-list-role is
+        "featured" (if any) comes first, and every other item keeps its
+        relative API order. This is the only reordering the list may
+        perform; it is derived from data (phase and API order), never
+        chosen by the user. When no gathering has phase SCHEDULING or
+        SELECTING_SHOP, no item is featured and DOM order equals API order
+        exactly as before.
+      ken58Draft:
+        decision: ADR-0078 decisions 1-5 (追補32). Unapproved; applies only once the human agrees each point in chat.
+        featured: >-
+          At most one gathering-list-item carries data-list-role="featured".
+          It is the first gathering in GatheringListResponse.gatherings'
+          order (createdAt descending, ties by id ascending) whose phase is
+          SCHEDULING or SELECTING_SHOP; absent when there is none. Every
+          other item carries data-list-role="row". gathering-list-item is
+          still one element per Gathering (cardinality unchanged, so
+          TDR-GTH-21/22's counting is unaffected).
+        featuredContains: >-
+          Inside the featured item: (a) the title and phase badge (existing
+          attributes); (b) steps (gathering-list-steps, display-only,
+          attribute data-current-step: SCHEDULE for SCHEDULING, SHOP for
+          SELECTING_SHOP, FINAL for FINALIZED -- three marks in the order
+          日程, 店, 決まり with the current one distinguished; wording and
+          look not fixed); (c) the numbers via the item attributes below;
+          (d) nextAction (gathering-list-next-action); (e) the item's
+          gathering-list-item-open, which covers the title and summary
+          area but not nextAction (no nested interactive elements).
+        rowContains: >-
+          Inside a row item: the title, the phase badge, the numbers, and
+          gathering-list-item-open, and nothing else. A row never contains
+          gathering-list-next-action, and no text that states what to do
+          next (human decision 2, ADR-0078 decision 4).
+        rowOpenArea:
+          LR-1: >-
+            gathering-list-item-open's border box contains the rectangles
+            of every visible text run of its item that is not inside
+            another interactive element (the whole row is the target).
+            For the featured item the same containment holds for the title
+            and summary text runs only; nextAction lies outside open's box.
+        placement:
+          LF-1: >-
+            The featured item is the first gathering-list-item on screen
+            and in the DOM: its top is not below any other item's top.
+        openQuestions: [ADR-0078 Q1 (landing after sign-in), Q2 (next-action vocabulary), Q3 (vote count), Q4 (heading wording as a Must), Q5 (search link in the empty state)]
       item:
         testId: gathering-list-item
         cardinality: zero-or-more-elements-sharing-this-test-id
@@ -1615,6 +1687,46 @@ browserControlSurface:
           confirmedCandidateDate: data-confirmed-candidate-date
           respondedCount: data-responded-count
           activeIssuedLinks: data-active-issued-links
+          listRole: data-list-role
+          candidateDateCount: data-candidate-date-count
+          shortlistedShopCount: data-shortlisted-shop-count
+          leadingCandidateDates: data-leading-candidate-dates
+          finalizedShopId: data-finalized-shop-id
+        ken58DraftAttributes: >-
+          DRAFT (ADR-0078 decision 5, unapproved). data-list-role is
+          "featured" or "row" (see list.ken58Draft.featured).
+          data-candidate-date-count equals Gathering.candidateDates.length
+          (decimal integer string). data-shortlisted-shop-count equals
+          Gathering.shortlistedShops.length. data-leading-candidate-dates is
+          present only while phase is SCHEDULING and at least one candidate
+          date has data-current-leader="true" under
+          candidateDateList.candidateDate's rule; its value is those
+          candidate dates' startAt (ISO-8601) joined by a single space, in
+          candidateDates order. data-finalized-shop-id equals
+          Gathering.finalizedShopId and is present only when phase is
+          FINALIZED. All five mirror Gathering fields; gathering-
+          scheduling-api.yaml is unchanged. The count of participants who
+          voted on shops (the board's 「票 6/9人」) has no attribute yet:
+          ADR-0078 Q3.
+        nextAction:
+          testId: gathering-list-next-action
+          purpose: gathering-list-next-action
+          attribute: data-next-action
+          presenceRule: >-
+            DRAFT (ADR-0078 decision 3, unapproved). Present exactly in the
+            item whose data-list-role is "featured"; absent from every row.
+          values: >-
+            Not fixed until ADR-0078 Q2 is decided. Proposed (recommended):
+            SCHEDULING with respondedParticipantCount 0 -> WAIT_ANSWERS; with
+            respondedParticipantCount >= 1 -> DECIDE_DATE; SELECTING_SHOP
+            with votingStartedAt null -> PICK_SHOPS; SELECTING_SHOP with
+            votingStartedAt non-null -> DECIDE_SHOP. The visible label is
+            the action's wording (board: 「日を決める」), not fixed.
+          requiredOutcome: >-
+            Activating it navigates to browserEntry.organizerDashboard for
+            this item's data-gathering-id (the same destination as
+            gathering-list-item-open; the dashboard itself shows the
+            current step -- no deep link).
         requirement: >-
           One element per Gathering in the response. data-gathering-title
           (added 2026-09-04, adr/0042, closing ADR-0040 未決事項2's
@@ -1635,6 +1747,16 @@ browserControlSurface:
           Gathering.activeParticipantLinkCount exactly, using the same
           attribute names organizerDashboard's denominatorAttributes already
           establish (D2's two-denominator distinction applies here too).
+        steps:
+          testId: gathering-list-steps
+          formControl: false
+          attribute: data-current-step
+          presenceRule: >-
+            DRAFT (ADR-0078 decision 3, unapproved). Present exactly in the
+            featured item; absent from rows. Display-only (no purpose, not
+            a form control). data-current-step is SCHEDULE, SHOP or FINAL
+            for phase SCHEDULING, SELECTING_SHOP or FINALIZED (FINAL does
+            not occur in practice: a FINALIZED gathering is never featured).
         open:
           testId: gathering-list-item-open
           purpose: gathering-list-item-open
@@ -2258,6 +2380,11 @@ browserControlSurface:
         「決める」button's own placement request.
     candidateDateList:
       testId: gathering-candidate-date-list
+      ken58Draft: >-
+        DRAFT 2026-10-11 (ADR-0080 decision 5, unapproved): this list is
+        retired; each gathering-candidate-date moves into the header cell of
+        the same candidate date (candidateDateEdit.candidateDateInHeaderCell).
+        Until approved, nothing here changes.
       orderingInvariant: >-
         DOM order of gathering-candidate-date children equals
         Gathering.candidateDates' order (startAt ascending, 開催日の早い順,
@@ -2365,6 +2492,11 @@ browserControlSurface:
           gathering-candidate-date-list.
       addCandidateDateOpen:
         testId: gathering-add-candidate-date-open
+        ken58Draft: >-
+          DRAFT 2026-10-11 (ADR-0080 decision 4, unapproved): present only
+          while candidateDateEdit.toggle's data-editing is "true", at the
+          right end of the table's header row (CE-2); the CH-2 position
+          below and the presenceRule below are replaced accordingly.
         purpose: gathering-add-candidate-date-open
         position: >-
           Added 2026-10-10 (ADR-0076 decision 1). While phase is
@@ -3162,6 +3294,16 @@ browserControlSurface:
         headingBar.title (the gathering's name, the screen's h1). The
         block numbered (1) here is the in-content block heading
         「日を決める」, not the screen's h1, and is unchanged.
+      orderKen58Draft: >-
+        DRAFT 2026-10-11 (ADR-0080 decision 7, unapproved). If approved,
+        order above reads: (1) answerCard (replaces the heading-with-counts
+        line); (2) the 「有力」 mark in the leading header cell (replaces
+        responseTable.leaderSummary as a sentence); (3) responseTable with
+        candidateDateEdit.toggle above it; (4) confirmDate; (5)
+        gathering-open-shop-preview when present; (6) [retired:
+        candidateDateHeading and candidateDateList]; (7) participantLinkHeading
+        and participantLinkList, unchanged. Under stepFlow all of this sits
+        inside the SCHEDULE gathering-step.
       candidateDateAppearance: >-
         Each gathering-candidate-date is one small chip holding the date
         (M/D(曜)) and its remove control, laid out in a wrapping row inside
@@ -3173,6 +3315,9 @@ browserControlSurface:
         trailing chip (dotted outline) at the end of the chip row; it
         sits in candidateDateHeading (candidateDateHeading below).
       candidateDateHeading:
+        ken58Draft: >-
+          DRAFT 2026-10-11 (ADR-0080 decision 5, unapproved): retired along
+          with candidateDateList; CH-1..CH-5 no longer apply.
         description: >-
           Added 2026-10-10 (追補31, ADR-0076 decision 1, board party2/b2
           Q5-a: 「候補日 20日」 on a pale band, the add control at the
@@ -3496,6 +3641,7 @@ browserControlSurface:
           hasResponded: data-has-responded
           revoked: data-revoked
           named: data-participant-named
+          ordinal: data-participant-ordinal
         requirement: >-
           One element per ParticipantLinkSummary. data-participant-link-id
           equals its `id` (the organizer-facing linkId, never the
@@ -3639,6 +3785,20 @@ browserControlSurface:
           cardinality: zero-or-more-elements-sharing-this-test-id
           attributes:
             participantLinkId: data-participant-link-id
+            hasResponded: data-has-responded
+            ordinal: data-participant-ordinal
+          ken58Draft: >-
+            DRAFT 2026-10-11 (ADR-0080 decision 3, unapproved): the rows are
+            still one per ParticipantLinkSummary (unanswered and revoked
+            links included -- unchanged, and the implementation already
+            draws them). New: data-has-responded ("true"/"false", equal to
+            ParticipantLinkSummary.hasResponded) and data-participant-
+            ordinal (see participantOrdinal). A row with data-has-responded
+            "false" shows a 「まだ」 mark in its name cell (a revoked one
+            shows 「取り消し済み」). The date positions of a row with no cell
+            are drawn with a dash instead of blank: ADR-0080 Q3. The total
+            row (goingCountRow) shows a short bar under each number; the bar
+            is not fixed by this contract.
           requirement: >-
             One row per ParticipantLinkSummary, correlated to
             gathering-participant-link-item by the same
@@ -3670,6 +3830,15 @@ browserControlSurface:
               data-response-status is.
       leaderSummary:
         testId: gathering-response-table-leader-summary
+        ken58Draft: >-
+          DRAFT 2026-10-11 (ADR-0080 decision 2, unapproved; Q2): the testId
+          moves from the sentence above the table to the 「有力」 mark in the
+          header cell of each leading candidate date (a descendant of that
+          date's gathering-response-table-header-cell). The sentence is
+          removed. Cardinality (one per candidate date with data-current-
+          leader="true", zero when nobody answered, several when tied), the
+          candidateDateId attribute and the SCHEDULING-only presence are
+          unchanged, so TDR-GTH-59..62 do not change.
         purpose: gathering-response-table-leader-summary
         presenceRule: >-
           Added 2026-09-19 (追補23, ADR-0060 decision 7の追補、human decision:
@@ -3825,6 +3994,154 @@ browserControlSurface:
             (candidateDateList.candidateDate already owns it). The row
             label (board: 「○ の数」) is non-binding wording. Present in
             all three phases, with the table.
+    stepFlow:
+      ken58Draft:
+        decision: ADR-0079 decisions 1 and 3 (追補33). PROVISIONAL (human decision 3 is 暫定) and unapproved.
+        openQuestions: [ADR-0079 Q1 (PC map after decision), Q2 (map in SCHEDULING on PC), Q3 (answers/links tabs), Q4 ("変える" link), Q5 (opening folded steps)]
+      description: >-
+        DRAFT 2026-10-11. In all three phases the organizer dashboard shows
+        three vertical steps in this DOM and screen order: 日程 (SCHEDULE),
+        店 (SHOP), 決まり (FINAL). Each is one gathering-step element
+        (cardinality exactly 3). This does not remove phaseIndicator,
+        headingBar or the existing tabs of shopSelectionPanel (those are
+        reconciled only after ADR-0079 Q3 is decided).
+      step:
+        testId: gathering-step
+        formControl: false
+        attributes:
+          step: data-step
+          state: data-step-state
+        values:
+          data-step: [SCHEDULE, SHOP, FINAL]
+          data-step-state: [done, current, upcoming]
+        stateByPhase: >-
+          SCHEDULING: SCHEDULE current, SHOP upcoming, FINAL upcoming.
+          SELECTING_SHOP: SCHEDULE done, SHOP current, FINAL upcoming.
+          FINALIZED: SCHEDULE done, SHOP done, FINAL current.
+          data-gathering-phase (gathering-phase-indicator) stays the single
+          source of the phase; data-step-state is a projection of it.
+        foldedRule: >-
+          SF-5: inside a step whose data-step-state is "done", the only
+          visible content is one summary line (the confirmed date for
+          SCHEDULE; the finalized shop for SHOP) and, at most, the entrance
+          control to the folded detail (the response table). This reads
+          ADR-0073's "only the confirmed date's chip is visible" as this
+          line. An "upcoming" step shows one explanatory line only. The
+          "current" step shows its full content.
+    mapPlacement:
+      ken58Draft:
+        decision: ADR-0079 decision 2 (追補33). PROVISIONAL and unapproved; reverses ADR-0063 decision 2 / ADR-0069 decision 4 for twoColumnLayout.
+      description: >-
+        DRAFT 2026-10-11. Position is a Must (ADR-0066 decision 2). The map
+        elements keep their testIds (gathering-shortlisted-shop-map,
+        gathering-decision-shop-map and their markers). During SCHEDULING
+        the map is gathering-scheduling-map (new, display-only,
+        formControl false): it shows the search-origin marker only and no
+        shop (TDR-GTH-08/09 keep: only a count of open shops is ever shown
+        while scheduling).
+      geometry:
+        SF-1: >-
+          twoColumnLayout: in every phase the phase's map element lies to the
+          right of every gathering-step: map.left >= max(step.right) - 1, and
+          map.right <= the viewport's content width. The map does not
+          overlap any gathering-step.
+        SF-2: >-
+          twoColumnLayout: the map is present in all three phases
+          (gathering-scheduling-map in SCHEDULING, gathering-shortlisted-shop-
+          map in SELECTING_SHOP, gathering-decision-shop-map in FINALIZED).
+        SF-3: >-
+          mapPrimaryTouchLayout: in SELECTING_SHOP the map is a descendant of
+          the gathering-step whose data-step is SHOP; in FINALIZED it is a
+          descendant of the step whose data-step is FINAL; in SCHEDULING no
+          map is visible.
+        SF-4: >-
+          Neither layout makes the page scroll horizontally because of the
+          map (ADR-0066 decision 1's overflow check applies).
+    answerCard:
+      ken58Draft:
+        decision: ADR-0080 decision 1 (追補34). Unapproved.
+      description: >-
+        DRAFT 2026-10-11. Replaces the schedulingLayout.order block (1)'s
+        heading-with-counts line. Applies only while phase is SCHEDULING,
+        at the head of the SCHEDULE step: 「回答 N/M人」, a progress bar,
+        a 「答えた N」 badge and a 「まだ M」 badge. gathering-responded-
+        summary is the 「答えた N」 badge and gathering-unanswered-summary
+        is the 「まだ M」 badge (existing elements and attributes, now with
+        a Must on the visible numeral: the decimal integer in each badge
+        equals its data-responded-count / data-unanswered-count).
+      progress:
+        testId: gathering-responded-progress
+        formControl: false
+        attributes:
+          respondedCount: data-responded-count
+          activeIssuedLinks: data-active-issued-links
+        requirement: >-
+          Display-only. Equal to gathering-responded-summary's
+          data-responded-count and gathering-unanswered-summary's
+          data-active-issued-links. Look and wording not fixed.
+    candidateDateEdit:
+      ken58Draft:
+        decision: ADR-0080 decisions 4 and 5 (追補34). Unapproved; ADR-0080 Q1/Q5.
+      description: >-
+        DRAFT 2026-10-11. Replaces candidateDateList, candidateDateHeading
+        (CH-1..CH-5) and the stand-alone placement of addCandidateDateOpen.
+        Adding and removing candidate dates both happen only inside an
+        editing mode; there is no other entry.
+      toggle:
+        testId: gathering-candidate-date-edit-toggle
+        purpose: gathering-candidate-date-edit-toggle
+        attribute: data-editing
+        presenceRule: >-
+          Present only while phase is SCHEDULING; absent otherwise.
+        requiredOutcome: >-
+          Activating it flips data-editing between "false" and "true". It
+          changes no Gathering state and calls no API.
+      whileEditing: >-
+        While data-editing is "true": gathering-candidate-date-remove is
+        present inside every candidate date whose data-confirmed is "false"
+        (its own presenceRule otherwise unchanged), and
+        gathering-add-candidate-date-open is present. While "false" (and in
+        every other phase) both are absent. Tentative selection
+        (gathering-candidate-date-tentative-select) is not activatable
+        while editing (ADR-0080 Q5).
+      candidateDateInHeaderCell: >-
+        gathering-candidate-date moves out of gathering-candidate-date-list
+        and becomes a child element of the gathering-response-table-header-
+        cell with the same data-candidate-date-id: exactly one
+        gathering-candidate-date per header cell. Its attributes, purposes
+        (tentative-select, remove), orderingInvariant (the header cells'
+        order, startAt ascending) and data-current-leader rule are
+        unchanged. gathering-candidate-date-list and gathering-candidate-
+        date-heading are retired.
+      geometry:
+        CE-1: >-
+          toggle lies inside the SCHEDULE gathering-step, above
+          gathering-response-table, and at the right end of its row (no text
+          run of the same row lies to its right).
+        CE-2: >-
+          While editing, add control A lies at the right end of the table's
+          header row: A.left >= the right edge of every header cell - 1, and
+          A's vertical centre lies within the header cells' vertical range.
+        CE-3: >-
+          While editing, each remove control is a descendant of its own
+          candidate date's header cell, and its height is at least 44px
+          (ADR-0066 ui invariants).
+    participantOrdinal:
+      ken58Draft:
+        decision: ADR-0080 decision 6 (追補35). Unapproved; ADR-0080 Q6/Q7.
+      description: >-
+        DRAFT 2026-10-11. Every gathering-participant-link-item and every
+        gathering-response-table-row carries data-participant-ordinal: the
+        1-based rank of its link among ALL links of the gathering (revoked
+        included) ordered by issuedAt ascending, ties by id ascending -- the
+        order listParticipantLinks already returns. The rank never changes
+        for a given link. For a link whose displayName is null
+        (data-participant-named="false") the visible name is 「参加者」
+        followed by that rank (「参加者1」「参加者2」...); a named link shows
+        its name. The same visible name is used on every organizer screen
+        (table row, link list, answers panel, finalized answers). It does
+        not apply to participant screens (gathering-schedule-respondent-item
+        keeps its own wording). gathering-scheduling-api.yaml is unchanged.
     deleteGathering:
       description: >-
         The organizer's explicit, irreversible gathering-deletion operation
