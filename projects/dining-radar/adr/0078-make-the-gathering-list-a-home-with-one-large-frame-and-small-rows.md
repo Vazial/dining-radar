@@ -82,7 +82,24 @@ relates_to: [ADR-0038, ADR-0042, ADR-0048, ADR-0059, ADR-0066, ADR-0075]
 
 ## 帰結
 
-- 契約（ドラフト）: `gathering-scheduling-browser-interface.yaml` 0.32.0→0.33.0 の追補32。`.feature` は TDR-GTH-21・22 を変えず、TDR-GTH-68・69・73 を
+- 契約（確定）: `gathering-scheduling-browser-interface.yaml` 0.32.0→0.34.0 の追補32。`.feature` は TDR-GTH-21・22 を変えず、TDR-GTH-68・69・73 を
   下書きで新設。API は変えない。
 - 実装（別チケット）: 一覧のテンプレート・JS・CSS。撮影ツールにホームの状態（複数・1件・空）を足す。
 - 契約は確定した（会 0.34.0・候補画面 1.19.0・認証 0.5）。
+
+## 確認事項への回答（2026-10-11、人間が調整役とのチャットで合意）
+
+| ID | 回答 | 契約での扱い |
+|---|---|---|
+| Q1 ログイン直後 | **B** `/` そのものを会の一覧にする | 決定8を追加。`startPath` は `/` のまま一覧、候補探索は `candidateSearchPath`（`/search/`）。認証の契約 0.5、TDR-AUTH-02・TDR-CS-01 の文面を直した |
+| Q2 次にやること | **A** 局面＋回答数 | `nextAction.values` に WAIT_ANSWERS／DECIDE_DATE／PICK_SHOPS／DECIDE_SHOP。回答0件でも主ボタンは出す |
+| Q3 票の数 | **A** 店ごとの最大値 | `data-shop-vote-responded-count`（API 変更なし） |
+| Q4 見出しの文言 | **B** Must にする | 一覧の h1・上部バーの画面名・戻り道を「ランチ会」と固定 |
+| Q5 空の状態の探すリンク | **A** 足す | `empty.searchOpen`（`gathering-list-empty-search`）、TDR-GTH-74 |
+
+### 追加の決定
+
+8. **サインイン後の最初の画面はこの一覧（ホーム）**: 契約 `candidate-search-browser-interface.yaml` の `browserEntry` に `candidateSearchPath` と
+   `authenticatedHomeOutcome` を足し、`authenticatedInitialOutcome` は「候補探索の画面」を指すと読み替える（名前は残す）。
+   候補探索の画面のパスをこの契約で `/search/` と置いた（architect の判断。実装が別の名前にする場合は契約の修正で足りる）。
+   `/gatherings/` が今のまま開けるかは実装の選択。

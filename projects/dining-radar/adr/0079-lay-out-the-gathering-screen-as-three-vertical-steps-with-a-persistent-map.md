@@ -74,7 +74,19 @@ relates_to: [ADR-0063, ADR-0069, ADR-0072, ADR-0073, ADR-0075, ADR-0076, ADR-007
 
 ## 帰結
 
-- 契約（ドラフト）: `gathering-scheduling-browser-interface.yaml` 0.33.0 の追補33（`stepFlow`・`mapPlacement` を足す。既存のタブ・地図の節は消さず注記だけ）。
+- 契約（確定）: `gathering-scheduling-browser-interface.yaml` 0.34.0 の追補33（`stepFlow`・`mapPlacement` を足す。既存のタブ・地図の節は消さず注記だけ）。
   `.feature` は変えない（並びと位置は業務規則ではない。ADR-0075 決定4と同じ扱い）。
 - 実装（別チケット）: 会の画面の骨組み（テンプレート・JS・CSS）。日程を聞き中の表（ADR-0080）を先に直すと衝突が少ない。
 - 受け入れ: `gathering-candidate-date` を局面で見えるか確かめている step は、手順の畳みで見えなくなるものがある。tester が洗い出す。
+
+## 確認事項への回答（2026-10-11、人間が調整役とのチャットで合意）
+
+| ID | 回答 | 契約での扱い |
+|---|---|---|
+| Q1 決まった後の PC の地図 | **A** 右の列（designer が決まった PC を描き済み） | `mapPlacement` SF-1・SF-2 が FINALIZED にも掛かる |
+| Q2 日程を聞き中の PC の地図 | **A** 出す（検索基点だけ） | `gathering-scheduling-map` |
+| Q3 回答・リンクのタブ | **A** タブはなくす。回答の表の入口は日程の手順、リンクは節 | `shopSelectionPanel` 廃止、`gathering-step-answers-open`、目的 `gathering-shop-select-tab-*` 4件を削除 |
+| Q4 「変える」リンク | **A** 出さない | `stepFlow.step.foldedRule` に明記 |
+| Q5 畳んだ手順の開閉 | **A** 済みは1行の入口でだけ開く | 同上 |
+
+暫定だった決定3は、これで確定する。展開したときの見た目はキャンバス版71に絵があるが、この ADR の起草者は読んでいない。契約が固定するのは挙動だけ。

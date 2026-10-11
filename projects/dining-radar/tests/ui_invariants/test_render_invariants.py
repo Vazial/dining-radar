@@ -2806,6 +2806,9 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         )
 
         self._create_gathering_via_ui("休日マス確認会")
+        edit_toggle = by_test_id(self.page, "gathering-candidate-date-edit-toggle")
+        if edit_toggle.get_attribute("data-editing") != "true":
+            edit_toggle.click()
         by_test_id(self.page, "gathering-add-candidate-date-open").click()
         expect(by_test_id(self.page, "gathering-add-candidate-date-form")).to_be_attached()
         disabled_cell_add = self._find_weekend_or_holiday_disabled_cell(
@@ -2830,6 +2833,9 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         # self.page is already on this gathering's organizerDashboard
         # (_create_gathering_via_ui's own post-submit navigation).
 
+        edit_toggle = by_test_id(self.page, "gathering-candidate-date-edit-toggle")
+        if edit_toggle.get_attribute("data-editing") != "true":
+            edit_toggle.press("Enter")
         add_open = by_test_id(self.page, "gathering-add-candidate-date-open")
         self._assert_tabbable(add_open, "gathering-add-candidate-date-open")
         add_open.press("Enter")
@@ -2876,6 +2882,10 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
             before_count + 1
         )
 
+        # Candidate dates are keyboard-selectable outside date-edit mode;
+        # editing controls themselves remain the only active controls while
+        # the edit surface is open.
+        edit_toggle.press("Enter")
         first_date = self.page.locator('[data-testid="gathering-candidate-date"]').first
         self._assert_tabbable(first_date, "gathering-candidate-date")
         first_date.press("Enter")
@@ -3053,6 +3063,9 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         self._sign_in_as_organizer()
         self._create_gathering_via_ui("候補日削除の確認会", candidate_date_count=2)
 
+        edit_toggle = by_test_id(self.page, "gathering-candidate-date-edit-toggle")
+        if edit_toggle.get_attribute("data-editing") != "true":
+            edit_toggle.press("Enter")
         remove_button = self.page.locator('[data-testid="gathering-candidate-date-remove"]').first
         expect(remove_button).to_be_visible()
         self._assert_tabbable(remove_button, "gathering-candidate-date-remove")
@@ -3065,6 +3078,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         # Once a candidate date is confirmed, it is no longer removable
         # (CANDIDATE_DATE_CONFIRMED) -- the control's own presenceRule
         # switches to absent, not merely disabled.
+        edit_toggle.press("Enter")
         confirmed_dates = self.page.locator('[data-testid="gathering-candidate-date"]')
         confirmed_dates.first.click()
         by_test_id(self.page, "gathering-confirm-date-select").click()
@@ -3394,7 +3408,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         response table → confirm button → candidate-date chips → link pane;
         a chip is only a date and its remove control; the confirm button
         targets the tentatively selected chip, else the single leader, else
-        nothing (disabled, "日を選んでください").
+        nothing (disabled, "日を選ぶ").
         """
         self._sign_in_as_organizer()
         self._create_gathering_via_ui("日を決める並びの確認会", candidate_date_count=2)
@@ -3402,7 +3416,7 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
 
         # No answers yet: no leader, nothing tentatively selected -> no target.
         expect(confirm).to_be_disabled()
-        expect(confirm).to_have_text("日を選んでください")
+        expect(confirm).to_have_text("日を選ぶ")
 
         def top_of(locator) -> float:
             return locator.first.bounding_box()["y"]
@@ -3412,8 +3426,8 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         ordered = [
             top_of(heading),
             top_of(by_test_id(self.page, "gathering-response-table")),
-            top_of(confirm),
             top_of(chips),
+            top_of(confirm),
             top_of(by_test_id(self.page, "gathering-participant-link-copy")),
         ]
         self.assertEqual(ordered, sorted(ordered), ordered)
@@ -3429,9 +3443,10 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
             '[data-testid="gathering-candidate-date"][data-current-leader="true"]'
         )
         expect(leader).to_have_count(1)
-        expect(confirm).to_be_enabled()
-        expect(confirm).to_contain_text("に決める")
-        leader_label = confirm.inner_text()
+        # A leader is informational only; confirmation requires an explicit
+        # tentative date selection.
+        expect(confirm).to_be_disabled()
+        expect(confirm).to_have_text("日を選ぶ")
 
         # A tentatively selected chip overrides the leader as the target.
         other = self.page.locator(
@@ -3439,8 +3454,8 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         )
         other.first.click()
         expect(other.first).to_have_attribute("data-tentative-selected", "true")
+        expect(confirm).to_be_enabled()
         expect(confirm).to_contain_text("に決める")
-        self.assertNotEqual(confirm.inner_text(), leader_label)
 
     def test_gathering_dashboard_response_table_reflects_one_row_per_participant_link(
         self,
