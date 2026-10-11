@@ -497,7 +497,18 @@
 #   絵は aria-hidden の線画 inline SVG とし、絵文字を使わない。文言・testId・並びは無変更。
 # - testId を足さない（SVG は既存要素の子）。`candidate-search.feature` は無変更。
 
-contractVersion: '1.17.0'
+# 2026-10-11 追補【ドラフト・未承認】 (architect、ADR-0081、KEN-58。人間の決定7「PCの≡は右から幅360pxのペイン」・決定8「スマホ下部バーは
+#   3つのまま『さがす』を『店を探す』に改名」を契約の言葉にする下書き。ADR は「提案中」で、人間が調整役とのチャットで1点ずつ合意した点だけを
+#   承認済みに進める。既存の節は消さず、新設の節の追加と旧節への注記（`ken58Draft`）だけにしてある。contractVersionを1.17.0から1.18.0へ上げる):
+# - **`gatheringEntry.primaryNavigationGeometry.menuPane`を新設する**（ADR-0081決定1〜2）: PC（twoColumnLayout）でmenuPanelを開くと、
+#   画面の右端から幅360px・高さいっぱいのペインが出る。背景を暗くし（menuBackdrop）、×（menuClose）・背景・Escで閉じる。中に動いている会
+#   （menuGatheringItem）を並べ、押すとその会が開く。これで ADR-0066 決定1・3の「menuPanelは≡の下に右端を揃えて開く」を覆す（旧節は消さず注記）。
+# - **`gatheringEntry.navLabels`を新設する**（ADR-0081決定5）: 下部バーとメニューの「店を探す」の文言をMustにする（人間が決めた改名）。
+#   並び順の入れ替えはADR-0081 Q2で聞いている（ここでは書いていない）。
+# - **`crossContractReference`に会の一覧の読み取りを足す**（ADR-0081決定4）。APIは変えない。
+# - testIdと目的の追加: candidate-primary-nav-menu-close／-menu-backdrop／-menu-gathering-item。`candidate-search.feature` は無変更。
+
+contractVersion: '1.18.0'
 kind: acceptance-browser-interface
 scope: candidate-search
 profiles:
@@ -591,7 +602,8 @@ renderModes:
     twoColumnLayout no longer needs).
   twoColumnLayout:
     exclusiveWith: mapPrimaryTouchLayout
-    testIds: [candidate-primary-nav-menu-toggle]
+    testIds: [candidate-primary-nav-menu-toggle, candidate-primary-nav-menu-close,
+              candidate-primary-nav-menu-backdrop, candidate-primary-nav-menu-gathering-item]
     note: >-
       The desktop, side-by-side list-and-map layout (adr/0049 decision 4,
       2026-09-08 human decision, replacing mapPrimaryLayout's map-primary,
@@ -1586,7 +1598,9 @@ browserControlSurface:
        candidate-filter-apply, candidate-filter-revert, candidate-search-again,
        candidate-card-gathering-toggle,
        auth-sign-out, auth-password-change-open, auth-account-menu-toggle,
-       candidate-primary-nav-menu-toggle]
+       candidate-primary-nav-menu-toggle,
+       candidate-primary-nav-menu-close, candidate-primary-nav-menu-backdrop,
+       candidate-primary-nav-menu-gathering-item]
     forbiddenPurposes:
       [sort, manual-ordering, free-text-search, search-origin,
        search-location, current-location, search-range, radius, distance]
@@ -2188,6 +2202,9 @@ gatheringEntry:
     menuPanel: candidate-primary-nav-menu-panel
     menuDestinationSearch: candidate-primary-nav-menu-search
     menuDestinationGathering: candidate-primary-nav-menu-gathering
+    menuClose: candidate-primary-nav-menu-close
+    menuBackdrop: candidate-primary-nav-menu-backdrop
+    menuGatheringItem: candidate-primary-nav-menu-gathering-item
     mobileBar: candidate-primary-nav-bar
     mobileBarSearch: candidate-primary-nav-search
     mobileBarGathering: candidate-primary-nav-gathering
@@ -2278,6 +2295,17 @@ gatheringEntry:
   menuPanel:
     testId: candidate-primary-nav-menu-panel
     formControl: false
+    ken58Draft: >-
+      DRAFT 2026-10-11 (ADR-0081 decisions 1-3, unapproved): under
+      twoColumnLayout the panel is the right-hand pane of
+      primaryNavigationGeometry.menuPane. Its content order becomes
+      menuDestinationGathering (with one menuGatheringItem per in-progress
+      gathering below it), then menuDestinationSearch, then a separator and
+      the account controls; the "exactly two navigation destinations"
+      sentence below still holds (the items are children of the gathering
+      destination, not a third destination). Its "opens below menuToggle"
+      geometry is replaced (see primaryNavigationGeometry.twoColumnLayout's
+      ken58Draft).
     requirement: >-
       Added 2026-09-16 (ADR-0059). Disclosed by menuToggle (any
       implementation-chosen mechanism; this contract does not fix
@@ -2392,6 +2420,59 @@ gatheringEntry:
       are reachable from any of gathering-scheduling-browser-interface.
       yaml's organizer-facing screens on mobile widths -- the same gap
       closure menuPanel above provides on desktop.
+  menuClose:
+    testId: candidate-primary-nav-menu-close
+    purpose: candidate-primary-nav-menu-close
+    ken58Draft: ADR-0081 decision 1 (unapproved).
+    requirement: >-
+      DRAFT 2026-10-11. A button inside menuPanel, present exactly while
+      menuPanel is open under twoColumnLayout. Activating it closes
+      menuPanel (as does menuBackdrop and the Escape key); it changes no
+      proposal request, no candidate/marker/filter state and no map
+      viewport (same non-effects as menuToggle).
+  menuBackdrop:
+    testId: candidate-primary-nav-menu-backdrop
+    purpose: candidate-primary-nav-menu-backdrop
+    ken58Draft: ADR-0081 decision 1 (unapproved).
+    requirement: >-
+      DRAFT 2026-10-11. Present exactly while menuPanel is open under
+      twoColumnLayout; covers the viewport outside the pane and darkens it.
+      Activating it closes menuPanel. The darkness is not fixed (colour and
+      opacity are visual choices), but the page behind must not be
+      operable while the pane is open.
+  menuGatheringItem:
+    testId: candidate-primary-nav-menu-gathering-item
+    purpose: candidate-primary-nav-menu-gathering-item
+    attributes:
+      id: data-gathering-id
+      phase: data-gathering-phase
+      current: data-current
+      nextAction: data-next-action
+    ken58Draft: ADR-0081 decisions 2 and 4 (unapproved); ADR-0081 Q1 (next action) and Q3.
+    requirement: >-
+      DRAFT 2026-10-11. One element per in-progress gathering (phase
+      SCHEDULING or SELECTING_SHOP; FINALIZED gatherings are not listed),
+      inside menuPanel and after menuDestinationGathering, in the same
+      order as the home list (gathering-scheduling-browser-interface.yaml
+      organizerGatheringList: API order, createdAt descending, ties by id
+      ascending). data-gathering-id and data-gathering-phase mirror the
+      gathering. data-current is "true" for the gathering whose screen is
+      being shown (the organizer dashboard of that gathering, or the
+      candidate screen in gathering mode for it), and "false" otherwise.
+      data-next-action uses the vocabulary of organizerGatheringList.
+      list.item.nextAction (present only if ADR-0081 Q1 option A is
+      approved). Activating the item navigates to
+      browserEntry.organizerDashboard for its data-gathering-id.
+  navLabels:
+    ken58Draft: ADR-0081 decision 5 (unapproved); order change is ADR-0081 Q2 and is NOT drafted here.
+    requirement: >-
+      DRAFT 2026-10-11. Human decision 8 (KEN-58): the mobile bar's search
+      item and the desktop menu's search destination are labelled 「店を探す」
+      (the former wording 「さがす」 must not appear as their label). This
+      is a visible-text Must for exactly these two elements; every other
+      label stays unfixed. mobileBarGathering and menuDestinationGathering
+      keep 「ランチ会」.
+    locators: mobileBarSearch (candidate-primary-nav-search) and menuDestinationSearch (candidate-primary-nav-menu-search).
   primaryNavigationGeometry:
     requirement: >-
       Added 2026-09-23 (ADR-0066). Promotes the position, adjacency, and
@@ -2430,6 +2511,37 @@ gatheringEntry:
       build once placed menuToggle at the screen's top-left corner
       instead of its top-right, and opened a panel that ran off the
       viewport's left edge.
+    twoColumnLayoutKen58Draft: >-
+      DRAFT 2026-10-11 (ADR-0081 decision 3, unapproved): menuPanel's
+      "opens directly below menuToggle with its own right edge aligned with
+      menuToggle's own right edge" is replaced by menuPane below. menuToggle's
+      position (TB-1..TB-4 and the row-right clause) and menuDot's position
+      are unchanged.
+    menuPane:
+      addedBy: ADR-0081 decisions 1-2 (draft)
+      appliesWhen: twoColumnLayout holds and menuPanel is open
+      geometry:
+        MP-1-attachedRight: >-
+          menuPanel.right equals the viewport's right edge (tolerance 1px).
+        MP-2-fullHeight: >-
+          menuPanel.top <= 1 and menuPanel.bottom >= viewport height - 1.
+        MP-3-width: >-
+          menuPanel's border-box width is 360px (tolerance 1px) -- the value
+          comes from the board; ADR-0081 Q4 asks whether it stays a Must.
+        MP-4-containment: >-
+          menuPanel.left >= 0: it never extends past the viewport's left edge.
+        MP-5-backdrop: >-
+          menuBackdrop covers the viewport area left of the pane
+          (menuBackdrop.left <= 1 and menuBackdrop.right >= menuPanel.left - 1,
+          full height), and is present only while the pane is open.
+        MP-6-close: >-
+          Escape, menuClose and menuBackdrop each close the pane; after
+          closing, keyboard focus is on menuToggle.
+      verificationAllocation:
+        L5: >-
+          tests/ui_invariants replaces the open-direction half of
+          test_layout_sanity.py's invariant (o) with MP-1..MP-5 at 1440x900.
+          MP-6 is an L4/L5 behaviour check.
     topBar:
       addedBy: ADR-0075 decision 1
       appliesWhen: twoColumnLayout holds and menuToggle is present
@@ -2557,6 +2669,12 @@ gatheringEntry:
     file: contracts/gathering-scheduling-api.yaml
     operationId: getInProgressGatheringCount
     schemaRef: '#/components/schemas/InProgressGatheringCountResponse'
+    ken58Draft: >-
+      DRAFT 2026-10-11 (ADR-0081 decision 4, unapproved): the candidate
+      screen (and the gathering screens' shared navigation) also reads the
+      organizer's gathering list (gathering-scheduling-api.yaml
+      listGatherings) to render menuGatheringItem. getInProgressGatheringCount
+      stays for menuDot and mobileBarGathering.badgeCount. No API change.
     note: >-
       This is the first place candidate-search-browser-interface.yaml reads
       a value from a different business contract (gathering-scheduling-
