@@ -3372,3 +3372,43 @@ body:has(#gathering-app .gth-dash--scheduling) .app-header,
     justify-content: center;
   }
 }
+/* KEN-64: the organizer dashboard is a single vertical flow with a persistent
+   desktop map column.  The JS keeps the same records in the DOM while folded
+   steps expose only their summary/entrance. */
+.gathering-step { display: block; margin: 0; padding: 1rem 0; border-bottom: 1px solid #dfe7df; }
+.gathering-step--done .gth-step-body[hidden],
+.gathering-step--upcoming .gth-step-body { display: none; }
+.gth-step-summary-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; min-height: 44px; }
+.gth-step-summary { display: inline-flex; align-items: center; min-height: 44px; font-weight: 650; }
+.gth-step-answers-open, .gth-link-section-open { min-height: 44px; padding: .5rem .75rem; border: 1px solid #9ab29f; border-radius: .4rem; background: #fff; color: #23302a; }
+.gth-step-body { display: block; }
+.gth-link-section-wrapper { position: relative; z-index: 5; margin-top: 1rem; }
+.gth-link-section { padding-top: .5rem; }
+.gth-shop-step-content { display: flex; flex-direction: column; gap: .75rem; }
+.gth-shop-step-content .gth-shop-map, .gathering-step .gth-shop-map { min-height: 18rem; }
+.gathering-step .gth-shop-map { position: relative; inset: auto; width: 100%; pointer-events: auto; }
+.gathering-step .gth-bottom-bar { position: relative; inset: auto; pointer-events: auto; }
+.gth-decision-banner { display: flex; flex-direction: column; gap: .5rem; padding: 1rem 0; }
+
+@media (min-width: 48rem) {
+  #gathering-app .gth-dash { display: grid; grid-template-columns: minmax(0, 1fr) minmax(20rem, 38%); column-gap: 1.5rem; align-items: start; }
+  #gathering-app .gth-dash > .gth-header,
+  #gathering-app .gth-dash > .gth-heading-bar { grid-column: 1 / -1; }
+  #gathering-app .gth-dash > .gathering-step,
+  #gathering-app .gth-dash > .gth-link-section-wrapper { grid-column: 1; }
+  #gathering-app .gathering-step .gth-shop-map { min-height: 18rem; }
+  #gathering-app .gathering-step--scheduling .gth-shop-map { grid-column: 2; }
+  #gathering-app .gth-link-section-wrapper { grid-row: auto; }
+  #gathering-app .gathering-step--current .gth-step-body { display: block; }
+  #gathering-app .gathering-step--scheduling .gth-step-body,
+  #gathering-app .gathering-step--current .gth-shop-step-content { display: grid; grid-template-columns: minmax(0, 1fr) minmax(20rem, 38%); gap: 1rem; }
+  #gathering-app .gathering-step--scheduling .gth-step-body > .gth-shop-map,
+  #gathering-app .gathering-step--current .gth-shop-step-content > .gth-shop-map { grid-column: 2; grid-row: 1 / span 20; min-height: 28rem; }
+  #gathering-app .gathering-step--scheduling .gth-step-body > :not(.gth-shop-map),
+  #gathering-app .gathering-step--current .gth-shop-step-content > :not(.gth-shop-map) { grid-column: 1; }
+}
+
+@media (max-width: 47.99rem) {
+  .gathering-step--scheduling .gth-shop-map { display: none; }
+  .gathering-step--done .gth-step-body[hidden] { display: none; }
+}

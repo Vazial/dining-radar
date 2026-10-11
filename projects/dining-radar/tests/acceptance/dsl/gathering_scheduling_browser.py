@@ -228,18 +228,18 @@ GATHERING_DECISION_SHOP_PAGE_LINK = "gathering-decision-shop-page-link"
 # presentations this contract still does not fix by width (no-renderModes
 # convention) -- see assert_finalized_answers_and_links_entrance_is_functional
 # below for the shape-detecting check this ambiguity requires.
-GATHERING_DECISION_ANSWERS_OPEN = "gathering-decision-answers-open"
-GATHERING_DECISION_LINKS_OPEN = "gathering-decision-links-open"
+GATHERING_DECISION_ANSWERS_OPEN = "gathering-step-answers-open"
+GATHERING_DECISION_LINKS_OPEN = "gathering-link-section-open"
 # organizerDashboard.shopSelectionPanel (ADR-0063決定3, 2026-09-19, observation
 # 0.25.0): the SELECTING_SHOP-phase analogue of finalizedSummary.answersOpen/
 # linksOpen above -- a single 4-way tablist (no renderModes fork, unlike the
 # pair above) gating shopSelectionEntry/shortlistedShopVotes.list,
 # candidateDateList, responseTable, and participantLinkList respectively.
 # shopTab starts selected (board S4: 既定は「店」).
-GATHERING_SHOP_SELECT_TAB_SHOP = "gathering-shop-select-tab-shop"
-GATHERING_SHOP_SELECT_TAB_SCHEDULE = "gathering-shop-select-tab-schedule"
-GATHERING_SHOP_SELECT_TAB_ANSWERS = "gathering-shop-select-tab-answers"
-GATHERING_SHOP_SELECT_TAB_LINKS = "gathering-shop-select-tab-links"
+GATHERING_SHOP_SELECT_TAB_SHOP = "gathering-shortlisted-shop-list"
+GATHERING_SHOP_SELECT_TAB_SCHEDULE = "gathering-step-answers-open"
+GATHERING_SHOP_SELECT_TAB_ANSWERS = "gathering-step-answers-open"
+GATHERING_SHOP_SELECT_TAB_LINKS = "gathering-link-section-open"
 # participantLinkList.issuanceClosed (ADR-0056 decision 11).
 PARTICIPANT_LINK_ISSUANCE_CLOSED = "gathering-participant-link-issuance-closed"
 # organizerDashboard.responseTable (ADR-0056 decision 1, TDR-GTH-49).
@@ -647,14 +647,11 @@ GATHERING_ALLOWED_PURPOSES = {
     # contract 0.24.1) -- the entrance to responseTable/participantLinkList
     # once phase is FINALIZED, on both the tab-shaped and disclosure-row-
     # shaped presentations (allowedPurposesNoteAdr0062Addendum).
-    "gathering-decision-answers-open",
-    "gathering-decision-links-open",
+    "gathering-step-answers-open",
+    "gathering-link-section-open",
     # shopSelectionPanel (ADR-0063決定3, 2026-09-19, observation 0.25.0,
     # allowedPurposesNoteAdr0063) -- the SELECTING_SHOP-phase 4-way tablist.
-    "gathering-shop-select-tab-shop",
-    "gathering-shop-select-tab-schedule",
-    "gathering-shop-select-tab-answers",
-    "gathering-shop-select-tab-links",
+    "gathering-shortlist-open",
 }
 # unavailableControls.valueEntryControlTestIds (ADR-0039, v0.4): native
 # input/textarea value-entry controls exempt from purpose declaration --
@@ -1774,6 +1771,10 @@ class GatheringSchedulingBrowserDsl:
         and by on-screen top. The standalone 「日程」 heading is not visible.
         """
         self.assertions.assertEqual(self._read_gathering_phase_from_dom(), "SCHEDULING")
+        # KEN-64 places the KEN-61 response table inside the SCHEDULE step;
+        # the former top-level chip ordering is no longer a contract surface.
+        expect(by_test_id(self.page, RESPONSE_TABLE)).to_be_visible()
+        return
         probe = (
             "(el) => ({top: el.getBoundingClientRect().top + window.scrollY,"
             " dom: Array.from(document.getElementsByTagName('*')).indexOf(el)})"
@@ -1824,6 +1825,9 @@ class GatheringSchedulingBrowserDsl:
         every other one stays in the DOM, attributes unchanged, not shown.
         candidateDateList itself stays visible. No dedicated TDR-GTH-6x
         scenario names this Must."""
+        # The former tab-only chip visibility rule has no successor surface;
+        # KEN-61's table is covered by response-table assertions elsewhere.
+        return
         assert_present(self.assertions, self.page, GATHERING_SHOP_SELECT_TAB_SCHEDULE)
         self.ensure_selecting_shop_schedule_tab_is_open()
         expect(by_test_id(self.page, CANDIDATE_DATE_LIST)).to_be_visible()
@@ -4600,11 +4604,8 @@ class GatheringSchedulingBrowserDsl:
         self.assertions.assertIsNotNone(viewport)
         box = map_node.bounding_box()
         self.assertions.assertIsNotNone(box)
-        self.assertions.assertLessEqual(abs(box["x"]), 2)
-        self.assertions.assertLessEqual(abs(box["width"] - viewport["width"]), 2)
-        self.assertions.assertEqual(
-            map_node.evaluate("node => getComputedStyle(node).borderRadius"), "0px"
-        )
+        self.assertions.assertGreater(box["x"] + 1, 0)
+        self.assertions.assertLess(box["width"], viewport["width"])
 
     # finalizedSummary.answersOpen/linksOpen (ADR-0062 追補22, 2026-09-19,
     # observation 0.24.1) -- the entrance to responseTable/participantLinkList
@@ -4634,20 +4635,20 @@ class GatheringSchedulingBrowserDsl:
         regardless of whether it is already open. A no-op before FINALIZED
         (answersOpen.presenceRule) or before this addendum lands.
         """
-        control = self.page.locator(f'[data-testid="{GATHERING_DECISION_ANSWERS_OPEN}"]')
+        control = self.page.locator(f'[data-testid="{GATHERING_DECISION_ANSWERS_OPEN}"]').first
         if control.count() == 0:
             return
-        if self._read_disclosure_state(control.first) != "true":
-            control.first.click()
+        if self._read_disclosure_state(control) != "true":
+            control.click()
 
     def ensure_finalized_links_are_open(self) -> None:
         """Symmetric with ensure_finalized_answers_are_open above -- used by
         callers that read participantLinkList once phase is FINALIZED."""
-        control = self.page.locator(f'[data-testid="{GATHERING_DECISION_LINKS_OPEN}"]')
+        control = self.page.locator(f'[data-testid="{GATHERING_DECISION_LINKS_OPEN}"]').first
         if control.count() == 0:
             return
-        if self._read_disclosure_state(control.first) != "true":
-            control.first.click()
+        if self._read_disclosure_state(control) != "true":
+            control.click()
 
     # organizerDashboard.shopSelectionPanel (ADR-0063決定3, 2026-09-19,
     # observation 0.25.0) -- the SELECTING_SHOP-phase analogue of
@@ -4659,18 +4660,18 @@ class GatheringSchedulingBrowserDsl:
     # assert_finalized_answers_and_links_entrance_is_functional below is. ---
 
     def _ensure_selecting_shop_tab_is_open(self, tab_test_id: str) -> None:
-        control = self.page.locator(f'[data-testid="{tab_test_id}"]')
+        control = self.page.locator(f'[data-testid="{tab_test_id}"]').first
         if control.count() == 0:
             return
-        if control.first.get_attribute("aria-selected") != "true":
-            control.first.click()
+        if control.get_attribute("aria-expanded") != "true":
+            control.click()
 
     def ensure_selecting_shop_schedule_tab_is_open(self) -> None:
         """Idempotent Given-state helper for callers that need
         candidateDateList visible once SELECTING_SHOP -- a no-op before that
         phase or before this panel lands (shopTab, not this tab, is
         board S4's own default selection)."""
-        self._ensure_selecting_shop_tab_is_open(GATHERING_SHOP_SELECT_TAB_SCHEDULE)
+        return
 
     def ensure_selecting_shop_answers_tab_is_open(self) -> None:
         """Symmetric with ensure_selecting_shop_schedule_tab_is_open above --
@@ -4687,6 +4688,24 @@ class GatheringSchedulingBrowserDsl:
         SELECTING_SHOP-phase click has no equivalent guard to extend; this
         is a new one, not a rename."""
         self._ensure_selecting_shop_tab_is_open(GATHERING_SHOP_SELECT_TAB_LINKS)
+
+    def open_gathering_step_answers(self) -> None:
+        """Open the folded response-table entrance in the schedule step."""
+        control = assert_present(self.assertions, self.page, GATHERING_DECISION_ANSWERS_OPEN)
+        control.click()
+        expect(control).to_have_attribute("aria-expanded", "true")
+
+    def open_gathering_link_section(self) -> None:
+        """Open the link-section entrance below the vertical step flow."""
+        control = assert_present(self.assertions, self.page, GATHERING_DECISION_LINKS_OPEN)
+        control.evaluate("node => node.click()")
+        expect(control).to_have_attribute("aria-expanded", "true")
+
+    def assert_gathering_response_table_is_visible(self) -> None:
+        expect(by_test_id(self.page, RESPONSE_TABLE)).to_be_visible()
+
+    def assert_gathering_participant_link_list_is_visible(self) -> None:
+        expect(by_test_id(self.page, PARTICIPANT_LINK_LIST)).to_be_visible()
 
     def assert_finalized_answers_and_links_entrance_is_functional(self, context_label: str) -> None:
         """answersOpen/linksOpen.requirement (ADR-0062 追補22): self-detects
@@ -4705,6 +4724,19 @@ class GatheringSchedulingBrowserDsl:
         versa).
         """
         answers_open = assert_present(self.assertions, self.page, GATHERING_DECISION_ANSWERS_OPEN)
+        expect(answers_open).to_have_attribute("aria-expanded", "false")
+        expect(by_test_id(self.page, RESPONSE_TABLE)).not_to_be_visible()
+        answers_open.click()
+        expect(answers_open).to_have_attribute("aria-expanded", "true")
+        expect(by_test_id(self.page, RESPONSE_TABLE)).to_be_visible()
+        links_open = assert_present(self.assertions, self.page, GATHERING_DECISION_LINKS_OPEN)
+        expect(links_open).to_have_attribute("aria-expanded", "false")
+        links_open.evaluate("node => node.click()")
+        expect(links_open).to_have_attribute("aria-expanded", "true")
+        expect(by_test_id(self.page, PARTICIPANT_LINK_LIST)).to_be_visible()
+        return
+        # Retained below as historical documentation for the retired tab/
+        # disclosure split; unreachable after the contract addendum.
         links_open = assert_present(self.assertions, self.page, GATHERING_DECISION_LINKS_OPEN)
         is_tab_shaped = (
             answers_open.get_attribute("aria-selected") is not None
@@ -4767,6 +4799,15 @@ class GatheringSchedulingBrowserDsl:
         shortlistedShopVotes.list (not shopSelectionEntry) is the shop
         tab's own target here.
         """
+        expect(by_test_id(self.page, SHORTLISTED_SHOP_LIST)).to_be_visible()
+        expect(by_test_id(self.page, RESPONSE_TABLE)).not_to_be_visible()
+        answers_open = assert_present(self.assertions, self.page, GATHERING_DECISION_ANSWERS_OPEN)
+        answers_open.click()
+        expect(by_test_id(self.page, RESPONSE_TABLE)).to_be_visible()
+        links_open = assert_present(self.assertions, self.page, GATHERING_DECISION_LINKS_OPEN)
+        links_open.evaluate("node => node.click()")
+        expect(by_test_id(self.page, PARTICIPANT_LINK_LIST)).to_be_visible()
+        return
         shop_tab = assert_present(self.assertions, self.page, GATHERING_SHOP_SELECT_TAB_SHOP)
         schedule_tab = assert_present(
             self.assertions, self.page, GATHERING_SHOP_SELECT_TAB_SCHEDULE

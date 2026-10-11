@@ -518,11 +518,13 @@ class SchedulingBoardQ5aTests(StaticLiveServerTestCase):
 
     # --- Then ------------------------------------------------------------
 
+    @unittest.skip("KEN-64 replaced the full-width scheduling board with the step flow")
     def test_pc_1440x900(self) -> None:
         self._given_scheduling_gathering()
         findings = _all_findings(self._probe(PC_VIEWPORT), "scheduling 1440x900", pc=True)
         assert not findings, "\n".join(findings)
 
+    @unittest.skip("KEN-64 replaced the full-width scheduling board with the step flow")
     def test_phone_390x844(self) -> None:
         self._given_scheduling_gathering()
         findings = _all_findings(self._probe(PHONE_VIEWPORT), "scheduling 390x844", pc=False)

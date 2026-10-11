@@ -375,9 +375,9 @@ class BoardConformanceCaptureTests(StaticLiveServerTestCase):
         ADR-0063 decision 3) -- absent during SCHEDULING, where
         participantLinkCopy sits directly on the dashboard.
         """
-        links_tab = by_test_id(self.page, "gathering-shop-select-tab-links")
-        if links_tab.count() > 0:
-            _click(links_tab)
+        links_open = by_test_id(self.page, "gathering-link-section-open")
+        if links_open.count() > 0:
+            _click(links_open)
         _click(by_test_id(self.page, "gathering-participant-link-copy"))
         dialog = by_test_id(self.page, "gathering-participant-link-issue-dialog")
         expect(dialog).to_have_attribute("data-issued-link-url", re.compile(r"^http"))
@@ -398,12 +398,6 @@ class BoardConformanceCaptureTests(StaticLiveServerTestCase):
         return page
 
     def _finalize_first_shop(self) -> None:
-        # A caller may have just switched shopSelectionPanel to a different
-        # tab (e.g. _issue_participant_link_url's own linksTab) -- shopTab's
-        # own finalize radio is not reachable there (ADR-0063 decision 3).
-        shop_tab = by_test_id(self.page, "gathering-shop-select-tab-shop")
-        if shop_tab.count() > 0:
-            _click(shop_tab)
         _click(by_test_id(self.page, "gathering-finalize-shop-select").first)
         _click(by_test_id(self.page, "gathering-finalize-open"))
         _click(by_test_id(self.page, "gathering-finalize-confirm"))
@@ -725,9 +719,9 @@ class BoardConformanceCaptureTests(StaticLiveServerTestCase):
     def _issue_participant_link_url_leave_open(self, page: Page) -> None:
         """Like ``_issue_participant_link_url`` but leaves the dialog open
         (a capture target of its own), instead of closing it."""
-        links_tab = by_test_id(page, "gathering-shop-select-tab-links")
-        if links_tab.count() > 0:
-            _click(links_tab)
+        links_open = by_test_id(page, "gathering-link-section-open")
+        if links_open.count() > 0:
+            _click(links_open)
         _click(by_test_id(page, "gathering-participant-link-copy"))
         expect(by_test_id(page, "gathering-participant-link-issue-dialog")).to_be_attached()
 
@@ -774,19 +768,19 @@ class BoardConformanceCaptureTests(StaticLiveServerTestCase):
 
         self._capture_state_across_sizes(screen, "shops_5", given_shops_5)
 
-        for state, tab_test_id in (
-            ("tab_shop", "gathering-shop-select-tab-shop"),
-            ("tab_schedule", "gathering-shop-select-tab-schedule"),
-            ("tab_answers", "gathering-shop-select-tab-answers"),
-            ("tab_links", "gathering-shop-select-tab-links"),
+        for state, entrance_test_id in (
+            ("answers_open", "gathering-step-answers-open"),
+            ("links_open", "gathering-link-section-open"),
         ):
 
-            def given_tab(width: int, height: int, tab_test_id: str = tab_test_id) -> Page:
+            def given_entrance(
+                width: int, height: int, entrance_test_id: str = entrance_test_id
+            ) -> Page:
                 given_shops_5(width, height)
-                _click(by_test_id(self.page, tab_test_id))
+                _click(by_test_id(self.page, entrance_test_id))
                 return self.page
 
-            self._capture_state_across_sizes(screen, state, given_tab)
+            self._capture_state_across_sizes(screen, state, given_entrance)
 
         def given_shops_5_voted(width: int, height: int) -> Page:
             """KEN-54 (audit D-1): 4 participants vote on the 5 shortlisted
@@ -856,14 +850,14 @@ class BoardConformanceCaptureTests(StaticLiveServerTestCase):
 
         def given_answers_open(width: int, height: int) -> Page:
             given_initial(width, height)
-            _click(by_test_id(self.page, "gathering-decision-answers-open"))
+            _click(by_test_id(self.page, "gathering-step-answers-open"))
             return self.page
 
         self._capture_state_across_sizes(screen, "answers_open", given_answers_open)
 
         def given_links_open(width: int, height: int) -> Page:
             given_initial(width, height)
-            _click(by_test_id(self.page, "gathering-decision-links-open"))
+            _click(by_test_id(self.page, "gathering-link-section-open"))
             return self.page
 
         self._capture_state_across_sizes(screen, "links_open", given_links_open)

@@ -33,7 +33,7 @@ YAML は読み込める形であることを確認した。
 | 追補 | 場所 | 追加・変更 | 消える／付け替わる |
 |---|---|---|---|
 | 32 | 一覧 `organizerGatheringList` | `data-list-role`（featured／row）、数の属性5つ、`gathering-list-steps`、`gathering-list-next-action`、LR-1（行全体を押せる）、LF-1（大きい枠が先頭） | 並びの不変条件の1文が書き換わる（「API の並び」→「featured を先頭に出した API の並び」） |
-| 33 | 会の画面 `stepFlow`・`mapPlacement`（暫定） | `gathering-step` ×3（`data-step`・`data-step-state`）、`gathering-scheduling-map`、SF-1〜SF-5 | 何も消さない（タブ・旧地図の位置は注記待ち。79-Q1〜Q3） |
+| 33 | 会の画面 `stepFlow`・`mapPlacement`（2026-10-11 追補37で確定） | `gathering-step` ×3（`data-step`・`data-step-state`）、`gathering-scheduling-map`、SF-1〜SF-5 | 何も消さない（タブ・旧地図の位置は注記待ち。79-Q1〜Q3） |
 | 34 | 日程の画面 | `gathering-responded-progress`、`gathering-candidate-date-edit-toggle`、行に `data-has-responded`、CE-1〜CE-3 | `gathering-candidate-date-list`・`gathering-candidate-date-heading`（CH-1〜CH-5）が廃止の注記。`gathering-candidate-date` と `leader-summary` は列見出しの中へ引っ越し |
 | 35 | 名前 | `data-participant-ordinal`、「参加者N」 | — |
 | 候補検索 | `menuPane`（MP-1〜MP-6）、`navLabels`、`menuClose`・`menuBackdrop`・`menuGatheringItem` | 「≡の下に開く」（ADR-0066 の吹き出し）が置き換わる注記 |
@@ -66,7 +66,7 @@ YAML は読み込める形であることを確認した。
 | 子チケット | 人間の決定 | 触る契約の要素 | testId（新・変更・廃止） | 受け入れシナリオの変更 | 先に決めること |
 |---|---|---|---|---|---|
 | **H ホーム** | 1・2・9 | `organizerGatheringList` の並び・item の属性・`nextAction`・`steps`・LR-1・LF-1 | 新: `gathering-list-next-action`・`gathering-list-steps`。変更: `gathering-list-item`（属性5つ）、`gathering-list-item-open`（行全体） | 新: TDR-GTH-68・69・73。TDR-GTH-21・22 は文面そのまま（step の数え方は `data-list-role` を無視すれば変わらない）。撮影: ホーム（複数・1件・空）の状態を足す | **78-Q1**（ログイン直後）、78-Q2（次にやること）、78-Q3（票）、78-Q4（見出しの文言） |
-| **G 会の画面** | 3（暫定） | `stepFlow`・`mapPlacement`、`shopSelectionPanel` のタブ、`finalizedSummary` の地図 | 新: `gathering-step`・`gathering-scheduling-map`。変更: 地図各種の置き場所、タブ4つの扱い（79-Q3 次第） | `.feature` は変えない。L5: SF-1〜SF-5。L4: 局面を読む step・タブを押す step・「畳まれた日程」を読む step を tester が直す | **79-Q1〜Q3**。**designer が決まった PC を描く必要**（板が無い） |
+| **G 会の画面** | 3（確定。追補37、KEN-64） | `stepFlow`・`mapPlacement`、`shopSelectionPanel` のタブ、`finalizedSummary` の地図 | 新: `gathering-step`・`gathering-scheduling-map`。変更: 地図各種の置き場所、タブ4つの扱い（79-Q3 次第） | `.feature` は変えない。L5: SF-1〜SF-5。L4: 局面を読む step・タブを押す step・「畳まれた日程」を読む step を tester が直す | **79-Q1〜Q3**。**designer が決まった PC を描く必要**（板が無い） |
 | **S 日程を聞き中** | 5・6 | `answerCard`・`responseTable`（行・leaderSummary）・`candidateDateEdit`・`candidateDateInHeaderCell`・`participantOrdinal` | 新: `gathering-responded-progress`・`gathering-candidate-date-edit-toggle`。移動: `gathering-candidate-date`・`gathering-response-table-leader-summary`（列見出しの中へ）。廃止: `gathering-candidate-date-list`・`gathering-candidate-date-heading`。変更: `gathering-add-candidate-date-open`・`gathering-candidate-date-remove`（編集中だけ出現）。属性: `data-has-responded`・`data-participant-ordinal` | 新: TDR-GTH-70・71・72。既存の文面は変えないが **step の探し方が変わる**: 候補日を足す・外す（02・24・46・47・50・51・57・58）は編集に切り替えてから、候補日の属性を読む（08・10・43・59〜62）は列見出しの中の要素を探す | **80-Q1**（要素の引っ越し先）、80-Q2、**80-Q7**（番号の数え方）、80-Q3 |
 | **N ナビ** | 7・8 | `menuPane`（MP-1〜6）・`navLabels`・`menuClose`・`menuBackdrop`・`menuGatheringItem`・`crossContractReference` | 新: `candidate-primary-nav-menu-close`・`-menu-backdrop`・`-menu-gathering-item`。変更: `candidate-primary-nav-menu-panel`（開き方）、`-search` と `-menu-search`（文言「店を探す」） | `.feature` は変えない。L5: 不変条件(o) を MP-1〜5 に置き換え。L4: Esc／×／背景で閉じる、ペインの会から会が開く | **81-Q1**（ペインの次にやること）、**81-Q2**（並び順）、81-Q3・Q4 |
 
@@ -112,7 +112,7 @@ ID は `<ADR番号の下2桁>-Q<n>`。「ブロック」= これが決まらな�
 
 1. キャンバスの付箋は「答えていない人の行が増えるので、表の行の定義が変わる」と書くが、**契約はもう1リンク1行**（取り消しも残す）で、実装も1リンク1行を作っている。変えるのは「まだ」の札と属性だけ。
 2. 決定2とペイン（81-Q1）、決定6の文面と絵（80-Q7）、決定8の文面と絵の並び（81-Q2）、決定3と参考ページの付箋（79-Q1）は、それぞれ読み方が割れる。
-3. 決定3は暫定のため、YAML は追加だけにして既存のタブ・地図の節を消していない。
+3. 決定3は当初は暫定で、追補33では追加だけにして既存のタブ・地図の節を消さなかった。追補37（KEN-64）で暫定を外し、それらを廃止・移動として書き直した。
 
 ## 4. 後のスコープ — 決定4（日が決まる前に店を入れる案B）の論点メモ（契約には触れていない）
 
