@@ -805,7 +805,7 @@
     // organizerGatheringCreate has exactly one parent, this screen's own
     // gathering list (ADR-0054 decision 7) -- "戻る" always goes there,
     // regardless of how this screen was reached.
-    window.location.href = "/gatherings/";
+    window.location.href = "/";
   }
 
   // --- focus-restore-across-rerender BEGIN (identical copy in

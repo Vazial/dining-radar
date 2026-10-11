@@ -669,11 +669,11 @@ class CandidateSearchBrowserDsl:
         self._organizer_credentials = (identifier, password)
 
     def open_candidate_screen_unauthenticated(self) -> None:
-        self.page.goto(f"{self.base_url}/")
+        self.page.goto(f"{self.base_url}/search/")
 
     def open_candidate_screen(self) -> None:
         self.initial = capture_candidate_proposal_response(
-            self.page, lambda: self.page.goto(f"{self.base_url}/")
+            self.page, lambda: self.page.goto(f"{self.base_url}/search/")
         )
         self.current = self.initial
         if self.initial.status == 200:
@@ -3155,7 +3155,7 @@ class CandidateSearchBrowserDsl:
         other_context = self.page.context.browser.new_context()
         try:
             other_page = other_context.new_page()
-            other_page.goto(f"{self.base_url}/")
+            other_page.goto(f"{self.base_url}/search/")
 
             def sign_in_from_another_device() -> None:
                 by_test_id(other_page, AUTH_LOGIN_IDENTIFIER).fill(identifier)

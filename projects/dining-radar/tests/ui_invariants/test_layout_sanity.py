@@ -1319,7 +1319,7 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING", random_seed=20260927)
 
         self.page.set_viewport_size({"width": 1440, "height": 900})
-        self.page.goto(f"{self.base_url}/")
+        self.page.goto(f"{self.base_url}/search/")
         wait_for_at_least_one(self.page, "candidate-card")
         toggle = by_test_id(self.page, "candidate-primary-nav-menu-toggle")
         header = self.page.locator('header[data-testid="authenticated-application-shell"]')
@@ -1443,7 +1443,7 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         # Candidate screen, ordinary and gathering mode (S = the h1).
         self.dsl.reset_candidate_state()
         self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING", random_seed=20260927)
-        self.page.goto(f"{self.base_url}/")
+        self.page.goto(f"{self.base_url}/search/")
         wait_for_at_least_one(self.page, "candidate-card")
         self._assert_top_bar_row("candidate-normal", "h1")
         gathering_id = self.dsl.given_a_gathering_with_exactly_one_shortlisted_shop(
@@ -1522,7 +1522,7 @@ class LayoutSanityTests(StaticLiveServerTestCase):
                 self.page.set_viewport_size({"width": width, "height": height})
                 self.dsl.reset_candidate_state()
                 self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING")
-                self.page.goto(f"{self.base_url}/")
+                self.page.goto(f"{self.base_url}/search/")
                 wait_for_at_least_one(self.page, "candidate-card")
 
                 _run_checks_1_to_5_and_8(self.page, f"candidate-normal ({label})", findings)
@@ -1925,7 +1925,7 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         self.page.set_viewport_size({"width": 390, "height": 844})
         self.dsl.reset_candidate_state()
         self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING")
-        self.page.goto(f"{self.base_url}/")
+        self.page.goto(f"{self.base_url}/search/")
         wait_for_at_least_one(self.page, "candidate-card")
         toggle = by_test_id(self.page, ACCOUNT_MENU_TOGGLE_TEST_ID)
         toggle.click()
@@ -1948,11 +1948,11 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         self.page.set_viewport_size({"width": 390, "height": 844})
         self.dsl.reset_candidate_state()
         self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING")
-        self.page.goto(f"{self.base_url}/")
+        self.page.goto(f"{self.base_url}/search/")
         wait_for_at_least_one(self.page, "candidate-card")
         self._create_gathering_via_ui("下部ナビ確認会")
         for name, url, ready_test_id in (
-            ("candidate", f"{self.base_url}/", "candidate-card"),
+            ("candidate", f"{self.base_url}/search/", "candidate-card"),
             (
                 "gathering-list",
                 f"{self.base_url}{reverse('gathering:organizer-gathering-list')}",
@@ -1977,7 +1977,7 @@ class LayoutSanityTests(StaticLiveServerTestCase):
             self.page.set_viewport_size({"width": width, "height": height})
             self.dsl.reset_candidate_state()
             self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING")
-            self.page.goto(f"{self.base_url}/")
+            self.page.goto(f"{self.base_url}/search/")
             wait_for_at_least_one(self.page, "candidate-card")
             toggle = by_test_id(self.page, FILTER_TOGGLE_TEST_ID)
             toggle.click()
@@ -2040,7 +2040,7 @@ class LayoutSanityFaultInjectionTests(StaticLiveServerTestCase):
         self.page.set_viewport_size({"width": width, "height": height})
         self.dsl.reset_candidate_state()
         self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING")
-        self.page.goto(f"{self.base_url}/")
+        self.page.goto(f"{self.base_url}/search/")
         wait_for_at_least_one(self.page, "candidate-card")
 
     def test_injected_overlap_is_caught(self) -> None:
