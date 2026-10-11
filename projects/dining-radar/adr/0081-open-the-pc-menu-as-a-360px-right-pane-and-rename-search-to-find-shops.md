@@ -1,9 +1,9 @@
 ---
 id: 0081
 scope: project/dining-radar
-status: 提案中
+status: 承認済み
 date: 2026-10-11
-approved_by: null
+approved_by: "人間裁定（KEN-58 の決定9点と、聞く点への回答。人間が調整役とのチャットで1点ずつ合意し、調整役 ken-18-03 が2026-10-11に伝達）。ADR の起草・承認済み化は担当に委任"
 supersedes: []
 superseded_by: null
 relates_to: [ADR-0059, ADR-0066, ADR-0069, ADR-0075, ADR-0077, ADR-0078]
@@ -55,7 +55,7 @@ relates_to: [ADR-0059, ADR-0066, ADR-0069, ADR-0075, ADR-0077, ADR-0078]
 6. **testId・目的の追加**: `candidate-primary-nav-menu-close`・`-menu-backdrop`・`-menu-gathering-item`（目的 `candidate-primary-nav-menu-close`・
    `-menu-backdrop`・`-menu-gathering-item`）。`candidate-search-browser-interface.yaml` の `allowedPurposes` に足す。
 
-## 確認事項（人間に聞く。勝手に決めていない）
+## 確認事項（起草時の選択肢。回答は末尾の表）
 
 - **Q1 ペインの各会の「次にやること」**。キャンバスのペインは各会に「次: 日を決める」を付けているが、決定2（ホームの小さな行は次にやることを付けない）と釣り合わない。
   案: **(A)** 絵どおり付ける（推奨。ペインは「いまここから次の一手へ飛ぶ」ためで、ホームの小さな行とは役割が違う。ただし ADR-0078 Q2 の値の決め方が前提）。
