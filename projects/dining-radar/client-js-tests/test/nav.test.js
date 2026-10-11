@@ -130,6 +130,20 @@ describe("in-progress badge", () => {
 });
 
 describe("account sheet and keyboard handling", () => {
+  it("opens the right-side pane and closes from its close button or backdrop", async () => {
+    const page = await boot({ twoColumn: true, fetch: (url) => url === "/candidate-proposals" ? jsonResponse(200, proposalBody()) : jsonResponse(200, { inProgressGatheringCount: 0 }) });
+    const panel = page.byTestId("candidate-primary-nav-menu-panel");
+    const backdrop = page.byTestId("candidate-primary-nav-menu-backdrop");
+    page.byTestId("candidate-primary-nav-menu-toggle").click();
+    expect(panel.hidden).toBe(false);
+    expect(backdrop.hidden).toBe(false);
+    page.byTestId("candidate-primary-nav-menu-close").click();
+    expect(panel.hidden).toBe(true);
+    page.byTestId("candidate-primary-nav-menu-toggle").click();
+    backdrop.click();
+    expect(panel.hidden).toBe(true);
+  });
+
   it("toggles the mobile account sheet and aria-expanded", async () => {
     const page = await boot({ twoColumn: false });
     const button = page.byTestId("candidate-primary-nav-account");
