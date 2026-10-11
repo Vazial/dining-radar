@@ -345,6 +345,8 @@ ALLOWED_CONTROL_PURPOSES = {
     "auth-sign-out",
     "auth-password-change-open",
     "auth-account-menu-toggle",
+    "candidate-primary-nav-menu-backdrop",
+    "candidate-primary-nav-menu-close",
 }
 FORM_CONTROL_SELECTOR = ", ".join(
     [

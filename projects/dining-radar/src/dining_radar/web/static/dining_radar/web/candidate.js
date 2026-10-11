@@ -2772,6 +2772,35 @@
         syncPrimaryNavGatheringLinks();
       })
       .catch(function () {});
+    loadPrimaryNavGatherings();
+  }
+
+  function loadPrimaryNavGatherings() {
+    var container = document.querySelector('[data-testid="candidate-primary-nav-menu-gatherings"]');
+    if (!container) return;
+    fetch("/gatherings", { credentials: "same-origin" })
+      .then(function (response) { return response.status === 200 ? response.json() : null; })
+      .then(function (body) {
+        if (!body || !Array.isArray(body.gatherings)) return;
+        container.replaceChildren();
+        body.gatherings.filter(function (g) { return g.phase === "SCHEDULING" || g.phase === "SELECTING_SHOP"; }).forEach(function (g) {
+          var link = document.createElement("a");
+          link.href = "/gatherings/" + encodeURIComponent(g.id) + "/";
+          link.setAttribute("data-testid", "candidate-primary-nav-menu-gathering-item");
+          link.setAttribute("data-gathering-id", g.id);
+          link.setAttribute("data-gathering-phase", g.phase);
+          link.setAttribute("data-current", "false");
+          link.className = "primary-nav-menu-link primary-nav-menu-gathering-item";
+          var title = document.createElement("span");
+          title.textContent = g.title || "ランチ会";
+          var next = document.createElement("span");
+          next.className = "primary-nav-menu-gathering-next";
+          next.setAttribute("data-next-action", g.phase === "SCHEDULING" ? (g.respondedParticipantCount > 0 ? "DECIDE_DATE" : "WAIT_ANSWERS") : (g.votingStartedAt ? "DECIDE_SHOP" : "PICK_SHOPS"));
+          next.textContent = "次: " + ({ WAIT_ANSWERS: "回答を待つ", DECIDE_DATE: "日を決める", PICK_SHOPS: "店を選ぶ", DECIDE_SHOP: "店を決める" })[next.getAttribute("data-next-action")];
+          link.append(title, next);
+          container.append(link);
+        });
+      }).catch(function () {});
   }
 
   // ADR-0059 decisions 1-2: renderModes.twoColumnLayout/mapPrimaryTouchLayout
@@ -2801,6 +2830,35 @@
       }
     }
     syncPrimaryNavGatheringLinks();
+
+    var menu = document.querySelector(".primary-nav-menu");
+    var panel = document.querySelector('[data-testid="candidate-primary-nav-menu-panel"]');
+    var backdrop = document.querySelector('[data-testid="candidate-primary-nav-menu-backdrop"]');
+    var closeMenu = function () {
+      if (panel) panel.hidden = true;
+      if (backdrop) backdrop.hidden = true;
+      if (menu) menu.removeAttribute("open");
+      var toggle = document.querySelector('[data-testid="candidate-primary-nav-menu-toggle"]');
+      if (toggle) toggle.focus();
+    };
+    var toggleMenu = document.querySelector('[data-testid="candidate-primary-nav-menu-toggle"]');
+    if (toggleMenu && panel) {
+      toggleMenu.addEventListener("click", function (event) {
+        event.preventDefault();
+        var open = panel.hidden;
+        if (!open) {
+          closeMenu();
+          return;
+        }
+        panel.hidden = !open;
+        if (backdrop) backdrop.hidden = !open;
+        if (menu) menu.toggleAttribute("open", open);
+        if (open) panel.querySelector('[data-testid="candidate-primary-nav-menu-close"]').focus();
+      });
+    }
+    var closeButton = document.querySelector('[data-testid="candidate-primary-nav-menu-close"]');
+    if (closeButton) closeButton.addEventListener("click", closeMenu);
+    if (backdrop) backdrop.addEventListener("click", closeMenu);
 
     var accountButton = document.querySelector('[data-testid="candidate-primary-nav-account"]');
     var accountSheet = document.getElementById("primary-nav-account-sheet");
@@ -2840,13 +2898,7 @@
         return;
       }
       var openMenu = document.querySelector(".primary-nav-menu[open]");
-      if (openMenu) {
-        openMenu.removeAttribute("open");
-        var toggle = openMenu.querySelector('[data-testid="candidate-primary-nav-menu-toggle"]');
-        if (toggle) {
-          toggle.focus();
-        }
-      }
+      if (openMenu) closeMenu();
       if (accountSheet && !accountSheet.hasAttribute("hidden")) {
         accountSheet.setAttribute("hidden", "");
         if (accountButton) {

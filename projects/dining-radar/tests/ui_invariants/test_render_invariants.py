@@ -3407,7 +3407,11 @@ class GatheringScreenInvariantTests(StaticLiveServerTestCase):
         def top_of(locator) -> float:
             return locator.first.bounding_box()["y"]
 
-        heading = self.page.get_by_text("日を決める", exact=False).first
+        # The desktop navigation pane now includes a hidden in-progress
+        # gathering row whose "次: 日を決める" text can precede the
+        # scheduling heading in the DOM. Target the screen heading itself so
+        # this geometry assertion does not select hidden navigation text.
+        heading = self.page.locator("h2.gth-scheduling-head").first
         chips = by_test_id(self.page, "gathering-candidate-date")
         ordered = [
             top_of(heading),

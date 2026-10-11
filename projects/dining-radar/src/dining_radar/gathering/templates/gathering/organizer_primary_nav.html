@@ -54,19 +54,23 @@
       data-candidate-control-purpose="candidate-primary-nav-menu-toggle"
       class="primary-nav-menu-toggle"
     ><svg class="primary-nav-icon primary-nav-icon-menu" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M3.5 5.5h13M3.5 10h13M3.5 14.5h13"/></svg><span class="visually-hidden">メニュー</span></summary>
-    <div data-testid="candidate-primary-nav-menu-panel" class="primary-nav-menu-panel">
-      <a
-        href="{% url 'web:home' %}"
-        data-testid="candidate-primary-nav-menu-search"
-        data-primary-nav-current="false"
-        class="primary-nav-menu-link"
-      ><svg class="primary-nav-icon" width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="5.4"/><path d="M12.2 12.2L16 16"/></svg>ランチ候補をさがす</a>
+    <button type="button" data-testid="candidate-primary-nav-menu-backdrop" data-candidate-control-category="button" data-candidate-control-purpose="candidate-primary-nav-menu-backdrop" class="primary-nav-menu-backdrop" hidden aria-label="メニューを閉じる"></button>
+    <div data-testid="candidate-primary-nav-menu-panel" class="primary-nav-menu-panel" hidden>
+      <button type="button" data-testid="candidate-primary-nav-menu-close" data-candidate-control-category="button" data-candidate-control-purpose="candidate-primary-nav-menu-close" class="primary-nav-menu-close" aria-label="メニューを閉じる">×</button>
       <a
         href="{% url 'gathering:organizer-gathering-list' %}"
         data-testid="candidate-primary-nav-menu-gathering"
         data-primary-nav-current="true"
         class="primary-nav-menu-link"
       ><svg class="primary-nav-icon" width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><rect x="3" y="4.2" width="12" height="11" rx="2.2"/><path d="M3 7.6h12M6 3v2.4M12 3v2.4"/></svg>ランチ会</a>
+      <div data-testid="candidate-primary-nav-menu-gatherings" class="primary-nav-menu-gatherings"></div>
+      <a href="{% url 'gathering:organizer-gathering-create' %}" data-testid="candidate-primary-nav-menu-gathering-create" data-candidate-control-purpose="candidate-primary-nav-menu-gathering-create" class="primary-nav-menu-link">ランチ会をつくる</a>
+      <a
+        href="{% url 'web:home' %}"
+        data-testid="candidate-primary-nav-menu-search"
+        data-primary-nav-current="false"
+        class="primary-nav-menu-link"
+      ><svg class="primary-nav-icon" width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="5.4"/><path d="M12.2 12.2L16 16"/></svg>店を探す</a>
       <h2 class="primary-nav-menu-account-heading">アカウント</h2>
       <a
         href="{% url 'authentication:password_change' %}"
@@ -90,17 +94,17 @@
 </div>
 <nav data-testid="candidate-primary-nav-bar" data-primary-nav-mobile class="primary-nav-bar" aria-label="ランチ機能">
   <a
-    href="{% url 'web:home' %}"
-    data-testid="candidate-primary-nav-search"
-    data-primary-nav-current="false"
-    class="primary-nav-bar-link"
-  ><svg class="primary-nav-icon" width="20" height="20" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="5.4"/><path d="M12.2 12.2L16 16"/></svg><span class="primary-nav-bar-label">さがす</span></a>
-  <a
     href="{% url 'gathering:organizer-gathering-list' %}"
     data-testid="candidate-primary-nav-gathering"
     data-primary-nav-current="true"
     class="primary-nav-bar-link"
   ><svg class="primary-nav-icon" width="20" height="20" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><rect x="3" y="4.2" width="12" height="11" rx="2.2"/><path d="M3 7.6h12M6 3v2.4M12 3v2.4"/></svg><span class="primary-nav-bar-label">ランチ会</span></a>
+  <a
+    href="{% url 'web:home' %}"
+    data-testid="candidate-primary-nav-search"
+    data-primary-nav-current="false"
+    class="primary-nav-bar-link"
+  ><svg class="primary-nav-icon" width="20" height="20" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="5.4"/><path d="M12.2 12.2L16 16"/></svg><span class="primary-nav-bar-label">店を探す</span></a>
   <button
     type="button"
     data-testid="candidate-primary-nav-account"
