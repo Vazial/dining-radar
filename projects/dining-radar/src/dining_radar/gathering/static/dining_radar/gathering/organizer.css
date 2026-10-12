@@ -3355,6 +3355,15 @@ body:has(#gathering-app .gth-dash--scheduling) .app-card {
   box-shadow: none;
   padding-left: 0;
   padding-right: 0;
+  padding-top: 0;
+}
+body:has(#gathering-app .gth-dash--scheduling) .app-shell {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+body:has(#gathering-app .gth-dash--scheduling) .app-header {
+  height: 3.75rem;
+  margin-bottom: 0;
 }
 body:has(#gathering-app .gth-dash--scheduling) .app-header,
 .gth-response-section > *:not(.gth-response-scroll) {
@@ -3521,6 +3530,74 @@ body:has(#gathering-app .gth-dash--scheduling) .app-header,
 #gathering-app .gth-dash--finalized { overflow-x: hidden; }
 
 @media (min-width: 48rem) {
+  #gathering-app .gth-dash--scheduling {
+    grid-template-columns: minmax(0, 540px) minmax(0, 1fr);
+    column-gap: 1.25rem;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current {
+    display: contents;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body {
+    display: contents;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-summary,
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > :not(.gth-shop-map),
+  #gathering-app .gth-dash--scheduling > .gathering-step--upcoming,
+  #gathering-app .gth-dash--scheduling > .gathering-step--done {
+    grid-column: 1;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-shop-map {
+    grid-column: 2;
+    grid-row: 1 / span 20;
+    min-height: 42rem;
+    position: relative;
+    width: 100%;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-response-section,
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-answer-card {
+    border: 2px solid #14614a;
+    border-radius: 0.75rem;
+    background: #fff;
+    padding: 0.75rem 0.875rem;
+  }
+  #gathering-app .gth-dash--scheduling .gth-response-section {
+    min-width: 0;
+  }
+  #gathering-app .gth-dash--scheduling .gth-response-table {
+    overflow: hidden;
+  }
+
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-step-content {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 540px) minmax(0, 1fr);
+    gap: 1.25rem;
+    padding-right: 0;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-step-content > .gth-shop-map {
+    grid-column: 2;
+    grid-row: 1 / span 20;
+    min-height: 42rem;
+    position: relative;
+    width: 100%;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-row {
+    border: 0;
+    border-bottom: 1px solid #dfe4de;
+    border-radius: 0;
+    padding: 0.5rem 0;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-link,
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-radio {
+    display: none;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-step-content > .gth-shop-list {
+    grid-column: 1;
+    border: 2px solid #14614a;
+    border-radius: 0.75rem;
+    padding: 0.75rem 0.875rem;
+  }
+}
   #gathering-app .gth-dash { display: grid; grid-template-columns: minmax(0, 1fr) minmax(20rem, 38%); column-gap: 1.5rem; align-items: start; }
   #gathering-app .gth-dash > .gth-header,
   #gathering-app .gth-dash > .gth-heading-bar { grid-column: 1 / -1; }
@@ -3657,5 +3734,27 @@ body:has(#gathering-app .gth-dash--scheduling) .app-header,
   #gathering-app .gathering-step--current .gth-shop-step-content {
     display: flex;
     flex-direction: column;
+  }
+}
+
+/* Final board-order override: keep the current step as one stable row while
+   its body places the map in the right column. */
+@media (min-width: 48rem) {
+  #gathering-app .gth-dash--scheduling > .gathering-step--current {
+    display: block;
+    grid-column: 1 / -1;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body {
+    display: grid;
+    grid-template-columns: minmax(0, 540px) minmax(0, 1fr);
+    gap: 1.25rem;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-shop-map {
+    grid-column: 2;
+    grid-row: 1 / span 20;
+    min-height: 42rem;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > :not(.gth-shop-map) {
+    grid-column: 1;
   }
 }

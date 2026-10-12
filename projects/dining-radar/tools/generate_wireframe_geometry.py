@@ -40,7 +40,7 @@ COMPARE = {
     "HC-PcList": "home__multiple__1440x900.png",
     "HC-SpList": "home__multiple__390x844.png",
     "GC-PcSelecting": "dashboard_selecting__shops_5__1440x900.png",
-    "S3-PcScheduling": "dashboard_scheduling__candidate_dates_14_with_answers__1440x900.png",
+    "GC-PcScheduling": "dashboard_scheduling__candidate_dates_14_with_answers__1440x900.png",
     "GC-PcFinal": "dashboard_finalized__initial__1440x900.png",
 }
 
