@@ -1821,8 +1821,8 @@ class LayoutSanityTests(StaticLiveServerTestCase):
 
                 _run_checks_1_to_5_and_8(self.page, f"dashboard-finalized ({label})", findings)
 
-                by_test_id(self.page, "gathering-decision-answers-open").click()
-                by_test_id(self.page, "gathering-decision-links-open").click()
+                by_test_id(self.page, "gathering-step-answers-open").click()
+                by_test_id(self.page, "gathering-link-section-open").click()
                 _run_checks_1_to_5_and_8(
                     self.page, f"dashboard-finalized-entrance-rows-open ({label})", findings
                 )

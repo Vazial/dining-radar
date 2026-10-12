@@ -326,6 +326,20 @@ class GatheringSchedulingSteps:
     def participant_link_list_matches(self, expected: list[dict[str, object]]) -> None:
         self.dsl.assert_participant_link_list_matches(expected)
 
+    # TDR-GTH-75: the selecting-shop screen keeps both read-only organizer
+    # surfaces behind entrances in the vertical step flow.
+    def organizer_opens_the_schedule_response_table(self) -> None:
+        self.dsl.open_gathering_step_answers()
+
+    def response_table_is_shown(self) -> None:
+        self.dsl.assert_gathering_response_table_is_visible()
+
+    def organizer_opens_the_participant_link_list(self) -> None:
+        self.dsl.open_gathering_link_section()
+
+    def issued_participant_links_are_shown(self) -> None:
+        self.dsl.assert_gathering_participant_link_list_is_visible()
+
     def schedule_question_shows_response(
         self, candidate_date_id: str, expected_status: str
     ) -> None:

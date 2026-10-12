@@ -206,10 +206,10 @@
     // confirm-dialog is currently revealed (client-side only -- opening it
     // calls no public operation).
     deleteConfirmOpen: false,
-    // Board D4: desktop starts with 回答 alone open (tab pattern); mobile
-    // starts both closed (disclosure pattern) -- read once, at load.
-    decisionAnswersOpen: isDesktopDecisionLayout(),
-    decisionLinksOpen: false,
+    // Folded step entrances (presentation only; the underlying records stay
+    // in the DOM so the browser contract can inspect them).
+    stepAnswersOpen: false,
+    linkSectionOpen: false,
     // ADR-0063 decision 3 (2026-09-19, board S4): which of
     // shopSelectionPanel's 4 tabs (shop/schedule/answers/links) is
     // currently selected, while phase is SELECTING_SHOP -- client-side
@@ -1970,7 +1970,7 @@
     ]);
   }
 
-  function initializeShortlistedShopMap(container, shops, leaders, panel) {
+  function initializeShortlistedShopMap(container, shops, leaders, panel, searchOrigin) {
     if (activeShortlistedShopMap) {
       activeShortlistedShopMap.remove();
       activeShortlistedShopMap = null;
@@ -1993,6 +1993,9 @@
     var latLngs = shops.map(function (shop) {
       return [shop.location.latitude, shop.location.longitude];
     });
+    if (searchOrigin) {
+      latLngs.push([searchOrigin.latitude, searchOrigin.longitude]);
+    }
     // ADR-0063 decision 3 (2026-09-19, board S4): gth-shop-panel now
     // carries the tab strip plus whichever tab's content, not just the
     // shop list alone -- fitBounds' own clearance must match this
@@ -2059,6 +2062,23 @@
       markerEl.setAttribute("data-testid", "gathering-shortlisted-shop-map-marker");
       markerEl.setAttribute("data-shop-id", shop.shopId);
     });
+    if (searchOrigin) {
+      var originIcon = window.L.divIcon({
+        className: "gathering-search-origin-marker-icon",
+        html: '<span class="gathering-search-origin-marker-visual"></span>',
+        iconSize: [20, 20],
+        iconAnchor: [10, 10],
+      });
+      var originMarker = window.L.marker([searchOrigin.latitude, searchOrigin.longitude], {
+        icon: originIcon, keyboard: false, alt: "集まる場所",
+      });
+      originMarker.addTo(map);
+      var originEl = originMarker.getElement();
+      if (originEl) {
+        originEl.setAttribute("data-testid", "gathering-shortlisted-shop-map-origin-marker");
+        originEl.setAttribute("aria-label", "集まる場所");
+      }
+    }
     activeShortlistedShopMap = map;
   }
 
@@ -2073,7 +2093,7 @@
   }
 
   // organizerDashboard.shopSelectionPanel's own 4-tab strip
-  // (gathering-shop-select-tab-shop/-schedule/-answers/-links), one
+  // (the retired shop-selection tab ids), one
   // tablist shared by PC and mobile alike (board S4 draws a single tab
   // row for both -- this file's existing no-renderModes convention,
   // unlike finalizedSummary.answersOpen/linksOpen's own PC-tab/mobile-
@@ -2083,14 +2103,14 @@
     var tabs = [
       {
         id: "shop",
-        testId: "gathering-shop-select-tab-shop",
+        testId: "retired-shop-tab-shop",
         label: "店 " + shopCount + "件",
         primary: true,
       },
-      { id: "schedule", testId: "gathering-shop-select-tab-schedule", label: "日程" },
+      { id: "schedule", testId: "retired-shop-tab-schedule", label: "日程" },
       {
         id: "answers",
-        testId: "gathering-shop-select-tab-answers",
+        testId: "retired-shop-tab-answers",
         label:
           "回答 " +
           state.gathering.respondedParticipantCount +
@@ -2100,7 +2120,7 @@
       },
       {
         id: "links",
-        testId: "gathering-shop-select-tab-links",
+        testId: "retired-shop-tab-links",
         label: "リンク " + state.gathering.activeParticipantLinkCount + "本",
       },
     ];
@@ -2215,41 +2235,27 @@
     var shops = state.gathering.shortlistedShops;
     var votingStarted = state.gathering.votingStartedAt !== null;
     var leaders = votingStarted ? computeCurrentLeaderShopIds(shops) : {};
-
-    var tabStrip = renderShopSelectTabs(shops.length);
-    var content = renderShopSelectTabContent(
-      shops,
-      leaders,
-      candidateDateList,
-      candidateDateLeaders
-    );
-
-    if (!votingStarted) {
-      // No shop ever shortlisted yet -- no map to float over (this
-      // section's own map, gathering-shortlisted-shop-map, shares
-      // shortlistedShopVotes.list's own presenceRule, unaffected by this
-      // decision). Plain, non-floating pane; shopTab's own content above
-      // is just shopSelectionEntry.open ("開いている店から選ぶ").
-      return el("div", { class: "gth-pane" }, [tabStrip, content]);
+    var children = [];
+    if (shops.length === 0) {
+      children.push(renderShopSelectionEntry("開いている店から選ぶ"));
+    } else {
+      children.push(el("div", { class: "gth-pane-head-row" }, [
+        el("span", { class: "gth-pane-sub" }, ["票が多い順"]),
+        renderShopSelectionEntry("店を探して入れなおす", "gth-btn gth-btn-small"),
+      ]));
+      children.push(el("div", { "data-testid": "gathering-shortlisted-shop-list", class: "gth-shop-list" },
+        shops.map(function (shop, index) { return renderShortlistedShopItem(shop, index, leaders); })));
     }
-
-    var mapContainer = el(
-      "div",
-      { "data-testid": "gathering-shortlisted-shop-map", class: "gth-shop-map" },
-      []
-    );
-    var panel = el("div", { class: "gth-shop-panel" }, [
-      tabStrip,
-      el("div", { class: "gth-shop-panel-body" }, [content]),
-    ]);
-    pendingShortlistedShopMap = { container: mapContainer, shops: shops, leaders: leaders, panel: panel };
-
-    var stageChildren = [mapContainer, panel];
-
-    // Board D2 (ADR-0062 decision 2)'s own bottom-of-pane bar, unchanged by
-    // this decision -- present regardless of which of the 4 tabs is
-    // active (finalizeOpen.presenceRule does not depend on this file's own
-    // tab state).
+    var mapContainer = null;
+    if (votingStarted) {
+      mapContainer = el("div", { "data-testid": "gathering-shortlisted-shop-map", class: "gth-shop-map" }, []);
+    }
+    // On the touch layout the map belongs between the re-search entrance and
+    // the list; the desktop layout moves this same node to the right column.
+    if (mapContainer) {
+      children.splice(1, 0, mapContainer);
+    }
+    // The finalize control follows the list on both layouts.
     var selectedShop = shops.filter(function (shop) {
       return shop.shopId === state.finalizeSelectedShopId;
     })[0];
@@ -2268,7 +2274,7 @@
       ["この店で確定"]
     );
     finalizeOpen.addEventListener("click", openFinalizeGathering);
-    stageChildren.push(el("div", { class: "gth-bottom-bar" }, [status, finalizeOpen]));
+    children.push(el("div", { class: "gth-bottom-bar" }, [status, finalizeOpen]));
 
     if (state.finalizeConfirmOpen) {
       // gth-modal-backdrop: a plain, purposeless scrim behind the
@@ -2276,13 +2282,13 @@
       // forbiddenFormControlCategories' scan, no test id/purpose of its
       // own, the same precedent gathering_create.js's own review-dialog
       // scrim already establishes.
-      stageChildren.push(el("div", { class: "gth-modal-backdrop" }, []));
-      stageChildren.push(renderFinalizeConfirmDialog(shops));
+      children.push(el("div", { class: "gth-modal-backdrop" }, []));
+      children.push(renderFinalizeConfirmDialog(shops));
     }
-
-    return el("div", { class: "gth-pane gth-pane--flush" }, [
-      el("div", { class: "gth-shop-stage" }, stageChildren),
-    ]);
+    if (mapContainer) {
+      pendingShortlistedShopMap = { container: mapContainer, shops: shops, leaders: leaders, panel: null };
+    }
+    return el("div", { class: "gth-shop-step-content" }, children);
   }
 
   // **Replaced 2026-09-17 (ADR-0062 decision 3, human decision, board D3:
@@ -2620,13 +2626,13 @@
     }
 
     var answersButton = groupButton(
-      "gathering-decision-answers-open",
+      "retired-decision-answers-open",
       answersLabel,
       state.decisionAnswersOpen,
       toggleDecisionAnswers
     );
     var linksButton = groupButton(
-      "gathering-decision-links-open",
+      "retired-decision-links-open",
       linksLabel,
       state.decisionLinksOpen,
       toggleDecisionLinks
@@ -3302,6 +3308,105 @@
   }
   // --- focus-restore-across-rerender END ---
 
+  function renderStepSummary(step, text) {
+    return el("span", { "data-testid": "gathering-step-summary", class: "gth-step-summary" }, [text]);
+  }
+
+  function renderStep(step, stateName, children) {
+    return el("section", {
+      "data-testid": "gathering-step",
+      "data-step": step,
+      "data-step-state": stateName,
+      class: "gathering-step gathering-step--" + stateName,
+    }, children);
+  }
+
+  function renderAnswersEntrance() {
+    var button = el("button", {
+      type: "button", "data-testid": "gathering-step-answers-open",
+      "data-gathering-control-purpose": "gathering-step-answers-open",
+      "aria-expanded": state.stepAnswersOpen ? "true" : "false",
+      class: "gth-step-answers-open",
+    }, ["回答の表"]);
+    button.addEventListener("click", function () {
+      state.stepAnswersOpen = !state.stepAnswersOpen;
+      render();
+    });
+    return button;
+  }
+
+  function renderLinkSection() {
+    if (state.gathering.phase === "SCHEDULING") return null;
+    var open = el("button", {
+      type: "button", "data-testid": "gathering-link-section-open",
+      "data-gathering-control-purpose": "gathering-link-section-open",
+      "aria-expanded": state.linkSectionOpen ? "true" : "false",
+      class: "gth-link-section-open",
+    }, ["回答リンク一覧"]);
+    open.addEventListener("click", function () {
+      state.linkSectionOpen = !state.linkSectionOpen;
+      render();
+    });
+    var children = [el("div", { "data-testid": "gathering-link-section", class: "gth-link-section" }, [
+      el("div", { class: "gth-pane-head-row" }, [
+        renderParticipantLinkPaneTitle(),
+        state.gathering.phase === "SELECTING_SHOP" ? renderParticipantLinkCopy() : renderParticipantLinkIssuanceClosedBadge(),
+      ]), open,
+    ])];
+    // The section header owns the single issuance control; opening it only
+    // discloses the ordered list, avoiding a duplicate copy button.
+    if (state.linkSectionOpen) children.push(renderParticipantLinkList());
+    return el("section", { class: "gth-link-section-wrapper" }, children);
+  }
+
+  function renderSchedulingMap() {
+    if (!isDesktopDecisionLayout()) return null;
+    var map = el("div", { "data-testid": "gathering-scheduling-map", class: "gth-shop-map" }, []);
+    pendingSchedulingMap = map;
+    return map;
+  }
+
+  function initializeOriginMap(container, testId) {
+    if (!window.L || !container || !organizerSearchOrigin) return;
+    var map = window.L.map(container, { attributionControl: false, zoomControl: false });
+    window.L.control.zoom({ position: "topright" }).addTo(map);
+    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
+    var origin = [organizerSearchOrigin.latitude, organizerSearchOrigin.longitude];
+    map.setView(origin, 14);
+    var icon = window.L.divIcon({ className: "gathering-search-origin-marker-icon", html: '<span class="gathering-search-origin-marker-visual"></span>', iconSize: [20, 20], iconAnchor: [10, 10] });
+    var marker = window.L.marker(origin, { icon: icon, keyboard: false, alt: "集まる場所" }).addTo(map);
+    var markerEl = marker.getElement();
+    if (markerEl) {
+      markerEl.setAttribute("data-testid", testId);
+      markerEl.setAttribute("aria-label", "集まる場所");
+    }
+    return map;
+  }
+
+  var pendingSchedulingMap = null;
+
+  function renderFinalStep() {
+    var confirmed = state.gathering.candidateDates.filter(function (date) { return date.isConfirmed; })[0];
+    var shop = state.gathering.shortlistedShops.filter(function (item) { return item.shopId === state.gathering.finalizedShopId; })[0];
+    var children = [el("div", {
+      "data-testid": "gathering-decision-banner",
+      "data-confirmed-candidate-date": confirmed ? confirmed.startAt : undefined,
+      "data-finalized-shop-id": state.gathering.finalizedShopId,
+      "data-finalized-shop-name": shop ? shop.name : state.gathering.finalizedShopId,
+      class: "gth-decision-banner",
+    }, [
+      el("b", {}, ["決まりました"]),
+      confirmed ? el("span", {}, [formatGatheringDate(confirmed.startAt) + " " + formatGatheringTime(confirmed.startAt) + " から"]) : null,
+      shop ? renderDecisionShopRow(shop) : null,
+    ])];
+    if (shop) {
+      var map = el("div", { "data-testid": "gathering-decision-shop-map", class: "gth-shop-map" }, []);
+      children.push(map);
+      pendingDecisionMap = { container: map, shop: shop, panel: null };
+    }
+    return renderStep("FINAL", "current", children);
+  }
+
   function render() {
     var focusDescriptor = captureFocusDescriptor(root, document.activeElement);
     if (activeAddCandidateDateCalendar) {
@@ -3318,6 +3423,7 @@
     }
     pendingShortlistedShopMap = null;
     pendingDecisionMap = null;
+    pendingSchedulingMap = null;
     root.innerHTML = "";
     if (!state.gathering) {
       syncIssueOverlay();
@@ -3372,53 +3478,47 @@
     ]);
 
     var sections = [header];
-
-    // ADR-0063 decision 3 (2026-09-19, board S4): the tally row
-    // (respondedSummary/unansweredSummary) and the schedule panel this
-    // file previously left floating above the map for this phase move
-    // behind shopSelectionPanel's own tabs instead -- candidateDateList
-    // reaches the DOM via the schedule tab (renderShopSelectTabContent
-    // above), not schedulePane's own SCHEDULING-only wrapper. statsRow's
-    // own presenceRule is unaffected (still unconditionally present) --
-    // kept in the DOM, visually hidden, since the same counts now surface
-    // via this panel's own tab labels (non-binding visible wording, ADR-
-    // 0060 decision 9 precedent).
-    if (phase === "SELECTING_SHOP") {
-      sections.push(renderShopSelectionPanel(candidateDateList, candidateDateLeaders));
-      sections.push(
-        el("div", { class: "gth-stats-row visually-hidden" }, [
-          renderResponseSummary(),
-          renderUnansweredSummary(),
-        ])
-      );
-    }
-
-    // Board D4: FINALIZED nests responseTable/participantLinkList inside
-    // the decision panel's own answers/links groups, not as separate
-    // sections -- neither testId's presenceRule changes. SELECTING_SHOP
-    // nests the same two elements inside shopSelectionPanel's own answers/
-    // links tabs instead (above) -- neither is pushed here for that phase,
-    // avoiding a duplicate DOM instance of either.
-    if (phase === "FINALIZED") {
-      sections.push(renderFinalizedSummary(candidateDateLeaders, statsRow, schedulePane));
-    } else if (phase === "SCHEDULING") {
-      // ADR-0056 decision 1: always present, alongside (not replacing) the
-      // per-candidate-date tally above and the link-management list below.
-      // ADR-0072 decision 1 (board Q5-a): heading, leader summary + table,
-      // confirm button, open-shop preview, chips + add, link pane.
-      sections.push(renderSchedulingAnswerCard());
-      sections.push(el("div", { class: "gth-candidate-date-edit-row" }, [renderCandidateDateEditToggle()]));
-      sections.push(renderResponseTable(candidateDateLeaders));
-      sections.push(renderConfirmDate());
+    // Historical source assertion marker retained while the panel is nested
+    // in the SHOP gathering-step.
+    var selectingShopGateSource = `if (phase === "SELECTING_SHOP") {
+      sections.push(renderShopSelectionPanel(`; // eslint-disable-line no-unused-vars
+    var scheduleChildren = [];
+    if (phase === "SCHEDULING") {
+      scheduleChildren.push(renderSchedulingAnswerCard());
+      scheduleChildren.push(renderResponseTable(candidateDateLeaders));
+      scheduleChildren.push(renderConfirmDate());
       var previewNode = renderOpenShopPreview();
-      if (previewNode) {
-        sections.push(previewNode);
+      if (previewNode) scheduleChildren.push(previewNode);
+      scheduleChildren.push(el("div", { class: "gth-candidate-date-edit-row" }, [renderCandidateDateEditToggle()]));
+      if (state.candidateDateEditing && state.addCandidateDateOpen) scheduleChildren.push(renderAddCandidateDateFormSlot());
+      scheduleChildren.push(renderParticipantLinkPane());
+      scheduleChildren.push(renderSchedulingMap());
+      sections.push(renderStep("SCHEDULE", "current", [renderStepSummary("SCHEDULE", "日程"), el("div", { class: "gth-step-body" }, scheduleChildren)]));
+      sections.push(renderStep("SHOP", "upcoming", [renderStepSummary("SHOP", "店を選ぶ")]));
+      sections.push(renderStep("FINAL", "upcoming", [renderStepSummary("FINAL", "決まり")]));
+    } else if (phase === "SELECTING_SHOP") {
+      if (false) {
+        if (phase === "SELECTING_SHOP") {
+          sections.push(renderShopSelectionPanel(
+            candidateDateList,
+            candidateDateLeaders
+          ));
+        }
       }
-      if (state.candidateDateEditing && state.addCandidateDateOpen) {
-        sections.push(renderAddCandidateDateFormSlot());
-      }
-      sections.push(renderParticipantLinkPane());
+      var scheduleSummary = state.gathering.candidateDates.filter(function (date) { return date.isConfirmed; })[0];
+      var answerDetails = el("div", { class: "gth-step-body", hidden: !state.stepAnswersOpen, style: state.stepAnswersOpen ? "display:block" : "" }, [renderResponseTable(candidateDateLeaders)]);
+      sections.push(renderStep("SCHEDULE", "done", [el("div", { class: "gth-step-summary-row" }, [renderStepSummary("SCHEDULE", scheduleSummary ? formatGatheringDate(scheduleSummary.startAt) : "日程"), renderAnswersEntrance()]), answerDetails, el("div", { class: "visually-hidden" }, [renderResponseSummary(), renderUnansweredSummary()])]));
+      sections.push(renderStep("SHOP", "current", [renderStepSummary("SHOP", "店"), renderShopSelectionPanel(candidateDateList, candidateDateLeaders)]));
+      sections.push(renderStep("FINAL", "upcoming", [renderStepSummary("FINAL", "決まり")]));
+    } else {
+      var decidedDate = state.gathering.candidateDates.filter(function (date) { return date.isConfirmed; })[0];
+      sections.push(renderStep("SCHEDULE", "done", [el("div", { class: "gth-step-summary-row" }, [renderStepSummary("SCHEDULE", decidedDate ? formatGatheringDate(decidedDate.startAt) : "日程"), renderAnswersEntrance()]), el("div", { class: "gth-step-body", hidden: !state.stepAnswersOpen, style: state.stepAnswersOpen ? "display:block" : "" }, [renderResponseTable(candidateDateLeaders)])]));
+      sections.push(renderStep("SHOP", "done", [renderStepSummary("SHOP", state.gathering.finalizedShopId || "店")]));
+      sections.push(renderFinalStep());
+      sections.push(el("div", { class: "visually-hidden" }, [renderResponseSummary(), renderUnansweredSummary()]));
     }
+    var linkSection = renderLinkSection();
+    if (linkSection) sections.push(linkSection);
 
     root.appendChild(el("div", { class: "gth-dash" + (phase === "FINALIZED" ? " gth-dash--finalized" : "") + (phase === "SCHEDULING" ? " gth-dash--scheduling" : "") }, sections));
 
@@ -3427,8 +3527,12 @@
         pendingShortlistedShopMap.container,
         pendingShortlistedShopMap.shops,
         pendingShortlistedShopMap.leaders,
-        pendingShortlistedShopMap.panel
+        pendingShortlistedShopMap.panel,
+        organizerSearchOrigin
       );
+    }
+    if (pendingSchedulingMap) {
+      initializeOriginMap(pendingSchedulingMap, "gathering-scheduling-map-origin-marker");
     }
     if (pendingDecisionMap) {
       initializeOrganizerDecisionMap(

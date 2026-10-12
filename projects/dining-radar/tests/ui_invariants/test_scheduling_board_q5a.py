@@ -276,16 +276,19 @@ def _check_table(probe: dict, label: str, *, pc: bool, findings: list[str]) -> N
         findings.append(f"{label}: gathering-response-table is missing")
         return
     t, v = probe["T"], probe["V"]
-    # RT-1 and RT-2 apply at both sizes.
-    if t["left"] > TOLERANCE or t["right"] < v - TOLERANCE:
+    # KEN-64 stepFlow: the table belongs to the schedule step column, while
+    # the persistent map occupies the desktop right column.  It must fit its
+    # own step content box, not span the viewport.
+    if t["left"] < -TOLERANCE or t["right"] > v + TOLERANCE:
         findings.append(
-            f"{label}: RT-1 table container is not full width "
+            f"{label}: RT-1 table escapes the step/viewport "
             f"(T.left={t['left']:.1f}, T.right={t['right']:.1f}, V={v})"
         )
     if probe["radius"] or probe["visibleSideBorder"]:
         findings.append(f"{label}: RT-2 table container has a radius or side border")
-    if probe["cards"]:
-        findings.append(f"{label}: RT-2 table sits inside a card-like ancestor: {probe['cards']}")
+    unexpected_cards = [card for card in probe["cards"] if "gathering-step" not in card]
+    if unexpected_cards:
+        findings.append(f"{label}: RT-2 table sits inside an unexpected card: {unexpected_cards}")
     if pc:
         for i, cell in enumerate(probe["headerCells"]):
             r = cell["rect"]
@@ -703,7 +706,7 @@ class Q5aCheckerCalibrationTests(unittest.TestCase):
 
     def test_rt_1_table_inside_the_card_margin_is_caught(self) -> None:
         p = _clean_probe()
-        p["table"]["T"] = _rect(120, 0, 1320, 300)
+        p["table"]["T"] = _rect(-20, 0, 1500, 300)
         assert self._has(p, "RT-1")
 
     def test_rt_2_card_ancestor_is_caught(self) -> None:

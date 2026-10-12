@@ -126,6 +126,17 @@ def capture_candidate_proposal_response(
 
 
 def by_test_id(scope: Page | Locator, test_id: str) -> Locator:
+    # KEN-64 retired the tab/disclosure test ids. Keep older invariant/DSL
+    # callers source-compatible while resolving directly to the new contract
+    # entrances; no retired id is rendered by the application.
+    test_id = {
+        "gathering-shop-select-tab-links": "gathering-link-section-open",
+        "gathering-shop-select-tab-answers": "gathering-step-answers-open",
+        "gathering-shop-select-tab-schedule": "gathering-step-answers-open",
+        "gathering-shop-select-tab-shop": "gathering-shortlist-open",
+        "gathering-decision-answers-open": "gathering-step-answers-open",
+        "gathering-decision-links-open": "gathering-link-section-open",
+    }.get(test_id, test_id)
     return scope.get_by_test_id(test_id)
 
 

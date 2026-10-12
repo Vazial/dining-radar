@@ -987,17 +987,28 @@
 # - **追補35（ADR-0080決定6）**: `participantOrdinal`（名前なしは「参加者N」、全リンクの発行順の順位）。
 # - `allowedPurposes` に `gathering-list-next-action`・`gathering-candidate-date-edit-toggle`・`gathering-list-empty-search-open`・
 #   `gathering-step-answers-open` を足し、`gathering-shop-select-tab-*` の4つを外す。
-# - `gathering-scheduling-api.yaml` は変えない。`.feature` は TDR-GTH-68〜73 を確定し、TDR-GTH-74 を足した。
+# - `gathering-scheduling-api.yaml` は変えない。`.feature` は TDR-GTH-68〜73 を確定し、TDR-GTH-74 を足した。追補37で TDR-GTH-75（店を選び中でも回答の表と回答リンクの一覧を見られる。人間の承認済み）を足した。
 # - **追補36（2026-10-11、ADR-0080決定8、キャンバス版112「5 日程を聞き中の表」）**: 決める点5の画面の細部を確定する。`answerCard.selectedDate`
 #   （最初は何も選ばない／列見出しを押して仮選択／「✓ 選択中」／有力と選択の両方を出せる／選択の色は有力に勝つ／枠線は使わない）、
 #   `answerCard.totalRow`（「○N」とその下に小さく「△M」、棒なし。新設の表示専用 `gathering-response-table-maybe-count`）、`confirmDate.target`
 #   （有力の日への自動の代入をやめる。未選択のボタンは「日を選ぶ」で押せない）。contractVersionを0.34.0から0.35.0へ上げる。色の値は固定しない。
+# - **追補37（2026-10-11、ADR-0079決定5〜9、KEN-64、人間の決定3＝縦の手順の確定、キャンバス「3 会の画面の並び」案C・3-追加 案A）**:
+#   決める点3の暫定を外して確定し、会の画面のタブと地図の旧い節を「廃止・移動」として書き直す。新設: `stepFlow.summary`
+#   （gathering-step-summary）・`stepFlow.foldedEntrance`（SF-6、SF-7）・`linkSection`（gathering-link-section、LS-1〜LS-3、
+#   入口 gathering-link-section-open）・`mapPlacement` の SF-5〜SF-9（PC の列、店の段の中の並び、決まりの段の中の並び、起点マーカー
+#   gathering-scheduling-map-origin-marker・gathering-shortlisted-shop-map-origin-marker）。廃止: `finalizedSummary.answersOpen`
+#   （gathering-decision-answers-open）・`linksOpen`（gathering-decision-links-open）・`answersContent`・`decisionBanner.map.layout`
+#   （全幅の地図）。読み替え: `responseTableWidth` の RT-1・RT-2（PCは手順の列の幅、手順の枠の中は許す）、`participantLinkCopy`・
+#   `participantLinkList` の置き場（SELECTING_SHOP・FINALIZED は linkSection の中）、`shortlistedShopVotes.list.item.detailFields.map` の
+#   scope（幹事自身の検索基点を足す）。`allowedPurposes` から gathering-decision-answers-open・gathering-decision-links-open を外し、
+#   gathering-link-section-open を足す。`gathering-scheduling-api.yaml` は変えない。`.feature` は変えない（コメントのみ）。
+#   contractVersionを0.35.0から0.36.0へ上げる。
 #
 openapi_note: >-
   This file is not an OpenAPI document; it is test infrastructure. The
   `contractVersion`/`kind` header below follows the same convention as
   candidate-search-browser-interface.yaml and authentication-browser-interface.yaml.
-contractVersion: '0.35.0'
+contractVersion: '0.36.0'
 kind: acceptance-browser-interface
 scope: gathering-scheduling
 renderModel: >-
@@ -1385,10 +1396,17 @@ unavailableControls:
      gathering-participant-link-issue-dialog-copy,
      gathering-participant-link-issue-dialog-close,
      gathering-participant-day-list-open, gathering-participant-day-list-close,
-     gathering-decision-answers-open, gathering-decision-links-open,
      gathering-list-next-action, gathering-candidate-date-edit-toggle,
      gathering-list-empty-search-open,
-     gathering-step-answers-open]
+     gathering-step-answers-open, gathering-link-section-open]
+  allowedPurposesNote2026_10_11b: >-
+    2026-10-11 (追補37, ADR-0079 decisions 6 and 7, KEN-64). One purpose
+    added: gathering-link-section-open (organizerDashboard.linkSection.
+    open). Two removed: gathering-decision-answers-open and gathering-
+    decision-links-open (finalizedSummary.answersOpen / linksOpen are
+    retired; their successors are stepFlow.answersOpen and linkSection.
+    open, in every phase that has a folded schedule step or a link
+    section).
   allowedPurposesNote2026_10_11: >-
     2026-10-11 (ADR-0078/0079/0080, KEN-58). Three purposes added:
     gathering-list-next-action (organizerGatheringList.list.item.nextAction)
@@ -3045,6 +3063,20 @@ browserControlSurface:
               presenceRule: >-
                 Same presenceRule as gathering-shortlisted-shop-list itself
                 (present whenever Gathering.votingStartedAt is non-null).
+              scopeAfter37: >-
+                **Changed 2026-10-11 (追補37, mapPlacement SF-9)**: in
+                addition to the shop pins, the map shows the organizer's
+                own configured search origin through exactly one
+                gathering-shortlisted-shop-map-origin-marker (display-only,
+                no purpose, a plain element outside the form-control scan).
+                "never the private search origin" below is the rule for
+                the participant-facing shop-vote map and is unchanged
+                there; it no longer applies to this organizer-only map.
+                No walking-radius ring is added.
+              originMarker:
+                testId: gathering-shortlisted-shop-map-origin-marker
+                formControl: false
+                cardinality: exactly-one-element
               scope: >-
                 Shows only each currently rendered gathering-shortlisted-
                 shop-item's own pin -- never the private search origin and
@@ -3330,6 +3362,22 @@ browserControlSurface:
             dashboard root has a visible border, a non-zero border-radius
             or a box-shadow. (RT-1 is the measurable consequence of this;
             this clause names the card that is forbidden.)
+          RT-1-after37: >-
+            **Changed 2026-10-11 (追補37, ADR-0079 decision 6)**: RT-1 is
+            read as: mapPrimaryTouchLayout unchanged. twoColumnLayout: the
+            table's container T spans the width of the SCHEDULE
+            gathering-step, not the viewport: T.left <= step.left + 1 and
+            T.right >= step.right - 1 (the steps' column is narrower than
+            the viewport because the map is on its right, SF-1). T scrolls
+            horizontally inside itself; the board draws about seven dates
+            at a time.
+          RT-2-after37: >-
+            **Changed 2026-10-11 (追補37)**: RT-2 forbids a visible
+            border, rounded corners or a shadow on T and on ancestors of T
+            strictly inside the SCHEDULE gathering-step element; the
+            gathering-step element itself and everything above it may be
+            drawn as a card (the board draws each step in a bordered
+            card).
           RT-3: >-
             PC (twoColumnLayout): every gathering-response-table-header-cell
             has a border-box width of at least 44px (the board's pitch), and
@@ -3484,6 +3532,14 @@ browserControlSurface:
         comments: the .feature's TDR-GTH-36 is about re-copying after
         FINALIZED and says nothing about tabs; "reachable from every tab"
         was a tester's L4 set-up finding, never a contract requirement.
+      presenceRuleAfter37: >-
+        **Changed 2026-10-11 (追補37, ADR-0079 decision 7), replaces the
+        "Narrowed 2026-10-04" qualification above**: SCHEDULING unchanged
+        (directly on the dashboard in the SCHEDULE step, PH-1..PH-4).
+        SELECTING_SHOP: present and visible inside linkSection (as part of
+        gathering-participant-link-heading), always, whether or not
+        stepFlow.answersOpen or linkSection.open is expanded and whether
+        or not any shop has been shortlisted. FINALIZED: absent, unchanged.
       requiredOutcome: >-
         Activating it calls issueParticipantLinks with count: 1.
         Gathering.totalIssuedParticipantLinks and activeParticipantLinkCount
@@ -3558,6 +3614,14 @@ browserControlSurface:
         Supports TDR-GTH-16 through TDR-GTH-20, and TDR-GTH-36 (P4,
         recopy remains available post-FINALIZED).
       testId: gathering-participant-link-list
+      placementAfter37: >-
+        **Changed 2026-10-11 (追補37)**: while phase is SCHEDULING this
+        list sits where schedulingLayout (7) puts it (unchanged, visible
+        directly). While SELECTING_SHOP or FINALIZED it is inside
+        linkSection and is visible exactly while
+        linkSection.open's aria-expanded is "true". It was behind the
+        retired linksTab / finalizedSummary.linksOpen, and (in the 追補33
+        wording) behind stepFlow.answersOpen; neither applies any more.
       issuanceClosed:
         testId: gathering-participant-link-issuance-closed
         presenceRule: >-
@@ -3981,25 +4045,80 @@ browserControlSurface:
           ADR-0073's "only the confirmed date's chip is visible" as this
           line. No "change the decided date" control exists (answer
           79-Q4=A: there is no operation that moves the phase back).
+      summary:
+        testId: gathering-step-summary
+        formControl: false
+        presenceRule: >-
+          Added 2026-10-11 (追補37, ADR-0079 decision 5). Exactly one inside
+          every gathering-step whose data-step-state is "done" or
+          "upcoming"; none inside the "current" step.
+        requirement: >-
+          Display-only. For a "done" step it is the one line SF-5 names:
+          SCHEDULE: its visible text contains the confirmed date as M/D(曜)
+          for the gathering-candidate-date whose data-confirmed is "true";
+          SHOP: its visible text contains the finalized shop's name, equal
+          to gathering-decision-banner's data-finalized-shop-name. For an
+          "upcoming" step it is one explanatory line (wording not fixed).
+          The rest of the wording and look are not fixed.
+      foldedEntrance:
+        description: >-
+          Added 2026-10-11 (追補37, ADR-0079 decision 5, answers 79-Q5=A and
+          79-Q3=A, human decision 3 / 3-追加 plan A). Makes SF-5 measurable.
+        SF-5a: >-
+          A "done" step's visible content is exactly its summary line
+          (gathering-step-summary) and, for the SCHEDULE step only,
+          answersOpen; when answersOpen is expanded, also the detail
+          answersOpen discloses. The SHOP step in FINALIZED has no
+          entrance: nothing is folded in it (the other shops' tallies are
+          not shown once FINALIZED, finalizedSummary.unchangedRecords), so
+          the summary line carries it all. The FINAL step is never folded.
+          A whole-line tap target or a chevron drawn on a folded line is
+          look only if it is answersOpen itself; no second test id opens
+          the same detail.
+        SF-6: >-
+          answersOpen is present in the SCHEDULE step exactly while that
+          step's data-step-state is "done", is the only entrance, and is
+          the only element that opens or folds the SCHEDULE step's detail.
+          Only one fold state exists per step (no per-tab state).
+        SF-7: >-
+          answersOpen lies on the same row as the SCHEDULE step's
+          gathering-step-summary and to its right: answersOpen.left >=
+          summary.right - 1, the vertical centre of summary lies within
+          answersOpen's vertical range, and both are descendants of the
+          SCHEDULE gathering-step. answersOpen's height is at least 44px
+          (ADR-0066 ui invariants; the board's 40px is not enough).
+        domPreserved: >-
+          Folded detail (gathering-response-table with its header cells,
+          rows and total row, and every gathering-candidate-date inside
+          the header cells) stays in the DOM with every attribute
+          unchanged while folded; only visibility changes. The
+          data-confirmed, data-going-count and data-current-leader values
+          the rest of this file reads from gathering-candidate-date remain
+          readable. (Carried over from the retired finalizedSummary.
+          answersContent.)
       answersOpen:
         testId: gathering-step-answers-open
         purpose: gathering-step-answers-open
+        attributes:
+          expanded: aria-expanded
         presenceRule: >-
           Present in the SCHEDULE step exactly while that step's
           data-step-state is "done" (SELECTING_SHOP and FINALIZED).
+        label: >-
+          Added 2026-10-11 (追補37, human decision 3-追加 plan A). Its
+          visible text contains 「回答の表」 and does not contain 「変える」
+          (a Must: the board's wording; there is no control that changes
+          the decided date, answer 79-Q4=A).
         requiredOutcome: >-
-          Activating it expands the SCHEDULE step: gathering-response-table
-          (with its header cells, rows and total row), participantLinkList
-          and, in SELECTING_SHOP only, participantLinkCopy become visible;
-          activating it again folds them. Calls no public operation. This
-          is the single replacement for the retired answersTab and
-          linksTab (answer 79-Q3=A); finalizedSummary.answersOpen/linksOpen
-          keep their own rules in FINALIZED unless a later decision merges
-          them.
-      limitation: >-
-        The exact layout of the expanded SCHEDULE step was drawn on the
-        board only in canvas version 71, which this revision's author did
-        not read; only the behaviour above is fixed. The look is not.
+          aria-expanded starts "false". Activating it flips aria-expanded
+          and, when "true", makes gathering-response-table (with its header
+          cells, rows and total row) visible inside the SCHEDULE step;
+          activating it again folds it. It does NOT disclose
+          participantLinkList or participantLinkCopy (**Changed
+          2026-10-11, 追補37**: those moved to linkSection, whose own
+          entrance is linkSection.open). Calls no public operation. It is
+          the single successor of the retired answersTab and the retired
+          finalizedSummary.answersOpen.
     mapPlacement:
       description: >-
         Added 2026-10-11 (ADR-0079 decision 2, 追補33, answers 79-Q1=A,
@@ -4031,6 +4150,102 @@ browserControlSurface:
         SF-4: >-
           Neither layout makes the page scroll horizontally because of the
           map (ADR-0066 decision 1's overflow check applies).
+        SF-5: >-
+          Added 2026-10-11 (追補37). twoColumnLayout: the gathering-step
+          elements and, in SELECTING_SHOP and FINALIZED, linkSection form
+          one column to the left of the map: their left edges agree
+          within 1px, they are stacked in DOM order without overlap
+          (each element's bottom <= the next one's top + 1), and every
+          one of them has right <= map.left + 1. The map's top is within
+          the first gathering-step's vertical range or above it (it does
+          not start below the SCHEDULE step), so the map is visible
+          without scrolling together with the first step at 1440x900.
+        SF-6: >-
+          Added 2026-10-11 (追補37). Under both layouts the only map that
+          is ever visible in each phase is the one in SF-2. Neither the
+          SHOP step in SCHEDULING, nor the SCHEDULE step, nor the former
+          shopSelectionPanel contains a map.
+        SF-7: >-
+          Added 2026-10-11 (追補37). SELECTING_SHOP, both layouts: inside
+          the SHOP gathering-step, in DOM and screen order, (a)
+          gathering-shortlist-open (the entrance to 店を探して入れなおす,
+          in the step's heading row), (b) the shop list
+          gathering-shortlisted-shop-list, (c) gathering-finalize-open.
+          (a)'s bottom <= (b)'s top + 1 and (b)'s bottom <= (c)'s top + 1.
+          On mapPrimaryTouchLayout the map (gathering-shortlisted-shop-map,
+          a descendant of the SHOP step by SF-3) lies above the list:
+          map.bottom <= list.top + 1. On twoColumnLayout the map is not in
+          the step (SF-1) and no map rule applies to the list.
+        SF-8: >-
+          Added 2026-10-11 (追補37). FINALIZED, mapPrimaryTouchLayout: the
+          map (gathering-decision-shop-map) is a descendant of the FINAL
+          gathering-step and lies below the decision text:
+          gathering-decision-banner.bottom <= map.top + 1. The map stays
+          for the whole life of a FINALIZED gathering (it is not collapsed
+          or removed when the other steps are opened or folded).
+        SF-9: >-
+          Added 2026-10-11 (追補37). Each map carries exactly one marker
+          of the organizer's own search origin, as a display-only element
+          with no purpose: gathering-scheduling-map-origin-marker in
+          SCHEDULING (the only point that map shows, so TDR-GTH-08/09
+          still hold), gathering-shortlisted-shop-map-origin-marker in
+          SELECTING_SHOP (beside the shop pins), and the existing
+          gathering-decision-shop-map-origin-marker in FINALIZED. The
+          origin is the organizer's own configured origin (not a
+          participant-facing value), unlike the participant-side rule in
+          shortlistedShopVotes.list.item.detailFields.map.scope.
+    linkSection:
+      description: >-
+        Added 2026-10-11 (追補37, ADR-0079 decision 7, human decision 3-追加
+        plan A: 「リンクは手順の下の節」). Replaces the retired linksTab
+        (shopSelectionPanel) and finalizedSummary.linksOpen. While phase is
+        SCHEDULING nothing changes: the link heading, issue control and
+        list stay inside the SCHEDULE step (schedulingLayout (7),
+        participantLinkHeading PH-1..PH-4).
+      testId: gathering-link-section
+      formControl: false
+      presenceRule: >-
+        Present exactly while phase is SELECTING_SHOP or FINALIZED;
+        absent in SCHEDULING. Not a descendant of any gathering-step.
+      contents: >-
+        In DOM and screen order: (1) gathering-participant-link-heading
+        (the label and the active link count N for 「回答リンク N本」,
+        N equal to gathering-unanswered-summary's
+        data-active-issued-links) with, in SELECTING_SHOP only,
+        participantLinkCopy at its right (PH-2, PH-3 apply as in
+        SCHEDULING; it is absent in FINALIZED and participantLinkList.
+        issuanceClosed shows instead); (2) gathering-responded-summary
+        (「答えた N」) and gathering-unanswered-summary (「まだ M」), the
+        same elements answerCard holds while SCHEDULING (one instance of
+        each in every phase; their attributes are unchanged); (3) open
+        (below); (4) participantLinkList.
+      open:
+        testId: gathering-link-section-open
+        purpose: gathering-link-section-open
+        attributes:
+          expanded: aria-expanded
+        presenceRule: Present exactly while linkSection itself is present.
+        requiredOutcome: >-
+          aria-expanded starts "false". Activating it flips aria-expanded;
+          when "true", participantLinkList (all items, with recopy and,
+          where its own presenceRule allows, revoke) is visible; when
+          "false" it is not visible. participantLinkList stays in the DOM
+          in every phase with its own presenceRule unchanged (as
+          finalizedSummary.unchangedRecords fixed). Calls no public
+          operation. Its height is at least 44px.
+      geometry:
+        LS-1: >-
+          linkSection is not a descendant of any gathering-step and lies
+          below all three: linkSection.top >= (the FINAL step's bottom) - 1.
+        LS-2: >-
+          twoColumnLayout: linkSection lies in the steps' column (SF-5):
+          linkSection.right <= map.left + 1. mapPrimaryTouchLayout: the
+          page does not scroll horizontally because of it.
+        LS-3: >-
+          participantLinkCopy (SELECTING_SHOP), when present, is a
+          descendant of gathering-participant-link-heading and lies at its
+          right (PH-2); gathering-link-section-open lies below the
+          tally and above the list.
     answerCard:
       description: >-
         Added 2026-10-11 (ADR-0080 decision 1, 追補34). Replaces the
@@ -4279,25 +4494,18 @@ browserControlSurface:
           presenceRule: >-
             Present whenever gathering-decision-banner itself is present
             (i.e. whenever phase is FINALIZED).
-          layout: >-
-            Added 2026-10-04 (ADR-0069 decision 4, board party2/d4r
-            G1/G2: the map is `inset: 0; border: 0; border-radius: 0`
-            under the heading; a board-ruled position and shape, so a
-            Must per ADR-0066 decision 2). The map fills the screen from
-            the lower edge of headingBar down to the bottom of the
-            screen's own content area (the top edge of mobileBar under
-            mapPrimaryTouchLayout, the viewport's lower edge otherwise)
-            and across the whole width of the viewport: its left and
-            right edges coincide with the viewport's left and right
-            edges, with no outer margin or inset on either side, no
-            visible border, and no rounded corners (computed
-            border-radius 0). Nothing but headingBar sits between the
-            top bar and the map. The floating panel
-            (finalizedSummary's decisionBanner, answersOpen, linksOpen)
-            overlaps this map and is not part of its box, so the panel's
-            own inset and rounded corners (ADR-0062 decision 4) are
-            unaffected. Exact heights and the panel's size remain
-            visual choices this contract does not fix.
+          layout:
+            retired: true
+            retiredBy: ADR-0079 decision 6 (追補37, 2026-10-11, human decision 3)
+            requirement: >-
+              **Retired 2026-10-11.** The full-width map under the heading
+              (ADR-0069 decision 4; ADR-0063 decision 2) no longer exists
+              on any viewport. Where this map sits is now fixed by
+              organizerDashboard.mapPlacement: twoColumnLayout SF-1 (the
+              right column, beside the steps), mapPrimaryTouchLayout SF-3
+              and SF-8 (inside the FINAL gathering-step, below the decision
+              text). The map's scope, markers and attributes below are
+              unchanged.
           scope: >-
             Shows exactly two points: the finalized shop's own pin (marker
             below) and this organizer's own configured search origin
@@ -4348,101 +4556,35 @@ browserControlSurface:
             precedent gathering-participant-decision-page-link already
             establishes.
       answersOpen:
-        description: >-
-          Added 2026-09-19 (orchestrator's own confirmation of this ADR's
-          未決事項2, the same escalation path ADR-0059 decision 5/ADR-0060
-          decision 5 already used for geometry this contract otherwise
-          leaves open -- applied here because an entrance with no
-          testId/purpose cannot be measured against ADR-0020 決定4's
-          tap-target/keyboard-reachability invariants, the same reason
-          addendum 21 above named dayList.sheetOpen/sheetClose). The
-          entrance to organizerDashboard.responseTable above, paired with
-          linksOpen below.
-        testId: gathering-decision-answers-open
-        purpose: gathering-decision-answers-open
-        presenceRule: >-
-          Present exactly when finalizedSummary itself is present (i.e.
-          whenever phase is FINALIZED), same condition as linksOpen below.
+        retired: true
+        retiredBy: ADR-0079 decision 6 (追補37, 2026-10-11)
+        movedTo: organizerDashboard.stepFlow.answersOpen
         requirement: >-
-          On the tab-shaped presentation (board G1, PC), this and
-          linksOpen below are two mutually exclusive tabs; exactly one
-          carries aria-selected="true" at any time, and this one starts
-          selected (板G1: 回答のタブが最初に選ばれている). On the
-          disclosure-row-shaped presentation (board G2, narrow viewport),
-          this is one of two independent rows (paired with linksOpen
-          below) that each carry aria-expanded reflecting their own
-          open/closed state independently of the other; this one starts
-          aria-expanded="false" (板G2: 「回答を見る N人」の行は最初は閉じて
-          いる). This contract does not name these two presentations as
-          render modes and does not fix which viewport width selects
-          which one (this file's existing no-renderModes convention,
-          ADR-0062 decision 4's own 検討した代替案).
-        requiredOutcome: >-
-          Activating it makes organizerDashboard.responseTable above
-          currently visible (on the tab-shaped presentation this also
-          makes linksOpen's own aria-selected false and
-          organizerDashboard.participantLinkList above currently not
-          visible; on the disclosure-row-shaped presentation it affects
-          only this row's own aria-expanded and does not change linksOpen
-          below). Calls no public operation -- it only discloses the
-          already-required responseTable above; responseTable's own
-          presenceRule/fields (above) are unchanged by this control's
-          existence.
+          **Retired 2026-10-11.** gathering-decision-answers-open and its
+          purpose no longer exist; the id must not be present. The tab-
+          shaped and disclosure-row-shaped presentations (board G1/G2) are
+          gone. The entrance to organizerDashboard.responseTable once the
+          date is decided is stepFlow.answersOpen on the folded SCHEDULE
+          step, in SELECTING_SHOP and in FINALIZED alike.
       linksOpen:
-        description: >-
-          Added 2026-09-19, same origin as answersOpen above. The entrance
-          to organizerDashboard.participantLinkList above, symmetric with
-          answersOpen above.
-        testId: gathering-decision-links-open
-        purpose: gathering-decision-links-open
-        presenceRule: >-
-          Present exactly when finalizedSummary itself is present (i.e.
-          whenever phase is FINALIZED), same condition as answersOpen
-          above.
+        retired: true
+        retiredBy: ADR-0079 decision 6 (追補37, 2026-10-11)
+        movedTo: organizerDashboard.linkSection.open
         requirement: >-
-          On the tab-shaped presentation (board G1, PC), this and
-          answersOpen above are two mutually exclusive tabs; exactly one
-          carries aria-selected="true" at any time, and answersOpen above
-          -- not this one -- starts selected (板G1: 回答のタブが最初に選ば
-          れている). On the disclosure-row-shaped presentation (board G2,
-          narrow viewport), this is one of two independent rows (paired
-          with answersOpen above) that each carry aria-expanded reflecting
-          their own open/closed state independently of the other; this
-          one starts aria-expanded="false" (板G2: 「回答リンク N本」の行も
-          最初は閉じている).
-        requiredOutcome: >-
-          Activating it makes organizerDashboard.participantLinkList
-          above currently visible (on the tab-shaped presentation this
-          also makes answersOpen's own aria-selected false and
-          organizerDashboard.responseTable above currently not visible;
-          on the disclosure-row-shaped presentation it affects only this
-          row's own aria-expanded and does not change answersOpen above).
-          Calls no public operation -- it only discloses the already-
-          required participantLinkList above; participantLinkList's own
-          presenceRule/fields (above) are unchanged by this control's
-          existence.
+          **Retired 2026-10-11.** gathering-decision-links-open and its
+          purpose no longer exist; the id must not be present. The entrance
+          to organizerDashboard.participantLinkList once the date is
+          decided is linkSection.open (gathering-link-section-open), in
+          SELECTING_SHOP and in FINALIZED alike.
       answersContent:
-        description: >-
-          Added 2026-10-05 (ADR-0071 decision 4, audit D5; board party2/d4r
-          G1 draws the answers tab as the person-by-day grid and nothing
-          else). Draft until ADR-0071 is approved.
+        retired: true
+        retiredBy: ADR-0079 decision 6 (追補37, 2026-10-11)
+        movedTo: organizerDashboard.stepFlow.answersOpen (requiredOutcome, domPreserved)
         requirement: >-
-          What answersOpen makes visible is organizerDashboard.responseTable
-          only, in the layout fixed at responseTable.layout, with the
-          confirmed date's column painted (responseTable.paintedColumn).
-          The tally row (gathering-responded-summary,
-          gathering-unanswered-summary), the schedule record
-          (gathering-candidate-date-list and its gathering-candidate-date
-          cards) and the former pane headings 「日程」「誰が・どの日に答えた
-          か」 are not visible while the answers group is open. They stay
-          in the DOM with every attribute unchanged (the
-          data-confirmed/data-going-count values the rest of this file
-          reads from them), exactly as ADR-0063 kept the tally row for
-          SELECTING_SHOP -- their presenceRule does not change, only
-          visibility. No control that decides a date is present or
-          visible here: confirmDate is absent once phase leaves SCHEDULING
-          (confirmDate.presenceRule, unchanged). 回答リンク N本 (linksOpen,
-          participantLinkList) is untouched by this block.
+          **Retired 2026-10-11.** What the answers entrance discloses is
+          now stepFlow.answersOpen's requiredOutcome. The sentence that the
+          hidden elements stay in the DOM with every attribute unchanged
+          survives as stepFlow.foldedEntrance.domPreserved.
       unchangedRecords: >-
         gathering-phase-indicator, gathering-responded-summary,
         gathering-unanswered-summary, gathering-candidate-date-list/
@@ -4486,6 +4628,13 @@ browserControlSurface:
         FINALIZED, neither entrance control exists (their own
         presenceRule above), and both sections remain directly visible
         exactly as before, unaffected by this decision.
+      note37: >-
+        **Changed 2026-10-11 (追補37)**: the sentences above that name
+        answersOpen/linksOpen (this node's retired children) read as
+        stepFlow.answersOpen and linkSection.open; the "gathering-
+        candidate-date-list ... remain present" part reads with 追補34
+        (the list is retired; gathering-candidate-date lives in the
+        response table's header cells and keeps its attributes).
       linkManagement: >-
         See participantLinkCopy.presenceRule and participantLinkList.item.
         recopy/revoke above for the read-only-except-recopy rule this
