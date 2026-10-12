@@ -1,0 +1,518 @@
+{
+  "source": "canvas-ken58",
+  "tolerance": 0.08,
+  "screens": {
+    "HC-PcList": {
+      "viewport": {
+        "width": 1280,
+        "height": 920
+      },
+      "areas": {
+        "header": [
+          {
+            "x": 0.0,
+            "y": 0.0,
+            "w": 1.0,
+            "h": 0.065217
+          }
+        ],
+        "menu": [
+          {
+            "x": 0.946875,
+            "y": 0.008152,
+            "w": 0.034375,
+            "h": 0.047826
+          }
+        ],
+        "step": [],
+        "step_body": [],
+        "map": [],
+        "pane": [],
+        "bottom_nav": [],
+        "card": [],
+        "primary_button": [
+          {
+            "x": 0.744531,
+            "y": 0.31413,
+            "w": 0.097656,
+            "h": 0.052174
+          }
+        ]
+      },
+      "notes": "Board geometry generated from the adopted static HTML."
+    },
+    "HC-SpList": {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "areas": {
+        "header": [],
+        "menu": [],
+        "step": [],
+        "step_body": [],
+        "map": [],
+        "pane": [],
+        "bottom_nav": [
+          {
+            "x": 0.0,
+            "y": 0.924171,
+            "w": 1.0,
+            "h": 0.075829
+          }
+        ],
+        "card": [],
+        "primary_button": [
+          {
+            "x": 0.117949,
+            "y": 0.289322,
+            "w": 0.764103,
+            "h": 0.056872
+          }
+        ]
+      },
+      "notes": "Board geometry generated from the adopted static HTML."
+    },
+    "GC-PcSelecting": {
+      "viewport": {
+        "width": 1280,
+        "height": 920
+      },
+      "areas": {
+        "header": [
+          {
+            "x": 0.0,
+            "y": 0.0,
+            "w": 1.0,
+            "h": 0.065217
+          }
+        ],
+        "menu": [
+          {
+            "x": 0.946875,
+            "y": 0.008152,
+            "w": 0.034375,
+            "h": 0.047826
+          }
+        ],
+        "step": [
+          {
+            "x": 0.03125,
+            "y": 0.173913,
+            "w": 0.421875,
+            "h": 0.069565
+          },
+          {
+            "x": 0.03125,
+            "y": 0.243478,
+            "w": 0.421875,
+            "h": 0.476087
+          },
+          {
+            "x": 0.03125,
+            "y": 0.719565,
+            "w": 0.421875,
+            "h": 0.058696
+          }
+        ],
+        "step_body": [
+          {
+            "x": 0.06875,
+            "y": 0.173913,
+            "w": 0.384375,
+            "h": 0.058696
+          },
+          {
+            "x": 0.06875,
+            "y": 0.243478,
+            "w": 0.384375,
+            "h": 0.465217
+          },
+          {
+            "x": 0.06875,
+            "y": 0.719565,
+            "w": 0.384375,
+            "h": 0.047826
+          }
+        ],
+        "map": [
+          {
+            "x": 0.46875,
+            "y": 0.173913,
+            "w": 0.5,
+            "h": 0.804348
+          }
+        ],
+        "pane": [],
+        "bottom_nav": [],
+        "card": [],
+        "primary_button": [
+          {
+            "x": 0.348438,
+            "y": 0.645652,
+            "w": 0.092188,
+            "h": 0.047826
+          }
+        ]
+      },
+      "notes": "Board geometry generated from the adopted static HTML."
+    },
+    "GC-PcScheduling": {
+      "viewport": {
+        "width": 1280,
+        "height": 920
+      },
+      "areas": {
+        "header": [
+          {
+            "x": 0.0,
+            "y": 0.0,
+            "w": 1.0,
+            "h": 0.065217
+          }
+        ],
+        "menu": [
+          {
+            "x": 0.946875,
+            "y": 0.008152,
+            "w": 0.034375,
+            "h": 0.047826
+          }
+        ],
+        "step": [
+          {
+            "x": 0.03125,
+            "y": 0.173913,
+            "w": 0.421875,
+            "h": 0.669565
+          },
+          {
+            "x": 0.03125,
+            "y": 0.843478,
+            "w": 0.421875,
+            "h": 0.058696
+          },
+          {
+            "x": 0.03125,
+            "y": 0.902174,
+            "w": 0.421875,
+            "h": 0.058696
+          }
+        ],
+        "step_body": [
+          {
+            "x": 0.06875,
+            "y": 0.173913,
+            "w": 0.384375,
+            "h": 0.658696
+          },
+          {
+            "x": 0.06875,
+            "y": 0.843478,
+            "w": 0.384375,
+            "h": 0.047826
+          },
+          {
+            "x": 0.06875,
+            "y": 0.902174,
+            "w": 0.384375,
+            "h": 0.047826
+          }
+        ],
+        "map": [
+          {
+            "x": 0.46875,
+            "y": 0.173913,
+            "w": 0.5,
+            "h": 0.804348
+          }
+        ],
+        "pane": [],
+        "bottom_nav": [],
+        "card": [],
+        "primary_button": []
+      },
+      "notes": "Board geometry generated from the adopted static HTML."
+    },
+    "S3-PcScheduling": {
+      "viewport": {
+        "width": 1280,
+        "height": 920
+      },
+      "areas": {
+        "header": [
+          {
+            "x": 0.0,
+            "y": 0.0,
+            "w": 1.0,
+            "h": 0.065217
+          }
+        ],
+        "menu": [
+          {
+            "x": 0.946875,
+            "y": 0.008152,
+            "w": 0.034375,
+            "h": 0.047826
+          }
+        ],
+        "step": [],
+        "step_body": [],
+        "map": [],
+        "pane": [],
+        "bottom_nav": [],
+        "card": [
+          {
+            "x": 0.09375,
+            "y": 0.178261,
+            "w": 0.400781,
+            "h": 0.172826
+          },
+          {
+            "x": 0.505469,
+            "y": 0.178261,
+            "w": 0.400781,
+            "h": 0.172826
+          }
+        ],
+        "primary_button": []
+      },
+      "notes": "Board geometry generated from the adopted static HTML."
+    },
+    "S3-SpScheduling": {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "areas": {
+        "header": [],
+        "menu": [],
+        "step": [],
+        "step_body": [],
+        "map": [],
+        "pane": [],
+        "bottom_nav": [
+          {
+            "x": 0.0,
+            "y": 0.924171,
+            "w": 1.0,
+            "h": 0.075829
+          }
+        ],
+        "card": [
+          {
+            "x": 0.035897,
+            "y": 0.099526,
+            "w": 0.504247,
+            "h": 0.145735
+          },
+          {
+            "x": 0.560657,
+            "y": 0.099526,
+            "w": 0.403405,
+            "h": 0.145735
+          }
+        ],
+        "primary_button": []
+      },
+      "notes": "Board geometry generated from the adopted static HTML."
+    },
+    "GC-PcFinal": {
+      "viewport": {
+        "width": 1280,
+        "height": 920
+      },
+      "areas": {
+        "header": [
+          {
+            "x": 0.0,
+            "y": 0.0,
+            "w": 1.0,
+            "h": 0.065217
+          }
+        ],
+        "menu": [
+          {
+            "x": 0.946875,
+            "y": 0.008152,
+            "w": 0.034375,
+            "h": 0.047826
+          }
+        ],
+        "step": [
+          {
+            "x": 0.03125,
+            "y": 0.173913,
+            "w": 0.421875,
+            "h": 0.069565
+          },
+          {
+            "x": 0.03125,
+            "y": 0.243478,
+            "w": 0.421875,
+            "h": 0.058696
+          },
+          {
+            "x": 0.03125,
+            "y": 0.302174,
+            "w": 0.421875,
+            "h": 0.269565
+          }
+        ],
+        "step_body": [
+          {
+            "x": 0.06875,
+            "y": 0.173913,
+            "w": 0.384375,
+            "h": 0.058696
+          },
+          {
+            "x": 0.06875,
+            "y": 0.243478,
+            "w": 0.384375,
+            "h": 0.047826
+          },
+          {
+            "x": 0.06875,
+            "y": 0.302174,
+            "w": 0.384375,
+            "h": 0.258696
+          }
+        ],
+        "map": [
+          {
+            "x": 0.46875,
+            "y": 0.173913,
+            "w": 0.5,
+            "h": 0.804348
+          }
+        ],
+        "pane": [],
+        "bottom_nav": [],
+        "card": [],
+        "primary_button": []
+      },
+      "notes": "Board geometry generated from the adopted static HTML."
+    },
+    "GC-SpFinal": {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "areas": {
+        "header": [],
+        "menu": [],
+        "step": [
+          {
+            "x": 0.041026,
+            "y": 0.100711,
+            "w": 0.917949,
+            "h": 0.063981
+          },
+          {
+            "x": 0.041026,
+            "y": 0.164692,
+            "w": 0.917949,
+            "h": 0.063981
+          },
+          {
+            "x": 0.041026,
+            "y": 0.228673,
+            "w": 0.917949,
+            "h": 0.482227
+          }
+        ],
+        "step_body": [
+          {
+            "x": 0.138462,
+            "y": 0.100711,
+            "w": 0.820513,
+            "h": 0.052133
+          },
+          {
+            "x": 0.138462,
+            "y": 0.164692,
+            "w": 0.820513,
+            "h": 0.052133
+          },
+          {
+            "x": 0.138462,
+            "y": 0.228673,
+            "w": 0.820513,
+            "h": 0.482227
+          }
+        ],
+        "map": [],
+        "pane": [],
+        "bottom_nav": [
+          {
+            "x": 0.0,
+            "y": 0.924171,
+            "w": 1.0,
+            "h": 0.075829
+          }
+        ],
+        "card": [],
+        "primary_button": []
+      },
+      "notes": "Board geometry generated from the adopted static HTML."
+    },
+    "Nav-PcPane": {
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "areas": {
+        "header": [
+          {
+            "x": 0.0,
+            "y": 0.0,
+            "w": 1.0,
+            "h": 0.075
+          }
+        ],
+        "menu": [],
+        "step": [],
+        "step_body": [],
+        "map": [],
+        "pane": [
+          {
+            "x": 0.71875,
+            "y": 0.0,
+            "w": 0.28125,
+            "h": 1.0
+          }
+        ],
+        "bottom_nav": [],
+        "card": [],
+        "primary_button": []
+      },
+      "notes": "Board geometry generated from the adopted static HTML."
+    },
+    "Nav-SpN1": {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "areas": {
+        "header": [],
+        "menu": [],
+        "step": [],
+        "step_body": [],
+        "map": [],
+        "pane": [],
+        "bottom_nav": [
+          {
+            "x": 0.0,
+            "y": 0.924171,
+            "w": 1.0,
+            "h": 0.075829
+          }
+        ],
+        "card": [],
+        "primary_button": []
+      },
+      "notes": "Board geometry generated from the adopted static HTML."
+    }
+  }
+}

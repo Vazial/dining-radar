@@ -3520,12 +3520,25 @@ body:has(#gathering-app .gth-dash--scheduling) .app-header,
     grid-template-columns: minmax(0, 540px) minmax(0, 1fr);
     gap: 1.25rem;
   }
+  #gathering-app .gathering-step--current .gth-shop-step-content {
+    display: grid;
+    grid-template-columns: minmax(0, 540px) minmax(0, 1fr);
+    gap: 1.25rem;
+  }
   #gathering-app .gathering-step--scheduling .gth-step-body > .gth-shop-map {
     grid-column: 2;
     grid-row: 1 / span 20;
     min-height: 28rem;
   }
   #gathering-app .gathering-step--scheduling .gth-step-body > :not(.gth-shop-map) {
+    grid-column: 1;
+  }
+  #gathering-app .gathering-step--current .gth-shop-step-content > .gth-shop-map {
+    grid-column: 2;
+    grid-row: 1 / span 20;
+    min-height: 28rem;
+  }
+  #gathering-app .gathering-step--current .gth-shop-step-content > :not(.gth-shop-map) {
     grid-column: 1;
   }
 }

@@ -1598,6 +1598,25 @@ class LayoutSanityTests(StaticLiveServerTestCase):
             f"finalized phase badge overlaps title: title={title_box}, phase={phase_box}"
         )
 
+    def test_board_geometry_keeps_dashboard_map_in_the_right_column(self) -> None:
+        """KEN-68 board geometry: the desktop map follows the step column."""
+        self._sign_in_as_organizer()
+        self.page.set_viewport_size({"width": 1440, "height": 900})
+        gathering_id = self._create_gathering_via_ui("板照合の列確認会")
+        by_test_id(self.page, "gathering-candidate-date").click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        self._seed_one_shortlisted_shop(gathering_id)
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+        step = self.page.locator(".gathering-step--current")
+        map_box = self.page.locator(".gathering-step--current .gth-shop-map").bounding_box()
+        step_box = step.bounding_box()
+        assert map_box is not None and step_box is not None
+        assert map_box["x"] >= step_box["x"] + 540, (
+            f"board map column moved into the step column: step={step_box}, map={map_box}"
+        )
+        assert map_box["width"] >= 480, f"board map column is too narrow: {map_box}"
+
     @pytest.mark.xfail(
         strict=True,
         reason=(

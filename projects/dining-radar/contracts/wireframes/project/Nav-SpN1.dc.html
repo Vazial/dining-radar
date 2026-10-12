@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>N-1 スマホ 下部バー3つ</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#14614A}a:hover{color:#0E4736}
+.top{height:56px;flex-shrink:0;box-sizing:border-box;background:#FFFFFF;border-bottom:1px solid #DFE4DE;display:flex;align-items:center;padding:0 16px}
+.top h1{margin:0;font-size:17px;font-weight:700}
+.ghost{box-sizing:border-box;background:#FFFFFF;border:1px solid #DFE4DE;border-radius:14px;height:130px}
+.sheet{position:absolute;left:0;right:0;bottom:64px;box-sizing:border-box;background:#FFFFFF;border-radius:16px 16px 0 0;box-shadow:0 -8px 24px rgba(23,32,27,.16);padding:10px 12px 12px;display:flex;flex-direction:column}
+.grab{width:40px;height:4px;border-radius:2px;background:#C6CFC6;align-self:center;margin-bottom:8px}
+.item{min-height:52px;box-sizing:border-box;display:flex;align-items:center;padding:0 12px;border-radius:8px;font-size:15px;color:#17201B;background:none;border:0;font-family:inherit;text-align:left}
+.nav{height:64px;flex-shrink:0;box-sizing:border-box;background:#FFFFFF;border-top:1px solid #DFE4DE;display:grid;grid-template-columns:repeat(3, minmax(0, 1fr));position:relative;z-index:1}
+.nav a,.nav button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:11px;color:#4B564E;text-decoration:none;position:relative;background:none;border:0;font-family:inherit}
+.nav .cur{color:#14614A;font-weight:700}
+.badge{position:absolute;top:8px;left:calc(50% + 6px);min-width:18px;height:18px;border-radius:9px;background:#14614A;color:#FFFFFF;font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 4px;box-sizing:border-box}
+</style>
+</helmet>
+<div style="width:390px;height:844px;box-sizing:border-box;background:#F2F4F0;color:#17201B;font-family:'Noto Sans JP',system-ui,sans-serif;display:flex;flex-direction:column;overflow:hidden;position:relative">
+  <header class="top"><h1>ランチ会</h1></header>
+  <main style="flex-grow:1;min-height:0;box-sizing:border-box;padding:14px 16px;display:flex;flex-direction:column;gap:10px;opacity:.5">
+    <div class="ghost"></div><div class="ghost"></div><div class="ghost"></div>
+  </main>
+  <div style="position:absolute;left:0;right:0;top:0;bottom:64px;background:rgba(23,32,27,.28)"></div>
+  <div class="sheet" role="dialog" aria-label="アカウント">
+    <span class="grab"></span>
+    <button class="item">パスワードを変える</button>
+    <button class="item">ログアウト</button>
+  </div>
+  <nav class="nav" aria-label="おもな行き先">
+    <a href="#" class="cur" aria-current="page"><svg width="22" height="22" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="14" height="13" rx="2"/><path d="M3 8h14M7 2v4M13 2v4"/></svg>ランチ会<span class="badge">3</span></a>
+    <a href="#"><svg width="22" height="22" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4"/></svg>店を探す</a>
+    <button aria-expanded="true" style="color:#14614A"><svg width="22" height="22" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="7" r="3.5"/><path d="M3.5 18c1-3.5 3.6-5 6.5-5s5.5 1.5 6.5 5"/></svg>アカウント</button>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

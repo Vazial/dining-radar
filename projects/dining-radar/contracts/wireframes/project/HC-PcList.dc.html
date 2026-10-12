@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>H-C PC 会が複数 大きい枠は案Bの中身</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#14614A}a:hover{color:#0E4736}
+.bar{height:60px;flex-shrink:0;box-sizing:border-box;background:#FFFFFF;border-bottom:1px solid #DFE4DE;display:flex;align-items:center;justify-content:space-between;padding:0 24px}
+.bar h1{margin:0;font-size:18px;font-weight:700}
+.menu{width:44px;height:44px;box-sizing:border-box;border:1px solid #C6CFC6;border-radius:10px;background:#FFFFFF;display:inline-flex;align-items:center;justify-content:center;color:#17201B;padding:0}
+.btn{min-height:44px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 16px;border:1px solid #C6CFC6;background:#FFFFFF;border-radius:10px;font:inherit;font-size:14px;font-weight:500;color:#17201B;text-decoration:none;white-space:nowrap}
+.btn.pri{background:#14614A;border-color:#14614A;color:#FFFFFF;font-weight:700}
+.chip{display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:12px;font-size:12px;font-weight:700;white-space:nowrap;justify-self:start}
+.c-sch{background:#FBEFD6;color:#7A4E00}
+.c-sel{background:#DDEFE4;color:#14614A}
+.c-fin{background:#E6E9E5;color:#3F4A43}
+.muted{color:#5C665F;font-size:12.5px}
+.sec{font-size:15px;font-weight:700;display:flex;align-items:baseline;gap:8px}
+.card{box-sizing:border-box;background:#FFFFFF;border:1px solid #DFE4DE;border-radius:14px;padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+.nm{font-size:16px;font-weight:700}
+.steps{display:flex;align-items:center;gap:8px;font-size:12px}
+.st{display:flex;align-items:center;gap:6px;color:#5C665F}
+.dot{width:18px;height:18px;border-radius:9px;box-sizing:border-box;border:2px solid #C6CFC6;display:flex;align-items:center;justify-content:center;background:#FFFFFF}
+.st.done .dot{background:#14614A;border-color:#14614A;color:#FFFFFF}
+.st.done{color:#17201B}
+.st.cur .dot{border-color:#14614A;border-width:5px}
+.st.cur{color:#14614A;font-weight:700}
+.ln{flex-grow:1;height:2px;background:#DFE4DE;min-width:16px}
+.ln.done{background:#14614A}
+.next{box-sizing:border-box;background:#EEF6F1;border-radius:10px;padding:10px 12px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.next .t{font-size:13px;line-height:1.6}
+.next .t b{display:block;font-size:11.5px;color:#14614A;letter-spacing:.04em}
+.tile{box-sizing:border-box;border:1px solid #DFE4DE;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:4px;background:#FFFFFF}
+.tile .k{font-size:12px;color:#5C665F;font-weight:500}
+.tile .v{font-size:15px;font-weight:700}
+.row{box-sizing:border-box;background:#FFFFFF;border:1px solid #DFE4DE;border-radius:10px;padding:8px 12px 8px 16px;display:grid;grid-template-columns:1fr 112px 300px auto;gap:16px;align-items:center;min-height:60px;text-decoration:none;color:#17201B}
+.row:hover{border-color:#14614A}
+.open{min-height:44px;box-sizing:border-box;display:inline-flex;align-items:center;gap:4px;padding:0 12px 0 16px;border:1px solid #C6CFC6;border-radius:10px;font-size:14px;font-weight:500}
+</style>
+</helmet>
+<div style="width:1280px;height:800px;box-sizing:border-box;background:#F2F4F0;color:#17201B;font-family:'Noto Sans JP',system-ui,sans-serif;display:flex;flex-direction:column;overflow:hidden">
+  <header class="bar">
+    <h1>ランチ会</h1>
+    <button class="menu" aria-label="メニュー"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14"/></svg></button>
+  </header>
+  <main style="width:960px;margin:0 auto;box-sizing:border-box;padding:24px 0;display:flex;flex-direction:column;gap:14px">
+    <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:15px;font-weight:700">いちばん新しい動いている会</span><a class="btn" href="#"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>ランチ会をつくる</a></div>
+    <section style="box-sizing:border-box;background:#FFFFFF;border:2px solid #14614A;border-radius:16px;padding:20px 24px;display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:22px;font-weight:700">9月のランチ会</span><span class="chip c-sch">日程を聞き中</span></div>
+      <div class="steps" style="font-size:13px">
+        <span class="st cur"><span class="dot"></span>日程</span><span class="ln"></span>
+        <span class="st"><span class="dot"></span>店</span><span class="ln"></span>
+        <span class="st"><span class="dot"></span>決まり</span>
+      </div>
+      <span class="muted" style="font-size:13.5px">候補日 20 ・ 回答 7/9人 ・ 有力 9/17 (木)</span>
+      <div class="next" style="padding:12px 16px"><span class="t" style="font-size:15px"><b>次にやること</b>日を決める</span><a class="btn pri" href="#" style="min-height:48px;font-size:15px;padding:0 24px">日を決める</a></div>
+    </section>
+    <div style="font-size:15px;font-weight:700;margin-top:8px">ほかのランチ会<span class="muted" style="font-weight:400;margin-left:8px">行を押すとその会を開く</span></div>
+    <a class="row" href="#">
+      <span style="font-size:14px;font-weight:700">10月の歓迎ランチ</span>
+      <span class="chip c-sel">店を選び中</span>
+      <span class="muted">10/8 (木) ・ 店 5件 ・ 票 6/9人</span>
+      <span class="open">開く<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg></span>
+    </a>
+    <a class="row" href="#">
+      <span style="font-size:14px;font-weight:700">秋の送別ランチ</span>
+      <span class="chip c-sch">日程を聞き中</span>
+      <span class="muted">候補日 6 ・ 回答 2/8人</span>
+      <span class="open">開く<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg></span>
+    </a>
+    <a class="row" href="#">
+      <span style="font-size:14px;font-weight:700">8月のランチ会</span>
+      <span class="chip c-fin">決まった</span>
+      <span class="muted">8/21 (木) ・ まるみ食堂</span>
+      <span class="open">開く<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg></span>
+    </a>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

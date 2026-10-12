@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>スマホ 空の状態</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#14614A}a:hover{color:#0E4736}
+.top{height:56px;flex-shrink:0;box-sizing:border-box;background:#FFFFFF;border-bottom:1px solid #DFE4DE;display:flex;align-items:center;padding:0 16px}
+.top h1{margin:0;font-size:17px;font-weight:700}
+.btn{min-height:44px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 14px;border:1px solid #C6CFC6;background:#FFFFFF;border-radius:10px;font:inherit;font-size:14px;font-weight:500;color:#17201B;text-decoration:none;white-space:nowrap}
+.btn.pri{background:#14614A;border-color:#14614A;color:#FFFFFF;font-weight:700}
+.step{display:flex;gap:12px;align-items:flex-start}
+.num{width:28px;height:28px;flex-shrink:0;border-radius:14px;background:#DDEFE4;color:#14614A;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:14px}
+.step b{font-size:14px;display:block}
+.step span{font-size:12.5px;color:#4B564E;line-height:1.6}
+.nav{height:64px;flex-shrink:0;box-sizing:border-box;background:#FFFFFF;border-top:1px solid #DFE4DE;display:grid;grid-template-columns:repeat(3, minmax(0, 1fr))}
+.nav a{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:11px;color:#4B564E;text-decoration:none;position:relative}
+.nav a.cur{color:#14614A;font-weight:700}
+</style>
+</helmet>
+<div style="width:390px;height:844px;box-sizing:border-box;background:#F2F4F0;color:#17201B;font-family:'Noto Sans JP',system-ui,sans-serif;display:flex;flex-direction:column;overflow:hidden">
+  <header class="top"><h1>ランチ会</h1></header>
+  <main style="flex-grow:1;min-height:0;box-sizing:border-box;padding:16px;display:flex;flex-direction:column;gap:12px;overflow:hidden">
+    <section style="box-sizing:border-box;background:#FFFFFF;border:1px solid #DFE4DE;border-radius:16px;padding:24px 20px;display:flex;flex-direction:column;gap:20px">
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <span style="font-size:19px;font-weight:700">まだランチ会がありません</span>
+        <span style="font-size:13px;color:#4B564E;line-height:1.6">ランチ会をつくると、次の3つを順に進められます。</span>
+      </div>
+      <div class="step"><span class="num">1</span><div><b>候補日を出す</b><span>カレンダーで行けそうな日をまとめて選ぶ</span></div></div>
+      <div class="step"><span class="num">2</span><div><b>回答リンクを配る</b><span>一人に1本。ログインなしで日程に答えてもらう</span></div></div>
+      <div class="step"><span class="num">3</span><div><b>店を選んで決める</b><span>日が決まったら、その日に開いている店から選ぶ</span></div></div>
+      <a class="btn pri" href="#" style="min-height:52px;font-size:16px">ランチ会をつくる</a>
+      <a href="#" style="font-size:13px;text-align:center;padding:10px 0">会をつくらずに、店だけ探す</a>
+    </section>
+  </main>
+  <nav class="nav" aria-label="おもな行き先">
+    <a href="#" class="cur" aria-current="page"><svg width="22" height="22" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="14" height="13" rx="2"/><path d="M3 8h14M7 2v4M13 2v4"/></svg>ランチ会</a>
+    <a href="#"><svg width="22" height="22" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4"/></svg>店を探す</a>
+    <a href="#"><svg width="22" height="22" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="7" r="3.5"/><path d="M3.5 18c1-3.5 3.6-5 6.5-5s5.5 1.5 6.5 5"/></svg>アカウント</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
