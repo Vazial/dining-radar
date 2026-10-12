@@ -419,37 +419,67 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
 }
 
 .gathering-list-item[data-list-role="featured"] {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: stretch;
-  gap: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
   padding: 1.25rem;
 }
 
 .gathering-list-item-open {
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 0.45rem 1rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.75rem;
+  width: 100%;
   min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: inherit;
   text-decoration: none;
 }
+.gathering-list-item-open {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.gathering-list-item-open-label {
+  order: 2;
+  justify-self: end;
+}
+.gathering-list-item-open:hover {
+  background: transparent;
+}
+
+.gathering-list-item-open-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  color: #17201b;
+  font-weight: 700;
+  white-space: nowrap;
+}
 
 .gathering-list-item-open-content {
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.45rem 1rem;
-  width: 100%;
+  min-width: 0;
+  align-content: start;
 }
 
 .gathering-list-item[data-list-role="featured"] .gathering-list-item-open-content {
-  padding: 0.25rem;
+  padding: 0;
 }
 
 .gathering-list-item[data-list-role="featured"] .gathering-list-item-open {
-  margin-left: 0;
+  margin: 0;
+}
+
+.gathering-list-item-summary,
+.gathering-list-item-links,
+.gathering-list-item-numbers {
+  grid-column: 1 / -1;
 }
 
 .gathering-list-steps {
@@ -539,19 +569,43 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
   margin-left: auto;
 }
 
-.gathering-list-item[data-list-role="featured"] .gathering-list-item .gathering-btn {
-  margin-left: 0;
+.gathering-list-item[data-list-role="featured"] .gathering-list-next-action {
+  align-self: flex-end;
 }
 
 @media (max-width: 42rem) {
   .gathering-list-item[data-list-role="featured"] {
-    display: flex;
-    flex-direction: column;
+    gap: 0.625rem;
   }
 
   .gathering-list-next-action {
     align-self: stretch;
   }
+}
+
+/* Home board: full-width chrome with a centered 960px content column. */
+body:has(#gathering-list-app) .app-shell {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+body:has(#gathering-list-app) .app-card {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
+}
+body:has(#gathering-list-app) header {
+  min-height: 3.75rem;
+  box-sizing: border-box;
+  border-bottom: 1px solid #dfe4de;
+  padding: 0 1.5rem;
+}
+body:has(#gathering-list-app) main {
+  width: min(calc(100% - 2rem), 60rem);
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 0.75rem 0 1.25rem;
 }
 
 .gathering-list-empty {
@@ -1057,6 +1111,9 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
 .gth-heading-bar--finalized .gth-title {
   order: 2;
   margin: 0;
+}
+.gth-heading-bar--finalized .gth-phase {
+  order: 3;
 }
 @media (max-width: 47.9375rem) {
   .gth-heading-bar .gth-delete {
@@ -3308,6 +3365,7 @@ body:has(#gathering-app .gth-dash--scheduling) .app-header,
 .gth-response-section > .gth-response-scroll {
   border-top: 1px solid #e7ebe6;
   border-bottom: 1px solid #e7ebe6;
+  margin-bottom: 0.5rem;
 }
 .gth-response-section .gth-response-table {
   border: 0;
@@ -3337,6 +3395,7 @@ body:has(#gathering-app .gth-dash--scheduling) .app-header,
 .gth-response-section .gth-response-row-name,
 .gth-response-section .gth-response-name-head {
   padding-left: var(--gth-sched-gutter);
+  white-space: nowrap;
 }
 .gth-response-header-cell--stacked {
   flex-direction: column;
@@ -3412,6 +3471,8 @@ body:has(#gathering-app .gth-dash--scheduling) .app-header,
   #gathering-app .gth-dash > .gth-heading-bar { grid-column: 1 / -1; }
   #gathering-app .gth-dash > .gathering-step,
   #gathering-app .gth-dash > .gth-link-section-wrapper { grid-column: 1; }
+  #gathering-app .gth-dash > .gathering-step--scheduling,
+  #gathering-app .gth-dash > .gathering-step--current { grid-column: 1 / -1; }
   #gathering-app .gathering-step .gth-shop-map { min-height: 18rem; }
   #gathering-app .gathering-step--scheduling .gth-shop-map { grid-column: 2; }
   #gathering-app .gth-link-section-wrapper { grid-row: auto; }
@@ -3429,6 +3490,81 @@ body:has(#gathering-app .gth-dash--scheduling) .app-header,
   .gathering-step--done .gth-step-body[hidden] { display: none; }
   .gth-link-actions { min-width: 0; flex-basis: auto; }
   .gth-link-row, .gth-link-item { min-width: 0; max-width: 100%; }
+}
+
+/* KEN-68 board alignment: the dashboard board is wider than the list board,
+   and its desktop steps share one left rail with a persistent map column. */
+@media (min-width: 48rem) {
+  .app-shell:has(#gathering-app) {
+    width: min(calc(100% - 2rem), 75rem);
+  }
+  #gathering-app .gth-dash {
+    display: grid;
+    grid-template-columns: minmax(0, 540px) minmax(0, 1fr);
+    column-gap: 1.25rem;
+    align-items: start;
+  }
+  #gathering-app .gth-dash > .gth-header,
+  #gathering-app .gth-dash > .gth-heading-bar {
+    grid-column: 1 / -1;
+  }
+  #gathering-app .gth-dash > .gathering-step--scheduling {
+    grid-column: 1 / -1;
+  }
+  #gathering-app .gth-dash > .gathering-step--upcoming,
+  #gathering-app .gth-dash > .gathering-step--done {
+    grid-column: 1;
+  }
+  #gathering-app .gathering-step--scheduling .gth-step-body {
+    display: grid;
+    grid-template-columns: minmax(0, 540px) minmax(0, 1fr);
+    gap: 1.25rem;
+  }
+  #gathering-app .gathering-step--scheduling .gth-step-body > .gth-shop-map {
+    grid-column: 2;
+    grid-row: 1 / span 20;
+    min-height: 28rem;
+  }
+  #gathering-app .gathering-step--scheduling .gth-step-body > :not(.gth-shop-map) {
+    grid-column: 1;
+  }
+}
+
+/* The open menu owns the top layer; the trigger must not remain above its
+   header and obscure the pane title on a real device. */
+.primary-nav-menu[open] .primary-nav-menu-toggle {
+  z-index: 1;
+}
+
+@media (min-width: 48rem) {
+  #gathering-app .gathering-step {
+    position: relative;
+    padding-left: 3rem;
+  }
+  #gathering-app .gathering-step::before {
+    position: absolute;
+    left: 0.25rem;
+    top: 1rem;
+    width: 1.75rem;
+    height: 1.75rem;
+    border: 2px solid #c6cfc6;
+    border-radius: 50%;
+    background: #fff;
+    color: #5c665f;
+    display: grid;
+    place-items: center;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    content: attr(data-step);
+    z-index: 1;
+  }
+  #gathering-app .gathering-step--current::before {
+    border-color: #14614a;
+    color: #14614a;
+  }
+  #gathering-app .gathering-step[data-step="SCHEDULE"]::before { content: "1"; }
+  #gathering-app .gathering-step[data-step="SHOP"]::before { content: "2"; }
+  #gathering-app .gathering-step[data-step="FINAL"]::before { content: "3"; }
 }
 
 /* The 768px supported tablet keeps the touch-friendly vertical shop flow;

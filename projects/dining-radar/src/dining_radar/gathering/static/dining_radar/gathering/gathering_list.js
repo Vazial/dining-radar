@@ -196,17 +196,6 @@
       attrs["data-finalized-shop-id"] = gathering.finalizedShopId;
     }
 
-    var openLink = el(
-      "a",
-      {
-        href: "/gatherings/" + gathering.id + "/",
-        "data-testid": "gathering-list-item-open",
-        "data-gathering-control-purpose": "gathering-list-item-open",
-        "class": "gathering-btn",
-      },
-      ["開く"]
-    );
-
     var openContent = el("span", { "class": "gathering-list-item-open-content" }, [
       el("span", { "class": "gathering-list-item-title" }, [gathering.title]),
       el("span", { "class": "gathering-list-item-phase" }, [
@@ -218,7 +207,16 @@
       el("span", { "class": "gathering-list-item-links" }, [renderLinkSummary(gathering)]),
       renderNumbers(gathering),
     ]);
-    openLink.appendChild(openContent);
+    var openLink = el(
+      "a",
+      {
+        href: "/gatherings/" + gathering.id + "/",
+        "data-testid": "gathering-list-item-open",
+        "data-gathering-control-purpose": "gathering-list-item-open",
+        "class": "gathering-list-item-open",
+      },
+      [el("span", { "class": "gathering-list-item-open-label" }, ["開く"]), openContent]
+    );
     var children = [openLink];
     if (isFeatured) {
       children.push(renderSteps(gathering));

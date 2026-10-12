@@ -1500,6 +1500,104 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         expect(by_test_id(self.page, "gathering-dashboard-back")).to_be_visible()
         self._assert_return_link_position("dashboard-finalized-phone", check_below_bar=False)
 
+    def test_home_featured_item_has_one_aligned_surface(self) -> None:
+        """ADR-0078: the featured gathering is one frame, not a framed link
+        nested inside a second frame with the next action detached below it.
+        """
+        self._sign_in_as_organizer()
+        self.page.set_viewport_size({"width": 1440, "height": 900})
+        self._create_gathering_via_ui("ホームの大きい枠1")
+        self._create_gathering_via_ui("ホームの大きい枠2")
+        self.page.goto(f"{self.base_url}{reverse('gathering:organizer-gathering-list')}")
+        wait_for_at_least_one(self.page, "gathering-list-item")
+
+        featured = self.page.locator(
+            '[data-testid="gathering-list-item"][data-list-role="featured"]'
+        )
+        open_link = featured.locator('[data-testid="gathering-list-item-open"]')
+        featured_box = featured.bounding_box()
+        open_box = open_link.bounding_box()
+        assert featured_box is not None and open_box is not None
+        assert open_box["x"] >= featured_box["x"]
+        assert open_box["x"] + open_box["width"] <= featured_box["x"] + featured_box["width"]
+
+        surface = open_link.evaluate(
+            """node => {
+                const style = getComputedStyle(node);
+                return {
+                    borderTopWidth: style.borderTopWidth,
+                    backgroundColor: style.backgroundColor,
+                    boxShadow: style.boxShadow,
+                };
+            }"""
+        )
+        assert surface == {
+            "borderTopWidth": "0px",
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "boxShadow": "none",
+        }
+
+    def test_dashboard_shop_step_uses_the_desktop_pane_width(self) -> None:
+        """ADR-0079/0081: desktop puts the current step and its map/shop pane
+        in the dashboard's full content width; it must not nest both in the
+        narrow first column while leaving the right pane empty.
+        """
+        self._sign_in_as_organizer()
+        self.page.set_viewport_size({"width": 1440, "height": 900})
+        gathering_id = self._create_gathering_via_ui("店のペイン幅確認会")
+        by_test_id(self.page, "gathering-candidate-date").first.click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        self._seed_one_shortlisted_shop(gathering_id)
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+
+        dash = self.page.locator(".gth-dash")
+        current_step = self.page.locator(".gathering-step--current")
+        dash_box = dash.bounding_box()
+        current_step_box = current_step.bounding_box()
+        assert dash_box is not None and current_step_box is not None
+        assert current_step_box["width"] >= dash_box["width"] - TOLERANCE_PX
+
+    def test_scheduling_response_controls_are_readable(self) -> None:
+        """ADR-0080: the scheduling response table leaves room for its controls
+        and keeps the participant/status label on one readable line.
+        """
+        self._sign_in_as_organizer()
+        self.page.set_viewport_size({"width": 1440, "height": 900})
+        self._create_gathering_via_ui("日程表の読みやすさ確認会")
+
+        response_table = by_test_id(self.page, "gathering-response-table")
+        confirm = by_test_id(self.page, "gathering-confirm-date-select")
+        row_name = self.page.locator(".gth-response-row-name").first
+        table_box = response_table.bounding_box()
+        confirm_box = confirm.bounding_box()
+        assert table_box is not None and confirm_box is not None
+        assert confirm_box["y"] - (table_box["y"] + table_box["height"]) >= 8, (
+            "scheduling table and date confirmation control are visually touching"
+        )
+        assert row_name.evaluate("node => getComputedStyle(node).whiteSpace") == "nowrap"
+
+    def test_finalized_heading_indicator_does_not_overlap_title(self) -> None:
+        """ADR-0075: the finalized phase badge has its own heading row."""
+        self._sign_in_as_organizer()
+        self.page.set_viewport_size({"width": 1440, "height": 900})
+        gathering_id = self._create_gathering_via_ui("確定見出し確認会")
+        by_test_id(self.page, "gathering-candidate-date").click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        self._seed_one_shortlisted_shop(gathering_id)
+        self.page.reload()
+        by_test_id(self.page, "gathering-finalize-shop-select").check(force=True)
+        by_test_id(self.page, "gathering-finalize-open").click()
+        by_test_id(self.page, "gathering-finalize-confirm").click()
+        expect(by_test_id(self.page, "gathering-decision-banner")).to_be_visible()
+
+        title_box = by_test_id(self.page, "gathering-dashboard-title").bounding_box()
+        phase_box = by_test_id(self.page, "gathering-phase-indicator").bounding_box()
+        assert title_box is not None and phase_box is not None
+        assert phase_box["y"] >= title_box["y"] + title_box["height"] - 1, (
+            f"finalized phase badge overlaps title: title={title_box}, phase={phase_box}"
+        )
+
     @pytest.mark.xfail(
         strict=True,
         reason=(
