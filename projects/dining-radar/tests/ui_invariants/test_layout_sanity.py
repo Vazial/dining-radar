@@ -1521,6 +1521,15 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         assert open_box["x"] >= featured_box["x"]
         assert open_box["x"] + open_box["width"] <= featured_box["x"] + featured_box["width"]
 
+        featured_style = featured.evaluate(
+            "node => { const style = getComputedStyle(node); return {"
+            " borderTopWidth: style.borderTopWidth, borderTopColor: style.borderTopColor }; }"
+        )
+        assert featured_style == {
+            "borderTopWidth": "2px",
+            "borderTopColor": "rgb(20, 97, 74)",
+        }
+
         surface = open_link.evaluate(
             """node => {
                 const style = getComputedStyle(node);

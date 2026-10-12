@@ -572,6 +572,48 @@ body:has(.gth-dash--finalized) .app-shell:has(#gathering-app) {
 .gathering-list-item[data-list-role="featured"] .gathering-list-next-action {
   align-self: flex-end;
 }
+.gathering-list-next-action-band {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.625rem 1rem;
+  border-radius: 0.625rem;
+  background: #eaf4ee;
+  color: #14614a;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+.gathering-list-next-action-band > span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+.gathering-list-secondary-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  color: #4b564e;
+  font-size: 0.8125rem;
+}
+.gathering-list-secondary-heading strong {
+  color: #17201b;
+  font-size: 0.9375rem;
+}
+.gathering-list-item[data-list-role="row"] {
+  min-height: 3.875rem;
+  padding: 0.5rem 0.875rem;
+}
+.gathering-list-item[data-list-role="row"] .gathering-list-item-open-content {
+  align-items: center;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.gathering-list-item[data-list-role="row"] .gathering-list-item-summary,
+.gathering-list-item[data-list-role="row"] .gathering-list-item-links,
+.gathering-list-item[data-list-role="row"] .gathering-list-item-numbers {
+  grid-column: 1;
+}
 
 @media (max-width: 42rem) {
   .gathering-list-item[data-list-role="featured"] {
@@ -596,10 +638,23 @@ body:has(#gathering-list-app) .app-card {
   padding: 0;
 }
 body:has(#gathering-list-app) header {
+  height: 3.75rem;
   min-height: 3.75rem;
   box-sizing: border-box;
   border-bottom: 1px solid #dfe4de;
   padding: 0 1.5rem;
+}
+body:has(#gathering-list-app) .app-header {
+  height: 3.75rem;
+  margin: 0;
+}
+body:has(#gathering-list-app) .app-header h1 {
+  font-size: 1.125rem;
+}
+body:has(#gathering-list-app) .gathering-list-item[data-list-role="featured"] {
+  border: 2px solid #14614a;
+  border-radius: 0.875rem;
+  padding: 1.25rem;
 }
 body:has(#gathering-list-app) main {
   width: min(calc(100% - 2rem), 60rem);
@@ -3511,11 +3566,19 @@ body:has(#gathering-app .gth-dash--scheduling) .app-header,
   #gathering-app .gth-dash > .gathering-step--scheduling {
     grid-column: 1 / -1;
   }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current {
+    grid-column: 1 / -1;
+  }
   #gathering-app .gth-dash > .gathering-step--upcoming,
   #gathering-app .gth-dash > .gathering-step--done {
     grid-column: 1;
   }
   #gathering-app .gathering-step--scheduling .gth-step-body {
+    display: grid;
+    grid-template-columns: minmax(0, 540px) minmax(0, 1fr);
+    gap: 1.25rem;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current .gth-step-body {
     display: grid;
     grid-template-columns: minmax(0, 540px) minmax(0, 1fr);
     gap: 1.25rem;
@@ -3530,7 +3593,15 @@ body:has(#gathering-app .gth-dash--scheduling) .app-header,
     grid-row: 1 / span 20;
     min-height: 28rem;
   }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current .gth-step-body > .gth-shop-map {
+    grid-column: 2;
+    grid-row: 1 / span 20;
+    min-height: 28rem;
+  }
   #gathering-app .gathering-step--scheduling .gth-step-body > :not(.gth-shop-map) {
+    grid-column: 1;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current .gth-step-body > :not(.gth-shop-map) {
     grid-column: 1;
   }
   #gathering-app .gathering-step--current .gth-shop-step-content > .gth-shop-map {
