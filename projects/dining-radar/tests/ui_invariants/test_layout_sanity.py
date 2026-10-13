@@ -1626,6 +1626,77 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         )
         assert map_box["width"] >= 480, f"board map column is too narrow: {map_box}"
 
+    def test_board_frames_contain_their_controls_and_preserve_order(self) -> None:
+        """KEN-68 board geometry: the visible step is one frame, not loose cards.
+
+        This deliberately checks containment, sibling order, and the board's
+        link-like treatment of secondary actions.  It is a geometry check,
+        rather than a screenshot-only comparison, so a later layout change
+        cannot silently move a control outside its owning step.
+        """
+        self._sign_in_as_organizer()
+        self.page.set_viewport_size({"width": 1440, "height": 900})
+        gathering_id = self._create_gathering_via_ui("板の内包確認会")
+
+        schedule_step = self.page.locator(".gathering-step--current")
+        schedule_body = schedule_step.locator(".gth-step-body")
+        body_box = schedule_body.bounding_box()
+        assert body_box is not None
+        body_style = schedule_body.evaluate(
+            "node => { const s = getComputedStyle(node, '::before'); "
+            "return { border: s.borderTopWidth, color: s.borderTopColor }; }"
+        )
+        assert body_style == {"border": "2px", "color": "rgb(20, 97, 74)"}
+        for selector in (
+            ".gth-answer-card",
+            ".gth-response-section",
+            '[data-testid="gathering-confirm-date-select"]',
+            ".gth-candidate-date-edit-row",
+            ".gth-banded",
+        ):
+            child = schedule_body.locator(selector).first
+            child_box = child.bounding_box()
+            assert child_box is not None, selector
+            assert body_box["x"] <= child_box["x"] <= body_box["x"] + body_box["width"]
+            assert child_box["x"] + child_box["width"] <= body_box["x"] + body_box["width"] + 1
+
+        by_test_id(self.page, "gathering-candidate-date").first.click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        self._seed_one_shortlisted_shop(gathering_id)
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+        shop_step = self.page.locator(".gathering-step--current")
+        shop_body = shop_step.locator(".gth-shop-step-content")
+        shop_box = shop_body.bounding_box()
+        assert shop_box is not None
+        shop_style = shop_body.evaluate(
+            "node => { const s = getComputedStyle(node); "
+            "return { border: s.borderTopWidth, color: s.borderTopColor }; }"
+        )
+        assert shop_style == {"border": "2px", "color": "rgb(20, 97, 74)"}
+        for selector in (".gth-pane-head-row", ".gth-shop-list", ".gth-bottom-bar"):
+            child = shop_body.locator(selector).first
+            child_box = child.bounding_box()
+            assert child_box is not None, selector
+            assert shop_box["x"] <= child_box["x"] <= shop_box["x"] + shop_box["width"]
+            assert child_box["x"] + child_box["width"] <= shop_box["x"] + shop_box["width"] + 1
+
+        re_search = shop_body.locator('[data-testid="gathering-shortlist-open"]').first
+        re_search_style = re_search.evaluate(
+            "node => { const s = getComputedStyle(node); return { "
+            "border: s.borderTopWidth, background: s.backgroundColor, "
+            "decoration: s.textDecorationLine }; }"
+        )
+        assert re_search_style == {
+            "border": "0px",
+            "background": "rgba(0, 0, 0, 0)",
+            "decoration": "underline",
+        }
+        name_box = shop_body.locator(".gth-shop-name").first.bounding_box()
+        votes_box = shop_body.locator(".gth-shop-vote-row").first.bounding_box()
+        assert name_box is not None and votes_box is not None
+        assert votes_box["x"] >= name_box["x"] + name_box["width"] - 1
+
     @pytest.mark.xfail(
         strict=True,
         reason=(

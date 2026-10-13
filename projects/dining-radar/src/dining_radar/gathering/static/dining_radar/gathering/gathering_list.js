@@ -69,7 +69,7 @@
         "data-gathering-control-purpose": "gathering-create-open",
         "class": "gathering-btn gathering-btn-primary",
       },
-      ["会をつくる"]
+      ["＋ ランチ会をつくる"]
     );
   }
 
@@ -239,7 +239,14 @@
 
   function render(gatherings) {
     root.innerHTML = "";
-    root.appendChild(el("div", { "class": "gathering-list-header" }, [renderCreateOpen()]));
+    var headerChildren = [];
+    if (gatherings.length > 0) {
+      headerChildren.push(el("strong", { "class": "gathering-list-current-heading" }, [
+        "いちばん新しい動いている会",
+      ]));
+    }
+    headerChildren.push(renderCreateOpen());
+    root.appendChild(el("div", { "class": "gathering-list-header" }, headerChildren));
 
     // browserControlSurface.organizerGatheringList.requiredTestIds lists
     // `list: gathering-list` alongside `createOpen` -- the same grouping

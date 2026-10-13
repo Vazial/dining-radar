@@ -39,9 +39,21 @@ SCREENS = {
 COMPARE = {
     "HC-PcList": "home__multiple__1440x900.png",
     "HC-SpList": "home__multiple__390x844.png",
+    "Dense-C": "home__one__1440x900.png",
+    "Empty-Pc": "home__empty__1440x900.png",
+    "Empty-Sp": "home__empty__390x844.png",
     "GC-PcSelecting": "dashboard_selecting__shops_5__1440x900.png",
+    "GC-SpSelecting": "dashboard_selecting__shops_5__390x844.png",
     "GC-PcScheduling": "dashboard_scheduling__candidate_dates_14_with_answers__1440x900.png",
+    "GC-SpScheduling": "dashboard_scheduling__candidate_dates_14_with_answers__390x844.png",
+    "S3-PcScheduling": "dashboard_scheduling__candidate_dates_3_no_answers__1440x900.png",
+    "S3-SpScheduling": "dashboard_scheduling__candidate_dates_3_no_answers__390x844.png",
     "GC-PcFinal": "dashboard_finalized__initial__1440x900.png",
+    "GC-SpFinal": "dashboard_finalized__initial__390x844.png",
+    "Nav-PcPane": "candidates__menu_open__1440x900.png",
+    "Nav-SpN1": "home__multiple__390x844.png",
+    "Cand-PcGathering": "candidates__gathering_mode__1440x900.png",
+    "Cand-SpFree": "candidates__normal__390x844.png",
 }
 
 

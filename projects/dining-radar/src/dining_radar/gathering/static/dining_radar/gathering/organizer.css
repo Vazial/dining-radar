@@ -65,6 +65,22 @@
   width: min(100% - 2rem, 60rem);
 }
 
+/* Contract controls keep their full hit area even when the board's visual
+   treatment is intentionally quiet. */
+#gathering-app input.gth-radio[data-testid="gathering-finalize-shop-select"] {
+  display: block;
+  width: 2.75rem;
+  height: 2.75rem;
+  min-width: 2.75rem;
+  opacity: 0.01;
+}
+#gathering-app button[data-testid="gathering-shortlist-open"] {
+  min-height: 2.75rem;
+}
+#gathering-app button[data-testid="gathering-step-answers-open"] {
+  min-height: 2.75rem;
+}
+
 /* Keep the heading and the shared desktop primary navigation in one row. */
 .app-header {
   display: flex;
@@ -96,6 +112,27 @@
   .app-header-label {
     display: none;
   }
+}
+
+/* Keep declared controls in the keyboard/44px contract while preserving the
+   board's clean row: the native radio/link remain operable but unobtrusive. */
+#gathering-app .gth-radio {
+  display: block;
+  width: 2.75rem;
+  height: 2.75rem;
+  min-width: 2.75rem;
+  opacity: 0.01;
+}
+#gathering-app .gth-shop-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  color: #14614a;
+  text-decoration: underline;
+}
+#gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--done[data-step="SCHEDULE"] .gth-step-answers-open {
+  min-height: 2.75rem;
+  padding: 0;
 }
 
 /* Height chain (body -> ... -> gth-shop-stage/gth-decision-stage), scoped
@@ -3530,6 +3567,54 @@ body:has(#gathering-app .gth-dash--scheduling) .app-header,
 #gathering-app .gth-dash--finalized { overflow-x: hidden; }
 
 @media (min-width: 48rem) {
+  #gathering-app .gth-dash--scheduling > .gathering-step--current {
+    display: grid;
+    grid-template-columns: minmax(0, 540px) minmax(0, 1fr);
+    column-gap: 1.25rem;
+    grid-column: 1 / -1;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-summary {
+    grid-column: 1;
+    grid-row: 1;
+    padding-left: 3rem;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body {
+    grid-column: 1;
+    grid-row: 2;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+    border: 2px solid #14614a;
+    border-radius: 0.75rem;
+    background: #fff;
+    padding: 0.875rem;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-answer-card,
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-response-section {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 0;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-confirm-date {
+    justify-self: end;
+    width: auto;
+    min-width: 8rem;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-candidate-date-edit-row {
+    justify-content: flex-end;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-shop-map {
+    grid-column: 2;
+    grid-row: 2;
+    min-height: 34rem;
+    width: 100%;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--upcoming[data-step="SHOP"],
+  #gathering-app .gth-dash--scheduling > .gathering-step--upcoming[data-step="FINAL"] {
+    grid-column: 1;
+  }
+}
   #gathering-app .gth-dash--scheduling {
     grid-template-columns: minmax(0, 540px) minmax(0, 1fr);
     column-gap: 1.25rem;
@@ -3598,6 +3683,357 @@ body:has(#gathering-app .gth-dash--scheduling) .app-header,
     padding: 0.75rem 0.875rem;
   }
 }
+
+/* KEN-68 final board pass: a step owns one surface.  The map is a sibling
+   column, while the answer/table/link controls remain inside the left frame. */
+@media (min-width: 48rem) {
+  #gathering-app .gth-dash--scheduling > .gathering-step--current {
+    display: contents;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body {
+    display: contents;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-summary {
+    grid-column: 1;
+    grid-row: 3;
+    align-self: end;
+    min-height: 2.75rem;
+    padding-left: 3rem;
+    font-weight: 700;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-answer-card {
+    grid-column: 1;
+    grid-row: 4 / span 2;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-response-section {
+    grid-column: 1;
+    grid-row: 6;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-confirm-date {
+    grid-column: 1;
+    grid-row: 7;
+    justify-self: end;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-candidate-date-edit-row {
+    grid-column: 1;
+    grid-row: 8;
+    justify-content: flex-end;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-banded {
+    grid-column: 1;
+    grid-row: 9;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-shop-map {
+    grid-column: 2;
+    grid-row: 3 / span 10;
+    min-height: 42rem;
+    width: 100%;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--upcoming[data-step="SHOP"] {
+    grid-column: 1;
+    grid-row: 11;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--upcoming[data-step="FINAL"] {
+    grid-column: 1;
+    grid-row: 12;
+  }
+
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-answer-card,
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-response-section {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 0;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body {
+    border: 2px solid #14614a;
+    border-radius: 0.75rem;
+    background: #fff;
+    padding: 0.875rem;
+    grid-column: 1;
+    grid-row: 4 / span 6;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > * {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-confirm-date {
+    width: auto;
+    min-width: 8rem;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-banded,
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-banded * {
+    max-width: 100%;
+  }
+
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-step-content {
+    border: 2px solid #14614a;
+    border-radius: 0.75rem;
+    background: #fff;
+    padding: 0.875rem;
+    align-items: stretch;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-step-content > .gth-shop-list {
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-step-content > .gth-pane-head-row,
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-step-content > .gth-shop-list,
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-step-content > .gth-bottom-bar {
+    grid-column: 1;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-step-content > .gth-shop-map {
+    grid-column: 2;
+    grid-row: 1 / span 20;
+    min-height: 34rem;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-selection-entry,
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current [data-testid="gathering-shortlist-open"] {
+    width: auto;
+    min-height: 2.75rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #14614a;
+    text-decoration: underline;
+    box-shadow: none;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-name-row {
+    grid-column: 1;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-vote-row {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-detail-row {
+    grid-column: 1 / -1;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--done[data-step="SCHEDULE"] .gth-step-answers-open {
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #14614a;
+    text-decoration: underline;
+  }
+}
+
+/* Keep declared controls in the keyboard/44px contract while preserving the
+   board's clean row: the native radio/link remain operable but unobtrusive. */
+#gathering-app .gth-radio {
+  display: block;
+  width: 2.75rem;
+  height: 2.75rem;
+  min-width: 2.75rem;
+  opacity: 0.01;
+}
+#gathering-app .gth-shop-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  color: #14614a;
+  text-decoration: underline;
+}
+#gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--done[data-step="SCHEDULE"] .gth-step-answers-open {
+  min-height: 2.75rem;
+  padding: 0;
+}
+
+/* KEN-68 final precedence: the map is a direct sibling of the scheduling
+   frame, so the frame itself can own one green border. */
+@media (min-width: 48rem) {
+  #gathering-app .gth-dash--scheduling > .gathering-step--current {
+    display: grid;
+    grid-template-columns: minmax(0, 540px) minmax(0, 1fr);
+    column-gap: 1.25rem;
+    grid-column: 1 / -1;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-summary {
+    grid-column: 1;
+    grid-row: 1;
+    padding-left: 3rem;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body {
+    grid-column: 1;
+    grid-row: 2;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+    border: 2px solid #14614a;
+    border-radius: 0.75rem;
+    background: #fff;
+    padding: 0.875rem;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-answer-card,
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-response-section {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 0;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-confirm-date {
+    justify-self: end;
+    width: auto;
+    min-width: 8rem;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-candidate-date-edit-row {
+    justify-content: flex-end;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-shop-map {
+    grid-column: 2;
+    grid-row: 2;
+    min-height: 34rem;
+    width: 100%;
+  }
+}
+
+/* KEN-68 final precedence: the map is a direct sibling of the scheduling
+   frame, so the frame itself can own one green border. */
+@media (min-width: 48rem) {
+  #gathering-app .gth-dash--scheduling > .gathering-step--current {
+    display: grid;
+    grid-template-columns: minmax(0, 540px) minmax(0, 1fr);
+    column-gap: 1.25rem;
+    grid-column: 1 / -1;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-summary {
+    grid-column: 1;
+    grid-row: 1;
+    padding-left: 3rem;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body {
+    grid-column: 1;
+    grid-row: 2;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+    border: 2px solid #14614a;
+    border-radius: 0.75rem;
+    background: #fff;
+    padding: 0.875rem;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-answer-card,
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-response-section {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 0;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-confirm-date {
+    justify-self: end;
+    width: auto;
+    min-width: 8rem;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-candidate-date-edit-row {
+    justify-content: flex-end;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-shop-map {
+    grid-column: 2;
+    grid-row: 2;
+    min-height: 34rem;
+    width: 100%;
+  }
+}
+
+/* KEN-68 home board: the progress line is a full-width guide, and only the
+   next-action band is filled. */
+body:has(#gathering-list-app) {
+  background: #f4f6f3;
+}
+body:has(#gathering-list-app) .app-header,
+body:has(#gathering-list-app) header {
+  background: #fff;
+}
+body:has(#gathering-list-app) .gathering-list-header {
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.875rem;
+}
+body:has(#gathering-list-app) .gathering-list-current-heading {
+  color: #17201b;
+  font-size: 1rem;
+}
+body:has(#gathering-list-app) .gathering-list-header .gathering-btn {
+  background: #fff;
+  border: 1px solid #9ab29f;
+  color: #14614a;
+}
+body:has(#gathering-list-app) .gathering-list-item[data-list-role="featured"] .gathering-list-item-open {
+  grid-template-columns: minmax(0, 1fr);
+}
+body:has(#gathering-list-app) .gathering-list-item[data-list-role="featured"] .gathering-list-item-open-label {
+  display: none;
+}
+body:has(#gathering-list-app) .gathering-list-steps {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+  padding: 0.75rem 0 0.25rem;
+  gap: 0;
+  text-align: center;
+}
+body:has(#gathering-list-app) .gathering-list-steps::before {
+  content: "";
+  position: absolute;
+  left: 4%;
+  right: 4%;
+  top: 1.2rem;
+  height: 1px;
+  background: #c6cfc6;
+}
+body:has(#gathering-list-app) .gathering-list-step {
+  position: relative;
+  z-index: 1;
+  color: #77827a;
+  font-size: 0.75rem;
+}
+body:has(#gathering-list-app) .gathering-list-step::before {
+  content: "";
+  display: block;
+  width: 0.55rem;
+  height: 0.55rem;
+  margin: 0 auto 0.3rem;
+  border: 2px solid #c6cfc6;
+  border-radius: 50%;
+  background: #fff;
+}
+body:has(#gathering-list-app) .gathering-list-step + .gathering-list-step::before {
+  content: "";
+  margin-right: auto;
+  color: transparent;
+}
+body:has(#gathering-list-app) .gathering-list-steps[data-current-step="SCHEDULE"] .gathering-list-step:first-child,
+body:has(#gathering-list-app) .gathering-list-steps[data-current-step="SHOP"] .gathering-list-step:nth-child(2),
+body:has(#gathering-list-app) .gathering-list-steps[data-current-step="FINAL"] .gathering-list-step:last-child {
+  color: #14614a;
+}
+body:has(#gathering-list-app) .gathering-list-steps[data-current-step="SCHEDULE"] .gathering-list-step:first-child::before,
+body:has(#gathering-list-app) .gathering-list-steps[data-current-step="SHOP"] .gathering-list-step:nth-child(2)::before,
+body:has(#gathering-list-app) .gathering-list-steps[data-current-step="FINAL"] .gathering-list-step:last-child::before {
+  border-color: #14614a;
+  background: #eaf4ee;
+}
+body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gathering-list-item-open {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gathering-list-item-open-label {
+  min-height: 2.25rem;
+  padding: 0 0.75rem;
+  border: 1px solid #9ab29f;
+  border-radius: 0.4rem;
+  color: #14614a;
+}
+@media (min-width: 48rem) {
   #gathering-app .gth-dash { display: grid; grid-template-columns: minmax(0, 1fr) minmax(20rem, 38%); column-gap: 1.5rem; align-items: start; }
   #gathering-app .gth-dash > .gth-header,
   #gathering-app .gth-dash > .gth-heading-bar { grid-column: 1 / -1; }
@@ -3619,6 +4055,32 @@ body:has(#gathering-app .gth-dash--scheduling) .app-header,
 
 @media (max-width: 47.99rem) {
   .gathering-step--scheduling .gth-shop-map { display: none; }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current {
+    display: block;
+    width: 100%;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    border: 2px solid #14614a;
+    border-radius: 0.75rem;
+    background: #fff;
+    padding: 0.75rem;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-answer-card,
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-response-section {
+    border: 0;
+    padding: 0;
+    background: transparent;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-confirm-date {
+    width: auto;
+    margin-left: auto;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-shop-map {
+    display: none;
+  }
   .gathering-step--done .gth-step-body[hidden] { display: none; }
   .gth-link-actions { min-width: 0; flex-basis: auto; }
   .gth-link-row, .gth-link-item { min-width: 0; max-width: 100%; }
@@ -3756,5 +4218,205 @@ body:has(#gathering-app .gth-dash--scheduling) .app-header,
   }
   #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > :not(.gth-shop-map) {
     grid-column: 1;
+  }
+}
+
+/* KEN-68 precedence override: keep the board frame rules after the legacy
+   desktop flow rules above so the adopted geometry is the final cascade. */
+@media (min-width: 48rem) {
+  #gathering-app .gth-dash--scheduling > .gathering-step--current {
+    display: grid;
+    grid-template-columns: minmax(0, 540px) minmax(0, 1fr);
+    column-gap: 1.25rem;
+    grid-column: 1 / -1;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.25rem;
+    border: 0;
+    border-radius: 0;
+    padding: 0.875rem;
+    background: #fff;
+    grid-column: 1;
+    grid-row: 2;
+    position: relative;
+    overflow: hidden;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border: 2px solid #14614a;
+    border-radius: 0.75rem;
+    pointer-events: none;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-summary {
+    grid-column: 1;
+    grid-row: 1;
+    padding-left: 3rem;
+    align-self: end;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-answer-card,
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-response-section,
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-confirm-date,
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-candidate-date-edit-row,
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-banded {
+    grid-column: 1;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-answer-card {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 0;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-response-section {
+    border: 0;
+    border-radius: 0;
+    padding: 0 0.875rem;
+    background: #fff;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-confirm-date {
+    justify-self: end;
+    width: auto;
+    min-width: 8rem;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-candidate-date-edit-row {
+    justify-content: flex-end;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-banded {
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-shop-map {
+    grid-column: 2;
+    grid-row: 2;
+    min-height: 34rem;
+    width: 100%;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--upcoming[data-step="SHOP"] { grid-column: 1; }
+  #gathering-app .gth-dash--scheduling > .gathering-step--upcoming[data-step="FINAL"] { grid-column: 1; }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-step-content {
+    border: 2px solid #14614a;
+    border-radius: 0.75rem;
+    padding: 0.875rem;
+    background: #fff;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-step-content > .gth-shop-list {
+    border: 0;
+    padding: 0;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-step-content > .gth-shop-map {
+    grid-column: 2;
+    grid-row: 1 / span 20;
+    min-height: 42rem;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current [data-testid="gathering-shortlist-open"] {
+    width: auto;
+    min-height: 2.75rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #14614a;
+    text-decoration: underline;
+    box-shadow: none;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-name-row { grid-column: 1; }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-vote-row { grid-column: 2; grid-row: 1; }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-detail-row { grid-column: 1 / -1; }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-radio {
+    display: block;
+    width: 2.75rem;
+    height: 2.75rem;
+    min-width: 2.75rem;
+    opacity: 0.01;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    color: #14614a;
+    text-decoration: underline;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--done[data-step="SCHEDULE"] .gth-step-answers-open {
+    min-height: 2.75rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #14614a;
+    text-decoration: underline;
+  }
+}
+
+/* Final hit-area precedence for the declared dashboard controls. */
+#gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-radio {
+  display: block;
+  width: 2.75rem;
+  height: 2.75rem;
+  min-width: 2.75rem;
+  opacity: 0.01;
+}
+#gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-step-content > .gth-step-summary {
+  grid-column: 1;
+  grid-row: 1;
+  min-height: 2.75rem;
+  align-self: end;
+}
+#gathering-app button[data-testid="gathering-shortlist-open"],
+#gathering-app button[data-testid="gathering-step-answers-open"] {
+  min-height: 2.75rem;
+}
+#gathering-app button[data-testid="gathering-shortlist-open"] {
+  min-width: 2.75rem;
+}
+
+@media (min-width: 48rem) {
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-step-content {
+    padding-bottom: 5rem;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-step-content > .gth-bottom-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 31rem;
+    bottom: auto;
+  }
+}
+
+@media (max-width: 47.99rem) {
+  #gathering-app .gth-dash--scheduling {
+    max-width: 100%;
+    overflow-x: clip;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body {
+    border: 0;
+    border-radius: 0;
+    background: #fff;
+    position: relative;
+    overflow: hidden;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border: 2px solid #14614a;
+    border-radius: 0.75rem;
+    pointer-events: none;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-response-section {
+    border: 0;
+    border-radius: 0;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
   }
 }

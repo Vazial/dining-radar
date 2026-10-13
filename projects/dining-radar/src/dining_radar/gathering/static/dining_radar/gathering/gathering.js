@@ -2235,7 +2235,7 @@
     var shops = state.gathering.shortlistedShops;
     var votingStarted = state.gathering.votingStartedAt !== null;
     var leaders = votingStarted ? computeCurrentLeaderShopIds(shops) : {};
-    var children = [];
+    var children = [renderStepSummary("SHOP", "店")];
     if (shops.length === 0) {
       children.push(renderShopSelectionEntry("開いている店から選ぶ"));
     } else {
@@ -3492,8 +3492,11 @@
       scheduleChildren.push(el("div", { class: "gth-candidate-date-edit-row" }, [renderCandidateDateEditToggle()]));
       if (state.candidateDateEditing && state.addCandidateDateOpen) scheduleChildren.push(renderAddCandidateDateFormSlot());
       scheduleChildren.push(renderParticipantLinkPane());
-      scheduleChildren.push(renderSchedulingMap());
-      sections.push(renderStep("SCHEDULE", "current", [renderStepSummary("SCHEDULE", "日程"), el("div", { class: "gth-step-body" }, scheduleChildren)]));
+      scheduleChildren.unshift(renderStepSummary("SCHEDULE", "日程"));
+      sections.push(renderStep("SCHEDULE", "current", [
+        el("div", { class: "gth-step-body" }, scheduleChildren),
+        renderSchedulingMap(),
+      ]));
       sections.push(renderStep("SHOP", "upcoming", [renderStepSummary("SHOP", "店を選ぶ")]));
       sections.push(renderStep("FINAL", "upcoming", [renderStepSummary("FINAL", "決まり")]));
     } else if (phase === "SELECTING_SHOP") {
@@ -3508,7 +3511,7 @@
       var scheduleSummary = state.gathering.candidateDates.filter(function (date) { return date.isConfirmed; })[0];
       var answerDetails = el("div", { class: "gth-step-body", hidden: !state.stepAnswersOpen, style: state.stepAnswersOpen ? "display:block" : "" }, [renderResponseTable(candidateDateLeaders)]);
       sections.push(renderStep("SCHEDULE", "done", [el("div", { class: "gth-step-summary-row" }, [renderStepSummary("SCHEDULE", scheduleSummary ? formatGatheringDate(scheduleSummary.startAt) : "日程"), renderAnswersEntrance()]), answerDetails, el("div", { class: "visually-hidden" }, [renderResponseSummary(), renderUnansweredSummary()])]));
-      sections.push(renderStep("SHOP", "current", [renderStepSummary("SHOP", "店"), renderShopSelectionPanel(candidateDateList, candidateDateLeaders)]));
+      sections.push(renderStep("SHOP", "current", [renderShopSelectionPanel(candidateDateList, candidateDateLeaders)]));
       sections.push(renderStep("FINAL", "upcoming", [renderStepSummary("FINAL", "決まり")]));
     } else {
       var decidedDate = state.gathering.candidateDates.filter(function (date) { return date.isConfirmed; })[0];
