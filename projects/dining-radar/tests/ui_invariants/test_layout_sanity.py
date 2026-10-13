@@ -1366,24 +1366,28 @@ class LayoutSanityTests(StaticLiveServerTestCase):
                 getComputedStyle(document.querySelector('[data-testid="candidate-primary-nav-menu-panel"]')).zIndex,
             ]"""
         )
-        assert (
-            int(z_indexes[0]) < int(z_indexes[1]) < int(z_indexes[2])
-        ), "menu layers must cover the toggle"
+        assert int(z_indexes[0]) < int(z_indexes[1]) < int(z_indexes[2]), (
+            "menu layers must cover the toggle"
+        )
         current = panel.locator(
             '[data-testid="candidate-primary-nav-menu-gathering"][data-primary-nav-current="true"]'
         )
         expect(current).to_be_visible()
         expect(current.locator("svg")).to_have_count(1)
-        assert panel.locator("[data-testid='candidate-primary-nav-menu-gathering']").evaluate(
-            "node => node.tagName"
-        ) == "A"
-        create_link = panel.locator(
-            "[data-testid='candidate-primary-nav-menu-gathering-create']"
+        assert (
+            panel.locator("[data-testid='candidate-primary-nav-menu-gathering']").evaluate(
+                "node => node.tagName"
+            )
+            == "A"
         )
+        create_link = panel.locator("[data-testid='candidate-primary-nav-menu-gathering-create']")
         assert create_link.evaluate("node => node.tagName") == "A"
-        assert panel.locator("[data-testid='candidate-primary-nav-menu-search']").evaluate(
-            "node => node.tagName"
-        ) == "A"
+        assert (
+            panel.locator("[data-testid='candidate-primary-nav-menu-search']").evaluate(
+                "node => node.tagName"
+            )
+            == "A"
+        )
         current_box = current.bounding_box()
         create_box = create_link.bounding_box()
         search_box = panel.locator(
