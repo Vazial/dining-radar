@@ -140,10 +140,10 @@
     .primary-nav-menu-backdrop { position: fixed; inset: 0; z-index: 39; border: 0; background: rgb(16 28 21 / 48%); }
     .primary-nav-menu-heading-row { display: flex; align-items: center; justify-content: space-between; min-height: 3.75rem; padding: 0 0.25rem 0 0.75rem; border-bottom: 1px solid #dce3da; }
     .primary-nav-menu-heading { margin: 0; font-size: 1rem; font-weight: 700; color: #17201b; }
-    .primary-nav-menu-close { min-width: 2.75rem; min-height: 2.75rem; border: 0; background: transparent; color: #17201b; font-size: 1.5rem; cursor: pointer; }
+    .primary-nav-menu-close, .primary-nav-menu-close:hover, .primary-nav-menu-close:focus { min-width: 2.75rem; min-height: 2.75rem; border: 0; background: transparent !important; box-shadow: none; color: #17201b; font-size: 1.5rem; cursor: pointer; }
     .primary-nav-menu-gatherings { display: flex; flex-direction: column; gap: 0.3rem; }
-    .primary-nav-menu-gathering-item { display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem; }
-    .primary-nav-menu-gathering-next { font-size: 0.75rem; font-weight: 500; color: #68766c; }
+    .primary-nav-menu-gathering-item { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 0.15rem; padding-left: 0.75rem; text-align: left; }
+    .primary-nav-menu-gathering-next { display: block; margin-left: 0; text-align: left; font-size: 0.75rem; font-weight: 500; color: #68766c; }
     .primary-nav-menu-link {
       display: flex; align-items: center; gap: 0.4rem; width: 100%;
       box-sizing: border-box; min-height: 2.75rem; padding: 0 0.75rem; border-radius: 0.4rem;

@@ -4633,3 +4633,210 @@ body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"][data-ga
   border-color: #d0d6d0;
   color: #68766c;
 }
+
+/* KEN-68 final detail pass: menu rows read as a left-aligned title followed
+   by a smaller left-aligned next-action line. */
+.primary-nav-menu-gathering-item {
+  align-items: flex-start;
+  justify-content: flex-start;
+  text-align: left;
+  padding-left: 0.75rem;
+}
+.primary-nav-menu-gathering-next {
+  display: block;
+  text-align: left;
+  margin-left: 0;
+}
+.primary-nav-menu-close,
+.primary-nav-menu-close:hover,
+.primary-nav-menu-close:focus {
+  border: 0;
+  background: transparent !important;
+  box-shadow: none;
+  color: #17201b;
+}
+
+/* Selected shop: green is the organizer's active choice, distinct from the
+   neutral/leader treatments used by the voting list. */
+.gth-shop-row--selected {
+  background: #eaf4ee;
+  box-shadow: inset 3px 0 0 #14614a;
+}
+.gth-shop-row--selected .gth-shop-rank,
+.gathering-shortlisted-shop-map-marker-icon--selected .gathering-shortlisted-shop-map-marker-visual {
+  background: #14614a;
+  border-color: #14614a;
+  box-shadow: 0 0 0 1px #14614a;
+  color: #fff;
+}
+.gth-shop-row--selected .gth-shop-selected-badge {
+  background: #14614a;
+}
+
+.gathering-shortlisted-shop-map-marker-visual {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.gathering-scheduling-origin-marker-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.gathering-scheduling-origin-marker-visual {
+  display: block;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 0.15rem;
+  background: #17201b;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #17201b;
+}
+.gth-map-caption {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 500;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  background: rgb(255 255 255 / 88%);
+  color: #4b564e;
+  font-size: 0.6875rem;
+}
+.gth-map-callout {
+  position: absolute;
+  left: 50%;
+  bottom: 1rem;
+  z-index: 500;
+  transform: translateX(-50%);
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #4b564e;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  box-shadow: 0 0.125rem 0.5rem rgb(23 32 27 / 12%);
+}
+
+/* The synthetic verification map intentionally remains informative when tile
+   loading is unavailable: the quiet road/park pattern preserves the map
+   column and keeps the company marker and callout legible. */
+#gathering-app .gth-dash--scheduling .gth-shop-map {
+  background-color: #e8eee8;
+  background-image:
+    linear-gradient(155deg, transparent 0 38%, #c5d5e0 38.5% 41%, transparent 41.5%),
+    linear-gradient(25deg, transparent 0 58%, #fff 58.5% 61%, transparent 61.5%),
+    linear-gradient(90deg, transparent 0 18%, #d4e2d0 18.5% 34%, transparent 34.5% 67%, #d4e2d0 67.5% 84%, transparent 84.5%);
+}
+
+.gth-band-label {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+#gathering-app .gth-band .gth-confirm-date {
+  min-height: 2.75rem;
+}
+#gathering-app .gth-dash--scheduling .gth-banded .gth-confirm-date {
+  min-height: 2.75rem !important;
+}
+
+@media (max-width: 47.99rem) {
+  #gathering-app .gth-band > .gth-pane-head {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  #gathering-app .gth-band {
+    flex-wrap: nowrap;
+    gap: 0.25rem;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+  #gathering-app .gth-band > .gth-btn {
+    flex-shrink: 0;
+    min-width: 5.5rem;
+  }
+  #gathering-app .gth-step-answers-open {
+    min-width: 2.75rem;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-step-content > .gth-step-summary {
+    width: 100%;
+    justify-content: flex-start;
+    text-align: left;
+  }
+}
+
+@media (min-width: 48rem) {
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-schedule-heading-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 3.75rem;
+    grid-column: 1;
+    grid-row: 1;
+    padding-left: 0;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-schedule-heading-row > .gth-step-summary::after {
+    content: "いまここ";
+    margin-left: 0.5rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    background: #eaf4ee;
+    color: #14614a;
+    font-size: 0.6875rem;
+    font-weight: 700;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-schedule-heading-row > .gth-btn {
+    flex: 0 0 auto;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-banded .gth-confirm-date {
+    min-width: 0;
+    min-height: 2.5rem;
+    padding: 0 0.75rem;
+    border: 1px solid #9ab29f;
+    background: #fff;
+    color: #14614a;
+    font-size: 0.75rem;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-banded {
+    display: block;
+  }
+}
+
+@media (max-width: 47.99rem) {
+  #gathering-app .gathering-step--done[data-step="SCHEDULE"] .gth-step-summary-row {
+    min-height: 3.5rem;
+    padding: 0 0.75rem;
+    border: 1px solid #dfe4de;
+    border-radius: 0.625rem;
+    background: #fff;
+  }
+  #gathering-app .gathering-step--done[data-step="SCHEDULE"] .gth-step-answers-open {
+    font-size: 0;
+    text-decoration: none;
+  }
+  #gathering-app .gathering-step--done[data-step="SCHEDULE"] .gth-step-answers-open::after {
+    content: "›";
+    font-size: 1.5rem;
+    line-height: 1;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-schedule-heading-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-schedule-heading-row > .gth-btn {
+    min-height: 2.75rem;
+  }
+  #gathering-app .gth-dash--scheduling .gth-banded .gth-confirm-date {
+    min-height: 2.5rem;
+    padding: 0 0.625rem;
+    font-size: 0.75rem;
+  }
+}

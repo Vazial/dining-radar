@@ -1395,6 +1395,27 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         ).bounding_box()
         assert current_box is not None and create_box is not None and search_box is not None
         assert current_box["y"] < create_box["y"] < search_box["y"]
+        dynamic_items = panel.locator('[data-testid="candidate-primary-nav-menu-gathering-item"]')
+        expect(dynamic_items.first).to_be_visible()
+        dynamic_box = dynamic_items.first.bounding_box()
+        title_box = dynamic_items.first.locator(":scope > span").first.bounding_box()
+        next_box = dynamic_items.first.locator(":scope > span").nth(1).bounding_box()
+        close_style = by_test_id(self.page, "candidate-primary-nav-menu-close").evaluate(
+            "node => { const s = getComputedStyle(node); return {"
+            " background: s.backgroundColor, borderStyle: s.borderStyle,"
+            " borderWidth: s.borderWidth }; }"
+        )
+        heading_box = panel.locator(".primary-nav-menu-heading-row").bounding_box()
+        assert dynamic_box is not None and title_box is not None and next_box is not None
+        assert heading_box is not None
+        assert title_box["x"] <= dynamic_box["x"] + 14
+        assert next_box["x"] <= dynamic_box["x"] + 14
+        assert 59 <= heading_box["height"] <= 61, heading_box
+        assert close_style == {
+            "background": "rgba(0, 0, 0, 0)",
+            "borderStyle": "none",
+            "borderWidth": "0px",
+        }
         home_toggle.press("Escape")
 
         # Return to the candidate screen before continuing the existing
@@ -1527,6 +1548,19 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         # the h1 is the gathering name).
         top_label = '[data-testid="gathering-dashboard-top-label"]'
         gathering_id = self._create_gathering_via_ui("上部バー局面確認会")
+        schedule_step = self.page.locator('[data-testid="gathering-step"][data-step="SCHEDULE"]')
+        expect(schedule_step.locator(".gth-schedule-heading-row")).to_have_count(1)
+        expect(schedule_step.locator(".gth-candidate-date-edit-row")).to_have_count(0)
+        expect(
+            self.page.locator(
+                '[data-testid="gathering-step"][data-step="SHOP"].gathering-step--upcoming'
+            )
+        ).to_be_visible()
+        expect(
+            self.page.locator(
+                '[data-testid="gathering-step"][data-step="FINAL"].gathering-step--upcoming'
+            )
+        ).to_be_visible()
         self._assert_top_bar_row("dashboard-scheduling", top_label)
         self._assert_return_link_position("dashboard-scheduling", check_below_bar=True)
         self.page.set_viewport_size({"width": 390, "height": 844})
@@ -1713,7 +1747,7 @@ class LayoutSanityTests(StaticLiveServerTestCase):
             ".gth-answer-card",
             ".gth-response-section",
             '[data-testid="gathering-confirm-date-select"]',
-            ".gth-candidate-date-edit-row",
+            ".gth-schedule-heading-row",
             ".gth-banded",
         ):
             child = schedule_body.locator(selector).first
