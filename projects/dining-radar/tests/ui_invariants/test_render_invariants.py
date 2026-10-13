@@ -1858,7 +1858,7 @@ class RenderedScreenInvariantTests(StaticLiveServerTestCase):
                     _assert_no_horizontal_overflow(
                         self.page, f"candidate screen, primary nav menu open ({label})"
                     )
-                    menu_toggle.click()
+                    by_test_id(self.page, "candidate-primary-nav-menu-close").click()
 
 
 # ---------------------------------------------------------------------------

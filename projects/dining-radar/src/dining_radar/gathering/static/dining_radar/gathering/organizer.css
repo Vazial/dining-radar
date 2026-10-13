@@ -3205,6 +3205,7 @@ body:has(#gathering-list-app) main {
 .primary-nav-menu-toggle:hover { background: #f4f5f1; }
 .primary-nav-menu-toggle:focus-visible { outline: 2px solid #14614a; outline-offset: 2px; }
 .primary-nav-menu[open] .primary-nav-menu-toggle { border-color: #14614a; }
+.primary-nav-menu[open] .primary-nav-menu-toggle { z-index: 1; }
 .primary-nav-menu-panel {
   position: fixed;
   inset: 0 0 0 auto;
@@ -3223,7 +3224,9 @@ body:has(#gathering-list-app) main {
 }
 .primary-nav-menu-panel[hidden], .primary-nav-menu-backdrop[hidden] { display: none; }
 .primary-nav-menu-backdrop { position: fixed; inset: 0; z-index: 39; border: 0; background: rgb(16 28 21 / 48%); }
-.primary-nav-menu-close { align-self: flex-end; min-width: 2.75rem; min-height: 2.75rem; border: 0; background: transparent; color: #17201b; font-size: 1.5rem; cursor: pointer; }
+.primary-nav-menu-heading-row { display: flex; align-items: center; justify-content: space-between; min-height: 3.75rem; padding: 0 0.25rem 0 0.75rem; border-bottom: 1px solid #dce3da; }
+.primary-nav-menu-heading { margin: 0; font-size: 1rem; font-weight: 700; color: #17201b; }
+.primary-nav-menu-close { min-width: 2.75rem; min-height: 2.75rem; border: 0; background: transparent; color: #17201b; font-size: 1.5rem; cursor: pointer; }
 .primary-nav-menu-gatherings { display: flex; flex-direction: column; gap: 0.3rem; }
 .primary-nav-menu-gathering-item { display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem; }
 .primary-nav-menu-gathering-next { font-size: 0.75rem; font-weight: 500; color: #68766c; }
@@ -3248,6 +3251,7 @@ body:has(#gathering-list-app) main {
 .primary-nav-menu-link:hover { background: #f4f5f1; }
 .primary-nav-menu-link:focus-visible { outline: 2px solid #14614a; outline-offset: 2px; }
 .primary-nav-menu-link[data-primary-nav-current="true"] { background: #e9f1eb; font-weight: 700; }
+.primary-nav-menu-link[data-primary-nav-current="true"]::after { content: "いまここ"; margin-left: auto; color: #14614a; font-size: 0.75rem; font-weight: 700; }
 /* KEN-11 (audit A2, party2/a-nav-r5): see home.html's own copy of this
    rule for the full comment -- kept in sync by hand across the two apps
    (this file's existing convention). */
@@ -3270,6 +3274,7 @@ body:has(#gathering-list-app) main {
 .primary-nav-menu-link .primary-nav-icon { color: #4b564e; }
 .primary-nav-menu-link[data-primary-nav-current="true"] .primary-nav-icon { color: #14614a; }
 .primary-nav-menu-form { margin: 0; width: 100%; }
+.primary-nav-menu-panel { width: 360px; max-width: 100vw; }
 
 /* Mobile bottom bar (candidate-primary-nav-bar): fixed to the viewport
    bottom, three equal-width items (ランチ会／店を探す／アカウント). */
@@ -4419,4 +4424,212 @@ body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gather
     max-width: 100%;
     overflow-x: auto;
   }
+}
+
+/* KEN-68 final board pass: the portrait selecting screen is a compact
+   in-flow frame.  Keep the map between its heading and rows, and reserve the
+   full-width action for the frame's last row rather than using the desktop
+   shop cards/sheet geometry. */
+@media (max-width: 47.99rem) {
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current {
+    position: relative;
+    padding-left: 2.75rem;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current::after {
+    content: "";
+    position: absolute;
+    left: 1.05rem;
+    top: 2.5rem;
+    bottom: 0.5rem;
+    border-left: 2px solid #dfe4de;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current::before {
+    position: absolute;
+    left: 0.25rem;
+    top: 1rem;
+    width: 1.75rem;
+    height: 1.75rem;
+    display: grid;
+    place-items: center;
+    border: 2px solid #14614a;
+    border-radius: 50%;
+    background: #fff;
+    color: #14614a;
+    content: "2";
+    z-index: 1;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-step-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    border: 2px solid #14614a;
+    border-radius: 0.75rem;
+    background: #fff;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-step-content > .gth-step-summary {
+    order: 1;
+    min-height: 2.75rem;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-step-content > .gth-shop-map {
+    order: 2;
+    display: block;
+    width: 100%;
+    height: max(11.25rem, 20vh);
+    min-height: max(11.25rem, 20vh);
+    border-radius: 0.5rem;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-step-content > .gth-pane-head-row {
+    order: 3;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    min-height: 2.25rem;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-step-content > .gth-pane-head-row .gth-inline-actions {
+    margin-left: auto;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-step-content > .gth-shop-list {
+    order: 4;
+    gap: 0;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-row {
+    min-height: 3.5rem;
+    padding: 0.35rem 0;
+    border-width: 0 0 1px;
+    border-radius: 0;
+    background: #fff;
+    box-shadow: none;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-link {
+    min-height: 2.75rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #14614a;
+    font-size: 0.6875rem;
+    text-decoration: underline;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-step-content > .gth-bottom-bar {
+    order: 5;
+    position: static;
+    width: 100%;
+    margin: 0;
+    padding: 0.5rem 0 0;
+    border-top: 0;
+    box-shadow: none;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-bottom-bar .gth-btn {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--done[data-step="SCHEDULE"] .gth-step-answers-open {
+    min-height: 2.75rem;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: #14614a;
+    text-decoration: underline;
+  }
+}
+
+/* The provider page is a required keyboard-accessible anchor, but it is a
+   quiet text affordance in the board rows rather than a second outlined
+   action button. */
+#gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current .gth-shop-link {
+  min-height: 2.75rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #14614a;
+  text-decoration: underline;
+}
+
+@media (min-width: 48rem) {
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-step-summary::after {
+    content: "いまここ";
+    margin-left: 0.5rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    background: #eaf4ee;
+    color: #14614a;
+    font-size: 0.6875rem;
+    font-weight: 700;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-confirm-date {
+    justify-self: end;
+    min-width: 0;
+    padding: 0.25rem 0.5rem;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: #14614a;
+    font-size: 0.75rem;
+    text-decoration: underline;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-answer-card {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-answer-card .gth-answer-card-title {
+    font-size: 1.25rem;
+    white-space: nowrap;
+  }
+}
+
+/* Secondary gatherings on the home board are deliberately rows, not
+   miniature copies of the featured card. */
+body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] {
+  display: block;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gathering-list-item-open {
+  min-height: 3.25rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #dfe4de;
+  border-radius: 0.5rem;
+  background: #fff;
+  box-sizing: border-box;
+}
+body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gathering-list-item-open-content {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gathering-list-item-summary,
+body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gathering-list-item-links {
+  display: none;
+}
+body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gathering-list-item-numbers {
+  flex: 0 1 auto;
+  padding: 0;
+  white-space: nowrap;
+}
+body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gathering-list-item-open-label {
+  order: 3;
+  margin-left: auto;
+}
+body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"][data-gathering-phase="SCHEDULING"] .gathering-list-item-phase {
+  background: #fff5d9;
+  border-color: #eadcae;
+  color: #8a6811;
+}
+body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"][data-gathering-phase="SELECTING_SHOP"] .gathering-list-item-phase {
+  background: #eaf4ee;
+  border-color: #b8d8c0;
+  color: #14614a;
+}
+body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"][data-gathering-phase="FINALIZED"] .gathering-list-item-phase {
+  background: #eef0ed;
+  border-color: #d0d6d0;
+  color: #68766c;
 }

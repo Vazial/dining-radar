@@ -1339,6 +1339,64 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         assert dot_box["x"] + dot_box["width"] >= toggle_box["x"] + toggle_box["width"] - 2
         assert dot_box["y"] <= toggle_box["y"] + 8
 
+        # KEN-68: the organizer home is the board's menu checkpoint.  The
+        # pane owns its heading/close row, the current destination carries
+        # the current marker, and opening it must put the toggle underneath
+        # the pane rather than above it.
+        self.page.goto(f"{self.base_url}{reverse('gathering:organizer-gathering-list')}")
+        wait_for_at_least_one(self.page, "gathering-list-item")
+        home_toggle = by_test_id(self.page, "candidate-primary-nav-menu-toggle")
+        home_toggle.click()
+        panel = by_test_id(self.page, "candidate-primary-nav-menu-panel")
+        expect(panel).to_be_visible()
+        expect(panel.locator(".primary-nav-menu-heading")).to_have_text("メニュー")
+        expect(by_test_id(self.page, "candidate-primary-nav-menu-close")).to_be_visible()
+        backdrop = by_test_id(self.page, "candidate-primary-nav-menu-backdrop")
+        expect(backdrop).to_be_visible()
+        panel_box = panel.bounding_box()
+        home_toggle_box = home_toggle.bounding_box()
+        close_box = by_test_id(self.page, "candidate-primary-nav-menu-close").bounding_box()
+        assert panel_box is not None and home_toggle_box is not None and close_box is not None
+        assert panel_box["width"] >= 359, panel_box
+        assert close_box["x"] + close_box["width"] <= panel_box["x"] + panel_box["width"]
+        z_indexes = self.page.evaluate(
+            """() => [
+                getComputedStyle(document.querySelector('[data-testid="candidate-primary-nav-menu-toggle"]')).zIndex,
+                getComputedStyle(document.querySelector('[data-testid="candidate-primary-nav-menu-backdrop"]')).zIndex,
+                getComputedStyle(document.querySelector('[data-testid="candidate-primary-nav-menu-panel"]')).zIndex,
+            ]"""
+        )
+        assert (
+            int(z_indexes[0]) < int(z_indexes[1]) < int(z_indexes[2])
+        ), "menu layers must cover the toggle"
+        current = panel.locator(
+            '[data-testid="candidate-primary-nav-menu-gathering"][data-primary-nav-current="true"]'
+        )
+        expect(current).to_be_visible()
+        expect(current.locator("svg")).to_have_count(1)
+        assert panel.locator("[data-testid='candidate-primary-nav-menu-gathering']").evaluate(
+            "node => node.tagName"
+        ) == "A"
+        create_link = panel.locator(
+            "[data-testid='candidate-primary-nav-menu-gathering-create']"
+        )
+        assert create_link.evaluate("node => node.tagName") == "A"
+        assert panel.locator("[data-testid='candidate-primary-nav-menu-search']").evaluate(
+            "node => node.tagName"
+        ) == "A"
+        current_box = current.bounding_box()
+        create_box = create_link.bounding_box()
+        search_box = panel.locator(
+            "[data-testid='candidate-primary-nav-menu-search']"
+        ).bounding_box()
+        assert current_box is not None and create_box is not None and search_box is not None
+        assert current_box["y"] < create_box["y"] < search_box["y"]
+        home_toggle.press("Escape")
+
+        # Return to the candidate screen before continuing the existing
+        # responsive-bar assertions; the organizer list intentionally has no
+        # candidate cards of its own.
+        self.page.goto(f"{self.base_url}/search/")
         self.page.set_viewport_size({"width": 390, "height": 844})
         self.page.reload()
         wait_for_at_least_one(self.page, "candidate-card")

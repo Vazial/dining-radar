@@ -3327,7 +3327,7 @@
       "data-gathering-control-purpose": "gathering-step-answers-open",
       "aria-expanded": state.stepAnswersOpen ? "true" : "false",
       class: "gth-step-answers-open",
-    }, ["回答の表"]);
+    }, ["回答の表・変える"]);
     button.addEventListener("click", function () {
       state.stepAnswersOpen = !state.stepAnswersOpen;
       render();

@@ -633,6 +633,13 @@ class BoardConformanceCaptureTests(StaticLiveServerTestCase):
             screen, "nav_account_sheet_open", given_nav_account_sheet_open
         )
 
+        def given_menu_open(width: int, height: int) -> Page:
+            given_multiple(width, height)
+            self._open_account_disclosure()
+            return self.page
+
+        self._capture_state_across_sizes(screen, "menu_open", given_menu_open)
+
     # --- gathering_create --------------------------------------------------------
 
     def test_capture_gathering_create(self) -> None:

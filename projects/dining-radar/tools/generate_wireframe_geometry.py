@@ -50,7 +50,7 @@ COMPARE = {
     "S3-SpScheduling": "dashboard_scheduling__candidate_dates_3_no_answers__390x844.png",
     "GC-PcFinal": "dashboard_finalized__initial__1440x900.png",
     "GC-SpFinal": "dashboard_finalized__initial__390x844.png",
-    "Nav-PcPane": "candidates__menu_open__1440x900.png",
+    "Nav-PcPane": "home__menu_open__1440x900.png",
     "Nav-SpN1": "home__multiple__390x844.png",
     "Cand-PcGathering": "candidates__gathering_mode__1440x900.png",
     "Cand-SpFree": "candidates__normal__390x844.png",
