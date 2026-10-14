@@ -128,6 +128,7 @@
     .primary-nav-menu-toggle:hover { background: #f4f5f1; }
     .primary-nav-menu-toggle:focus-visible { outline: 2px solid #155c42; outline-offset: 2px; }
     .primary-nav-menu[open] .primary-nav-menu-toggle { border-color: #155c42; }
+    .primary-nav-menu[open] .primary-nav-menu-toggle { z-index: 1; }
     .primary-nav-menu-panel {
       position: fixed; inset: 0 0 0 auto; z-index: 40;
       display: flex; flex-direction: column; gap: 0.3rem;
@@ -137,10 +138,12 @@
     }
     .primary-nav-menu-panel[hidden], .primary-nav-menu-backdrop[hidden] { display: none; }
     .primary-nav-menu-backdrop { position: fixed; inset: 0; z-index: 39; border: 0; background: rgb(16 28 21 / 48%); }
-    .primary-nav-menu-close { align-self: flex-end; min-width: 2.75rem; min-height: 2.75rem; border: 0; background: transparent; color: #17201b; font-size: 1.5rem; cursor: pointer; }
+    .primary-nav-menu-heading-row { display: flex; align-items: center; justify-content: space-between; min-height: 3.75rem; padding: 0 0.25rem 0 0.75rem; border-bottom: 1px solid #dce3da; }
+    .primary-nav-menu-heading { margin: 0; font-size: 1rem; font-weight: 700; color: #17201b; }
+    .primary-nav-menu-close, .primary-nav-menu-close:hover, .primary-nav-menu-close:focus { min-width: 2.75rem; min-height: 2.75rem; border: 0; background: transparent !important; box-shadow: none; color: #17201b; font-size: 1.5rem; cursor: pointer; }
     .primary-nav-menu-gatherings { display: flex; flex-direction: column; gap: 0.3rem; }
-    .primary-nav-menu-gathering-item { display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem; }
-    .primary-nav-menu-gathering-next { font-size: 0.75rem; font-weight: 500; color: #68766c; }
+    .primary-nav-menu-gathering-item { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 0.15rem; padding-left: 0.75rem; text-align: left; }
+    .primary-nav-menu-gathering-next { display: block; margin-left: 0; text-align: left; font-size: 0.75rem; font-weight: 500; color: #68766c; }
     .primary-nav-menu-link {
       display: flex; align-items: center; gap: 0.4rem; width: 100%;
       box-sizing: border-box; min-height: 2.75rem; padding: 0 0.75rem; border-radius: 0.4rem;
@@ -150,6 +153,7 @@
     .primary-nav-menu-link:hover { background: #f4f5f1; }
     .primary-nav-menu-link:focus-visible { outline: 2px solid #155c42; outline-offset: 2px; }
     .primary-nav-menu-link[data-primary-nav-current="true"] { background: #e9f1eb; font-weight: 700; }
+    .primary-nav-menu-link[data-primary-nav-current="true"]::after { content: "いまここ"; margin-left: auto; color: #14614a; font-size: 0.75rem; font-weight: 700; }
     /* KEN-55 (audit B-1): nav icons are line SVGs drawn from the board
        (party2/d6 S2-a, a-nav-r4-full S2) instead of emoji, which render
        per-OS (or as tofu). stroke is currentColor: bar items follow the
@@ -1415,7 +1419,7 @@
         ><svg class="primary-nav-icon primary-nav-icon-menu" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M3.5 5.5h13M3.5 10h13M3.5 14.5h13"/></svg><span class="visually-hidden">メニュー</span><span data-testid="candidate-primary-nav-menu-dot" class="candidate-primary-nav-menu-dot" hidden></span></summary>
         <button type="button" data-testid="candidate-primary-nav-menu-backdrop" data-candidate-control-category="button" data-candidate-control-purpose="candidate-primary-nav-menu-backdrop" class="primary-nav-menu-backdrop" hidden aria-label="メニューを閉じる"></button>
         <div data-testid="candidate-primary-nav-menu-panel" class="primary-nav-menu-panel" hidden>
-          <button type="button" data-testid="candidate-primary-nav-menu-close" data-candidate-control-category="button" data-candidate-control-purpose="candidate-primary-nav-menu-close" class="primary-nav-menu-close" aria-label="メニューを閉じる">×</button>
+          <div class="primary-nav-menu-heading-row"><h2 class="primary-nav-menu-heading">メニュー</h2><button type="button" data-testid="candidate-primary-nav-menu-close" data-candidate-control-category="button" data-candidate-control-purpose="candidate-primary-nav-menu-close" class="primary-nav-menu-close" aria-label="メニューを閉じる">×</button></div>
           <a href="{% url 'gathering:organizer-home' %}" data-testid="candidate-primary-nav-menu-gathering" data-primary-nav-current="false" class="primary-nav-menu-link"><svg class="primary-nav-icon" width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><rect x="3" y="4.2" width="12" height="11" rx="2.2"/><path d="M3 7.6h12M6 3v2.4M12 3v2.4"/></svg>ランチ会</a>
           <div data-testid="candidate-primary-nav-menu-gatherings" class="primary-nav-menu-gatherings"></div>
           <a href="{% url 'gathering:organizer-gathering-create' %}" data-testid="candidate-primary-nav-menu-gathering-create" data-candidate-control-purpose="candidate-primary-nav-menu-gathering-create" class="primary-nav-menu-link">ランチ会をつくる</a>

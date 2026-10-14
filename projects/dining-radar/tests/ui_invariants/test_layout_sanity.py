@@ -1339,6 +1339,89 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         assert dot_box["x"] + dot_box["width"] >= toggle_box["x"] + toggle_box["width"] - 2
         assert dot_box["y"] <= toggle_box["y"] + 8
 
+        # KEN-68: the organizer home is the board's menu checkpoint.  The
+        # pane owns its heading/close row, the current destination carries
+        # the current marker, and opening it must put the toggle underneath
+        # the pane rather than above it.
+        self.page.goto(f"{self.base_url}{reverse('gathering:organizer-gathering-list')}")
+        wait_for_at_least_one(self.page, "gathering-list-item")
+        home_toggle = by_test_id(self.page, "candidate-primary-nav-menu-toggle")
+        home_toggle.click()
+        panel = by_test_id(self.page, "candidate-primary-nav-menu-panel")
+        expect(panel).to_be_visible()
+        expect(panel.locator(".primary-nav-menu-heading")).to_have_text("メニュー")
+        expect(by_test_id(self.page, "candidate-primary-nav-menu-close")).to_be_visible()
+        backdrop = by_test_id(self.page, "candidate-primary-nav-menu-backdrop")
+        expect(backdrop).to_be_visible()
+        panel_box = panel.bounding_box()
+        home_toggle_box = home_toggle.bounding_box()
+        close_box = by_test_id(self.page, "candidate-primary-nav-menu-close").bounding_box()
+        assert panel_box is not None and home_toggle_box is not None and close_box is not None
+        assert panel_box["width"] >= 359, panel_box
+        assert close_box["x"] + close_box["width"] <= panel_box["x"] + panel_box["width"]
+        z_indexes = self.page.evaluate(
+            """() => [
+                getComputedStyle(document.querySelector('[data-testid="candidate-primary-nav-menu-toggle"]')).zIndex,
+                getComputedStyle(document.querySelector('[data-testid="candidate-primary-nav-menu-backdrop"]')).zIndex,
+                getComputedStyle(document.querySelector('[data-testid="candidate-primary-nav-menu-panel"]')).zIndex,
+            ]"""
+        )
+        assert int(z_indexes[0]) < int(z_indexes[1]) < int(z_indexes[2]), (
+            "menu layers must cover the toggle"
+        )
+        current = panel.locator(
+            '[data-testid="candidate-primary-nav-menu-gathering"][data-primary-nav-current="true"]'
+        )
+        expect(current).to_be_visible()
+        expect(current.locator("svg")).to_have_count(1)
+        assert (
+            panel.locator("[data-testid='candidate-primary-nav-menu-gathering']").evaluate(
+                "node => node.tagName"
+            )
+            == "A"
+        )
+        create_link = panel.locator("[data-testid='candidate-primary-nav-menu-gathering-create']")
+        assert create_link.evaluate("node => node.tagName") == "A"
+        assert (
+            panel.locator("[data-testid='candidate-primary-nav-menu-search']").evaluate(
+                "node => node.tagName"
+            )
+            == "A"
+        )
+        current_box = current.bounding_box()
+        create_box = create_link.bounding_box()
+        search_box = panel.locator(
+            "[data-testid='candidate-primary-nav-menu-search']"
+        ).bounding_box()
+        assert current_box is not None and create_box is not None and search_box is not None
+        assert current_box["y"] < create_box["y"] < search_box["y"]
+        dynamic_items = panel.locator('[data-testid="candidate-primary-nav-menu-gathering-item"]')
+        expect(dynamic_items.first).to_be_visible()
+        dynamic_box = dynamic_items.first.bounding_box()
+        title_box = dynamic_items.first.locator(":scope > span").first.bounding_box()
+        next_box = dynamic_items.first.locator(":scope > span").nth(1).bounding_box()
+        close_style = by_test_id(self.page, "candidate-primary-nav-menu-close").evaluate(
+            "node => { const s = getComputedStyle(node); return {"
+            " background: s.backgroundColor, borderStyle: s.borderStyle,"
+            " borderWidth: s.borderWidth }; }"
+        )
+        heading_box = panel.locator(".primary-nav-menu-heading-row").bounding_box()
+        assert dynamic_box is not None and title_box is not None and next_box is not None
+        assert heading_box is not None
+        assert title_box["x"] <= dynamic_box["x"] + 14
+        assert next_box["x"] <= dynamic_box["x"] + 14
+        assert 59 <= heading_box["height"] <= 61, heading_box
+        assert close_style == {
+            "background": "rgba(0, 0, 0, 0)",
+            "borderStyle": "none",
+            "borderWidth": "0px",
+        }
+        home_toggle.press("Escape")
+
+        # Return to the candidate screen before continuing the existing
+        # responsive-bar assertions; the organizer list intentionally has no
+        # candidate cards of its own.
+        self.page.goto(f"{self.base_url}/search/")
         self.page.set_viewport_size({"width": 390, "height": 844})
         self.page.reload()
         wait_for_at_least_one(self.page, "candidate-card")
@@ -1465,6 +1548,19 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         # the h1 is the gathering name).
         top_label = '[data-testid="gathering-dashboard-top-label"]'
         gathering_id = self._create_gathering_via_ui("上部バー局面確認会")
+        schedule_step = self.page.locator('[data-testid="gathering-step"][data-step="SCHEDULE"]')
+        expect(schedule_step.locator(".gth-schedule-heading-row")).to_have_count(1)
+        expect(schedule_step.locator(".gth-candidate-date-edit-row")).to_have_count(0)
+        expect(
+            self.page.locator(
+                '[data-testid="gathering-step"][data-step="SHOP"].gathering-step--upcoming'
+            )
+        ).to_be_visible()
+        expect(
+            self.page.locator(
+                '[data-testid="gathering-step"][data-step="FINAL"].gathering-step--upcoming'
+            )
+        ).to_be_visible()
         self._assert_top_bar_row("dashboard-scheduling", top_label)
         self._assert_return_link_position("dashboard-scheduling", check_below_bar=True)
         self.page.set_viewport_size({"width": 390, "height": 844})
@@ -1499,6 +1595,203 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         self.page.reload()
         expect(by_test_id(self.page, "gathering-dashboard-back")).to_be_visible()
         self._assert_return_link_position("dashboard-finalized-phone", check_below_bar=False)
+
+    def test_home_featured_item_has_one_aligned_surface(self) -> None:
+        """ADR-0078: the featured gathering is one frame, not a framed link
+        nested inside a second frame with the next action detached below it.
+        """
+        self._sign_in_as_organizer()
+        self.page.set_viewport_size({"width": 1440, "height": 900})
+        self._create_gathering_via_ui("ホームの大きい枠1")
+        self._create_gathering_via_ui("ホームの大きい枠2")
+        self.page.goto(f"{self.base_url}{reverse('gathering:organizer-gathering-list')}")
+        wait_for_at_least_one(self.page, "gathering-list-item")
+
+        featured = self.page.locator(
+            '[data-testid="gathering-list-item"][data-list-role="featured"]'
+        )
+        open_link = featured.locator('[data-testid="gathering-list-item-open"]')
+        featured_box = featured.bounding_box()
+        open_box = open_link.bounding_box()
+        assert featured_box is not None and open_box is not None
+        assert open_box["x"] >= featured_box["x"]
+        assert open_box["x"] + open_box["width"] <= featured_box["x"] + featured_box["width"]
+
+        featured_style = featured.evaluate(
+            "node => { const style = getComputedStyle(node); return {"
+            " borderTopWidth: style.borderTopWidth, borderTopColor: style.borderTopColor }; }"
+        )
+        assert featured_style == {
+            "borderTopWidth": "2px",
+            "borderTopColor": "rgb(20, 97, 74)",
+        }
+
+        surface = open_link.evaluate(
+            """node => {
+                const style = getComputedStyle(node);
+                return {
+                    borderTopWidth: style.borderTopWidth,
+                    backgroundColor: style.backgroundColor,
+                    boxShadow: style.boxShadow,
+                };
+            }"""
+        )
+        assert surface == {
+            "borderTopWidth": "0px",
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "boxShadow": "none",
+        }
+
+    def test_dashboard_shop_step_uses_the_desktop_pane_width(self) -> None:
+        """ADR-0079/0081: desktop puts the current step and its map/shop pane
+        in the dashboard's full content width; it must not nest both in the
+        narrow first column while leaving the right pane empty.
+        """
+        self._sign_in_as_organizer()
+        self.page.set_viewport_size({"width": 1440, "height": 900})
+        gathering_id = self._create_gathering_via_ui("店のペイン幅確認会")
+        by_test_id(self.page, "gathering-candidate-date").first.click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        self._seed_one_shortlisted_shop(gathering_id)
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+
+        dash = self.page.locator(".gth-dash")
+        current_step = self.page.locator(".gathering-step--current")
+        dash_box = dash.bounding_box()
+        current_step_box = current_step.bounding_box()
+        assert dash_box is not None and current_step_box is not None
+        assert current_step_box["width"] >= dash_box["width"] - TOLERANCE_PX
+
+    def test_scheduling_response_controls_are_readable(self) -> None:
+        """ADR-0080: the scheduling response table leaves room for its controls
+        and keeps the participant/status label on one readable line.
+        """
+        self._sign_in_as_organizer()
+        self.page.set_viewport_size({"width": 1440, "height": 900})
+        self._create_gathering_via_ui("日程表の読みやすさ確認会")
+
+        response_table = by_test_id(self.page, "gathering-response-table")
+        confirm = by_test_id(self.page, "gathering-confirm-date-select")
+        row_name = self.page.locator(".gth-response-row-name").first
+        table_box = response_table.bounding_box()
+        confirm_box = confirm.bounding_box()
+        assert table_box is not None and confirm_box is not None
+        assert confirm_box["y"] - (table_box["y"] + table_box["height"]) >= 8, (
+            "scheduling table and date confirmation control are visually touching"
+        )
+        assert row_name.evaluate("node => getComputedStyle(node).whiteSpace") == "nowrap"
+
+    def test_finalized_heading_indicator_does_not_overlap_title(self) -> None:
+        """ADR-0075: the finalized phase badge has its own heading row."""
+        self._sign_in_as_organizer()
+        self.page.set_viewport_size({"width": 1440, "height": 900})
+        gathering_id = self._create_gathering_via_ui("確定見出し確認会")
+        by_test_id(self.page, "gathering-candidate-date").click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        self._seed_one_shortlisted_shop(gathering_id)
+        self.page.reload()
+        by_test_id(self.page, "gathering-finalize-shop-select").check(force=True)
+        by_test_id(self.page, "gathering-finalize-open").click()
+        by_test_id(self.page, "gathering-finalize-confirm").click()
+        expect(by_test_id(self.page, "gathering-decision-banner")).to_be_visible()
+
+        title_box = by_test_id(self.page, "gathering-dashboard-title").bounding_box()
+        phase_box = by_test_id(self.page, "gathering-phase-indicator").bounding_box()
+        assert title_box is not None and phase_box is not None
+        assert phase_box["y"] >= title_box["y"] + title_box["height"] - 1, (
+            f"finalized phase badge overlaps title: title={title_box}, phase={phase_box}"
+        )
+
+    def test_board_geometry_keeps_dashboard_map_in_the_right_column(self) -> None:
+        """KEN-68 board geometry: the desktop map follows the step column."""
+        self._sign_in_as_organizer()
+        self.page.set_viewport_size({"width": 1440, "height": 900})
+        gathering_id = self._create_gathering_via_ui("板照合の列確認会")
+        by_test_id(self.page, "gathering-candidate-date").click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        self._seed_one_shortlisted_shop(gathering_id)
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+        step = self.page.locator(".gathering-step--current")
+        map_box = self.page.locator(".gathering-step--current .gth-shop-map").bounding_box()
+        step_box = step.bounding_box()
+        assert map_box is not None and step_box is not None
+        assert map_box["x"] >= step_box["x"] + 540, (
+            f"board map column moved into the step column: step={step_box}, map={map_box}"
+        )
+        assert map_box["width"] >= 480, f"board map column is too narrow: {map_box}"
+
+    def test_board_frames_contain_their_controls_and_preserve_order(self) -> None:
+        """KEN-68 board geometry: the visible step is one frame, not loose cards.
+
+        This deliberately checks containment, sibling order, and the board's
+        link-like treatment of secondary actions.  It is a geometry check,
+        rather than a screenshot-only comparison, so a later layout change
+        cannot silently move a control outside its owning step.
+        """
+        self._sign_in_as_organizer()
+        self.page.set_viewport_size({"width": 1440, "height": 900})
+        gathering_id = self._create_gathering_via_ui("板の内包確認会")
+
+        schedule_step = self.page.locator(".gathering-step--current")
+        schedule_body = schedule_step.locator(".gth-step-body")
+        body_box = schedule_body.bounding_box()
+        assert body_box is not None
+        body_style = schedule_body.evaluate(
+            "node => { const s = getComputedStyle(node, '::before'); "
+            "return { border: s.borderTopWidth, color: s.borderTopColor }; }"
+        )
+        assert body_style == {"border": "2px", "color": "rgb(20, 97, 74)"}
+        for selector in (
+            ".gth-answer-card",
+            ".gth-response-section",
+            '[data-testid="gathering-confirm-date-select"]',
+            ".gth-schedule-heading-row",
+            ".gth-banded",
+        ):
+            child = schedule_body.locator(selector).first
+            child_box = child.bounding_box()
+            assert child_box is not None, selector
+            assert body_box["x"] <= child_box["x"] <= body_box["x"] + body_box["width"]
+            assert child_box["x"] + child_box["width"] <= body_box["x"] + body_box["width"] + 1
+
+        by_test_id(self.page, "gathering-candidate-date").first.click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        self._seed_one_shortlisted_shop(gathering_id)
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+        shop_step = self.page.locator(".gathering-step--current")
+        shop_body = shop_step.locator(".gth-shop-step-content")
+        shop_box = shop_body.bounding_box()
+        assert shop_box is not None
+        shop_style = shop_body.evaluate(
+            "node => { const s = getComputedStyle(node); "
+            "return { border: s.borderTopWidth, color: s.borderTopColor }; }"
+        )
+        assert shop_style == {"border": "2px", "color": "rgb(20, 97, 74)"}
+        for selector in (".gth-pane-head-row", ".gth-shop-list", ".gth-bottom-bar"):
+            child = shop_body.locator(selector).first
+            child_box = child.bounding_box()
+            assert child_box is not None, selector
+            assert shop_box["x"] <= child_box["x"] <= shop_box["x"] + shop_box["width"]
+            assert child_box["x"] + child_box["width"] <= shop_box["x"] + shop_box["width"] + 1
+
+        re_search = shop_body.locator('[data-testid="gathering-shortlist-open"]').first
+        re_search_style = re_search.evaluate(
+            "node => { const s = getComputedStyle(node); return { "
+            "border: s.borderTopWidth, background: s.backgroundColor, "
+            "decoration: s.textDecorationLine }; }"
+        )
+        assert re_search_style == {
+            "border": "0px",
+            "background": "rgba(0, 0, 0, 0)",
+            "decoration": "underline",
+        }
+        name_box = shop_body.locator(".gth-shop-name").first.bounding_box()
+        votes_box = shop_body.locator(".gth-shop-vote-row").first.bounding_box()
+        assert name_box is not None and votes_box is not None
+        assert votes_box["x"] >= name_box["x"] + name_box["width"] - 1
 
     @pytest.mark.xfail(
         strict=True,

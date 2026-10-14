@@ -108,7 +108,7 @@ _PROBE_JS = """
   };
   out.candidate = {legacy: true};
   out.link = heading('gathering-participant-link-heading', 'gathering-participant-link-list',
-                     'gathering-participant-link-copy');
+                     'gathering-confirm-date-select');
 
   // --- response table ---
   const table = one('gathering-response-table');

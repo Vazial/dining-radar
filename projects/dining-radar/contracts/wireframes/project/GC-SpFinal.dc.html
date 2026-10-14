@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>G-C スマホ 決まった 地図が残る</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#14614A}a:hover{color:#0E4736}
+.btn{min-height:44px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 14px;border:1px solid #C6CFC6;background:#FFFFFF;border-radius:10px;font:inherit;font-size:14px;font-weight:500;color:#17201B;text-decoration:none;white-space:nowrap}
+.btn.pri{background:#14614A;border-color:#14614A;color:#FFFFFF;font-weight:700}
+.chip{display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:12px;font-size:12px;font-weight:700;white-space:nowrap}
+.c-sel{background:#DDEFE4;color:#14614A}
+.muted{color:#5C665F;font-size:12px}
+.step{display:grid;grid-template-columns:28px 1fr;gap:10px}
+.rail{display:flex;flex-direction:column;align-items:center}
+.num{width:26px;height:26px;border-radius:13px;box-sizing:border-box;border:2px solid #C6CFC6;background:#FFFFFF;color:#5C665F;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.num.done{background:#14614A;border-color:#14614A;color:#FFFFFF}
+.num.cur{border-color:#14614A;color:#14614A;border-width:3px}
+.line{width:2px;flex-grow:1;background:#DFE4DE;min-height:10px}
+.line.done{background:#14614A}
+.body{box-sizing:border-box;background:#FFFFFF;border:1px solid #DFE4DE;border-radius:12px;padding:10px 12px;margin-bottom:10px}
+.shop{border-bottom:1px solid #EDF0EC;padding:7px 0;display:grid;grid-template-columns:22px 1fr auto;gap:8px;align-items:center}
+.no{width:20px;height:20px;border-radius:10px;border:2px solid #14614A;color:#14614A;font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center;box-sizing:border-box}
+.sn{font-size:13px;font-weight:700}
+.nav{height:64px;flex-shrink:0;box-sizing:border-box;background:#FFFFFF;border-top:1px solid #DFE4DE;display:grid;grid-template-columns:repeat(3, minmax(0, 1fr))}
+.nav a{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:11px;color:#4B564E;text-decoration:none;position:relative}
+.nav a.cur{color:#14614A;font-weight:700}
+.badge{position:absolute;top:8px;left:calc(50% + 6px);min-width:18px;height:18px;border-radius:9px;background:#14614A;color:#FFFFFF;font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 4px;box-sizing:border-box}
+.fold{display:flex;align-items:center;gap:8px;min-height:44px;padding-top:4px;padding-bottom:4px;text-decoration:none;color:#17201B}
+.fold .k{font-size:12px;color:#4B564E;font-weight:700;width:40px}
+.fold .v{font-size:14px;font-weight:700;flex-grow:1}
+.map{position:relative;border-radius:10px;overflow:hidden;background:#E4E9E2}
+.pin{position:absolute;width:24px;height:24px;border-radius:12px;background:#FFFFFF;border:2px solid #14614A;color:#14614A;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;box-sizing:border-box;box-shadow:0 1px 3px rgba(23,32,27,.25)}
+.pin.on{background:#14614A;color:#FFFFFF;width:28px;height:28px;border-radius:14px}
+.shop.sel{background:#EEF6F1;box-shadow:inset 3px 0 0 #14614A;border-radius:6px;padding-left:6px}
+.shop.sel .no{background:#14614A;color:#FFFFFF}
+.c-fin{background:#E6E9E5;color:#3F4A43}
+</style>
+</helmet>
+<div style="width:390px;height:844px;box-sizing:border-box;background:#F2F4F0;color:#17201B;font-family:'Noto Sans JP',system-ui,sans-serif;display:flex;flex-direction:column;overflow:hidden">
+  <main style="flex-grow:1;min-height:0;box-sizing:border-box;padding:8px 16px 14px;display:flex;flex-direction:column;gap:8px;overflow:hidden">
+    <div>
+      <a href="#" style="font-size:13px;text-decoration:none;display:inline-flex;align-items:center;min-height:40px">‹ ランチ会</a>
+      <div style="display:flex;align-items:center;gap:8px"><h1 style="margin:0;font-size:20px">9月のランチ会</h1><span class="chip c-fin">決まった</span></div>
+    </div>
+    <div>
+      <div class="step">
+        <div class="rail"><span class="num done"><svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7l3 3 5-6"/></svg></span><span class="line done"></span></div>
+        <a class="body fold" href="#"><span class="k">日程</span><span class="v">10/8 (木) 12:00</span><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#5C665F" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg></a>
+      </div>
+      <div class="step">
+        <div class="rail"><span class="num done"><svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7l3 3 5-6"/></svg></span><span class="line done"></span></div>
+        <a class="body fold" href="#"><span class="k">店</span><span class="v">まるみ食堂</span><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#5C665F" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg></a>
+      </div>
+      <div class="step">
+        <div class="rail"><span class="num done"><svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7l3 3 5-6"/></svg></span></div>
+        <div class="body" style="border:2px solid #14614A;display:flex;flex-direction:column;gap:8px;margin-bottom:0">
+          <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:15px;font-weight:700">決まり</span><span style="font-size:11.5px;font-weight:700;color:#14614A">行ける 4人</span></div>
+          <div><div style="font-size:18px;font-weight:700">10/8 (木) 12:00</div><div style="font-size:15px;font-weight:700">まるみ食堂</div><div class="muted">和食 ・ 会社から徒歩 約8分 ・ ○4 △1 ×1</div></div>
+          <div class="map" style="height:230px"><svg width="100%" height="100%" viewBox="0 0 358 230" preserveAspectRatio="xMidYMid slice" aria-hidden="true" style="position:absolute;inset:0"><rect x="230" y="150" width="110" height="60" rx="6" fill="#D3E2CF"/><path d="M0 104 H358" stroke="#FFFFFF" stroke-width="10"/><path d="M130 0 V230" stroke="#FFFFFF" stroke-width="10"/><path d="M270 0 V230" stroke="#FFFFFF" stroke-width="6"/><path d="M0 184 C120 161 200 172 358 46" stroke="#B9CBD8" stroke-width="6" fill="none"/></svg><span style="position:absolute;left:150px;top:110px;width:10px;height:10px;border-radius:5px;background:#17201B;border:2px solid #FFFFFF;box-sizing:content-box"></span><span class="pin on" style="left:70px;top:40px">1</span>
+            <span style="position:absolute;left:104px;top:42px;font-size:11.5px;font-weight:700;background:rgba(255,255,255,.9);border-radius:6px;padding:1px 6px">まるみ食堂</span>
+            <span style="position:absolute;left:8px;top:8px;font-size:10.5px;color:#4B564E;background:rgba(255,255,255,.85);border-radius:4px;padding:0 6px">店の段で見ていた地図が、決まったあとも残る</span><span style="position:absolute;left:6px;bottom:4px;font-size:9px;color:#4B564E;background:rgba(255,255,255,.85);border-radius:4px;padding:0 4px">© OpenStreetMap ・ Powered by ホットペッパーグルメ Webサービス</span></div>
+          <div style="display:flex;gap:8px"><a class="btn" href="#" style="flex-grow:1">店のページ</a><a class="btn" href="#" style="flex-grow:1">回答 7人</a></div>
+        </div>
+      </div></div>
+  </main>
+  <nav class="nav" aria-label="おもな行き先">
+    <a href="#" class="cur" aria-current="page"><svg width="22" height="22" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="14" height="13" rx="2"/><path d="M3 8h14M7 2v4M13 2v4"/></svg>ランチ会<span class="badge">3</span></a>
+    <a href="#"><svg width="22" height="22" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4"/></svg>店を探す</a>
+    <a href="#"><svg width="22" height="22" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="7" r="3.5"/><path d="M3.5 18c1-3.5 3.6-5 6.5-5s5.5 1.5 6.5 5"/></svg>アカウント</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

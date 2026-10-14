@@ -529,7 +529,10 @@ class BoardConformanceCaptureTests(StaticLiveServerTestCase):
             self.dsl.open_candidate_screen()
             self._reset_gathering_state()
             gathering_id = self._create_selecting_shop_gathering("会モード撮影会")
-            self.page.goto(f"{self.base_url}/?gatheringId={gathering_id}")
+            # Home is now the gathering list at `/`; candidate search owns
+            # `/search/` (KEN-59).  Gathering mode is a candidate-search
+            # state, so keep the gathering id on that route.
+            self.page.goto(f"{self.base_url}/search/?gatheringId={gathering_id}")
             wait_for_at_least_one(self.page, "candidate-card")
             # Real measurement (2026-09-22): this screen's own gatheringId
             # fetch can still be settling behind an in-flight, about-to-be-
@@ -582,42 +585,60 @@ class BoardConformanceCaptureTests(StaticLiveServerTestCase):
 
         self._capture_state_across_sizes(screen, "zero_results", given_zero)
 
-    # --- gathering_list ----------------------------------------------------------
+    # --- home ---------------------------------------------------------------------
 
-    def test_capture_gathering_list(self) -> None:
-        screen = "gathering_list"
+    def test_capture_home(self) -> None:
+        screen = "home"
         self._sign_in_as_organizer()
 
         def given_empty(width: int, height: int) -> Page:
             self.page.set_viewport_size({"width": width, "height": height})
             self._reset_gathering_state()
-            self.page.goto(f"{self.base_url}/gatherings/")
+            self.page.goto(f"{self.base_url}/")
             wait_for_at_least_one(self.page, "gathering-list-empty")
             return self.page
 
         self._capture_state_across_sizes(screen, "empty", given_empty)
 
-        def given_in_progress(width: int, height: int) -> Page:
+        def given_one(width: int, height: int) -> Page:
             self.page.set_viewport_size({"width": width, "height": height})
             self._reset_gathering_state()
-            self._create_gathering_via_ui("進行中撮影会")
-            self.page.goto(f"{self.base_url}/gatherings/")
+            self._create_gathering_via_ui("ホーム1件撮影会")
+            self.page.goto(f"{self.base_url}/")
             wait_for_at_least_one(self.page, "gathering-list-item")
             return self.page
 
-        self._capture_state_across_sizes(screen, "in_progress", given_in_progress)
+        self._capture_state_across_sizes(screen, "one", given_one)
+
+        def given_multiple(width: int, height: int) -> Page:
+            self.page.set_viewport_size({"width": width, "height": height})
+            self._reset_gathering_state()
+            self._create_gathering_via_ui("ホーム複数件1撮影会")
+            self._create_gathering_via_ui("ホーム複数件2撮影会")
+            self.page.goto(f"{self.base_url}/")
+            wait_for_at_least_one(self.page, "gathering-list-item")
+            return self.page
+
+        self._capture_state_across_sizes(screen, "multiple", given_multiple)
 
         # KEN-54 (audit 2026-10-08 D-1/A-5): the bottom nav's current-item
         # colours are in every element's color/backgroundColor in the .json;
         # the open account sheet is the state where "アカウント" is current.
         def given_nav_account_sheet_open(width: int, height: int) -> Page:
-            given_in_progress(width, height)
+            given_one(width, height)
             self._open_account_disclosure()
             return self.page
 
         self._capture_state_across_sizes(
             screen, "nav_account_sheet_open", given_nav_account_sheet_open
         )
+
+        def given_menu_open(width: int, height: int) -> Page:
+            given_multiple(width, height)
+            self._open_account_disclosure()
+            return self.page
+
+        self._capture_state_across_sizes(screen, "menu_open", given_menu_open)
 
     # --- gathering_create --------------------------------------------------------
 

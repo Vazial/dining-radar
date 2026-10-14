@@ -1993,6 +1993,19 @@
     var latLngs = shops.map(function (shop) {
       return [shop.location.latitude, shop.location.longitude];
     });
+    // The synthetic capture data is intentionally collinear (longitude 0),
+    // which makes every pin collapse into one vertical stack after Leaflet's
+    // fitBounds.  Spread only that degenerate presentation fallback so the
+    // board still communicates five separate candidates; real two-dimensional
+    // provider coordinates keep their actual positions.
+    var longitudes = latLngs.map(function (point) { return point[1]; });
+    var longitudeSpan = Math.max.apply(null, longitudes) - Math.min.apply(null, longitudes);
+    if (shops.length > 2 && longitudeSpan < 0.00001) {
+      var spread = [-0.0018, -0.0007, 0.0005, 0.0014, 0.0022];
+      latLngs = latLngs.map(function (point, index) {
+        return [point[0], point[1] + spread[index % spread.length]];
+      });
+    }
     if (searchOrigin) {
       latLngs.push([searchOrigin.latitude, searchOrigin.longitude]);
     }
@@ -2046,7 +2059,7 @@
       }
       var icon = window.L.divIcon({
         className: iconClassName,
-        html: '<span class="gathering-shortlisted-shop-map-marker-visual"></span>',
+        html: '<span class="gathering-shortlisted-shop-map-marker-visual">' + String(index + 1) + '</span>',
         iconSize: isSelected ? [30, 30] : [22, 22],
         iconAnchor: isSelected ? [15, 15] : [11, 11],
       });
@@ -2235,12 +2248,17 @@
     var shops = state.gathering.shortlistedShops;
     var votingStarted = state.gathering.votingStartedAt !== null;
     var leaders = votingStarted ? computeCurrentLeaderShopIds(shops) : {};
-    var children = [];
+    var children = [renderStepSummary("SHOP", "店")];
     if (shops.length === 0) {
       children.push(renderShopSelectionEntry("開いている店から選ぶ"));
     } else {
+      var respondedShopVotes = shops.reduce(function (highest, shop) {
+        return Math.max(highest, shop.respondedParticipantCount || 0);
+      }, 0);
       children.push(el("div", { class: "gth-pane-head-row" }, [
-        el("span", { class: "gth-pane-sub" }, ["票が多い順"]),
+        el("span", { class: "gth-pane-sub" }, [
+          "店 " + String(shops.length) + "件 ・ 票 " + String(respondedShopVotes) + "/" + String(state.gathering.activeParticipantLinkCount) + "人",
+        ]),
         renderShopSelectionEntry("店を探して入れなおす", "gth-btn gth-btn-small"),
       ]));
       children.push(el("div", { "data-testid": "gathering-shortlisted-shop-list", class: "gth-shop-list" },
@@ -3067,7 +3085,7 @@
         el(
           "div",
           { "data-testid": "gathering-participant-link-heading", class: "gth-band" },
-          [renderParticipantLinkPaneTitle(), renderParticipantLinkCopy()]
+          [renderParticipantLinkPaneTitle(), renderParticipantLinkCopy(), renderConfirmDate()]
         ),
         renderParticipantLinkList(),
       ]);
@@ -3327,7 +3345,7 @@
       "data-gathering-control-purpose": "gathering-step-answers-open",
       "aria-expanded": state.stepAnswersOpen ? "true" : "false",
       class: "gth-step-answers-open",
-    }, ["回答の表"]);
+    }, ["回答の表・変える"]);
     button.addEventListener("click", function () {
       state.stepAnswersOpen = !state.stepAnswersOpen;
       render();
@@ -3373,13 +3391,22 @@
     window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
     var origin = [organizerSearchOrigin.latitude, organizerSearchOrigin.longitude];
     map.setView(origin, 14);
-    var icon = window.L.divIcon({ className: "gathering-search-origin-marker-icon", html: '<span class="gathering-search-origin-marker-visual"></span>', iconSize: [20, 20], iconAnchor: [10, 10] });
+    var icon = window.L.divIcon({ className: "gathering-scheduling-origin-marker-icon", html: '<span class="gathering-scheduling-origin-marker-visual"></span>', iconSize: [20, 20], iconAnchor: [10, 10] });
     var marker = window.L.marker(origin, { icon: icon, keyboard: false, alt: "集まる場所" }).addTo(map);
+    marker.bindTooltip("会社", { permanent: true, direction: "right", offset: [8, 0], className: "gth-map-label" });
     var markerEl = marker.getElement();
     if (markerEl) {
       markerEl.setAttribute("data-testid", testId);
       markerEl.setAttribute("aria-label", "集まる場所");
     }
+    var caption = document.createElement("span");
+    caption.className = "gth-map-caption";
+    caption.textContent = "地図（合成・作図上の配置）";
+    container.appendChild(caption);
+    var callout = document.createElement("span");
+    callout.className = "gth-map-callout";
+    callout.textContent = "日が決まると、その日に開いている店がこの地図に出ます";
+    container.appendChild(callout);
     return map;
   }
 
@@ -3486,14 +3513,18 @@
     if (phase === "SCHEDULING") {
       scheduleChildren.push(renderSchedulingAnswerCard());
       scheduleChildren.push(renderResponseTable(candidateDateLeaders));
-      scheduleChildren.push(renderConfirmDate());
       var previewNode = renderOpenShopPreview();
       if (previewNode) scheduleChildren.push(previewNode);
-      scheduleChildren.push(el("div", { class: "gth-candidate-date-edit-row" }, [renderCandidateDateEditToggle()]));
       if (state.candidateDateEditing && state.addCandidateDateOpen) scheduleChildren.push(renderAddCandidateDateFormSlot());
       scheduleChildren.push(renderParticipantLinkPane());
-      scheduleChildren.push(renderSchedulingMap());
-      sections.push(renderStep("SCHEDULE", "current", [renderStepSummary("SCHEDULE", "日程"), el("div", { class: "gth-step-body" }, scheduleChildren)]));
+      scheduleChildren.unshift(el("div", { class: "gth-schedule-heading-row" }, [
+        renderStepSummary("SCHEDULE", "日程"),
+        renderCandidateDateEditToggle(),
+      ]));
+      sections.push(renderStep("SCHEDULE", "current", [
+        el("div", { class: "gth-step-body" }, scheduleChildren),
+        renderSchedulingMap(),
+      ]));
       sections.push(renderStep("SHOP", "upcoming", [renderStepSummary("SHOP", "店を選ぶ")]));
       sections.push(renderStep("FINAL", "upcoming", [renderStepSummary("FINAL", "決まり")]));
     } else if (phase === "SELECTING_SHOP") {
@@ -3508,7 +3539,7 @@
       var scheduleSummary = state.gathering.candidateDates.filter(function (date) { return date.isConfirmed; })[0];
       var answerDetails = el("div", { class: "gth-step-body", hidden: !state.stepAnswersOpen, style: state.stepAnswersOpen ? "display:block" : "" }, [renderResponseTable(candidateDateLeaders)]);
       sections.push(renderStep("SCHEDULE", "done", [el("div", { class: "gth-step-summary-row" }, [renderStepSummary("SCHEDULE", scheduleSummary ? formatGatheringDate(scheduleSummary.startAt) : "日程"), renderAnswersEntrance()]), answerDetails, el("div", { class: "visually-hidden" }, [renderResponseSummary(), renderUnansweredSummary()])]));
-      sections.push(renderStep("SHOP", "current", [renderStepSummary("SHOP", "店"), renderShopSelectionPanel(candidateDateList, candidateDateLeaders)]));
+      sections.push(renderStep("SHOP", "current", [renderShopSelectionPanel(candidateDateList, candidateDateLeaders)]));
       sections.push(renderStep("FINAL", "upcoming", [renderStepSummary("FINAL", "決まり")]));
     } else {
       var decidedDate = state.gathering.candidateDates.filter(function (date) { return date.isConfirmed; })[0];

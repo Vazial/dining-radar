@@ -69,7 +69,7 @@
         "data-gathering-control-purpose": "gathering-create-open",
         "class": "gathering-btn gathering-btn-primary",
       },
-      ["会をつくる"]
+      ["＋ ランチ会をつくる"]
     );
   }
 
@@ -196,17 +196,6 @@
       attrs["data-finalized-shop-id"] = gathering.finalizedShopId;
     }
 
-    var openLink = el(
-      "a",
-      {
-        href: "/gatherings/" + gathering.id + "/",
-        "data-testid": "gathering-list-item-open",
-        "data-gathering-control-purpose": "gathering-list-item-open",
-        "class": "gathering-btn",
-      },
-      ["開く"]
-    );
-
     var openContent = el("span", { "class": "gathering-list-item-open-content" }, [
       el("span", { "class": "gathering-list-item-title" }, [gathering.title]),
       el("span", { "class": "gathering-list-item-phase" }, [
@@ -218,24 +207,46 @@
       el("span", { "class": "gathering-list-item-links" }, [renderLinkSummary(gathering)]),
       renderNumbers(gathering),
     ]);
-    openLink.appendChild(openContent);
+    var openLink = el(
+      "a",
+      {
+        href: "/gatherings/" + gathering.id + "/",
+        "data-testid": "gathering-list-item-open",
+        "data-gathering-control-purpose": "gathering-list-item-open",
+        "class": "gathering-list-item-open",
+      },
+      [el("span", { "class": "gathering-list-item-open-label" }, ["開く"]), openContent]
+    );
     var children = [openLink];
     if (isFeatured) {
       children.push(renderSteps(gathering));
-      children.push(el("a", {
-        href: "/gatherings/" + gathering.id + "/",
-        "data-testid": "gathering-list-next-action",
-        "data-gathering-control-purpose": "gathering-list-next-action",
-        "data-next-action": nextAction,
-        "class": "gathering-btn gathering-btn-primary gathering-list-next-action",
-      }, [NEXT_ACTION_LABELS[nextAction] || nextAction]));
+      children.push(el("div", { class: "gathering-list-next-action-band" }, [
+        el("span", {}, [
+          el("small", {}, ["次にやること"]),
+          el("strong", {}, [NEXT_ACTION_LABELS[nextAction] || nextAction]),
+        ]),
+        el("a", {
+          href: "/gatherings/" + gathering.id + "/",
+          "data-testid": "gathering-list-next-action",
+          "data-gathering-control-purpose": "gathering-list-next-action",
+          "data-next-action": nextAction,
+          "class": "gathering-btn gathering-btn-primary gathering-list-next-action",
+        }, [NEXT_ACTION_LABELS[nextAction] || nextAction]),
+      ]));
     }
     return el("li", attrs, children);
   }
 
   function render(gatherings) {
     root.innerHTML = "";
-    root.appendChild(el("div", { "class": "gathering-list-header" }, [renderCreateOpen()]));
+    var headerChildren = [];
+    if (gatherings.length > 0) {
+      headerChildren.push(el("strong", { "class": "gathering-list-current-heading" }, [
+        "いちばん新しい動いている会",
+      ]));
+    }
+    headerChildren.push(renderCreateOpen());
+    root.appendChild(el("div", { "class": "gathering-list-header" }, headerChildren));
 
     // browserControlSurface.organizerGatheringList.requiredTestIds lists
     // `list: gathering-list` alongside `createOpen` -- the same grouping
@@ -266,9 +277,17 @@
           var ordered = featuredIndex >= 0
             ? [gatherings[featuredIndex]].concat(gatherings.slice(0, featuredIndex), gatherings.slice(featuredIndex + 1))
             : gatherings;
-          return ordered.map(function (gathering, index) {
-            return renderItem(gathering, featuredIndex >= 0 && index === 0);
+          var items = [];
+          ordered.forEach(function (gathering, index) {
+            items.push(renderItem(gathering, featuredIndex >= 0 && index === 0));
+            if (featuredIndex >= 0 && index === 0 && ordered.length > 1) {
+              items.push(el("li", { class: "gathering-list-secondary-heading" }, [
+                el("strong", {}, ["ほかのランチ会"]),
+                el("span", {}, ["行を押すとその会を開く"]),
+              ]));
+            }
           });
+          return items;
         })()
       )
     );
