@@ -82,9 +82,9 @@ ORGANIZER_PASSWORD = "synthetic-layout-sanity-secret"
 
 # The task's own 4 sizes.
 VIEWPORTS = [
-    (360, 740, "phone-360x740"),
-    (390, 844, "phone-390x844"),
-    (768, 1024, "tablet-768x1024"),
+    (375, 812, "phone-375x812"),
+    (820, 1180, "ipad-portrait-820x1180"),
+    (1180, 820, "ipad-landscape-1180x820"),
     (1440, 900, "desktop-1440x900"),
 ]
 
@@ -567,6 +567,19 @@ _LAYOUT_SCAN_JS = r"""
     overlaps: overlaps,
     headingGaps: headingGaps,
     floatingRoots: floatingRoots,
+    bodyText: (document.body.innerText || "").trim(),
+    horizontalScroll: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    majorRegions: Array.from(document.querySelectorAll(
+      '.gth-shop-map, .gth-shop-list, .gth-response-table'
+    )).map((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        selector: element.className || element.tagName,
+        width: rect.width,
+        height: rect.height,
+        visible: rect.width > 0 && rect.height > 0,
+      };
+    }),
     viewport: { width: window.innerWidth, height: window.innerHeight },
   };
 }
@@ -648,6 +661,38 @@ def _check_3_unintended_wrap(scan: dict, label: str, findings: list[str]) -> Non
             findings.append(
                 f"{label} [3.意図しない折り返し] {el['describe']} text={el['text'][:30]!r} "
                 f"lineCount={el['lineCount']} height={el['rect']['height']:.1f}px"
+            )
+
+
+FORBIDDEN_RENDERED_TEXT_RE = re.compile(
+    r"(?:\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})\b"
+    r"|\b(?:gatheringId|candidateDateId|shopId|participantLinkId|textKey|i18nKey)\b"
+    r"|\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b)",
+    re.IGNORECASE,
+)
+
+
+def _check_forbidden_rendered_text(scan: dict, label: str, findings: list[str]) -> None:
+    """User-facing screens must not expose transport dates or internal keys."""
+    match = FORBIDDEN_RENDERED_TEXT_RE.search(scan.get("bodyText", ""))
+    if match:
+        findings.append(f"{label} [9.内部表示] 画面上に内部値 {match.group(0)!r} が表示されている")
+    if scan.get("horizontalScroll", 0) > 1:
+        findings.append(
+            f"{label} [9.横スクロール] document が "
+            f"{scan['horizontalScroll']:.1f}px 横にはみ出している"
+        )
+
+
+def _check_major_region_width(scan: dict, label: str, findings: list[str]) -> None:
+    """A map/list/table must not collapse into a thin desktop grid column."""
+    viewport_width = scan.get("viewport", {}).get("width", 0)
+    minimum_width = viewport_width * 0.25
+    for region in scan.get("majorRegions", []):
+        if region.get("visible") and 0 < region.get("width", 0) < minimum_width:
+            findings.append(
+                f"{label} [10.主要領域の細帯] {region.get('selector')!r} が "
+                f"{region['width']:.1f}px（viewport の25%未満）"
             )
 
 
@@ -779,6 +824,8 @@ def _run_checks_1_to_5_and_8(page: Page, label: str, findings: list[str]) -> Non
     _check_4_overflow(scan, label, findings)
     _check_8_contrast(scan, label, findings)
     _check_5_cramped_spacing(scan, label, findings)
+    _check_forbidden_rendered_text(scan, label, findings)
+    _check_major_region_width(scan, label, findings)
 
 
 # --- Check 6: toggle open direction -----------------------------------------
@@ -2506,6 +2553,37 @@ class LayoutSanityFaultInjectionTests(StaticLiveServerTestCase):
             "check 7 (dead control) did not catch the injected inert control: "
             + "\n".join(injected)
         )
+
+    def test_injected_internal_rendered_text_is_caught(self) -> None:
+        self._open_candidate_screen()
+        findings: list[str] = []
+        _check_forbidden_rendered_text(_run_layout_scan(self.page), "baseline", findings)
+        assert not findings, "baseline unexpectedly exposes internal text: " + "\n".join(findings)
+
+        self.page.evaluate(
+            """() => {
+              const marker = document.createElement('p');
+              marker.textContent = '2026-10-15T12:00:00+00:00 gatheringId';
+              document.body.appendChild(marker);
+            }"""
+        )
+        injected: list[str] = []
+        _check_forbidden_rendered_text(_run_layout_scan(self.page), "injected", injected)
+        assert injected, "check 9 (internal rendered text) did not catch the injected leak"
+
+    def test_injected_narrow_major_region_is_caught(self) -> None:
+        self._open_candidate_screen()
+        self.page.evaluate(
+            """() => {
+              const marker = document.createElement('div');
+              marker.className = 'gth-shop-map';
+              marker.style.cssText = 'display:block;width:20px;height:200px';
+              document.body.appendChild(marker);
+            }"""
+        )
+        findings: list[str] = []
+        _check_major_region_width(_run_layout_scan(self.page), "injected", findings)
+        assert findings, "check 10 did not catch the injected narrow major region"
 
 
 # ---------------------------------------------------------------------------

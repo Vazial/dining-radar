@@ -2536,10 +2536,13 @@ body:has(#gathering-list-app) main {
   z-index: 3;
 }
 .gth-bottom-bar-status {
+  min-width: 0;
+  flex: 1 1 auto;
   font-size: 0.8125rem;
   font-weight: 700;
   color: #17201b;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 @media (max-width: 47.9375rem) {
   /* gth-bottom-bar's own default bottom: 0 (base rule above) already lands
@@ -4397,6 +4400,84 @@ body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gather
   }
 }
 
+@media (min-width: 48rem) and (max-width: 63.999rem) {
+  /* iPad portrait is a touch layout: stack the content and give the map a
+     useful full-width band. The two-column map remains a PC-only layout. */
+  #gathering-app .gth-dash {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #gathering-app .gth-dash--scheduling {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current {
+    display: block;
+    grid-column: 1;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body {
+    display: flex;
+    flex-direction: column;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-shop-map,
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content > .gth-shop-map,
+  #gathering-app .gth-dash--finalized .gathering-step--current > .gth-shop-map {
+    grid-column: 1;
+    grid-row: auto;
+    position: relative;
+    width: 100%;
+    height: 12.5rem;
+    min-height: 12.5rem;
+    order: 2;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content > .gth-step-summary {
+    order: 1;
+    width: 100%;
+    justify-content: flex-start;
+    text-align: left;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content > .gth-pane-head-row {
+    order: 2;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content > .gth-shop-list {
+    order: 3;
+  }
+  /* Match the board's tablet flow: the map follows the shop rows and the
+     confirmation bar stays inside the frame after the map. */
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content > .gth-shop-map {
+    order: 4;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content > .gth-bottom-bar {
+    order: 5;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current {
+    grid-column: 1;
+  }
+  /* Keep the action bar in flow so it cannot cover the links section. */
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content > .gth-bottom-bar {
+    position: static !important;
+    inset: auto !important;
+    top: auto !important;
+    bottom: auto !important;
+    width: 100%;
+    margin: 0;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-link-section-wrapper {
+    margin-top: 5rem;
+  }
+}
+
 @media (max-width: 47.99rem) {
   #gathering-app .gth-dash--scheduling {
     max-width: 100%;
@@ -4617,6 +4698,42 @@ body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gather
 body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gathering-list-item-open-label {
   order: 3;
   margin-left: auto;
+}
+
+@media (max-width: 47.99rem) {
+  /* A secondary home row has three independent pieces of information plus
+     the open action. Give the title and metadata their own grid tracks so a
+     long title cannot push the action on top of the row. */
+  body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gathering-list-item-open {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gathering-list-item-open-content {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.25rem 0.5rem;
+  }
+  body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gathering-list-item-title {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gathering-list-item-phase {
+    grid-column: 2;
+    grid-row: 1;
+    white-space: nowrap;
+  }
+  body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gathering-list-item-numbers {
+    grid-column: 1;
+    grid-row: 2;
+    white-space: nowrap;
+  }
+  body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gathering-list-item-open-label {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    margin-left: 0;
+    align-self: center;
+  }
 }
 body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"][data-gathering-phase="SCHEDULING"] .gathering-list-item-phase {
   background: #fff5d9;

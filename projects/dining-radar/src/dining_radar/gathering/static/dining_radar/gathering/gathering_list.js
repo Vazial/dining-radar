@@ -83,6 +83,20 @@
     return matches.length > 0 ? matches[0].startAt : null;
   }
 
+  // API dates are ISO strings, but the home board is user-facing copy. Keep
+  // the transport representation out of the list so it cannot leak into a
+  // card when a gathering has been decided.
+  var WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
+  function formatGatheringDateTime(isoString) {
+    var date = new Date(isoString);
+    var month = date.getUTCMonth() + 1;
+    var day = date.getUTCDate();
+    var weekday = WEEKDAY_LABELS[date.getUTCDay()];
+    var hours = String(date.getUTCHours()).padStart(2, "0");
+    var minutes = String(date.getUTCMinutes()).padStart(2, "0");
+    return month + "/" + day + " (" + weekday + ") " + hours + ":" + minutes;
+  }
+
   // Entry.dc.html E-1: a gathering with zero issued links reads "まだリンクを
   // 発行していません" instead of the responded/active-link counters (there is
   // nothing yet to count).
@@ -202,7 +216,9 @@
         PHASE_LABELS[gathering.phase] || gathering.phase,
       ]),
       el("span", { "class": "gathering-list-item-summary" }, [
-        confirmedStartAt ? confirmedStartAt + " に決定" : "候補日 " + gathering.candidateDates.length + "つ",
+        confirmedStartAt
+          ? formatGatheringDateTime(confirmedStartAt) + " に決定"
+          : "候補日 " + gathering.candidateDates.length + "つ",
       ]),
       el("span", { "class": "gathering-list-item-links" }, [renderLinkSummary(gathering)]),
       renderNumbers(gathering),

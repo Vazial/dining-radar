@@ -44,11 +44,9 @@ CAPTURE_DIR = os.environ.get(CAPTURE_DIR_ENV)
 
 # 5 phone/tablet portrait sizes plus 1 PC size, per the task's own list.
 CAPTURE_SIZES: list[tuple[int, int]] = [
-    (360, 740),
-    (390, 844),
-    (430, 932),
-    (768, 1024),
-    (1024, 768),
+    (375, 812),
+    (820, 1180),
+    (1180, 820),
     (1440, 900),
 ]
 
@@ -613,8 +611,9 @@ class BoardConformanceCaptureTests(StaticLiveServerTestCase):
         def given_multiple(width: int, height: int) -> Page:
             self.page.set_viewport_size({"width": width, "height": height})
             self._reset_gathering_state()
-            self._create_gathering_via_ui("ホーム複数件1撮影会")
-            self._create_gathering_via_ui("ホーム複数件2撮影会")
+            self._create_gathering_via_ui("ホーム複数件1・とても長い名前の撮影会")
+            self._create_gathering_via_ui("ホーム複数件2・参加者が確認する撮影会")
+            self._create_gathering_via_ui("ホーム複数件3・長い店名も確認する撮影会")
             self.page.goto(f"{self.base_url}/")
             wait_for_at_least_one(self.page, "gathering-list-item")
             return self.page
