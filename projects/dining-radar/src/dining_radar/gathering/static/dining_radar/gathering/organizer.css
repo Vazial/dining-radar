@@ -4435,6 +4435,31 @@ body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gather
     flex-direction: column;
     gap: 0.75rem;
   }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content > .gth-step-summary {
+    order: 1;
+    width: 100%;
+    justify-content: flex-start;
+    text-align: left;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content > .gth-pane-head-row {
+    order: 2;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content > .gth-shop-list {
+    order: 3;
+  }
+  /* Match the board's tablet flow: the map follows the shop rows and the
+     confirmation bar stays inside the frame after the map. */
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content > .gth-shop-map {
+    order: 4;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content > .gth-bottom-bar {
+    order: 5;
+  }
   #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current {
     grid-column: 1;
   }
