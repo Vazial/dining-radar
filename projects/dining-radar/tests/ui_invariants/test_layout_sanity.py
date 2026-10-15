@@ -569,6 +569,17 @@ _LAYOUT_SCAN_JS = r"""
     floatingRoots: floatingRoots,
     bodyText: (document.body.innerText || "").trim(),
     horizontalScroll: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    majorRegions: Array.from(document.querySelectorAll(
+      '.gth-shop-map, .gth-shop-list, .gth-response-table'
+    )).map((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        selector: element.className || element.tagName,
+        width: rect.width,
+        height: rect.height,
+        visible: rect.width > 0 && rect.height > 0,
+      };
+    }),
     viewport: { width: window.innerWidth, height: window.innerHeight },
   };
 }
@@ -671,6 +682,18 @@ def _check_forbidden_rendered_text(scan: dict, label: str, findings: list[str]) 
             f"{label} [9.横スクロール] document が "
             f"{scan['horizontalScroll']:.1f}px 横にはみ出している"
         )
+
+
+def _check_major_region_width(scan: dict, label: str, findings: list[str]) -> None:
+    """A map/list/table must not collapse into a thin desktop grid column."""
+    viewport_width = scan.get("viewport", {}).get("width", 0)
+    minimum_width = viewport_width * 0.25
+    for region in scan.get("majorRegions", []):
+        if region.get("visible") and 0 < region.get("width", 0) < minimum_width:
+            findings.append(
+                f"{label} [10.主要領域の細帯] {region.get('selector')!r} が "
+                f"{region['width']:.1f}px（viewport の25%未満）"
+            )
 
 
 #: Check 4: the mobile card deck's own swipe track (home.html's
@@ -802,6 +825,7 @@ def _run_checks_1_to_5_and_8(page: Page, label: str, findings: list[str]) -> Non
     _check_8_contrast(scan, label, findings)
     _check_5_cramped_spacing(scan, label, findings)
     _check_forbidden_rendered_text(scan, label, findings)
+    _check_major_region_width(scan, label, findings)
 
 
 # --- Check 6: toggle open direction -----------------------------------------
@@ -2546,6 +2570,20 @@ class LayoutSanityFaultInjectionTests(StaticLiveServerTestCase):
         injected: list[str] = []
         _check_forbidden_rendered_text(_run_layout_scan(self.page), "injected", injected)
         assert injected, "check 9 (internal rendered text) did not catch the injected leak"
+
+    def test_injected_narrow_major_region_is_caught(self) -> None:
+        self._open_candidate_screen()
+        self.page.evaluate(
+            """() => {
+              const marker = document.createElement('div');
+              marker.className = 'gth-shop-map';
+              marker.style.cssText = 'display:block;width:20px;height:200px';
+              document.body.appendChild(marker);
+            }"""
+        )
+        findings: list[str] = []
+        _check_major_region_width(_run_layout_scan(self.page), "injected", findings)
+        assert findings, "check 10 did not catch the injected narrow major region"
 
 
 # ---------------------------------------------------------------------------

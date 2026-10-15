@@ -4401,7 +4401,44 @@ body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gather
 }
 
 @media (min-width: 48rem) and (max-width: 63.999rem) {
-  /* iPad keeps the action bar in flow so it cannot cover the links section. */
+  /* iPad portrait is a touch layout: stack the content and give the map a
+     useful full-width band. The two-column map remains a PC-only layout. */
+  #gathering-app .gth-dash {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #gathering-app .gth-dash--scheduling {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current {
+    display: block;
+    grid-column: 1;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body {
+    display: flex;
+    flex-direction: column;
+  }
+  #gathering-app .gth-dash--scheduling > .gathering-step--current > .gth-step-body > .gth-shop-map,
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content > .gth-shop-map,
+  #gathering-app .gth-dash--finalized .gathering-step--current > .gth-shop-map {
+    grid-column: 1;
+    grid-row: auto;
+    position: relative;
+    width: 100%;
+    height: 12.5rem;
+    min-height: 12.5rem;
+    order: 2;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current {
+    grid-column: 1;
+  }
+  /* Keep the action bar in flow so it cannot cover the links section. */
   #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
     .gth-shop-step-content > .gth-bottom-bar {
     position: static !important;
