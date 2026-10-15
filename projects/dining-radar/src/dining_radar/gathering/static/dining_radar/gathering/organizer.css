@@ -4425,8 +4425,8 @@ body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gather
     grid-row: auto;
     position: relative;
     width: 100%;
-    height: 12.5rem;
-    min-height: 12.5rem;
+    height: clamp(12.5rem, 22vh, 18rem);
+    min-height: clamp(12.5rem, 22vh, 18rem);
     order: 2;
   }
   #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
