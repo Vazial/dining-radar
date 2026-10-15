@@ -39,7 +39,12 @@ else
     exit 1
 fi
 
-account_id="$(aws sts get-caller-identity --query Account --output text)"
+if ! account_id="$(aws sts get-caller-identity --query Account --output text 2>/dev/null)"; then
+    echo "AWS credentials are not usable (AWS_PROFILE=${AWS_PROFILE:-<unset>})." >&2
+    echo "If AWS_PROFILE is unset, run: export AWS_PROFILE=<profile>" >&2
+    echo "If the SSO login expired, run: aws sso login --profile <profile> --use-device-code" >&2
+    exit 1
+fi
 registry="${account_id}.dkr.ecr.${region}.amazonaws.com"
 tag="$(git rev-parse --short HEAD)"
 image="${registry}/${repository}:${tag}"
