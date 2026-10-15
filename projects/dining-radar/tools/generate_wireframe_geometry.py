@@ -34,6 +34,22 @@ SCREENS = {
     "GC-SpFinal": (390, 844),
     "Nav-PcPane": (1280, 800),
     "Nav-SpN1": (390, 844),
+    # Board inputs that were present but had not been included in the
+    # generated geometry contract.  Keep these here even when they are
+    # component/empty-state boards: the ledger treats each as an explicit
+    # board surface that must be accounted for.
+    "Empty-Pc": (1280, 800),
+    "Empty-Sp": (390, 844),
+    "Cand-PcGathering": (1280, 920),
+    "Cand-SpFree": (390, 844),
+    "GC-SpSelecting": (390, 844),
+    "GC-SpScheduling": (390, 844),
+    "TabA-Sp": (390, 844),
+    "Dense-C": (1280, 800),
+    "S3-PcEditing": (1280, 920),
+    "SelA": (1280, 920),
+    "SumA": (1280, 920),
+    "ColorFinal": (1280, 920),
 }
 
 COMPARE = {
