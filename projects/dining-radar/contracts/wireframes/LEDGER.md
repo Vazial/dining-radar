@@ -36,6 +36,37 @@
 |会・店を選び中・スマホ|板あり・照合なし|GC-SpSelecting.dc.html|同上|店あり代表は板のみで未照合|
 |会・日程を聞き中・スマホ|板あり・照合なし|GC-SpScheduling.dc.html|同上|回答表の実装照合未実施|
 
+## 実装テンプレート・描画分岐の棚卸し
+
+上表の板契約に加え、実装に存在する全画面テンプレートと、各 JavaScript が状態によって描き分ける代表的な分岐を以下に記録する。板が無い行は、採用前の板案を作るまで実装の見た目を確定しない。板がある行でも、`geometry.json` に矩形を登録しただけでは照合済みとは数えない。
+
+|実装面|状態 / 分岐|板の有無|板ファイル名|照合テスト名|備考 / 未照合理由|
+|---|---|---|---|---|---|
+|会一覧 (`organizer_gathering_list.html`)|会0件|板なし・要合意|—|未確認|一覧の空状態と「会をつくる」の優先順位が未決定|
+|会一覧 (`organizer_gathering_list.html`)|会1件以上（SCHEDULING / SELECTING_SHOP / FINALIZED のカード）|板あり・照合なし|HC-PcList.dc.html / HC-SpList.dc.html / Dense-C.dc.html|`test_wireframe_geometry_includes_every_board_screen_in_the_ledger`|geometry 登録済み。長い会名・多人数を含む実装撮影は未実施|
+|会作成 (`organizer_gathering_create.html`)|未入力 / 候補日未選択|板なし・要合意|—|未確認|入力エラーと空カレンダーの見せ方が未決定|
+|会作成 (`organizer_gathering_create.html`)|候補日選択済み・確認ダイアログ|板あり・照合なし|S3-PcEditing.dc.html / SelA.dc.html / SumA.dc.html / ColorFinal.dc.html|`test_wireframe_geometry_includes_every_board_screen_in_the_ledger`|コンポーネント板の実装照合未実施|
+|幹事会画面 (`organizer_dashboard.html` / `gathering.js`)|SCHEDULING・候補日あり・回答あり|板あり・照合済み|GC-PcScheduling.dc.html / S3-PcScheduling.dc.html / S3-SpScheduling.dc.html|`test_wireframe_geometry_records_right_pane_and_steps`|代表状態。候補日0件・回答0件・リンク0本は別の要合意行|
+|幹事会画面 (`gathering.js`)|SCHEDULING・候補日0件|板なし・要合意|—|未確認|候補日の追加入口と空の回答表の優先順位が未決定|
+|幹事会画面 (`gathering.js`)|SCHEDULING・回答0件|板なし・要合意|—|未確認|人×日の表を空で出すか説明に寄せるか未決定|
+|幹事会画面 (`gathering.js`)|SCHEDULING・リンク0本|板なし・要合意|—|未確認|リンク発行入口の初期状態が未決定|
+|幹事会画面 (`gathering.js`)|SELECTING_SHOP・店0件|板なし・要合意|`proposed/ZeroState-A-*`, `ZeroState-B-*`|未確認|案A/Bの合意待ち。店0件の実装修正は合意後|
+|幹事会画面 (`gathering.js`)|SELECTING_SHOP・店1件 / 店5件|板なし・要合意 / 板あり・照合済み|GC-PcSelecting.dc.html / GC-SpSelecting.dc.html|`test_wireframe_geometry_records_right_pane_and_steps`|店1件のカードと地図の関係は板なし。店5件は代表板あり|
+|幹事会画面 (`gathering.js`)|FINALIZED・店/日付情報あり|板あり・照合済み|GC-PcFinal.dc.html / GC-SpFinal.dc.html|`test_wireframe_geometry_has_all_adopted_board_screens`|代表状態|
+|幹事会画面 (`gathering.js`)|FINALIZED・店情報不足 / 日付情報不足|板なし・要合意|—|未確認|provider 再取得失敗・確定情報欠損の表示が未決定|
+|参加者回答 (`participant_answer.html` / `participant.js`)|読み込み中 / 無効リンク / 読み込み失敗|板なし・要合意|—|未確認|エラーの利用者向け文面・再試行導線が未決定|
+|参加者回答 (`participant.js`)|SCHEDULING・回答0件 / 一部回答済み / 全回答済み|板なし・要合意|—|未確認|回答表・進捗・日程一覧の空状態が未決定|
+|参加者回答 (`participant.js`)|SELECTING_SHOP・店0件 / 店1件以上|板なし・要合意|—|未確認|投票対象が無い場合と単数カードの構成が未決定|
+|参加者回答 (`participant.js`)|FINALIZED・店/日付情報あり|板なし・要合意|—|未確認|参加者向け確定画面の板が未作成|
+|参加者回答 (`participant.js`)|FINALIZED・店情報不足 / 日付情報不足|板なし・要合意|—|未確認|確定情報欠損の表示が未決定|
+|候補検索 (`home.html` / `candidate.js`)|読み込み中 / 通常モードで候補あり|板あり・照合なし|Cand-SpFree.dc.html / 既存候補画面板|未確認|geometry 登録済み。4幅の実装撮影と板照合が未実施|
+|候補検索 (`candidate.js`)|候補0件・検索条件変更導線|板なし・要合意|—|未確認|空結果の主導線と地図の扱いが未決定|
+|候補検索 (`candidate.js`)|会モード・候補あり / 店0件|板あり・照合なし / 板なし・要合意|Cand-PcGathering.dc.html / `proposed/ZeroState-*`|未確認|会モードの代表板は未照合。店0件は案合意待ち|
+|共通ナビ (`organizer_primary_nav.html` / `candidate.js`)|PC右ペイン閉 / 開|板あり・照合なし|Nav-PcPane.dc.html|`test_wireframe_geometry_includes_every_board_screen_in_the_ledger`|開閉の実装撮影未実施|
+|共通ナビ (`organizer_primary_nav.html` / `candidate.js`)|スマホ下部バー / アカウントシート|板あり・照合なし|Nav-SpN1.dc.html|`test_wireframe_geometry_includes_every_board_screen_in_the_ledger`|シート開状態の実装撮影未実施|
+
+認証の `login.html`、パスワード変更フォーム、完了画面は画面テンプレートとして存在するが、KEN-70 の会・候補・参加者ワイヤーフレーム契約の対象外である。これらは板なしとして実装を変更する対象ではなく、別スライスで板を起こす候補として扱う。
+
 ## 要合意の板案
 
 `proposed/ZeroState-A-*` と `proposed/ZeroState-B-*` は採用前の静的 HTML である。各案は PC とスマホの2枚を持つ。
