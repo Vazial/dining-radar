@@ -48,6 +48,7 @@ CAPTURE_SIZES: list[tuple[int, int]] = [
     (820, 1180),
     (1180, 820),
     (1440, 900),
+    (1305, 900),
 ]
 
 ORGANIZER_ACCOUNT_REF = "capture-organizer"
@@ -582,6 +583,23 @@ class BoardConformanceCaptureTests(StaticLiveServerTestCase):
             return self.page
 
         self._capture_state_across_sizes(screen, "zero_results", given_zero)
+
+        def given_error(width: int, height: int) -> Page:
+            self.page.set_viewport_size({"width": width, "height": height})
+            self.dsl.reset_candidate_state()
+            self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING")
+
+            def _abort_proposals(route: Route) -> None:
+                route.abort("failed")
+
+            self.page.route("**/candidate-proposals", _abort_proposals)
+            self.dsl.open_candidate_screen_unauthenticated()
+            expect(by_test_id(self.page, "candidate-proposal-problem")).to_be_visible()
+            expect(by_test_id(self.page, "candidate-proposal-retry")).to_be_visible()
+            self.page.unroute("**/candidate-proposals", _abort_proposals)
+            return self.page
+
+        self._capture_state_across_sizes(screen, "error", given_error)
 
     # --- home ---------------------------------------------------------------------
 

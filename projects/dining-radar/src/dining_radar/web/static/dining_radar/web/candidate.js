@@ -2357,10 +2357,29 @@
   // successful proposal exists to retain, e.g. the very first request on
   // page load), this is the original full-replace behavior.
   function renderProblem(code, message, additive) {
+    var retry = el(
+      "button",
+      {
+        type: "button",
+        "data-testid": "candidate-proposal-retry",
+        "data-candidate-control-purpose": "candidate-proposal-retry",
+        class: "candidate-proposal-retry",
+      },
+      ["もう一度試す"]
+    );
+    retry.addEventListener("click", function () {
+      requestProposal(currentFilters)
+        .then(function (result) {
+          handleProposalResponse(result.status, result.body);
+        })
+        .catch(function () {
+          renderProblem("PROVIDER_UNAVAILABLE", "候補を取得できませんでした。もう一度試してください。", false);
+        });
+    });
     var problem = el(
       "section",
       { "data-testid": "candidate-proposal-problem", "data-problem-code": code, role: "alert" },
-      [el("p", { "data-testid": "candidate-proposal-problem-guidance" }, [message])]
+      [el("p", { "data-testid": "candidate-proposal-problem-guidance" }, [message]), retry]
     );
     if (additive) {
       var existing = root.querySelector('[data-testid="candidate-proposal-problem"]');

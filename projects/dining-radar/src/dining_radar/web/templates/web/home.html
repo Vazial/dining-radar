@@ -460,9 +460,17 @@
     [data-testid="candidate-proposal-problem"] {
       margin: 0 0 0.75rem; padding: 0.6rem 0.85rem; border-radius: 0.4rem;
       background: #fdf3e2; border: 1px solid #f0dcae; color: #6b4f13;
+      display: flex; flex-direction: column; align-items: flex-start; gap: 0.6rem;
       font-size: 0.875rem; line-height: 1.5;
     }
     [data-testid="candidate-proposal-problem-guidance"] { margin: 0; }
+    .candidate-proposal-retry {
+      border: 0; border-radius: 0.6rem; background: #14684a; color: #fff;
+      font: inherit; font-weight: 700; cursor: pointer;
+      min-height: 2.75rem; padding: 0 1.1rem;
+    }
+    .candidate-proposal-retry:hover { background: #0d4b35; }
+    .candidate-proposal-retry:focus-visible { outline: 2px solid #155c42; outline-offset: 2px; }
 
     /* adr/0030 decision 2 (human decision 2026-08-24): TDR-CS-05's guidance
        now carries its own pressable element, not only a pointer at the
