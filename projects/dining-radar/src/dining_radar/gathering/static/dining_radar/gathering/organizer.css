@@ -4533,6 +4533,23 @@ body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gather
   }
 }
 
+/* KEN-70 final PC alignment: the rail separator ends at the card edge. */
+@media (min-width: 64rem) {
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step--done[data-step="SCHEDULE"] .gth-step-summary-row,
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step--upcoming[data-step="FINAL"] .gth-step-summary-row,
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step--current .gth-shop-selection-card {
+    margin-left: 0;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-link-section-wrapper
+    > .gth-link-section {
+    width: 492px;
+    margin-left: 48px;
+  }
+}
+
 /* KEN-70: the active card shares the fixed procedure-card width on desktop. */
 @media (min-width: 64rem) {
   #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
@@ -4611,6 +4628,40 @@ body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gather
     .gth-shop-step-content > [data-testid="gathering-shortlist-open"] {
     align-self: stretch;
     width: 100%;
+  }
+}
+
+/* KEN-70 final PC alignment: the rail separator ends at the card edge. */
+@media (min-width: 64rem) {
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step--done[data-step="SCHEDULE"] .gth-step-summary-row,
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step--upcoming[data-step="FINAL"] .gth-step-summary-row,
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step--current .gth-shop-selection-card {
+    margin-left: 0 !important;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-link-section-wrapper
+    > .gth-link-section {
+    width: 492px;
+    margin-left: 48px;
+  }
+}
+
+/* KEN-70 final PC alignment: the rail separator ends at the card edge. */
+@media (min-width: 64rem) {
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step--done[data-step="SCHEDULE"] .gth-step-summary-row,
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step--upcoming[data-step="FINAL"] .gth-step-summary-row,
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step--current .gth-shop-selection-card {
+    margin-left: 0;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-link-section-wrapper
+    > .gth-link-section {
+    width: 492px;
+    margin-left: 48px;
   }
 }
 
