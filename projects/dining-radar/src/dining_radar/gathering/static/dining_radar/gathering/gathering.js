@@ -2250,7 +2250,10 @@
     var leaders = votingStarted ? computeCurrentLeaderShopIds(shops) : {};
     var children = [renderStepSummary("SHOP", "店")];
     if (shops.length === 0) {
-      children.push(renderShopSelectionEntry("開いている店から選ぶ"));
+      children.push(el("p", { class: "gth-shop-empty-guidance", "data-testid": "gathering-shortlisted-shop-empty-guidance" }, [
+        "開いている店が見つかりません。",
+      ]));
+      children.push(renderShopSelectionEntry("開いている店から選ぶ", "gth-btn gth-btn-primary gth-shop-selection-empty-entry"));
     } else {
       var respondedShopVotes = shops.reduce(function (highest, shop) {
         return Math.max(highest, shop.respondedParticipantCount || 0);
@@ -2265,7 +2268,13 @@
         shops.map(function (shop, index) { return renderShortlistedShopItem(shop, index, leaders); })));
     }
     var mapContainer = null;
-    if (votingStarted) {
+    if (shops.length === 0) {
+      mapContainer = el("div", {
+        "data-testid": "gathering-shortlisted-shop-empty-map",
+        class: "gth-shop-map gth-shop-map--empty",
+        "aria-label": "地図",
+      }, [el("span", {}, ["候補がないため地図には店を表示できません"])]);
+    } else if (votingStarted) {
       mapContainer = el("div", { "data-testid": "gathering-shortlisted-shop-map", class: "gth-shop-map" }, []);
     }
     // On the touch layout the map belongs between the re-search entrance and
@@ -2292,7 +2301,9 @@
       ["この店で確定"]
     );
     finalizeOpen.addEventListener("click", openFinalizeGathering);
-    children.push(el("div", { class: "gth-bottom-bar" }, [status, finalizeOpen]));
+    if (shops.length > 0) {
+      children.push(el("div", { class: "gth-bottom-bar" }, [status, finalizeOpen]));
+    }
 
     if (state.finalizeConfirmOpen) {
       // gth-modal-backdrop: a plain, purposeless scrim behind the

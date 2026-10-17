@@ -6,7 +6,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = ROOT / "contracts" / "wireframes" / "geometry.json"
 IMPLEMENTATION_STYLES = (
-    ROOT / "src" / "dining_radar" / "gathering" / "static" / "dining_radar" / "gathering" / "organizer.css",
+    ROOT
+    / "src"
+    / "dining_radar"
+    / "gathering"
+    / "static"
+    / "dining_radar"
+    / "gathering"
+    / "organizer.css",
     ROOT / "src" / "dining_radar" / "web" / "templates" / "web" / "home.html",
 )
 PROPOSAL_DIR = ROOT / "contracts" / "wireframes" / "proposed"
@@ -46,6 +53,8 @@ BOARD_SCREENS = (
     "SelA",
     "SumA",
     "ColorFinal",
+    "ZeroState-A-Pc",
+    "ZeroState-A-Sp",
 )
 
 

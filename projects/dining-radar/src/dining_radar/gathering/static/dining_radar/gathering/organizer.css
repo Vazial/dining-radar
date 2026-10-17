@@ -65,6 +65,7 @@
   width: min(100% - 2rem, 60rem);
 }
 
+
 /* Contract controls keep their full hit area even when the board's visual
    treatment is intentionally quiet. */
 #gathering-app input.gth-radio[data-testid="gathering-finalize-shop-select"] {
@@ -1974,6 +1975,17 @@ body:has(#gathering-list-app) main {
   gap: 0.5rem;
   min-height: 2.75rem;
 }
+.gth-shop-empty-guidance {
+  margin: 0;
+  color: #536057;
+}
+.gth-shop-map--empty {
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  color: #536057;
+  text-align: center;
+}
 /* **Fixed 2026-09-19 (board party2/d2/D1-a-* comparison, real-machine
    finding)**: this row is a flex item of gth-shop-list (a column flex
    container, min-height: 0/overflow-y: auto below, the usual "scroll
@@ -3692,6 +3704,45 @@ body:has(#gathering-app .gth-dash--scheduling) .app-header,
   }
 }
 
+/* KEN-70 / ADR-0084: the zero-shop state keeps the same two-column frame as
+   the populated state.  Its only actionable control stays at the top-left
+   of the left column; the right column communicates that there are no map
+   candidates instead of collapsing into blank space. */
+@media (min-width: 48rem) {
+  #gathering-app .gth-shop-step-content > .gth-shop-selection-empty-entry {
+    grid-column: 1;
+    justify-self: start;
+    width: auto;
+    min-height: 2.75rem;
+    padding: 0 1rem;
+    border: 0;
+    border-radius: 0.625rem;
+    background: #14614a;
+    color: #fff;
+    text-decoration: none;
+  }
+  #gathering-app .gth-shop-step-content > .gth-shop-map--empty {
+    grid-column: 2;
+    grid-row: 1 / span 20;
+    min-height: 34rem;
+  }
+}
+
+@media (max-width: 47.99rem) {
+  #gathering-app .gth-shop-step-content > .gth-shop-empty-guidance {
+    order: 2;
+  }
+  #gathering-app .gth-shop-step-content > .gth-shop-selection-empty-entry {
+    order: 3;
+    align-self: stretch;
+    width: 100%;
+  }
+  #gathering-app .gth-shop-step-content > .gth-shop-map--empty {
+    order: 4;
+    min-height: 12.5rem;
+  }
+}
+
 /* KEN-68 final board pass: a step owns one surface.  The map is a sibling
    column, while the answer/table/link controls remain inside the left frame. */
 @media (min-width: 48rem) {
@@ -4955,5 +5006,23 @@ body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"][data-ga
     min-height: 2.5rem;
     padding: 0 0.625rem;
     font-size: 0.75rem;
+  }
+}
+
+/* KEN-70: the zero-shop action is the one primary action in the left
+   column. Keep this after the legacy selection-entry rules so that it cannot
+   regress to a centered underlined link. */
+@media (min-width: 48rem) {
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content > [data-testid="gathering-shortlist-open"].gth-shop-selection-empty-entry {
+    justify-self: start;
+    width: auto;
+    min-width: 0;
+    padding: 0 1rem;
+    border: 0;
+    border-radius: 0.625rem;
+    background: #14614a;
+    color: #fff;
+    text-decoration: none;
   }
 }

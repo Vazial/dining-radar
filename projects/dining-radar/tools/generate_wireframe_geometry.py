@@ -50,6 +50,8 @@ SCREENS = {
     "SelA": (1280, 920),
     "SumA": (1280, 920),
     "ColorFinal": (1280, 920),
+    "ZeroState-A-Pc": (1280, 840),
+    "ZeroState-A-Sp": (390, 844),
 }
 
 COMPARE = {

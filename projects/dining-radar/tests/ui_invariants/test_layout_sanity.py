@@ -580,6 +580,60 @@ _LAYOUT_SCAN_JS = r"""
         visible: rect.width > 0 && rect.height > 0,
       };
     }),
+    commonState: (() => {
+      const emptyMap = document.querySelector('.gth-shop-map--empty');
+      const emptyFrame = emptyMap ? emptyMap.closest('.gth-shop-step-content') : null;
+      const emptyGuidance = document.querySelectorAll(
+        '[data-testid="gathering-shortlisted-shop-empty-guidance"]'
+      );
+      const emptyActions = document.querySelectorAll('.gth-shop-selection-empty-entry');
+      const longNames = Array.from(document.querySelectorAll(
+        '.gth-shop-name, [data-testid="candidate-card-name"]'
+      )).map((node) => ({
+        text: (node.innerText || '').trim(),
+        lines: countTextLines(node),
+      }));
+      const tables = Array.from(document.querySelectorAll('.gth-response-scroll')).map((node) => ({
+        overflowX: getComputedStyle(node).overflowX,
+        scrollWidth: node.scrollWidth,
+        clientWidth: node.clientWidth,
+      }));
+      const errors = Array.from(
+        document.querySelectorAll('[data-testid="candidate-proposal-problem"]')
+      ).map((node) => ({
+        guidanceLines: countTextLines(
+          node.querySelector('[data-testid="candidate-proposal-problem-guidance"]')
+        ),
+        retryCount: node.querySelectorAll('[data-testid="candidate-proposal-retry"]').length,
+      }));
+      const frameChildren = emptyFrame ? Array.from(emptyFrame.children)
+        .filter((node) => !node.matches('.gth-shop-map'))
+        .map((node) => node.getBoundingClientRect()) : [];
+      const leftEdges = frameChildren.map((rect) => rect.left);
+      const minLeft = leftEdges.length ? Math.min(...leftEdges) : null;
+      const maxLeft = leftEdges.length ? Math.max(...leftEdges) : null;
+      const frameRect = emptyFrame ? emptyFrame.getBoundingClientRect() : null;
+      const leftContentBottom = frameChildren.length
+        ? Math.max(...frameChildren.map((rect) => rect.bottom)) : null;
+      return {
+        emptyPresent: !!emptyMap,
+        emptyMessageCount: emptyGuidance.length,
+        emptyGuidanceLines: emptyGuidance.length ? countTextLines(emptyGuidance[0]) : 0,
+        emptyActionCount: emptyActions.length,
+        emptyFrameHeight: frameRect ? frameRect.height : null,
+        emptyLeftContentHeight: frameRect && leftContentBottom !== null
+          ? leftContentBottom - frameRect.top : null,
+        emptyLeftEdgesAligned: minLeft === null || maxLeft - minLeft <= 2,
+        emptyActionLeftAligned: !emptyActions.length || !emptyGuidance.length
+          || Math.abs(
+            emptyActions[0].getBoundingClientRect().left
+              - emptyGuidance[0].getBoundingClientRect().left
+          ) <= 8,
+        longNames: longNames,
+        tables: tables,
+        errors: errors,
+      };
+    })(),
     viewport: { width: window.innerWidth, height: window.innerHeight },
   };
 }
@@ -693,6 +747,50 @@ def _check_major_region_width(scan: dict, label: str, findings: list[str]) -> No
             findings.append(
                 f"{label} [10.主要領域の細帯] {region.get('selector')!r} が "
                 f"{region['width']:.1f}px（viewport の25%未満）"
+            )
+
+
+def _check_common_state_rules(scan: dict, label: str, findings: list[str]) -> None:
+    """ADR-0084's reusable rules for empty, dense, long-name and error states."""
+    state = scan.get("commonState", {})
+    if state.get("emptyPresent"):
+        if (
+            state.get("emptyMessageCount") != 1
+            or state.get("emptyGuidanceLines") != 1
+            or state.get("emptyActionCount") != 1
+        ):
+            findings.append(
+                f"{label} [11.共通状態/0件] 案内={state.get('emptyMessageCount')} "
+                f"メインボタン={state.get('emptyActionCount')}（各1つでなければならない）"
+            )
+        frame_height = state.get("emptyFrameHeight") or 0
+        content_height = state.get("emptyLeftContentHeight") or 0
+        if frame_height and content_height / frame_height < 0.2:
+            findings.append(
+                f"{label} [11.共通状態/枠の空白] 左内容の高さ {content_height:.1f}px / "
+                f"枠 {frame_height:.1f}px が20%未満"
+            )
+        if not state.get("emptyLeftEdgesAligned", True):
+            findings.append(f"{label} [11.共通状態/手順枠] 左端がそろっていない")
+        if not state.get("emptyActionLeftAligned", True):
+            findings.append(f"{label} [11.共通状態/主ボタン] 枠内の左寄せ位置からずれている")
+    for name in state.get("longNames", []):
+        if name["lines"] > 2:
+            findings.append(
+                f"{label} [11.共通状態/長い名前] {name['text'][:30]!r} が "
+                f"{name['lines']}行で2行を超えている"
+            )
+    for table in state.get("tables", []):
+        if table["scrollWidth"] > table["clientWidth"] + 1 and table["overflowX"] not in (
+            "auto",
+            "scroll",
+        ):
+            findings.append(f"{label} [11.共通状態/多人数表] 表の横スクロールが自身の枠にない")
+    for error in state.get("errors", []):
+        if error["guidanceLines"] > 1 or error["retryCount"] != 1:
+            findings.append(
+                f"{label} [11.共通状態/エラー] 理由={error['guidanceLines']}行 "
+                f"やり直し={error['retryCount']}個（各1つでなければならない）"
             )
 
 
@@ -826,6 +924,7 @@ def _run_checks_1_to_5_and_8(page: Page, label: str, findings: list[str]) -> Non
     _check_5_cramped_spacing(scan, label, findings)
     _check_forbidden_rendered_text(scan, label, findings)
     _check_major_region_width(scan, label, findings)
+    _check_common_state_rules(scan, label, findings)
 
 
 # --- Check 6: toggle open direction -----------------------------------------
@@ -2584,6 +2683,70 @@ class LayoutSanityFaultInjectionTests(StaticLiveServerTestCase):
         findings: list[str] = []
         _check_major_region_width(_run_layout_scan(self.page), "injected", findings)
         assert findings, "check 10 did not catch the injected narrow major region"
+
+    def test_injected_common_state_rules_are_caught(self) -> None:
+        self.page.set_content(
+            """
+            <main>
+              <section class="gth-shop-step-content" style="width:600px;height:300px">
+                <p data-testid="gathering-shortlisted-shop-empty-guidance">候補がありません。</p>
+                <button class="gth-shop-selection-empty-entry">探し直す</button>
+                <div class="gth-shop-map gth-shop-map--empty"></div>
+              </section>
+              <div
+                class="gth-shop-name"
+                style="width:220px;line-height:20px;display:-webkit-box;-webkit-line-clamp:2;overflow:hidden"
+              >
+                とても長い店名を二行までで省略する合成データ
+              </div>
+              <div class="gth-response-scroll" style="width:100px;overflow-x:auto">
+                <div style="width:300px">多人数の表</div>
+              </div>
+              <section data-testid="candidate-proposal-problem">
+                <p data-testid="candidate-proposal-problem-guidance">取得できませんでした。</p>
+                <button data-testid="candidate-proposal-retry">もう一度試す</button>
+              </section>
+            </main>
+            """
+        )
+        baseline: list[str] = []
+        _check_common_state_rules(_run_layout_scan(self.page), "baseline", baseline)
+        assert not baseline, "baseline unexpectedly violates ADR-0084: " + "\n".join(baseline)
+
+        self.page.locator(".gth-shop-selection-empty-entry").evaluate(
+            "node => { node.style.marginLeft = '100px'; }"
+        )
+        injected: list[str] = []
+        _check_common_state_rules(_run_layout_scan(self.page), "button", injected)
+        assert any("主ボタン" in finding for finding in injected)
+
+        self.page.set_content(
+            self.page.content().replace("候補がありません。", "候補がありません。<br>二行目")
+        )
+        injected = []
+        _check_common_state_rules(_run_layout_scan(self.page), "empty", injected)
+        assert any("0件" in finding for finding in injected)
+
+        self.page.locator(".gth-shop-name").evaluate(
+            "node => { node.style.webkitLineClamp = 'unset'; node.style.width = '30px'; }"
+        )
+        injected = []
+        _check_common_state_rules(_run_layout_scan(self.page), "name", injected)
+        assert any("長い名前" in finding for finding in injected)
+
+        self.page.locator(".gth-response-scroll").evaluate(
+            "node => { node.style.overflowX = 'hidden'; }"
+        )
+        injected = []
+        _check_common_state_rules(_run_layout_scan(self.page), "table", injected)
+        assert any("多人数表" in finding for finding in injected)
+
+        self.page.locator('[data-testid="candidate-proposal-retry"]').evaluate(
+            "node => { node.remove(); }"
+        )
+        injected = []
+        _check_common_state_rules(_run_layout_scan(self.page), "error", injected)
+        assert any("エラー" in finding for finding in injected)
 
 
 # ---------------------------------------------------------------------------
