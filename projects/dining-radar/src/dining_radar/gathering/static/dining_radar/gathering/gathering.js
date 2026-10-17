@@ -1399,6 +1399,7 @@
     return el("div", { class: "gth-heading-bar" }, [
       renderHeadingBackLink(),
       titleEl,
+      el("span", { class: "gth-phase gth-heading-phase" }, [PHASE_LABELS.SELECTING_SHOP]),
       dateEl,
       renderDeleteGathering(),
     ]);
@@ -2317,7 +2318,20 @@
     if (mapContainer) {
       pendingShortlistedShopMap = { container: mapContainer, shops: shops, leaders: leaders, panel: null };
     }
-    return el("div", { class: "gth-shop-step-content" }, children);
+    // The board's desktop skeleton has one 540px procedure column and a
+    // separate map column. Keep the procedure contents in their own card so
+    // the map cannot accidentally become part of the step card again.
+    var mapIndex = children.indexOf(mapContainer);
+    if (mapIndex >= 0) {
+      children.splice(mapIndex, 1);
+    }
+    var procedureCard = el("div", {
+      "data-testid": "gathering-shop-selection-card",
+      class: "gth-shop-selection-card",
+    }, children);
+    var contentChildren = [procedureCard];
+    if (mapContainer) contentChildren.push(mapContainer);
+    return el("div", { class: "gth-shop-step-content" }, contentChildren);
   }
 
   // **Replaced 2026-09-17 (ADR-0062 decision 3, human decision, board D3:
@@ -3549,9 +3563,25 @@
       }
       var scheduleSummary = state.gathering.candidateDates.filter(function (date) { return date.isConfirmed; })[0];
       var answerDetails = el("div", { class: "gth-step-body", hidden: !state.stepAnswersOpen, style: state.stepAnswersOpen ? "display:block" : "" }, [renderResponseTable(candidateDateLeaders)]);
-      sections.push(renderStep("SCHEDULE", "done", [el("div", { class: "gth-step-summary-row" }, [renderStepSummary("SCHEDULE", scheduleSummary ? formatGatheringDate(scheduleSummary.startAt) : "日程"), renderAnswersEntrance()]), answerDetails, el("div", { class: "visually-hidden" }, [renderResponseSummary(), renderUnansweredSummary()])]));
-      sections.push(renderStep("SHOP", "current", [renderShopSelectionPanel(candidateDateList, candidateDateLeaders)]));
-      sections.push(renderStep("FINAL", "upcoming", [renderStepSummary("FINAL", "決まり")]));
+      var procedureSections = [];
+      procedureSections.push(renderStep("SCHEDULE", "done", [el("div", { class: "gth-step-summary-row" }, [renderStepSummary("SCHEDULE", scheduleSummary ? formatGatheringDate(scheduleSummary.startAt) : "日程"), renderAnswersEntrance()]), answerDetails, el("div", { class: "visually-hidden" }, [renderResponseSummary(), renderUnansweredSummary()])]));
+      var shopPanel = renderShopSelectionPanel(candidateDateList, candidateDateLeaders);
+      var shopMap = shopPanel.querySelector(".gth-shop-map");
+      var isPcBoardLayout = Boolean(
+        window.matchMedia && window.matchMedia("(min-width: 64rem)").matches
+      );
+      if (shopMap && isPcBoardLayout) {
+        shopMap.remove();
+      }
+      procedureSections.push(renderStep("SHOP", "current", [shopPanel]));
+      procedureSections.push(renderStep("FINAL", "upcoming", [
+        el("div", { class: "gth-step-summary-row" }, [renderStepSummary("FINAL", "決まり")]),
+      ]));
+      sections.push(el("div", { class: "gth-procedure-column" }, procedureSections));
+      // On PC the map is a sibling of the whole procedure column, so step ③
+      // can follow step ② without inheriting the map's height. On touch
+      // layouts it remains inside the step frame.
+      if (shopMap && isPcBoardLayout) sections.push(shopMap);
     } else {
       var decidedDate = state.gathering.candidateDates.filter(function (date) { return date.isConfirmed; })[0];
       sections.push(renderStep("SCHEDULE", "done", [el("div", { class: "gth-step-summary-row" }, [renderStepSummary("SCHEDULE", decidedDate ? formatGatheringDate(decidedDate.startAt) : "日程"), renderAnswersEntrance()]), el("div", { class: "gth-step-body", hidden: !state.stepAnswersOpen, style: state.stepAnswersOpen ? "display:block" : "" }, [renderResponseTable(candidateDateLeaders)])]));

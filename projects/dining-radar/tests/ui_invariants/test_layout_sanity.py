@@ -794,6 +794,56 @@ def _check_common_state_rules(scan: dict, label: str, findings: list[str]) -> No
             )
 
 
+def _check_selecting_board_geometry(page: Page, label: str, findings: list[str]) -> None:
+    """Keep the adopted zero-shop board's three procedure bodies aligned."""
+    geometry = page.evaluate(
+        """() => {
+          const box = (node) => {
+            if (!node) return null;
+            const r = node.getBoundingClientRect();
+            return {x: r.x, right: r.right, width: r.width, y: r.y, height: r.height};
+          };
+          const schedule = document.querySelector(
+            '[data-step="SCHEDULE"] .gth-step-summary-row'
+          );
+          const card = document.querySelector('[data-testid="gathering-shop-selection-card"]');
+          const final = document.querySelector(
+            '[data-step="FINAL"] .gth-step-summary-row'
+          );
+          const desktopMap = document.querySelector('.gth-dash > .gth-shop-map');
+          const tabletMap = document.querySelector('[data-step="SHOP"] .gth-shop-map');
+          const map = desktopMap || tabletMap;
+          const mapIsDirectChild = !!(
+            map && map.parentElement && (
+              map.parentElement.matches('.gth-dash') ||
+              map.parentElement.matches('.gth-shop-step-content')
+            )
+          );
+          return {
+            viewportWidth: window.innerWidth,
+            procedure: [schedule, card, final].map(box),
+            cardContainsMap: !!(card && map && card.contains(map)),
+            mapIsDirectChild,
+            map: box(map),
+          };
+        }"""
+    )
+    procedure = [item for item in geometry["procedure"] if item]
+    if len(procedure) == 3:
+        reference = procedure[0]
+        if any(
+            abs(item["x"] - reference["x"]) > 2 or abs(item["width"] - reference["width"]) > 2
+            for item in procedure[1:]
+        ):
+            findings.append(f"{label} [12.板照合/手順カード] ①②③の左端または幅が不一致")
+    if geometry["cardContainsMap"] or not geometry["mapIsDirectChild"]:
+        findings.append(f"{label} [12.板照合/地図列] PC地図が②カードの内側にある")
+    if geometry["viewportWidth"] >= 1024 and geometry["map"] and procedure:
+        card = procedure[1]
+        if geometry["map"]["x"] < card["right"] + MIN_GAP_PX:
+            findings.append(f"{label} [12.板照合/地図列] PC地図が左手順列の外側に離れていない")
+
+
 #: Check 4: the mobile card deck's own swipe track (home.html's
 #: ``.candidate-deck-viewport``/``candidate-deck-swipe-surface``) is a
 #: horizontal carousel -- every card except the one currently showing sits
@@ -925,6 +975,7 @@ def _run_checks_1_to_5_and_8(page: Page, label: str, findings: list[str]) -> Non
     _check_forbidden_rendered_text(scan, label, findings)
     _check_major_region_width(scan, label, findings)
     _check_common_state_rules(scan, label, findings)
+    _check_selecting_board_geometry(page, label, findings)
 
 
 # --- Check 6: toggle open direction -----------------------------------------
@@ -1789,9 +1840,8 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         }
 
     def test_dashboard_shop_step_uses_the_desktop_pane_width(self) -> None:
-        """ADR-0079/0081: desktop puts the current step and its map/shop pane
-        in the dashboard's full content width; it must not nest both in the
-        narrow first column while leaving the right pane empty.
+        """KEN-70: desktop keeps the procedure column at the board's 540px
+        width and puts the map in the independent right column.
         """
         self._sign_in_as_organizer()
         self.page.set_viewport_size({"width": 1440, "height": 900})
@@ -1803,11 +1853,12 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
 
         dash = self.page.locator(".gth-dash")
-        current_step = self.page.locator(".gathering-step--current")
+        procedure = self.page.locator(".gth-procedure-column")
         dash_box = dash.bounding_box()
-        current_step_box = current_step.bounding_box()
-        assert dash_box is not None and current_step_box is not None
-        assert current_step_box["width"] >= dash_box["width"] - TOLERANCE_PX
+        procedure_box = procedure.bounding_box()
+        assert dash_box is not None and procedure_box is not None
+        assert abs(procedure_box["width"] - 540) <= TOLERANCE_PX
+        assert procedure_box["width"] < dash_box["width"]
 
     def test_scheduling_response_controls_are_readable(self) -> None:
         """ADR-0080: the scheduling response table leaves room for its controls
@@ -1859,12 +1910,13 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         self._seed_one_shortlisted_shop(gathering_id)
         self.page.reload()
         expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
-        step = self.page.locator(".gathering-step--current")
-        map_box = self.page.locator(".gathering-step--current .gth-shop-map").bounding_box()
-        step_box = step.bounding_box()
-        assert map_box is not None and step_box is not None
-        assert map_box["x"] >= step_box["x"] + 540, (
-            f"board map column moved into the step column: step={step_box}, map={map_box}"
+        procedure = self.page.locator(".gth-procedure-column")
+        map_box = self.page.locator(".gth-dash > .gth-shop-map").bounding_box()
+        procedure_box = procedure.bounding_box()
+        assert map_box is not None and procedure_box is not None
+        assert map_box["x"] >= procedure_box["x"] + procedure_box["width"] + 4, (
+            "board map column moved into the procedure column: "
+            f"procedure={procedure_box}, map={map_box}"
         )
         assert map_box["width"] >= 480, f"board map column is too narrow: {map_box}"
 
@@ -1911,17 +1963,41 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         shop_body = shop_step.locator(".gth-shop-step-content")
         shop_box = shop_body.bounding_box()
         assert shop_box is not None
-        shop_style = shop_body.evaluate(
+        shop_card = shop_body.locator('[data-testid="gathering-shop-selection-card"]')
+        shop_card_box = shop_card.bounding_box()
+        assert shop_card_box is not None
+        procedure_boxes = [
+            self.page.locator(selector).bounding_box()
+            for selector in (
+                '[data-step="SCHEDULE"] .gth-step-summary-row',
+                '[data-testid="gathering-shop-selection-card"]',
+                '[data-step="FINAL"] .gth-step-summary-row',
+            )
+        ]
+        assert all(procedure_boxes), procedure_boxes
+        assert all(
+            abs(box["x"] - procedure_boxes[0]["x"]) <= 2
+            and abs(box["width"] - procedure_boxes[0]["width"]) <= 2
+            for box in procedure_boxes[1:]
+        ), procedure_boxes
+        shop_style = shop_card.evaluate(
             "node => { const s = getComputedStyle(node); "
             "return { border: s.borderTopWidth, color: s.borderTopColor }; }"
         )
         assert shop_style == {"border": "2px", "color": "rgb(20, 97, 74)"}
+        assert self.page.locator(".gth-dash > .gth-shop-map").count() == 1
+        assert shop_card.locator(".gth-shop-map").count() == 0
         for selector in (".gth-pane-head-row", ".gth-shop-list", ".gth-bottom-bar"):
-            child = shop_body.locator(selector).first
+            child = shop_card.locator(selector).first
             child_box = child.bounding_box()
             assert child_box is not None, selector
-            assert shop_box["x"] <= child_box["x"] <= shop_box["x"] + shop_box["width"]
-            assert child_box["x"] + child_box["width"] <= shop_box["x"] + shop_box["width"] + 1
+            assert (
+                shop_card_box["x"] <= child_box["x"] <= shop_card_box["x"] + shop_card_box["width"]
+            )
+            assert (
+                child_box["x"] + child_box["width"]
+                <= shop_card_box["x"] + shop_card_box["width"] + 1
+            )
 
         re_search = shop_body.locator('[data-testid="gathering-shortlist-open"]').first
         re_search_style = re_search.evaluate(
@@ -2747,6 +2823,47 @@ class LayoutSanityFaultInjectionTests(StaticLiveServerTestCase):
         injected = []
         _check_common_state_rules(_run_layout_scan(self.page), "error", injected)
         assert any("エラー" in finding for finding in injected)
+
+    def test_injected_selecting_board_geometry_is_caught(self) -> None:
+        self.page.set_content(
+            """
+            <main class="gth-dash">
+              <section data-step="SCHEDULE" class="gathering-step gathering-step--done">
+                <div class="gth-step-summary-row" style="width:492px;height:44px"></div>
+              </section>
+              <section data-step="SHOP" class="gathering-step gathering-step--current">
+                <div class="gth-shop-step-content"
+                     style="display:grid;grid-template-columns:492px 500px;gap:20px">
+                  <div data-testid="gathering-shop-selection-card"
+                       style="width:492px;height:120px"></div>
+                  <div class="gth-shop-map" style="width:500px;height:300px"></div>
+                </div>
+              </section>
+              <section data-step="FINAL" class="gathering-step gathering-step--upcoming">
+                <div class="gth-step-summary-row" style="width:492px;height:44px"></div>
+              </section>
+            </main>
+            """
+        )
+        baseline: list[str] = []
+        _check_selecting_board_geometry(self.page, "baseline", baseline)
+        assert not baseline, "baseline unexpectedly violates board geometry: " + "\n".join(baseline)
+
+        self.page.locator('[data-testid="gathering-shop-selection-card"]').evaluate(
+            "node => { node.style.width = '600px'; }"
+        )
+        injected: list[str] = []
+        _check_selecting_board_geometry(self.page, "width", injected)
+        assert any("手順カード" in finding for finding in injected)
+
+        self.page.locator(".gth-shop-map").evaluate(
+            "node => document.querySelector("
+            "'[data-testid=\"gathering-shop-selection-card\"]'"
+            ").append(node)"
+        )
+        injected = []
+        _check_selecting_board_geometry(self.page, "map", injected)
+        assert any("地図列" in finding for finding in injected)
 
 
 # ---------------------------------------------------------------------------
