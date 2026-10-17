@@ -813,6 +813,13 @@ def _check_selecting_board_geometry(page: Page, label: str, findings: list[str])
           const desktopMap = document.querySelector('.gth-dash > .gth-shop-map');
           const tabletMap = document.querySelector('[data-step="SHOP"] .gth-shop-map');
           const map = desktopMap || tabletMap;
+          const steps = [...document.querySelectorAll('.gth-procedure-column > .gathering-step')];
+          const scheduleRow = document.querySelector(
+            '[data-step="SCHEDULE"] .gth-step-summary-row'
+          );
+          const scheduleButton = scheduleRow && scheduleRow.querySelector('.gth-step-answers-open');
+          const links = document.querySelector('.gth-link-section-wrapper');
+          const linksButton = links && links.querySelector('.gth-link-section-open');
           const mapIsDirectChild = !!(
             map && map.parentElement && (
               map.parentElement.matches('.gth-dash') ||
@@ -825,6 +832,11 @@ def _check_selecting_board_geometry(page: Page, label: str, findings: list[str])
             cardContainsMap: !!(card && map && card.contains(map)),
             mapIsDirectChild,
             map: box(map),
+            stepRightEdges: steps.map(box),
+            scheduleButton: box(scheduleButton),
+            scheduleRow: box(scheduleRow),
+            linksButton: box(linksButton),
+            links: box(links),
           };
         }"""
     )
@@ -842,6 +854,36 @@ def _check_selecting_board_geometry(page: Page, label: str, findings: list[str])
         card = procedure[1]
         if geometry["map"]["x"] < card["right"] + MIN_GAP_PX:
             findings.append(f"{label} [12.板照合/地図列] PC地図が左手順列の外側に離れていない")
+    if len(geometry["stepRightEdges"]) == 3 and procedure:
+        expected_right = procedure[0]["right"]
+        if any(abs(step["right"] - expected_right) > 2 for step in geometry["stepRightEdges"]):
+            findings.append(f"{label} [12.板照合/区切り線] ①②③の区切り線がカード右端と不一致")
+    button = geometry["scheduleButton"]
+    row = geometry["scheduleRow"]
+    if (
+        button
+        and row
+        and (
+            button["x"] < row["x"] - 1
+            or button["right"] > row["right"] + 1
+            or button["y"] < row["y"] - 1
+            or button["y"] + button["height"] > row["y"] + row["height"] + 1
+        )
+    ):
+        findings.append(f"{label} [12.板照合/ボタン内包] 回答ボタンが①カードの枠をはみ出している")
+    links_button = geometry["linksButton"]
+    links = geometry["links"]
+    if (
+        links_button
+        and links
+        and (
+            links_button["x"] < links["x"] - 1
+            or links_button["right"] > links["right"] + 1
+            or links_button["y"] < links["y"] - 1
+            or links_button["y"] + links_button["height"] > links["y"] + links["height"] + 1
+        )
+    ):
+        findings.append(f"{label} [12.板照合/リンク内包] 回答リンク一覧がリンク枠をはみ出している")
 
 
 #: Check 4: the mobile card deck's own swipe track (home.html's
@@ -2828,20 +2870,30 @@ class LayoutSanityFaultInjectionTests(StaticLiveServerTestCase):
         self.page.set_content(
             """
             <main class="gth-dash">
-              <section data-step="SCHEDULE" class="gathering-step gathering-step--done">
-                <div class="gth-step-summary-row" style="width:492px;height:44px"></div>
-              </section>
-              <section data-step="SHOP" class="gathering-step gathering-step--current">
-                <div class="gth-shop-step-content"
-                     style="display:grid;grid-template-columns:492px 500px;gap:20px">
-                  <div data-testid="gathering-shop-selection-card"
-                       style="width:492px;height:120px"></div>
-                  <div class="gth-shop-map" style="width:500px;height:300px"></div>
-                </div>
-              </section>
-              <section data-step="FINAL" class="gathering-step gathering-step--upcoming">
-                <div class="gth-step-summary-row" style="width:492px;height:44px"></div>
-              </section>
+              <div class="gth-procedure-column">
+                <section data-step="SCHEDULE" class="gathering-step gathering-step--done"
+                         style="box-sizing:border-box;width:540px;padding-left:48px">
+                  <div class="gth-step-summary-row" style="width:492px;height:60px">
+                    <button class="gth-step-answers-open" style="width:100px;height:44px"></button>
+                  </div>
+                </section>
+                <section data-step="SHOP" class="gathering-step gathering-step--current"
+                         style="box-sizing:border-box;width:540px;padding-left:48px">
+                  <div class="gth-shop-step-content"
+                       style="display:grid;grid-template-columns:492px 500px;gap:20px">
+                    <div data-testid="gathering-shop-selection-card"
+                         style="width:492px;height:120px"></div>
+                    <div class="gth-shop-map" style="width:500px;height:300px"></div>
+                  </div>
+                </section>
+                <section data-step="FINAL" class="gathering-step gathering-step--upcoming"
+                         style="box-sizing:border-box;width:540px;padding-left:48px">
+                  <div class="gth-step-summary-row" style="width:492px;height:44px"></div>
+                </section>
+              </div>
+              <div class="gth-link-section-wrapper" style="width:540px;height:100px">
+                <button class="gth-link-section-open" style="width:138px;height:44px"></button>
+              </div>
             </main>
             """
         )
@@ -2856,6 +2908,20 @@ class LayoutSanityFaultInjectionTests(StaticLiveServerTestCase):
         _check_selecting_board_geometry(self.page, "width", injected)
         assert any("手順カード" in finding for finding in injected)
 
+        self.page.locator('[data-step="SCHEDULE"]').evaluate(
+            "node => { node.style.width = '500px'; }"
+        )
+        injected = []
+        _check_selecting_board_geometry(self.page, "divider", injected)
+        assert any("区切り線" in finding for finding in injected)
+
+        self.page.locator(".gth-step-answers-open").evaluate(
+            "node => { node.style.position = 'absolute'; node.style.left = '500px'; }"
+        )
+        injected = []
+        _check_selecting_board_geometry(self.page, "button", injected)
+        assert any("ボタン内包" in finding for finding in injected)
+
         self.page.locator(".gth-shop-map").evaluate(
             "node => document.querySelector("
             "'[data-testid=\"gathering-shop-selection-card\"]'"
@@ -2864,6 +2930,13 @@ class LayoutSanityFaultInjectionTests(StaticLiveServerTestCase):
         injected = []
         _check_selecting_board_geometry(self.page, "map", injected)
         assert any("地図列" in finding for finding in injected)
+
+        self.page.locator(".gth-link-section-open").evaluate(
+            "node => { node.style.transform = 'translateY(70px)'; }"
+        )
+        injected = []
+        _check_selecting_board_geometry(self.page, "links", injected)
+        assert any("リンク内包" in finding for finding in injected)
 
 
 # ---------------------------------------------------------------------------

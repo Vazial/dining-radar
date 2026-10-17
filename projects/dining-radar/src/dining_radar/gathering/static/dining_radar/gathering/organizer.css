@@ -4543,6 +4543,43 @@ body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gather
   }
 }
 
+/* KEN-70 board polish: the rail, card, and separator share one right edge. */
+@media (min-width: 64rem) {
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step {
+    width: 540px;
+  }
+  #gathering-app .gth-procedure-column > .gathering-step--done[data-step="SCHEDULE"]
+    .gth-step-summary-row,
+  #gathering-app .gth-procedure-column > .gathering-step--upcoming[data-step="FINAL"]
+    .gth-step-summary-row,
+  #gathering-app .gth-procedure-column > .gathering-step--current
+    .gth-shop-selection-card {
+    margin-left: 0;
+  }
+  #gathering-app .gth-procedure-column > .gathering-step--done[data-step="SCHEDULE"]
+    .gth-step-summary-row {
+    min-height: 60px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-link-section-wrapper {
+    margin-top: -8px;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) .gth-link-section {
+    padding-top: 0;
+  }
+}
+
+@media (max-width: 47.99rem) {
+  #gathering-app .gth-shop-map,
+  #gathering-app .gth-shop-step-content .gth-shop-map {
+    text-wrap: balance;
+    overflow-wrap: normal;
+    word-break: normal;
+  }
+}
+
 /* The three procedure rows share the same body edge and width. The current
    card has the same rail offset as the folded schedule/final cards. */
 @media (min-width: 48rem) {
