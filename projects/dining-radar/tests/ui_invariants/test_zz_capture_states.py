@@ -49,6 +49,7 @@ CAPTURE_SIZES: list[tuple[int, int]] = [
     (1180, 820),
     (1440, 900),
     (1305, 900),
+    (1410, 885),
 ]
 
 ORGANIZER_ACCOUNT_REF = "capture-organizer"
@@ -187,6 +188,65 @@ class BoardConformanceCaptureTests(StaticLiveServerTestCase):
         # Rewritten after every single capture (not only at tearDownClass)
         # so a mid-run failure still leaves a valid, if partial, index.json.
         type(self)._write_index()
+
+        # Open menus/sheets/dialogs must also be captured while the pointer is
+        # over their scrim.  This is a visual evidence artifact, not a
+        # golden-image assertion; the invariant test owns the pass/fail rule.
+        overlay = page.locator(
+            ".primary-nav-menu-backdrop, .gth-modal-backdrop, "
+            ".gth-issue-backdrop, .gth-day-sheet-scrim"
+        ).filter(visible=True).first
+        open_surface = page.locator(
+            ".primary-nav-account-sheet:not([hidden]), .gathering-review-dialog, "
+            ".gth-confirm-dialog, .gth-day-sheet"
+        ).filter(visible=True).first
+        if overlay.count() > 0 or open_surface.count() > 0:
+            try:
+                if overlay.count() > 0:
+                    overlay.hover(position={"x": 8, "y": 8}, timeout=2000)
+                else:
+                    # Some sheets/dialogs paint their scrim as a giant box
+                    # shadow rather than a DOM element.  Put the pointer in
+                    # the visible shadow area just above the surface.
+                    box = open_surface.bounding_box()
+                    if box and box["y"] > 8:
+                        page.mouse.move(8, max(1, box["y"] - 4))
+                    else:
+                        page.mouse.move(8, 8)
+                hover_state = f"{state}__overlay-hover"
+                hover_base = f"{screen}__{hover_state}__{width}x{height}"
+                page.screenshot(
+                    path=os.path.join(CAPTURE_DIR, f"{hover_base}.png"), full_page=False
+                )
+                hover_elements = page.evaluate(_ELEMENT_SNAPSHOT_JS)
+                hover_scroll = page.evaluate(
+                    "() => document.documentElement.scrollWidth - "
+                    "document.documentElement.clientWidth"
+                )
+                hover_payload = {
+                    "screen": screen,
+                    "state": hover_state,
+                    "viewportWidth": width,
+                    "viewportHeight": height,
+                    "horizontalScroll": hover_scroll,
+                    "elements": hover_elements,
+                }
+                with open(
+                    os.path.join(CAPTURE_DIR, f"{hover_base}.json"), "w", encoding="utf-8"
+                ) as fh:
+                    json.dump(hover_payload, fh, ensure_ascii=False, indent=2)
+                type(self)._index_entries.append(
+                    {
+                        "screen": screen,
+                        "state": hover_state,
+                        "size": f"{width}x{height}",
+                        "png": f"{hover_base}.png",
+                        "json": f"{hover_base}.json",
+                    }
+                )
+                type(self)._write_index()
+            finally:
+                page.mouse.move(0, 0)
 
     def _capture_state_across_sizes(self, screen: str, state: str, given: GivenFn) -> None:
         """``given(width, height)`` must set the viewport itself (before
