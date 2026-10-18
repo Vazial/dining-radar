@@ -1070,6 +1070,8 @@ def _check_open_overlay_hover(page: Page, label: str, findings: list[str]) -> No
                     f"{label} [12.開いた層の不透明度] {selector} の背景alpha="
                     f"{after['alpha']:.2f} が高すぎる（背面を覆い隠す）"
                 )
+
+
 def _run_checks_1_to_5_and_8(page: Page, label: str, findings: list[str]) -> None:
     scan = _run_layout_scan(page)
     _check_1_overlap(scan, label, findings)
@@ -2790,16 +2792,12 @@ class LayoutSanityFaultInjectionTests(StaticLiveServerTestCase):
         assert not baseline, "baseline unexpectedly changes the open scrim: " + "\n".join(baseline)
 
         self.page.add_style_tag(
-            content=(
-                ".primary-nav-menu-backdrop:hover "
-                "{ background: #0e4933 !important; }"
-            )
+            content=(".primary-nav-menu-backdrop:hover { background: #0e4933 !important; }")
         )
         injected: list[str] = []
         _check_open_overlay_hover(self.page, "injected", injected)
         assert any("背景色が" in finding for finding in injected), (
-            "check 12 did not catch the injected overlay hover repaint: "
-            + "\n".join(injected)
+            "check 12 did not catch the injected overlay hover repaint: " + "\n".join(injected)
         )
 
     def test_injected_toggle_wrong_direction_is_caught(self) -> None:

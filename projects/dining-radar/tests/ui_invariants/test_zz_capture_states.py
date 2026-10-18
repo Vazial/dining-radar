@@ -192,14 +192,22 @@ class BoardConformanceCaptureTests(StaticLiveServerTestCase):
         # Open menus/sheets/dialogs must also be captured while the pointer is
         # over their scrim.  This is a visual evidence artifact, not a
         # golden-image assertion; the invariant test owns the pass/fail rule.
-        overlay = page.locator(
-            ".primary-nav-menu-backdrop, .gth-modal-backdrop, "
-            ".gth-issue-backdrop, .gth-day-sheet-scrim"
-        ).filter(visible=True).first
-        open_surface = page.locator(
-            ".primary-nav-account-sheet:not([hidden]), .gathering-review-dialog, "
-            ".gth-confirm-dialog, .gth-day-sheet"
-        ).filter(visible=True).first
+        overlay = (
+            page.locator(
+                ".primary-nav-menu-backdrop, .gth-modal-backdrop, "
+                ".gth-issue-backdrop, .gth-day-sheet-scrim"
+            )
+            .filter(visible=True)
+            .first
+        )
+        open_surface = (
+            page.locator(
+                ".primary-nav-account-sheet:not([hidden]), .gathering-review-dialog, "
+                ".gth-confirm-dialog, .gth-day-sheet"
+            )
+            .filter(visible=True)
+            .first
+        )
         if overlay.count() > 0 or open_surface.count() > 0:
             try:
                 if overlay.count() > 0:
