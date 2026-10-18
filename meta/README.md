@@ -15,6 +15,8 @@
 | 規程 | agent-runtime-mapping.md | Claude Code / Codex間の役割agent起動先・モデル対応表 | orchestrator / role agent起動時 |
 | 規程 | orchestration.md | OrcaとLinearで回す手順（置き場・チケットの状態・役割の起動・自動実行。meta/adr/0068） | orchestrator / Orcaから起動された役割agent |
 | 道具 | template-sync.sh | テンプレの変更を派生リポジトリへ取り込んでPRにする入口（`status`/`pull`/`finish`。meta/adr/0069）。派生リポジトリに写されてそこで走る | 週1回の自動実行・手動の取り込み |
+| 規程 | derived-repos.md | 取り込む相手の派生リポジトリの表。稼働・対象外・閉鎖の状態を持つ（meta/adr/0070） | 派生リポジトリを作る・閉じるとき |
+| 道具 | derived-repos-check.sh | 表・Orca の自動実行・GitHub 上のリポジトリを突き合わせ、ずれを出す（meta/adr/0070）。読むだけ | 週1の自動実行 |
 | 規程 | guardrails.md | 運用ルールの索引（実体は設定） | リポジトリ初期設定時 |
 | 決定 | adr/ | A層自身の決定履歴（1決定1枚・編集禁止。meta/adr/0001。メタデータはfrontmatter＝機械検証対象。meta/adr/0012） | 規程変更の提案・監査時 |
 | 道具 | tools/govlint.py | 統治文書（ADR・friction-log・契約ID）の機械検証。CIのL0で実行（meta/adr/0012）。cause_keyの再出現は台帳ごとに加え**台帳を跨いでも**報告する（meta/adr/0058） | CI・統治文書を書く時 |
