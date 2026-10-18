@@ -580,6 +580,60 @@ _LAYOUT_SCAN_JS = r"""
         visible: rect.width > 0 && rect.height > 0,
       };
     }),
+    commonState: (() => {
+      const emptyMap = document.querySelector('.gth-shop-map--empty');
+      const emptyFrame = emptyMap ? emptyMap.closest('.gth-shop-step-content') : null;
+      const emptyGuidance = document.querySelectorAll(
+        '[data-testid="gathering-shortlisted-shop-empty-guidance"]'
+      );
+      const emptyActions = document.querySelectorAll('.gth-shop-selection-empty-entry');
+      const longNames = Array.from(document.querySelectorAll(
+        '.gth-shop-name, [data-testid="candidate-card-name"]'
+      )).map((node) => ({
+        text: (node.innerText || '').trim(),
+        lines: countTextLines(node),
+      }));
+      const tables = Array.from(document.querySelectorAll('.gth-response-scroll')).map((node) => ({
+        overflowX: getComputedStyle(node).overflowX,
+        scrollWidth: node.scrollWidth,
+        clientWidth: node.clientWidth,
+      }));
+      const errors = Array.from(
+        document.querySelectorAll('[data-testid="candidate-proposal-problem"]')
+      ).map((node) => ({
+        guidanceLines: countTextLines(
+          node.querySelector('[data-testid="candidate-proposal-problem-guidance"]')
+        ),
+        retryCount: node.querySelectorAll('[data-testid="candidate-proposal-retry"]').length,
+      }));
+      const frameChildren = emptyFrame ? Array.from(emptyFrame.children)
+        .filter((node) => !node.matches('.gth-shop-map'))
+        .map((node) => node.getBoundingClientRect()) : [];
+      const leftEdges = frameChildren.map((rect) => rect.left);
+      const minLeft = leftEdges.length ? Math.min(...leftEdges) : null;
+      const maxLeft = leftEdges.length ? Math.max(...leftEdges) : null;
+      const frameRect = emptyFrame ? emptyFrame.getBoundingClientRect() : null;
+      const leftContentBottom = frameChildren.length
+        ? Math.max(...frameChildren.map((rect) => rect.bottom)) : null;
+      return {
+        emptyPresent: !!emptyMap,
+        emptyMessageCount: emptyGuidance.length,
+        emptyGuidanceLines: emptyGuidance.length ? countTextLines(emptyGuidance[0]) : 0,
+        emptyActionCount: emptyActions.length,
+        emptyFrameHeight: frameRect ? frameRect.height : null,
+        emptyLeftContentHeight: frameRect && leftContentBottom !== null
+          ? leftContentBottom - frameRect.top : null,
+        emptyLeftEdgesAligned: minLeft === null || maxLeft - minLeft <= 2,
+        emptyActionLeftAligned: !emptyActions.length || !emptyGuidance.length
+          || Math.abs(
+            emptyActions[0].getBoundingClientRect().left
+              - emptyGuidance[0].getBoundingClientRect().left
+          ) <= 8,
+        longNames: longNames,
+        tables: tables,
+        errors: errors,
+      };
+    })(),
     viewport: { width: window.innerWidth, height: window.innerHeight },
   };
 }
@@ -694,6 +748,142 @@ def _check_major_region_width(scan: dict, label: str, findings: list[str]) -> No
                 f"{label} [10.主要領域の細帯] {region.get('selector')!r} が "
                 f"{region['width']:.1f}px（viewport の25%未満）"
             )
+
+
+def _check_common_state_rules(scan: dict, label: str, findings: list[str]) -> None:
+    """ADR-0084's reusable rules for empty, dense, long-name and error states."""
+    state = scan.get("commonState", {})
+    if state.get("emptyPresent"):
+        if (
+            state.get("emptyMessageCount") != 1
+            or state.get("emptyGuidanceLines") != 1
+            or state.get("emptyActionCount") != 1
+        ):
+            findings.append(
+                f"{label} [11.共通状態/0件] 案内={state.get('emptyMessageCount')} "
+                f"メインボタン={state.get('emptyActionCount')}（各1つでなければならない）"
+            )
+        frame_height = state.get("emptyFrameHeight") or 0
+        content_height = state.get("emptyLeftContentHeight") or 0
+        if frame_height and content_height / frame_height < 0.2:
+            findings.append(
+                f"{label} [11.共通状態/枠の空白] 左内容の高さ {content_height:.1f}px / "
+                f"枠 {frame_height:.1f}px が20%未満"
+            )
+        if not state.get("emptyLeftEdgesAligned", True):
+            findings.append(f"{label} [11.共通状態/手順枠] 左端がそろっていない")
+        if not state.get("emptyActionLeftAligned", True):
+            findings.append(f"{label} [11.共通状態/主ボタン] 枠内の左寄せ位置からずれている")
+    for name in state.get("longNames", []):
+        if name["lines"] > 2:
+            findings.append(
+                f"{label} [11.共通状態/長い名前] {name['text'][:30]!r} が "
+                f"{name['lines']}行で2行を超えている"
+            )
+    for table in state.get("tables", []):
+        if table["scrollWidth"] > table["clientWidth"] + 1 and table["overflowX"] not in (
+            "auto",
+            "scroll",
+        ):
+            findings.append(f"{label} [11.共通状態/多人数表] 表の横スクロールが自身の枠にない")
+    for error in state.get("errors", []):
+        if error["guidanceLines"] > 1 or error["retryCount"] != 1:
+            findings.append(
+                f"{label} [11.共通状態/エラー] 理由={error['guidanceLines']}行 "
+                f"やり直し={error['retryCount']}個（各1つでなければならない）"
+            )
+
+
+def _check_selecting_board_geometry(page: Page, label: str, findings: list[str]) -> None:
+    """Keep the adopted zero-shop board's three procedure bodies aligned."""
+    geometry = page.evaluate(
+        """() => {
+          const box = (node) => {
+            if (!node) return null;
+            const r = node.getBoundingClientRect();
+            return {x: r.x, right: r.right, width: r.width, y: r.y, height: r.height};
+          };
+          const schedule = document.querySelector(
+            '[data-step="SCHEDULE"] .gth-step-summary-row'
+          );
+          const card = document.querySelector('[data-testid="gathering-shop-selection-card"]');
+          const final = document.querySelector(
+            '[data-step="FINAL"] .gth-step-summary-row'
+          );
+          const desktopMap = document.querySelector('.gth-dash > .gth-shop-map');
+          const tabletMap = document.querySelector('[data-step="SHOP"] .gth-shop-map');
+          const map = desktopMap || tabletMap;
+          const steps = [...document.querySelectorAll('.gth-procedure-column > .gathering-step')];
+          const scheduleRow = document.querySelector(
+            '[data-step="SCHEDULE"] .gth-step-summary-row'
+          );
+          const scheduleButton = scheduleRow && scheduleRow.querySelector('.gth-step-answers-open');
+          const links = document.querySelector('.gth-link-section-wrapper');
+          const linksButton = links && links.querySelector('.gth-link-section-open');
+          const mapIsDirectChild = !!(
+            map && map.parentElement && (
+              map.parentElement.matches('.gth-dash') ||
+              map.parentElement.matches('.gth-shop-step-content')
+            )
+          );
+          return {
+            viewportWidth: window.innerWidth,
+            procedure: [schedule, card, final].map(box),
+            cardContainsMap: !!(card && map && card.contains(map)),
+            mapIsDirectChild,
+            map: box(map),
+            stepRightEdges: steps.map(box),
+            scheduleButton: box(scheduleButton),
+            scheduleRow: box(scheduleRow),
+            linksButton: box(linksButton),
+            links: box(links),
+          };
+        }"""
+    )
+    procedure = [item for item in geometry["procedure"] if item]
+    if len(procedure) == 3:
+        reference = procedure[0]
+        if any(
+            abs(item["x"] - reference["x"]) > 2 or abs(item["width"] - reference["width"]) > 2
+            for item in procedure[1:]
+        ):
+            findings.append(f"{label} [12.板照合/手順カード] ①②③の左端または幅が不一致")
+    if geometry["cardContainsMap"] or not geometry["mapIsDirectChild"]:
+        findings.append(f"{label} [12.板照合/地図列] PC地図が②カードの内側にある")
+    if geometry["viewportWidth"] >= 1024 and geometry["map"] and procedure:
+        card = procedure[1]
+        if geometry["map"]["x"] < card["right"] + MIN_GAP_PX:
+            findings.append(f"{label} [12.板照合/地図列] PC地図が左手順列の外側に離れていない")
+    if len(geometry["stepRightEdges"]) == 3 and procedure:
+        expected_right = procedure[0]["right"]
+        if any(abs(step["right"] - expected_right) > 2 for step in geometry["stepRightEdges"]):
+            findings.append(f"{label} [12.板照合/区切り線] ①②③の区切り線がカード右端と不一致")
+    button = geometry["scheduleButton"]
+    row = geometry["scheduleRow"]
+    if (
+        button
+        and row
+        and (
+            button["x"] < row["x"] - 1
+            or button["right"] > row["right"] + 1
+            or button["y"] < row["y"] - 1
+            or button["y"] + button["height"] > row["y"] + row["height"] + 1
+        )
+    ):
+        findings.append(f"{label} [12.板照合/ボタン内包] 回答ボタンが①カードの枠をはみ出している")
+    links_button = geometry["linksButton"]
+    links = geometry["links"]
+    if (
+        links_button
+        and links
+        and (
+            links_button["x"] < links["x"] - 1
+            or links_button["right"] > links["right"] + 1
+            or links_button["y"] < links["y"] - 1
+            or links_button["y"] + links_button["height"] > links["y"] + links["height"] + 1
+        )
+    ):
+        findings.append(f"{label} [12.板照合/リンク内包] 回答リンク一覧がリンク枠をはみ出している")
 
 
 #: Check 4: the mobile card deck's own swipe track (home.html's
@@ -826,6 +1016,8 @@ def _run_checks_1_to_5_and_8(page: Page, label: str, findings: list[str]) -> Non
     _check_5_cramped_spacing(scan, label, findings)
     _check_forbidden_rendered_text(scan, label, findings)
     _check_major_region_width(scan, label, findings)
+    _check_common_state_rules(scan, label, findings)
+    _check_selecting_board_geometry(page, label, findings)
 
 
 # --- Check 6: toggle open direction -----------------------------------------
@@ -1690,9 +1882,8 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         }
 
     def test_dashboard_shop_step_uses_the_desktop_pane_width(self) -> None:
-        """ADR-0079/0081: desktop puts the current step and its map/shop pane
-        in the dashboard's full content width; it must not nest both in the
-        narrow first column while leaving the right pane empty.
+        """KEN-70: desktop keeps the procedure column at the board's 540px
+        width and puts the map in the independent right column.
         """
         self._sign_in_as_organizer()
         self.page.set_viewport_size({"width": 1440, "height": 900})
@@ -1704,11 +1895,12 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
 
         dash = self.page.locator(".gth-dash")
-        current_step = self.page.locator(".gathering-step--current")
+        procedure = self.page.locator(".gth-procedure-column")
         dash_box = dash.bounding_box()
-        current_step_box = current_step.bounding_box()
-        assert dash_box is not None and current_step_box is not None
-        assert current_step_box["width"] >= dash_box["width"] - TOLERANCE_PX
+        procedure_box = procedure.bounding_box()
+        assert dash_box is not None and procedure_box is not None
+        assert abs(procedure_box["width"] - 540) <= TOLERANCE_PX
+        assert procedure_box["width"] < dash_box["width"]
 
     def test_scheduling_response_controls_are_readable(self) -> None:
         """ADR-0080: the scheduling response table leaves room for its controls
@@ -1760,12 +1952,13 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         self._seed_one_shortlisted_shop(gathering_id)
         self.page.reload()
         expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
-        step = self.page.locator(".gathering-step--current")
-        map_box = self.page.locator(".gathering-step--current .gth-shop-map").bounding_box()
-        step_box = step.bounding_box()
-        assert map_box is not None and step_box is not None
-        assert map_box["x"] >= step_box["x"] + 540, (
-            f"board map column moved into the step column: step={step_box}, map={map_box}"
+        procedure = self.page.locator(".gth-procedure-column")
+        map_box = self.page.locator(".gth-dash > .gth-shop-map").bounding_box()
+        procedure_box = procedure.bounding_box()
+        assert map_box is not None and procedure_box is not None
+        assert map_box["x"] >= procedure_box["x"] + procedure_box["width"] + 4, (
+            "board map column moved into the procedure column: "
+            f"procedure={procedure_box}, map={map_box}"
         )
         assert map_box["width"] >= 480, f"board map column is too narrow: {map_box}"
 
@@ -1812,17 +2005,41 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         shop_body = shop_step.locator(".gth-shop-step-content")
         shop_box = shop_body.bounding_box()
         assert shop_box is not None
-        shop_style = shop_body.evaluate(
+        shop_card = shop_body.locator('[data-testid="gathering-shop-selection-card"]')
+        shop_card_box = shop_card.bounding_box()
+        assert shop_card_box is not None
+        procedure_boxes = [
+            self.page.locator(selector).bounding_box()
+            for selector in (
+                '[data-step="SCHEDULE"] .gth-step-summary-row',
+                '[data-testid="gathering-shop-selection-card"]',
+                '[data-step="FINAL"] .gth-step-summary-row',
+            )
+        ]
+        assert all(procedure_boxes), procedure_boxes
+        assert all(
+            abs(box["x"] - procedure_boxes[0]["x"]) <= 2
+            and abs(box["width"] - procedure_boxes[0]["width"]) <= 2
+            for box in procedure_boxes[1:]
+        ), procedure_boxes
+        shop_style = shop_card.evaluate(
             "node => { const s = getComputedStyle(node); "
             "return { border: s.borderTopWidth, color: s.borderTopColor }; }"
         )
         assert shop_style == {"border": "2px", "color": "rgb(20, 97, 74)"}
+        assert self.page.locator(".gth-dash > .gth-shop-map").count() == 1
+        assert shop_card.locator(".gth-shop-map").count() == 0
         for selector in (".gth-pane-head-row", ".gth-shop-list", ".gth-bottom-bar"):
-            child = shop_body.locator(selector).first
+            child = shop_card.locator(selector).first
             child_box = child.bounding_box()
             assert child_box is not None, selector
-            assert shop_box["x"] <= child_box["x"] <= shop_box["x"] + shop_box["width"]
-            assert child_box["x"] + child_box["width"] <= shop_box["x"] + shop_box["width"] + 1
+            assert (
+                shop_card_box["x"] <= child_box["x"] <= shop_card_box["x"] + shop_card_box["width"]
+            )
+            assert (
+                child_box["x"] + child_box["width"]
+                <= shop_card_box["x"] + shop_card_box["width"] + 1
+            )
 
         re_search = shop_body.locator('[data-testid="gathering-shortlist-open"]').first
         re_search_style = re_search.evaluate(
@@ -2584,6 +2801,142 @@ class LayoutSanityFaultInjectionTests(StaticLiveServerTestCase):
         findings: list[str] = []
         _check_major_region_width(_run_layout_scan(self.page), "injected", findings)
         assert findings, "check 10 did not catch the injected narrow major region"
+
+    def test_injected_common_state_rules_are_caught(self) -> None:
+        self.page.set_content(
+            """
+            <main>
+              <section class="gth-shop-step-content" style="width:600px;height:300px">
+                <p data-testid="gathering-shortlisted-shop-empty-guidance">候補がありません。</p>
+                <button class="gth-shop-selection-empty-entry">探し直す</button>
+                <div class="gth-shop-map gth-shop-map--empty"></div>
+              </section>
+              <div
+                class="gth-shop-name"
+                style="width:220px;line-height:20px;display:-webkit-box;-webkit-line-clamp:2;overflow:hidden"
+              >
+                とても長い店名を二行までで省略する合成データ
+              </div>
+              <div class="gth-response-scroll" style="width:100px;overflow-x:auto">
+                <div style="width:300px">多人数の表</div>
+              </div>
+              <section data-testid="candidate-proposal-problem">
+                <p data-testid="candidate-proposal-problem-guidance">取得できませんでした。</p>
+                <button data-testid="candidate-proposal-retry">もう一度試す</button>
+              </section>
+            </main>
+            """
+        )
+        baseline: list[str] = []
+        _check_common_state_rules(_run_layout_scan(self.page), "baseline", baseline)
+        assert not baseline, "baseline unexpectedly violates ADR-0084: " + "\n".join(baseline)
+
+        self.page.locator(".gth-shop-selection-empty-entry").evaluate(
+            "node => { node.style.marginLeft = '100px'; }"
+        )
+        injected: list[str] = []
+        _check_common_state_rules(_run_layout_scan(self.page), "button", injected)
+        assert any("主ボタン" in finding for finding in injected)
+
+        self.page.set_content(
+            self.page.content().replace("候補がありません。", "候補がありません。<br>二行目")
+        )
+        injected = []
+        _check_common_state_rules(_run_layout_scan(self.page), "empty", injected)
+        assert any("0件" in finding for finding in injected)
+
+        self.page.locator(".gth-shop-name").evaluate(
+            "node => { node.style.webkitLineClamp = 'unset'; node.style.width = '30px'; }"
+        )
+        injected = []
+        _check_common_state_rules(_run_layout_scan(self.page), "name", injected)
+        assert any("長い名前" in finding for finding in injected)
+
+        self.page.locator(".gth-response-scroll").evaluate(
+            "node => { node.style.overflowX = 'hidden'; }"
+        )
+        injected = []
+        _check_common_state_rules(_run_layout_scan(self.page), "table", injected)
+        assert any("多人数表" in finding for finding in injected)
+
+        self.page.locator('[data-testid="candidate-proposal-retry"]').evaluate(
+            "node => { node.remove(); }"
+        )
+        injected = []
+        _check_common_state_rules(_run_layout_scan(self.page), "error", injected)
+        assert any("エラー" in finding for finding in injected)
+
+    def test_injected_selecting_board_geometry_is_caught(self) -> None:
+        self.page.set_content(
+            """
+            <main class="gth-dash">
+              <div class="gth-procedure-column">
+                <section data-step="SCHEDULE" class="gathering-step gathering-step--done"
+                         style="box-sizing:border-box;width:540px;padding-left:48px">
+                  <div class="gth-step-summary-row" style="width:492px;height:60px">
+                    <button class="gth-step-answers-open" style="width:100px;height:44px"></button>
+                  </div>
+                </section>
+                <section data-step="SHOP" class="gathering-step gathering-step--current"
+                         style="box-sizing:border-box;width:540px;padding-left:48px">
+                  <div class="gth-shop-step-content"
+                       style="display:grid;grid-template-columns:492px 500px;gap:20px">
+                    <div data-testid="gathering-shop-selection-card"
+                         style="width:492px;height:120px"></div>
+                    <div class="gth-shop-map" style="width:500px;height:300px"></div>
+                  </div>
+                </section>
+                <section data-step="FINAL" class="gathering-step gathering-step--upcoming"
+                         style="box-sizing:border-box;width:540px;padding-left:48px">
+                  <div class="gth-step-summary-row" style="width:492px;height:44px"></div>
+                </section>
+              </div>
+              <div class="gth-link-section-wrapper" style="width:540px;height:100px">
+                <button class="gth-link-section-open" style="width:138px;height:44px"></button>
+              </div>
+            </main>
+            """
+        )
+        baseline: list[str] = []
+        _check_selecting_board_geometry(self.page, "baseline", baseline)
+        assert not baseline, "baseline unexpectedly violates board geometry: " + "\n".join(baseline)
+
+        self.page.locator('[data-testid="gathering-shop-selection-card"]').evaluate(
+            "node => { node.style.width = '600px'; }"
+        )
+        injected: list[str] = []
+        _check_selecting_board_geometry(self.page, "width", injected)
+        assert any("手順カード" in finding for finding in injected)
+
+        self.page.locator('[data-step="SCHEDULE"]').evaluate(
+            "node => { node.style.width = '500px'; }"
+        )
+        injected = []
+        _check_selecting_board_geometry(self.page, "divider", injected)
+        assert any("区切り線" in finding for finding in injected)
+
+        self.page.locator(".gth-step-answers-open").evaluate(
+            "node => { node.style.position = 'absolute'; node.style.left = '500px'; }"
+        )
+        injected = []
+        _check_selecting_board_geometry(self.page, "button", injected)
+        assert any("ボタン内包" in finding for finding in injected)
+
+        self.page.locator(".gth-shop-map").evaluate(
+            "node => document.querySelector("
+            "'[data-testid=\"gathering-shop-selection-card\"]'"
+            ").append(node)"
+        )
+        injected = []
+        _check_selecting_board_geometry(self.page, "map", injected)
+        assert any("地図列" in finding for finding in injected)
+
+        self.page.locator(".gth-link-section-open").evaluate(
+            "node => { node.style.transform = 'translateY(70px)'; }"
+        )
+        injected = []
+        _check_selecting_board_geometry(self.page, "links", injected)
+        assert any("リンク内包" in finding for finding in injected)
 
 
 # ---------------------------------------------------------------------------

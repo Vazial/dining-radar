@@ -65,6 +65,7 @@
   width: min(100% - 2rem, 60rem);
 }
 
+
 /* Contract controls keep their full hit area even when the board's visual
    treatment is intentionally quiet. */
 #gathering-app input.gth-radio[data-testid="gathering-finalize-shop-select"] {
@@ -1208,6 +1209,10 @@ body:has(#gathering-list-app) main {
   order: 3;
 }
 @media (max-width: 47.9375rem) {
+  #gathering-app .gth-heading-bar .gth-heading-phase {
+    order: 4;
+    flex-basis: auto;
+  }
   .gth-heading-bar .gth-delete {
     order: 2;
   }
@@ -1973,6 +1978,17 @@ body:has(#gathering-list-app) main {
   flex-direction: column;
   gap: 0.5rem;
   min-height: 2.75rem;
+}
+.gth-shop-empty-guidance {
+  margin: 0;
+  color: #536057;
+}
+.gth-shop-map--empty {
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  color: #536057;
+  text-align: center;
 }
 /* **Fixed 2026-09-19 (board party2/d2/D1-a-* comparison, real-machine
    finding)**: this row is a flex item of gth-shop-list (a column flex
@@ -3692,6 +3708,45 @@ body:has(#gathering-app .gth-dash--scheduling) .app-header,
   }
 }
 
+/* KEN-70 / ADR-0084: the zero-shop state keeps the same two-column frame as
+   the populated state.  Its only actionable control stays at the top-left
+   of the left column; the right column communicates that there are no map
+   candidates instead of collapsing into blank space. */
+@media (min-width: 48rem) {
+  #gathering-app .gth-shop-step-content > .gth-shop-selection-empty-entry {
+    grid-column: 1;
+    justify-self: start;
+    width: auto;
+    min-height: 2.75rem;
+    padding: 0 1rem;
+    border: 0;
+    border-radius: 0.625rem;
+    background: #14614a;
+    color: #fff;
+    text-decoration: none;
+  }
+  #gathering-app .gth-shop-step-content > .gth-shop-map--empty {
+    grid-column: 2;
+    grid-row: 1 / span 20;
+    min-height: 34rem;
+  }
+}
+
+@media (max-width: 47.99rem) {
+  #gathering-app .gth-shop-step-content > .gth-shop-empty-guidance {
+    order: 2;
+  }
+  #gathering-app .gth-shop-step-content > .gth-shop-selection-empty-entry {
+    order: 3;
+    align-self: stretch;
+    width: 100%;
+  }
+  #gathering-app .gth-shop-step-content > .gth-shop-map--empty {
+    order: 4;
+    min-height: 12.5rem;
+  }
+}
+
 /* KEN-68 final board pass: a step owns one surface.  The map is a sibling
    column, while the answer/table/link controls remain inside the left frame. */
 @media (min-width: 48rem) {
@@ -4478,6 +4533,268 @@ body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gather
   }
 }
 
+/* KEN-70 final PC alignment: the rail separator ends at the card edge. */
+@media (min-width: 64rem) {
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step--done[data-step="SCHEDULE"] .gth-step-summary-row,
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step--upcoming[data-step="FINAL"] .gth-step-summary-row,
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step--current .gth-shop-selection-card {
+    margin-left: 0;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-link-section-wrapper
+    > .gth-link-section {
+    width: 492px;
+    margin-left: 48px;
+  }
+}
+
+/* KEN-70: the active card shares the fixed procedure-card width on desktop. */
+@media (min-width: 64rem) {
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step--current .gth-shop-selection-card {
+    width: 492px;
+    max-width: 492px;
+    margin-left: 48px;
+  }
+}
+
+/* KEN-70 board polish: the rail, card, and separator share one right edge. */
+@media (min-width: 64rem) {
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step {
+    width: 540px;
+  }
+  #gathering-app .gth-procedure-column > .gathering-step--done[data-step="SCHEDULE"]
+    .gth-step-summary-row,
+  #gathering-app .gth-procedure-column > .gathering-step--upcoming[data-step="FINAL"]
+    .gth-step-summary-row,
+  #gathering-app .gth-procedure-column > .gathering-step--current
+    .gth-shop-selection-card {
+    margin-left: 0;
+  }
+  #gathering-app .gth-procedure-column > .gathering-step--done[data-step="SCHEDULE"]
+    .gth-step-summary-row {
+    min-height: 60px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-link-section-wrapper {
+    margin-top: -8px;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) .gth-link-section {
+    padding-top: 0;
+  }
+}
+
+@media (max-width: 47.99rem) {
+  #gathering-app .gth-shop-map,
+  #gathering-app .gth-shop-step-content .gth-shop-map {
+    text-wrap: balance;
+    overflow-wrap: normal;
+    word-break: normal;
+  }
+}
+
+/* The three procedure rows share the same body edge and width. The current
+   card has the same rail offset as the folded schedule/final cards. */
+@media (min-width: 48rem) {
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) >
+    .gathering-step--done[data-step="SCHEDULE"] .gth-step-summary-row,
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) >
+    .gathering-step--upcoming[data-step="FINAL"] .gth-step-summary-row {
+    width: calc(540px - 48px);
+    min-height: 44px;
+    margin-left: 48px;
+    padding: 0 14px;
+    border: 1px solid #dfe4de;
+    border-radius: 12px;
+    background: #fff;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-selection-card {
+    width: calc(100% - 48px);
+    margin-left: 48px;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-selection-card > .gth-shop-selection-empty-entry {
+    justify-self: start;
+  }
+}
+
+@media (min-width: 48rem) and (max-width: 63.999rem) {
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content > [data-testid="gathering-shortlist-open"] {
+    align-self: stretch;
+    width: 100%;
+  }
+}
+
+/* KEN-70 final PC alignment: the rail separator ends at the card edge. */
+@media (min-width: 64rem) {
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step--done[data-step="SCHEDULE"] .gth-step-summary-row,
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step--upcoming[data-step="FINAL"] .gth-step-summary-row,
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step--current .gth-shop-selection-card {
+    margin-left: 0 !important;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-link-section-wrapper
+    > .gth-link-section {
+    width: 492px;
+    margin-left: 48px;
+  }
+}
+
+/* KEN-70 final PC alignment: the rail separator ends at the card edge. */
+@media (min-width: 64rem) {
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step--done[data-step="SCHEDULE"] .gth-step-summary-row,
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step--upcoming[data-step="FINAL"] .gth-step-summary-row,
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step--current .gth-shop-selection-card {
+    margin-left: 0;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-link-section-wrapper
+    > .gth-link-section {
+    width: 492px;
+    margin-left: 48px;
+  }
+}
+
+/* KEN-70 final cascade for the nested procedure column. */
+@media (min-width: 64rem) {
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column {
+    grid-column: 1;
+    min-width: 0;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step--current {
+    grid-column: auto;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-shop-map {
+    grid-row: auto;
+    align-self: start;
+    width: calc(100% - 48px);
+    margin-left: 48px;
+  }
+  #gathering-app .gth-procedure-column >
+    .gathering-step--done[data-step="SCHEDULE"] .gth-step-summary-row,
+  #gathering-app .gth-procedure-column >
+    .gathering-step--upcoming[data-step="FINAL"] .gth-step-summary-row {
+    width: calc(540px - 48px);
+    margin-left: 48px;
+  }
+  #gathering-app .gth-procedure-column > .gathering-step--current
+    .gth-shop-selection-card {
+    width: calc(100% - 48px);
+    margin-left: 48px;
+    padding: 12px 14px;
+    border: 2px solid #14614a;
+    border-radius: 0.75rem;
+    background: #fff;
+  }
+}
+
+/* KEN-70 final desktop hoist: the map is a sibling of step ②, not a child
+   of its card, so step ③ can stay directly below ② in the left column. */
+@media (min-width: 64rem) {
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) {
+    grid-template-columns: 540px minmax(0, 1fr);
+    column-gap: 20px;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current {
+    grid-column: 1;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-shop-map {
+    grid-column: 2;
+    grid-row: 3;
+    position: relative;
+    inset: auto;
+    width: 100%;
+    min-height: 34rem;
+    height: 34rem;
+    border-radius: 0.75rem;
+  }
+  #gathering-app .gth-procedure-column > .gathering-step--current
+    .gth-shop-step-content {
+    display: block;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-shop-map {
+    grid-row: auto;
+    align-self: start;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content {
+    display: block;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column {
+    grid-column: 1;
+    min-width: 0;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step--current {
+    grid-column: auto;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-shop-map {
+    grid-row: auto;
+    align-self: start;
+    width: calc(100% - 48px);
+    margin-left: 48px;
+  }
+  #gathering-app .gth-procedure-column >
+    .gathering-step--done[data-step="SCHEDULE"] .gth-step-summary-row,
+  #gathering-app .gth-procedure-column >
+    .gathering-step--upcoming[data-step="FINAL"] .gth-step-summary-row {
+    width: calc(540px - 48px);
+    margin-left: 48px;
+  }
+  #gathering-app .gth-procedure-column > .gathering-step--current
+    .gth-shop-selection-card {
+    width: calc(100% - 48px);
+    margin-left: 48px;
+  }
+}
+
+/* The map is hoisted beside step ② on the desktop dashboard. Explicitly
+   reserve row 3 so the independent map aligns with the current step while
+   step ③ remains in the left procedure column. */
+@media (min-width: 64rem) {
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) {
+    grid-template-columns: 540px minmax(0, 1fr);
+    column-gap: 20px;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current {
+    grid-column: 1;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-shop-map {
+    grid-column: 2;
+    grid-row: 3;
+    position: relative;
+    inset: auto;
+    width: 100%;
+    min-height: 34rem;
+    height: 34rem;
+    border-radius: 0.75rem;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content {
+    display: block;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+}
+
 @media (max-width: 47.99rem) {
   #gathering-app .gth-dash--scheduling {
     max-width: 100%;
@@ -4955,5 +5272,211 @@ body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"][data-ga
     min-height: 2.5rem;
     padding: 0 0.625rem;
     font-size: 0.75rem;
+  }
+}
+
+/* KEN-70 final cascade: keep the adopted board geometry after legacy rules. */
+@media (min-width: 64rem) {
+  /* final top-level map sizing */
+  #gathering-app .gth-procedure-column > .gathering-step--current .gth-shop-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+  #gathering-app .gth-procedure-column > .gathering-step--current .gth-shop-name-row {
+    grid-column: 1;
+  }
+  #gathering-app .gth-procedure-column > .gathering-step--current .gth-shop-vote-row {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  #gathering-app .gth-procedure-column > .gathering-step--current
+    .gth-shop-selection-card [data-testid="gathering-shortlist-open"]:not(.gth-shop-selection-empty-entry) {
+    width: auto;
+    min-height: 2.75rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #14614a;
+    text-decoration: underline;
+  }
+  #gathering-app .gth-procedure-column > .gathering-step--current
+    .gth-shop-selection-card {
+    width: calc(540px - 48px);
+    max-width: calc(540px - 48px);
+    margin-left: 48px;
+  }
+  #gathering-app .gth-procedure-column > .gathering-step--current
+    .gth-shop-selection-card {
+    padding: 12px 14px;
+    border: 2px solid #14614a;
+    border-radius: 0.75rem;
+    background: #fff;
+  }
+  #gathering-app .gth-procedure-column > section[data-step="SCHEDULE"]
+    > .gth-step-summary-row,
+  #gathering-app .gth-procedure-column > section[data-step="FINAL"]
+    > .gth-step-summary-row {
+    display: flex;
+    align-items: center;
+    width: calc(540px - 48px);
+    min-height: 44px;
+    margin-left: 48px;
+    padding: 0 14px;
+    border: 1px solid #dfe4de;
+    border-radius: 12px;
+    background: #fff;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-shop-map {
+    width: calc(100% - 48px);
+    margin-left: 48px;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column {
+    grid-column: 1;
+    min-width: 0;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step--current {
+    grid-column: auto;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-shop-map {
+    grid-row: auto;
+    align-self: start;
+  }
+  #gathering-app .gth-procedure-column >
+    .gathering-step--done[data-step="SCHEDULE"] .gth-step-summary-row,
+  #gathering-app .gth-procedure-column >
+    .gathering-step--upcoming[data-step="FINAL"] .gth-step-summary-row {
+    width: calc(540px - 48px);
+    margin-left: 48px;
+  }
+  #gathering-app .gth-procedure-column > .gathering-step--current
+    .gth-shop-selection-card {
+    width: calc(100% - 48px);
+    margin-left: 48px;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content {
+    display: grid;
+    grid-template-columns: 540px minmax(0, 1fr);
+    gap: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    align-items: start;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-selection-card {
+    grid-column: 1;
+    min-width: 0;
+    padding: 12px 14px;
+    border: 2px solid #14614a;
+    border-radius: 0.75rem;
+    background: #fff;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content > .gth-shop-map {
+    grid-column: 2;
+    grid-row: 1;
+    position: relative;
+    inset: auto;
+    width: 100%;
+    min-height: 34rem;
+    height: 34rem;
+    border-radius: 0.75rem;
+  }
+  #gathering-app .gth-heading-bar .gth-heading-phase {
+    order: 2;
+    padding: 4px 10px;
+    border-radius: 12px;
+    background: #ddefe4;
+    color: #14614a;
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+  #gathering-app .gth-heading-bar .gth-heading-date {
+    order: 3;
+  }
+  #gathering-app .gth-heading-bar .gth-delete {
+    order: 4;
+  }
+}
+
+@media (min-width: 48rem) and (max-width: 63.999rem) {
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-selection-card {
+    display: contents;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content > .gth-step-summary {
+    order: 1;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content > .gth-shop-empty-guidance,
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content > .gth-pane-head-row {
+    order: 2;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content > [data-testid="gathering-shortlist-open"] {
+    order: 3;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content > .gth-shop-map {
+    order: 4;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-link-section-wrapper {
+    position: static;
+    z-index: auto;
+    margin: 1rem 0 0;
+    padding-bottom: 5rem;
+  }
+}
+
+/* KEN-70: the zero-shop action is the one primary action in the left
+   column. Keep this after the legacy selection-entry rules so that it cannot
+   regress to a centered underlined link. */
+@media (min-width: 48rem) {
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content > [data-testid="gathering-shortlist-open"].gth-shop-selection-empty-entry {
+    justify-self: start;
+    width: auto;
+    min-width: 0;
+    padding: 0 1rem;
+    border: 0;
+    border-radius: 0.625rem;
+    background: #14614a;
+    color: #fff;
+    text-decoration: none;
+  }
+}
+
+/* KEN-70 final procedure-row alignment. */
+@media (min-width: 48rem) {
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) >
+    .gathering-step--done[data-step="SCHEDULE"] .gth-step-summary-row,
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) >
+    .gathering-step--upcoming[data-step="FINAL"] .gth-step-summary-row {
+    width: calc(540px - 48px);
+    min-height: 44px;
+    margin-left: 48px;
+    padding: 0 14px;
+    border: 1px solid #dfe4de;
+    border-radius: 12px;
+    background: #fff;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-selection-card {
+    width: calc(100% - 48px);
+    margin-left: 48px;
+  }
+}
+
+@media (min-width: 48rem) and (max-width: 63.999rem) {
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gathering-step--current
+    .gth-shop-step-content > [data-testid="gathering-shortlist-open"] {
+    align-self: stretch;
+    width: 100%;
   }
 }
