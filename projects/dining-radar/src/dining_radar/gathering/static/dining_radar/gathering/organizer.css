@@ -3243,6 +3243,8 @@ body:has(#gathering-list-app) main {
 }
 .primary-nav-menu-panel[hidden], .primary-nav-menu-backdrop[hidden] { display: none; }
 .primary-nav-menu-backdrop { position: fixed; inset: 0; z-index: 39; border: 0; background: rgb(16 28 21 / 48%); }
+.primary-nav-menu-backdrop:hover,
+.primary-nav-menu-backdrop:focus { background: rgb(16 28 21 / 48%); }
 .primary-nav-menu-heading-row { display: flex; align-items: center; justify-content: space-between; min-height: 3.75rem; padding: 0 0.25rem 0 0.75rem; border-bottom: 1px solid #dce3da; }
 .primary-nav-menu-heading { margin: 0; font-size: 1rem; font-weight: 700; color: #17201b; }
 .primary-nav-menu-close { min-width: 2.75rem; min-height: 2.75rem; border: 0; background: transparent; color: #17201b; font-size: 1.5rem; cursor: pointer; }

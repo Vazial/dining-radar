@@ -231,6 +231,17 @@ CONTRAST_ALLOW_SELECTORS = [
     ".gathering-decision-shop-map-marker-visual",
     ".gathering-search-origin-marker-visual",
 ]
+
+# Open surfaces expose one of these elements as the pointer-sensitive layer
+# between the page and a menu/sheet/dialog.  Keep this list at the layer
+# boundary, not at each individual screen test, so new open states receive the
+# same real-hover check automatically.
+OPEN_OVERLAY_SELECTORS = [
+    ".primary-nav-menu-backdrop",
+    ".gth-modal-backdrop",
+    ".gth-issue-backdrop",
+    ".gth-day-sheet-scrim",
+]
 # Real-measurement finding: every one of a set of small decorative glyphs
 # this codebase already marks aria-hidden="true" (the filter icon "☷", the
 # calendar's own holiday badge "祝", a plain "・" separator between detail
@@ -1006,6 +1017,61 @@ def _check_8_contrast(scan: dict, label: str, findings: list[str]) -> None:
             )
 
 
+def _check_open_overlay_hover(page: Page, label: str, findings: list[str]) -> None:
+    """Open overlays remain a translucent, non-changing scrim under hover.
+
+    The backdrop is often a button for click-to-dismiss, so the sitewide
+    ``button:hover`` rule can repaint the entire page even though the resting
+    state looks correct.  Measure every visible scrim at a point outside its
+    dialog/panel, before and after a genuine pointer hover.
+    """
+    for selector in OPEN_OVERLAY_SELECTORS:
+        overlays = page.locator(selector)
+        for index in range(overlays.count()):
+            overlay = overlays.nth(index)
+            try:
+                if not overlay.is_visible():
+                    continue
+                before = overlay.evaluate(
+                    """node => {
+                      const s = getComputedStyle(node);
+                      const m = s.backgroundColor.match(/rgba?\\(([^)]+)\\)/);
+                      const parts = m ? m[1].split(',').map(v => parseFloat(v.trim())) : [];
+                      const r = node.getBoundingClientRect();
+                      return {color: s.backgroundColor, alpha: parts.length > 3 ? parts[3] : 1,
+                              width: r.width, height: r.height};
+                    }"""
+                )
+                if before["width"] <= 0 or before["height"] <= 0:
+                    continue
+                overlay.hover(position={"x": 8, "y": 8}, timeout=2000)
+                after = overlay.evaluate(
+                    """node => {
+                      const s = getComputedStyle(node);
+                      const m = s.backgroundColor.match(/rgba?\\(([^)]+)\\)/);
+                      const parts = m ? m[1].split(',').map(v => parseFloat(v.trim())) : [];
+                      return {color: s.backgroundColor, alpha: parts.length > 3 ? parts[3] : 1};
+                    }"""
+                )
+            except Exception:  # noqa: BLE001 - a transient overlay is skipped
+                continue
+            finally:
+                try:
+                    page.mouse.move(0, 0)
+                except Exception:  # noqa: BLE001
+                    pass
+            if before["color"] != after["color"]:
+                findings.append(
+                    f"{label} [12.開いた層のhover] {selector} の背景色が "
+                    f"{before['color']} から {after['color']} に変化した"
+                )
+            if after["alpha"] > 0.8:
+                findings.append(
+                    f"{label} [12.開いた層の不透明度] {selector} の背景alpha="
+                    f"{after['alpha']:.2f} が高すぎる（背面を覆い隠す）"
+                )
+
+
 def _run_checks_1_to_5_and_8(page: Page, label: str, findings: list[str]) -> None:
     scan = _run_layout_scan(page)
     _check_1_overlap(scan, label, findings)
@@ -1013,6 +1079,7 @@ def _run_checks_1_to_5_and_8(page: Page, label: str, findings: list[str]) -> Non
     _check_3_unintended_wrap(scan, label, findings)
     _check_4_overflow(scan, label, findings)
     _check_8_contrast(scan, label, findings)
+    _check_open_overlay_hover(page, label, findings)
     _check_5_cramped_spacing(scan, label, findings)
     _check_forbidden_rendered_text(scan, label, findings)
     _check_major_region_width(scan, label, findings)
@@ -2714,6 +2781,24 @@ class LayoutSanityFaultInjectionTests(StaticLiveServerTestCase):
         injected: list[str] = []
         _check_8_contrast(_run_layout_scan(self.page), "injected", injected)
         assert injected, "check 8 (contrast) did not catch the injected low-contrast text"
+
+    def test_injected_open_overlay_hover_is_caught(self) -> None:
+        """A button-hover repaint of a visible scrim must fail the generic check."""
+        self._open_candidate_screen(width=1440, height=900)
+        by_test_id(self.page, "candidate-primary-nav-menu-toggle").click()
+        expect(by_test_id(self.page, "candidate-primary-nav-menu-backdrop")).to_be_visible()
+        baseline: list[str] = []
+        _check_open_overlay_hover(self.page, "baseline", baseline)
+        assert not baseline, "baseline unexpectedly changes the open scrim: " + "\n".join(baseline)
+
+        self.page.add_style_tag(
+            content=(".primary-nav-menu-backdrop:hover { background: #0e4933 !important; }")
+        )
+        injected: list[str] = []
+        _check_open_overlay_hover(self.page, "injected", injected)
+        assert any("背景色が" in finding for finding in injected), (
+            "check 12 did not catch the injected overlay hover repaint: " + "\n".join(injected)
+        )
 
     def test_injected_toggle_wrong_direction_is_caught(self) -> None:
         self._open_candidate_screen()
