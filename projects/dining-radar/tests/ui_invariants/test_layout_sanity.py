@@ -570,7 +570,8 @@ _LAYOUT_SCAN_JS = r"""
     bodyText: (document.body.innerText || "").trim(),
     horizontalScroll: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     majorRegions: Array.from(document.querySelectorAll(
-      '.gth-shop-map, .gth-shop-list, .gth-response-table'
+      '.gth-shop-map, .gth-shop-list, .gth-response-table, '
+        + '.gth-shop-selection-card, .gth-link-section-wrapper'
     )).map((element) => {
       const rect = element.getBoundingClientRect();
       return {
@@ -580,6 +581,57 @@ _LAYOUT_SCAN_JS = r"""
         visible: rect.width > 0 && rect.height > 0,
       };
     }),
+    parentBoundaryViolations: (() => {
+      const boundaries = document.querySelectorAll(
+        '.gth-procedure-column, .gth-shop-selection-card, .gth-link-section-wrapper'
+      );
+      const out = [];
+      boundaries.forEach((parent) => {
+        const parentRect = parent.getBoundingClientRect();
+        Array.from(parent.children).forEach((child) => {
+          const style = getComputedStyle(child);
+          const rect = child.getBoundingClientRect();
+          if (style.display === 'none' || style.visibility === 'hidden'
+              || rect.width <= 0.5 || rect.height <= 0.5) return;
+          if (rect.right > parentRect.right + 1 || rect.bottom > parentRect.bottom + 1
+              || rect.left < parentRect.left - 1) {
+            out.push({
+              parent: parent.className || parent.tagName,
+              child: child.getAttribute('data-testid') || child.className || child.tagName,
+              parentRect: {x: parentRect.x, right: parentRect.right, bottom: parentRect.bottom},
+              childRect: {x: rect.x, right: rect.right, bottom: rect.bottom},
+            });
+          }
+        });
+      });
+      return out;
+    })(),
+    fixedMajorRegionOverlaps: (() => {
+      const bars = Array.from(document.querySelectorAll(
+        '.gth-bottom-bar, [data-layout-fixed-bar="true"]'
+      ))
+        .filter((bar) => getComputedStyle(bar).position === 'fixed');
+      const regions = Array.from(document.querySelectorAll(
+        '.gth-shop-map, .gth-shop-selection-card, .gth-link-section-wrapper'
+      ));
+      const overlaps = [];
+      const intersects = (a, b) => a.right > b.left + 1 && b.right > a.left + 1
+        && a.bottom > b.top + 1 && b.bottom > a.top + 1;
+      bars.forEach((bar) => {
+        const barRect = bar.getBoundingClientRect();
+        regions.forEach((region) => {
+          if (bar === region || bar.contains(region) || region.contains(bar)) return;
+          const regionRect = region.getBoundingClientRect();
+          if (intersects(barRect, regionRect)) {
+            overlaps.push({
+              bar: bar.getAttribute('data-testid') || bar.className || bar.tagName,
+              region: region.className || region.tagName,
+            });
+          }
+        });
+      });
+      return overlaps;
+    })(),
     commonState: (() => {
       const emptyMap = document.querySelector('.gth-shop-map--empty');
       const emptyFrame = emptyMap ? emptyMap.closest('.gth-shop-step-content') : null;
@@ -748,6 +800,24 @@ def _check_major_region_width(scan: dict, label: str, findings: list[str]) -> No
                 f"{label} [10.主要領域の細帯] {region.get('selector')!r} が "
                 f"{region['width']:.1f}px（viewport の25%未満）"
             )
+
+
+def _check_parent_boundaries(scan: dict, label: str, findings: list[str]) -> None:
+    """Direct children of board boundaries stay inside their owning frame."""
+    for violation in scan.get("parentBoundaryViolations", []):
+        findings.append(
+            f"{label} [13.親枠内包] {violation['child']!r} が "
+            f"{violation['parent']!r} の右端または下端を越えている"
+        )
+
+
+def _check_fixed_major_region_overlap(scan: dict, label: str, findings: list[str]) -> None:
+    """A fixed confirmation bar must not paint over a major board region."""
+    for overlap in scan.get("fixedMajorRegionOverlaps", []):
+        findings.append(
+            f"{label} [14.固定バー重なり] {overlap['bar']!r} が "
+            f"{overlap['region']!r} と重なっている"
+        )
 
 
 def _check_common_state_rules(scan: dict, label: str, findings: list[str]) -> None:
@@ -1017,6 +1087,8 @@ def _run_checks_1_to_5_and_8(page: Page, label: str, findings: list[str]) -> Non
     _check_forbidden_rendered_text(scan, label, findings)
     _check_major_region_width(scan, label, findings)
     _check_common_state_rules(scan, label, findings)
+    _check_parent_boundaries(scan, label, findings)
+    _check_fixed_major_region_overlap(scan, label, findings)
     _check_selecting_board_geometry(page, label, findings)
 
 
@@ -1539,6 +1611,26 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         self.assertEqual(put.status, 200, put.text())
         return shop_id
 
+    def _seed_shortlisted_shops(self, gathering_id: str, count: int) -> list[str]:
+        self.dsl.reset_candidate_state()
+        self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING", random_seed=20260922)
+        token = csrf_token(self.page)
+        propose = self.context.request.post(
+            f"{self.base_url}/candidate-proposals",
+            data={"gatheringId": gathering_id},
+            headers={"X-CSRFToken": token},
+        )
+        self.assertEqual(propose.status, 200, propose.text())
+        shop_ids = [candidate["shopId"] for candidate in propose.json()["candidates"][:count]]
+        self.assertEqual(len(shop_ids), count, propose.text())
+        put = self.context.request.put(
+            f"{self.base_url}/gatherings/{gathering_id}/shortlisted-shops",
+            data={"shopIds": shop_ids},
+            headers={"X-CSRFToken": token},
+        )
+        self.assertEqual(put.status, 200, put.text())
+        return shop_ids
+
     def _issue_participant_link_url(self) -> str:
         by_test_id(self.page, "gathering-participant-link-copy").click()
         dialog = by_test_id(self.page, "gathering-participant-link-issue-dialog")
@@ -1901,6 +1993,31 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         assert dash_box is not None and procedure_box is not None
         assert abs(procedure_box["width"] - 540) <= TOLERANCE_PX
         assert procedure_box["width"] < dash_box["width"]
+
+    def test_three_shop_low_viewport_keeps_map_and_action_bar_in_flow(self) -> None:
+        """KEN-71: the real-device-height three-shop state stays in its board."""
+        self._sign_in_as_organizer()
+        self.page.set_viewport_size({"width": 1410, "height": 885})
+        gathering_id = self._create_gathering_via_ui("実機高さの店3件確認会")
+        by_test_id(self.page, "gathering-candidate-date").first.click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        self._seed_shortlisted_shops(gathering_id, 3)
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+
+        procedure = self.page.locator(".gth-procedure-column").bounding_box()
+        card = by_test_id(self.page, "gathering-shop-selection-card").bounding_box()
+        map_box = self.page.locator(".gth-dash > .gth-shop-map").bounding_box()
+        bar = self.page.locator(".gth-bottom-bar").bounding_box()
+        app_card = self.page.locator(".app-card").bounding_box()
+        links = self.page.locator(".gth-link-section-wrapper").bounding_box()
+        assert procedure and card and map_box and bar and app_card and links
+        assert card["x"] >= procedure["x"]
+        assert card["x"] + card["width"] <= procedure["x"] + procedure["width"] + 1
+        assert map_box["x"] >= procedure["x"] + procedure["width"] + 4
+        assert bar["y"] >= card["y"]
+        assert bar["y"] + bar["height"] <= card["y"] + card["height"] + 1
+        assert links["y"] + links["height"] <= app_card["y"] + app_card["height"] + 1
 
     def test_scheduling_response_controls_are_readable(self) -> None:
         """ADR-0080: the scheduling response table leaves room for its controls
@@ -2865,6 +2982,27 @@ class LayoutSanityFaultInjectionTests(StaticLiveServerTestCase):
         injected = []
         _check_common_state_rules(_run_layout_scan(self.page), "error", injected)
         assert any("エラー" in finding for finding in injected)
+
+    def test_injected_parent_boundary_and_fixed_bar_overlap_are_caught(self) -> None:
+        self.page.set_content(
+            """
+            <main>
+              <div class="gth-procedure-column" style="position:relative;width:240px;height:100px">
+                <div data-testid="overflowing-child" style="width:260px;height:140px"></div>
+              </div>
+              <div class="gth-shop-selection-card"
+                style="position:absolute;left:0;top:600px;width:240px;height:100px"></div>
+              <div class="gth-bottom-bar"
+                style="position:fixed;left:0;right:0;bottom:0;height:80px"></div>
+            </main>
+            """
+        )
+        findings: list[str] = []
+        scan = _run_layout_scan(self.page)
+        _check_parent_boundaries(scan, "injected", findings)
+        _check_fixed_major_region_overlap(scan, "injected", findings)
+        assert any("親枠内包" in finding for finding in findings), findings
+        assert any("固定バー重なり" in finding for finding in findings), findings
 
     def test_injected_selecting_board_geometry_is_caught(self) -> None:
         self.page.set_content(

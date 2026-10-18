@@ -1653,7 +1653,7 @@ principles: [P-04]
 - 原因（再現して確定）: 母集団6件の日付で、Given の2回呼びを API で30回繰り返した。先頭の候補を選ぶと
   0/30 で消えなかった（この合成データでたまたま安全な位置だった）。末尾の候補を選ぶと **13/30 で消えた。**
   **この失敗の型は、別のシナリオで一度再現して直し、その書き方を退役させていた**
-  （`dsl/gathering_scheduling_browser.py` の `fetch_confirmed_date_open_shop_ids_with_a_spare` の docstring）。
+      （`dsl/gathering_scheduling_browser.py` の `fetch_confirmed_date_open_shop_ids_with_a_spare` の docstring）。
   退役の記録は DSL の docstring にしか無く、別の DSL ファイルを書く tester には届かなかった。
 - 対処: Given の開催日を、母集団が上限以下（水曜、4件）の日に固定した。末尾の候補を選ぶ最悪の条件でも
   0/30。会に入れていない候補は3件残るので、欠陥を見分ける力は落ちていない（FR-038）。
@@ -1663,3 +1663,23 @@ principles: [P-04]
   (a) 「会モードの画面と API を別々に呼ぶ Given は、母集団が表示上限以下の日付に固定する」を、
       DSL 共通の補助関数（開催日を選ぶ関数）に閉じ込め、個別の Given で日付を選ばせない。
   (b) 退役させた検査の書き方を、docstring ではなく tester が起動時に読む場所（step の書き方の規則）に残す。
+
+
+## FR-041: ビューポート撮影だけでは低い実機高の折り目下崩れを見逃した
+
+```yaml
+id: FR-041
+date: 2026-10-18
+found_at: AI
+slice: KEN-71
+agents: [developer, orchestrator]
+cause_category: 撮影範囲がページ全体とスクロール後を含んでいなかった
+cause_key: viewport-only-capture-missed-below-fold-layout
+pushed_to: [tests/ui_invariants/test_zz_capture_states.py, tests/ui_invariants/test_layout_sanity.py]
+status: 対応済み
+principles: [P-04]
+```
+
+- 事象: 実機の店3件・高さ885pxで、②の地図と確定バーが重なり、②がページ枠を越え、③と回答リンク欄が別幅・枠外になっていた。従来の撮影はビューポートだけで、折り目より下を目視できなかった。
+- 原因: 合成地図の高さと固定バーの配置を上部の検査だけで確認し、ページ末尾・低い画面高・店3件の組み合わせを撮影状態に含めていなかった。
+- 対処: 375/820/1180/1305/1440px と1410×885pxでフルページと最下部スクロール後を保存し、店1/3/5件を撮影する。親枠の右端・下端越えと固定バーの主要領域重なりを汎用検査へ追加し、fault-injectionで検出できることを固定した。白いページ枠も③・回答リンク欄まで内容高に追従させた。
