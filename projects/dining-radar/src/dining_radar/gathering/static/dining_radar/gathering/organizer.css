@@ -4802,6 +4802,11 @@ body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gather
   }
   #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-link-section-wrapper {
     grid-column: 1;
+    width: 540px;
+    margin-left: 0;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-link-section-wrapper
+    > .gth-link-section {
     width: 492px;
     margin-left: 48px;
   }
@@ -4811,6 +4816,20 @@ body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gather
     min-height: 34rem;
     max-height: 34rem;
     overflow: hidden;
+  }
+}
+
+/* KEN-71: the narrow layout is a vertical document, not a viewport-height
+   flex stage.  Let the white page frame grow through ②'s map, ③, and the
+   answer-link section so the last two sections cannot paint on the page
+   background below the frame. */
+@media (max-width: 63.999rem) {
+  body:has(#gathering-app) .app-shell,
+  body:has(#gathering-app) .app-card,
+  body:has(#gathering-app) main,
+  body:has(#gathering-app) #gathering-app {
+    flex: 0 0 auto;
+    min-height: max-content;
   }
 }
 

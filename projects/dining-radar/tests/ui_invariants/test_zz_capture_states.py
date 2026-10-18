@@ -9,9 +9,10 @@ harmless either way (independent test classes), but keeps the gate file
 listed first when a human scans this directory.
 
 Each ``test_capture_*`` method owns one board screen and writes every
-(state, size) combination for it: a real, viewport-sized screenshot
-(``full_page=False`` -- a fixed element's position is only meaningful
-against the actual viewport) plus a same-named ``.json`` with every
+(state, size) combination for it: a real viewport-sized screenshot (so a
+fixed element's position is measured against the actual viewport), a
+full-page screenshot, and a bottom-scroll screenshot, plus a same-named
+``.json`` with every
 ``[data-testid]`` element's bounding box/visibility/leading text, the
 page's horizontal-scroll amount, and the viewport size itself. Given-state
 construction (synthetic data, sign-in, gathering create/confirm/vote,

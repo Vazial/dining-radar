@@ -632,6 +632,52 @@ _LAYOUT_SCAN_JS = r"""
       });
       return overlaps;
     })(),
+    boardFrameViolations: (() => {
+      const frame = document.querySelector('.app-card');
+      if (!frame) return [];
+      const frameRect = frame.getBoundingClientRect();
+      const regions = Array.from(document.querySelectorAll(
+        '.gth-shop-map, [data-testid="gathering-shop-selection-card"], '
+          + '[data-step="FINAL"], .gth-link-section-wrapper'
+      ));
+      return regions.filter((region) => {
+        const style = getComputedStyle(region);
+        const rect = region.getBoundingClientRect();
+        if (style.display === 'none' || style.visibility === 'hidden'
+            || rect.width <= 0.5 || rect.height <= 0.5) return false;
+        return rect.left < frameRect.left - 1 || rect.right > frameRect.right + 1
+          || rect.top < frameRect.top - 1 || rect.bottom > frameRect.bottom + 1;
+      }).map((region) => ({
+        region: region.getAttribute('data-testid') || region.className || region.tagName,
+        frame: {
+          left: frameRect.left, right: frameRect.right,
+          top: frameRect.top, bottom: frameRect.bottom,
+        },
+        rect: (() => {
+          const rect = region.getBoundingClientRect();
+          return {left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom};
+        })(),
+      }));
+    })(),
+    boardRailAlignmentViolations: (() => {
+      const rail = document.querySelector('.gth-procedure-column');
+      const linkHeader = document.querySelector('.gth-link-section .gth-pane-head-row');
+      const linkButton = document.querySelector('.gth-link-section .gth-link-section-open');
+      if (!rail || !linkHeader) return [];
+      const railRect = rail.getBoundingClientRect();
+      const headerRect = linkHeader.getBoundingClientRect();
+      const violations = [];
+      if (Math.abs(headerRect.right - railRect.right) > 1) {
+        violations.push('回答リンクの区切り線の右端');
+      }
+      if (linkButton) {
+        const buttonRect = linkButton.getBoundingClientRect();
+        if (buttonRect.right > railRect.right + 1 || buttonRect.left < railRect.left - 1) {
+          violations.push('回答リンク一覧の行');
+        }
+      }
+      return violations;
+    })(),
     commonState: (() => {
       const emptyMap = document.querySelector('.gth-shop-map--empty');
       const emptyFrame = emptyMap ? emptyMap.closest('.gth-shop-step-content') : null;
@@ -818,6 +864,16 @@ def _check_fixed_major_region_overlap(scan: dict, label: str, findings: list[str
             f"{label} [14.固定バー重なり] {overlap['bar']!r} が "
             f"{overlap['region']!r} と重なっている"
         )
+
+
+def _check_board_frame_and_link_alignment(scan: dict, label: str, findings: list[str]) -> None:
+    """The map, folded final step, and link section stay in the page frame."""
+    for violation in scan.get("boardFrameViolations", []):
+        findings.append(
+            f"{label} [15.ページ枠内包] {violation['region']!r} が白いページ枠の外にある"
+        )
+    for violation in scan.get("boardRailAlignmentViolations", []):
+        findings.append(f"{label} [16.回答リンク右端] {violation} が手順列と不一致")
 
 
 def _check_common_state_rules(scan: dict, label: str, findings: list[str]) -> None:
@@ -1089,6 +1145,7 @@ def _run_checks_1_to_5_and_8(page: Page, label: str, findings: list[str]) -> Non
     _check_common_state_rules(scan, label, findings)
     _check_parent_boundaries(scan, label, findings)
     _check_fixed_major_region_overlap(scan, label, findings)
+    _check_board_frame_and_link_alignment(scan, label, findings)
     _check_selecting_board_geometry(page, label, findings)
 
 
@@ -2018,6 +2075,42 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         assert bar["y"] >= card["y"]
         assert bar["y"] + bar["height"] <= card["y"] + card["height"] + 1
         assert links["y"] + links["height"] <= app_card["y"] + app_card["height"] + 1
+        findings: list[str] = []
+        _check_board_frame_and_link_alignment(_run_layout_scan(self.page), "1410x885", findings)
+        assert not findings, "1410x885 full-page board geometry regressed: " + "\n".join(findings)
+
+    def test_three_shop_tablet_full_page_stays_inside_page_frame(self) -> None:
+        """KEN-71: 820x1180 keeps ②, ③, and links on the white page card."""
+        self._sign_in_as_organizer()
+        self.page.set_viewport_size({"width": 820, "height": 1180})
+        gathering_id = self._create_gathering_via_ui("タブレット店3件フルページ確認会")
+        by_test_id(self.page, "gathering-candidate-date").first.click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        self._seed_shortlisted_shops(gathering_id, 3)
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+
+        app_card = self.page.locator(".app-card").bounding_box()
+        procedure = self.page.locator(".gth-procedure-column").bounding_box()
+        map_box = self.page.locator(".gth-shop-step-content > .gth-shop-map").bounding_box()
+        final = self.page.locator('[data-step="FINAL"]').bounding_box()
+        links = self.page.locator(".gth-link-section-wrapper").bounding_box()
+        assert app_card and procedure and map_box and final and links
+        regions_bottom = [
+            map_box["y"] + map_box["height"],
+            final["y"] + final["height"],
+            links["y"] + links["height"],
+        ]
+        assert max(regions_bottom) <= app_card["y"] + app_card["height"] + 1
+        assert map_box["x"] >= app_card["x"]
+        assert map_box["x"] + map_box["width"] <= app_card["x"] + app_card["width"] + 1
+        assert links["x"] >= procedure["x"]
+        assert links["x"] + links["width"] <= procedure["x"] + procedure["width"] + 1
+        assert self.page.evaluate("() => document.documentElement.scrollHeight") > 1180
+
+        findings: list[str] = []
+        _check_board_frame_and_link_alignment(_run_layout_scan(self.page), "820x1180", findings)
+        assert not findings, "820x1180 full-page board geometry regressed: " + "\n".join(findings)
 
     def test_scheduling_response_controls_are_readable(self) -> None:
         """ADR-0080: the scheduling response table leaves room for its controls
@@ -3003,6 +3096,40 @@ class LayoutSanityFaultInjectionTests(StaticLiveServerTestCase):
         _check_fixed_major_region_overlap(scan, "injected", findings)
         assert any("親枠内包" in finding for finding in findings), findings
         assert any("固定バー重なり" in finding for finding in findings), findings
+
+    def test_injected_page_frame_and_link_edge_are_caught(self) -> None:
+        self.page.set_content(
+            """
+            <div class="app-card" style="position:relative;width:600px;height:400px">
+              <div class="gth-procedure-column" style="position:relative;width:300px">
+                <div data-testid="gathering-shop-selection-card"
+                     style="width:300px;height:80px"></div>
+                <div class="gth-shop-map" style="width:300px;height:160px"></div>
+                <section data-step="FINAL" style="width:300px;height:40px"></section>
+              </div>
+              <section class="gth-link-section-wrapper" style="width:300px">
+                <div class="gth-link-section">
+                  <div class="gth-pane-head-row" style="width:300px;height:30px">
+                    回答リンク
+                  </div>
+                  <button class="gth-link-section-open">回答リンク一覧</button>
+                </div>
+              </section>
+            </div>
+            """
+        )
+        baseline: list[str] = []
+        _check_board_frame_and_link_alignment(_run_layout_scan(self.page), "baseline", baseline)
+        assert not baseline, "baseline unexpectedly violates page-frame rules: " + "\n".join(
+            baseline
+        )
+
+        self.page.locator(".app-card").evaluate("node => { node.style.height = '100px'; }")
+        self.page.locator(".gth-pane-head-row").evaluate("node => { node.style.width = '420px'; }")
+        injected: list[str] = []
+        _check_board_frame_and_link_alignment(_run_layout_scan(self.page), "injected", injected)
+        assert any("ページ枠内包" in finding for finding in injected), injected
+        assert any("回答リンク右端" in finding for finding in injected), injected
 
     def test_injected_selecting_board_geometry_is_caught(self) -> None:
         self.page.set_content(
