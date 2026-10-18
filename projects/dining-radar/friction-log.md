@@ -1675,7 +1675,7 @@ slice: KEN-71
 agents: [developer, orchestrator]
 cause_category: 撮影範囲がページ全体とスクロール後を含んでいなかった
 cause_key: viewport-only-capture-missed-below-fold-layout
-pushed_to: [tests/ui_invariants/test_zz_capture_states.py, tests/ui_invariants/test_layout_sanity.py]
+pushed_to: [projects/dining-radar/tests/ui_invariants/test_zz_capture_states.py, projects/dining-radar/tests/ui_invariants/test_layout_sanity.py]
 status: 対応済み
 principles: [P-04]
 ```
