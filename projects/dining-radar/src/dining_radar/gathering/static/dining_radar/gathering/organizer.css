@@ -4669,6 +4669,17 @@ body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gather
 
 /* KEN-70 final cascade for the nested procedure column. */
 @media (min-width: 64rem) {
+  /* The dashboard is a scrollable board.  Let its white app-card grow with
+     the folded ③ step and answer-link section instead of keeping only the
+     viewport-height flex shell and painting those rows on the page face. */
+  body:has(#gathering-app) .app-shell,
+  body:has(#gathering-app) .app-card,
+  body:has(#gathering-app) main,
+  body:has(#gathering-app) #gathering-app {
+    flex: 0 0 auto;
+    min-height: max-content;
+  }
+
   #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column {
     grid-column: 1;
     min-width: 0;
@@ -4764,6 +4775,63 @@ body:has(#gathering-list-app) .gathering-list-item[data-list-role="row"] .gather
     .gth-shop-selection-card {
     width: calc(100% - 48px);
     margin-left: 48px;
+  }
+}
+
+/* KEN-71: the selected-shop DOM keeps the map as a sibling of the procedure
+   column.  The action bar is nested in the procedure card, however, so the
+   older direct-child selector above did not put it back in flow.  Keep the
+   three procedure rows and the link section on the same 492px board rail,
+   and make the map's height independent of that rail. */
+@media (min-width: 64rem) {
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column {
+    width: 540px;
+    min-width: 0;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step--current .gth-shop-selection-card {
+    box-sizing: border-box;
+    width: 492px;
+    max-width: 492px;
+    margin-left: 48px;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-procedure-column
+    > .gathering-step--current .gth-bottom-bar {
+    position: static;
+    inset: auto;
+    width: 100%;
+    margin-top: 0.25rem;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-link-section-wrapper {
+    grid-column: 1;
+    width: 540px;
+    margin-left: 0;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-link-section-wrapper
+    > .gth-link-section {
+    width: 492px;
+    margin-left: 48px;
+  }
+  #gathering-app .gth-dash:not(.gth-dash--scheduling) > .gth-shop-map {
+    align-self: start;
+    height: 34rem;
+    min-height: 34rem;
+    max-height: 34rem;
+    overflow: hidden;
+  }
+}
+
+/* KEN-71: the narrow layout is a vertical document, not a viewport-height
+   flex stage.  Let the white page frame grow through ②'s map, ③, and the
+   answer-link section so the last two sections cannot paint on the page
+   background below the frame. */
+@media (max-width: 63.999rem) {
+  body:has(#gathering-app) .app-shell,
+  body:has(#gathering-app) .app-card,
+  body:has(#gathering-app) main,
+  body:has(#gathering-app) #gathering-app {
+    flex: 0 0 auto;
+    min-height: max-content;
   }
 }
 

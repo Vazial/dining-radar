@@ -9,9 +9,10 @@ harmless either way (independent test classes), but keeps the gate file
 listed first when a human scans this directory.
 
 Each ``test_capture_*`` method owns one board screen and writes every
-(state, size) combination for it: a real, viewport-sized screenshot
-(``full_page=False`` -- a fixed element's position is only meaningful
-against the actual viewport) plus a same-named ``.json`` with every
+(state, size) combination for it: a real viewport-sized screenshot (so a
+fixed element's position is measured against the actual viewport), a
+full-page screenshot, and a bottom-scroll screenshot, plus a same-named
+``.json`` with every
 ``[data-testid]`` element's bounding box/visibility/leading text, the
 page's horizontal-scroll amount, and the viewport size itself. Given-state
 construction (synthetic data, sign-in, gathering create/confirm/vote,
@@ -42,7 +43,7 @@ from tests.support.business_days import next_business_weekday_iso
 CAPTURE_DIR_ENV = "DINING_RADAR_CAPTURE_DIR"
 CAPTURE_DIR = os.environ.get(CAPTURE_DIR_ENV)
 
-# 5 phone/tablet portrait sizes plus 1 PC size, per the task's own list.
+# 5 requested widths plus the low-height real-device viewport.
 CAPTURE_SIZES: list[tuple[int, int]] = [
     (375, 812),
     (820, 1180),
@@ -160,8 +161,23 @@ class BoardConformanceCaptureTests(StaticLiveServerTestCase):
         assert CAPTURE_DIR is not None
         base_name = f"{screen}__{state}__{width}x{height}"
         png_path = os.path.join(CAPTURE_DIR, f"{base_name}.png")
+        full_page_path = os.path.join(CAPTURE_DIR, f"{base_name}__full-page.png")
+        bottom_path = os.path.join(CAPTURE_DIR, f"{base_name}__scroll-bottom.png")
         json_path = os.path.join(CAPTURE_DIR, f"{base_name}.json")
         page.screenshot(path=png_path, full_page=False)
+        page.screenshot(path=full_page_path, full_page=True)
+        scroll_metrics = page.evaluate(
+            """() => {
+              window.scrollTo(0, document.documentElement.scrollHeight);
+              return {
+                scrollY: window.scrollY,
+                scrollHeight: document.documentElement.scrollHeight,
+                viewportHeight: window.innerHeight,
+              };
+            }"""
+        )
+        page.screenshot(path=bottom_path, full_page=False)
+        page.evaluate("() => window.scrollTo(0, 0)")
         elements = page.evaluate(_ELEMENT_SNAPSHOT_JS)
         horizontal_scroll = page.evaluate(
             "() => document.documentElement.scrollWidth - document.documentElement.clientWidth"
@@ -172,6 +188,7 @@ class BoardConformanceCaptureTests(StaticLiveServerTestCase):
             "viewportWidth": width,
             "viewportHeight": height,
             "horizontalScroll": horizontal_scroll,
+            "scrollMetrics": scroll_metrics,
             "elements": elements,
         }
         with open(json_path, "w", encoding="utf-8") as fh:
@@ -182,6 +199,8 @@ class BoardConformanceCaptureTests(StaticLiveServerTestCase):
                 "state": state,
                 "size": f"{width}x{height}",
                 "png": os.path.basename(png_path),
+                "fullPagePng": os.path.basename(full_page_path),
+                "scrollBottomPng": os.path.basename(bottom_path),
                 "json": os.path.basename(json_path),
             }
         )
@@ -862,6 +881,17 @@ class BoardConformanceCaptureTests(StaticLiveServerTestCase):
             return self.page
 
         self._capture_state_across_sizes(screen, "shops_1", given_shops_1)
+
+        def given_shops_3(width: int, height: int) -> Page:
+            self.page.set_viewport_size({"width": width, "height": height})
+            self._reset_gathering_state()
+            gathering_id = _new_confirmed_gathering("店3件撮影会")
+            self._shortlist_n_shops(gathering_id, 3)
+            self.page.reload()
+            expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+            return self.page
+
+        self._capture_state_across_sizes(screen, "shops_3", given_shops_3)
 
         def given_shops_5(width: int, height: int) -> Page:
             self.page.set_viewport_size({"width": width, "height": height})

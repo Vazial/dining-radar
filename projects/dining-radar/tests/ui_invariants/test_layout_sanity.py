@@ -581,7 +581,8 @@ _LAYOUT_SCAN_JS = r"""
     bodyText: (document.body.innerText || "").trim(),
     horizontalScroll: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     majorRegions: Array.from(document.querySelectorAll(
-      '.gth-shop-map, .gth-shop-list, .gth-response-table'
+      '.gth-shop-map, .gth-shop-list, .gth-response-table, '
+        + '.gth-shop-selection-card, .gth-link-section-wrapper'
     )).map((element) => {
       const rect = element.getBoundingClientRect();
       return {
@@ -591,6 +592,103 @@ _LAYOUT_SCAN_JS = r"""
         visible: rect.width > 0 && rect.height > 0,
       };
     }),
+    parentBoundaryViolations: (() => {
+      const boundaries = document.querySelectorAll(
+        '.gth-procedure-column, .gth-shop-selection-card, .gth-link-section-wrapper'
+      );
+      const out = [];
+      boundaries.forEach((parent) => {
+        const parentRect = parent.getBoundingClientRect();
+        Array.from(parent.children).forEach((child) => {
+          const style = getComputedStyle(child);
+          const rect = child.getBoundingClientRect();
+          if (style.display === 'none' || style.visibility === 'hidden'
+              || rect.width <= 0.5 || rect.height <= 0.5) return;
+          if (rect.right > parentRect.right + 1 || rect.bottom > parentRect.bottom + 1
+              || rect.left < parentRect.left - 1) {
+            out.push({
+              parent: parent.className || parent.tagName,
+              child: child.getAttribute('data-testid') || child.className || child.tagName,
+              parentRect: {x: parentRect.x, right: parentRect.right, bottom: parentRect.bottom},
+              childRect: {x: rect.x, right: rect.right, bottom: rect.bottom},
+            });
+          }
+        });
+      });
+      return out;
+    })(),
+    fixedMajorRegionOverlaps: (() => {
+      const bars = Array.from(document.querySelectorAll(
+        '.gth-bottom-bar, [data-layout-fixed-bar="true"]'
+      ))
+        .filter((bar) => getComputedStyle(bar).position === 'fixed');
+      const regions = Array.from(document.querySelectorAll(
+        '.gth-shop-map, .gth-shop-selection-card, .gth-link-section-wrapper'
+      ));
+      const overlaps = [];
+      const intersects = (a, b) => a.right > b.left + 1 && b.right > a.left + 1
+        && a.bottom > b.top + 1 && b.bottom > a.top + 1;
+      bars.forEach((bar) => {
+        const barRect = bar.getBoundingClientRect();
+        regions.forEach((region) => {
+          if (bar === region || bar.contains(region) || region.contains(bar)) return;
+          const regionRect = region.getBoundingClientRect();
+          if (intersects(barRect, regionRect)) {
+            overlaps.push({
+              bar: bar.getAttribute('data-testid') || bar.className || bar.tagName,
+              region: region.className || region.tagName,
+            });
+          }
+        });
+      });
+      return overlaps;
+    })(),
+    boardFrameViolations: (() => {
+      const frame = document.querySelector('.app-card');
+      if (!frame) return [];
+      const frameRect = frame.getBoundingClientRect();
+      const regions = Array.from(document.querySelectorAll(
+        '.gth-shop-map, [data-testid="gathering-shop-selection-card"], '
+          + '[data-step="FINAL"], .gth-link-section-wrapper'
+      ));
+      return regions.filter((region) => {
+        const style = getComputedStyle(region);
+        const rect = region.getBoundingClientRect();
+        if (style.display === 'none' || style.visibility === 'hidden'
+            || rect.width <= 0.5 || rect.height <= 0.5) return false;
+        return rect.left < frameRect.left - 1 || rect.right > frameRect.right + 1
+          || rect.top < frameRect.top - 1 || rect.bottom > frameRect.bottom + 1;
+      }).map((region) => ({
+        region: region.getAttribute('data-testid') || region.className || region.tagName,
+        frame: {
+          left: frameRect.left, right: frameRect.right,
+          top: frameRect.top, bottom: frameRect.bottom,
+        },
+        rect: (() => {
+          const rect = region.getBoundingClientRect();
+          return {left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom};
+        })(),
+      }));
+    })(),
+    boardRailAlignmentViolations: (() => {
+      const rail = document.querySelector('.gth-procedure-column');
+      const linkHeader = document.querySelector('.gth-link-section .gth-pane-head-row');
+      const linkButton = document.querySelector('.gth-link-section .gth-link-section-open');
+      if (!rail || !linkHeader) return [];
+      const railRect = rail.getBoundingClientRect();
+      const headerRect = linkHeader.getBoundingClientRect();
+      const violations = [];
+      if (Math.abs(headerRect.right - railRect.right) > 1) {
+        violations.push('回答リンクの区切り線の右端');
+      }
+      if (linkButton) {
+        const buttonRect = linkButton.getBoundingClientRect();
+        if (buttonRect.right > railRect.right + 1 || buttonRect.left < railRect.left - 1) {
+          violations.push('回答リンク一覧の行');
+        }
+      }
+      return violations;
+    })(),
     commonState: (() => {
       const emptyMap = document.querySelector('.gth-shop-map--empty');
       const emptyFrame = emptyMap ? emptyMap.closest('.gth-shop-step-content') : null;
@@ -759,6 +857,34 @@ def _check_major_region_width(scan: dict, label: str, findings: list[str]) -> No
                 f"{label} [10.主要領域の細帯] {region.get('selector')!r} が "
                 f"{region['width']:.1f}px（viewport の25%未満）"
             )
+
+
+def _check_parent_boundaries(scan: dict, label: str, findings: list[str]) -> None:
+    """Direct children of board boundaries stay inside their owning frame."""
+    for violation in scan.get("parentBoundaryViolations", []):
+        findings.append(
+            f"{label} [13.親枠内包] {violation['child']!r} が "
+            f"{violation['parent']!r} の右端または下端を越えている"
+        )
+
+
+def _check_fixed_major_region_overlap(scan: dict, label: str, findings: list[str]) -> None:
+    """A fixed confirmation bar must not paint over a major board region."""
+    for overlap in scan.get("fixedMajorRegionOverlaps", []):
+        findings.append(
+            f"{label} [14.固定バー重なり] {overlap['bar']!r} が "
+            f"{overlap['region']!r} と重なっている"
+        )
+
+
+def _check_board_frame_and_link_alignment(scan: dict, label: str, findings: list[str]) -> None:
+    """The map, folded final step, and link section stay in the page frame."""
+    for violation in scan.get("boardFrameViolations", []):
+        findings.append(
+            f"{label} [15.ページ枠内包] {violation['region']!r} が白いページ枠の外にある"
+        )
+    for violation in scan.get("boardRailAlignmentViolations", []):
+        findings.append(f"{label} [16.回答リンク右端] {violation} が手順列と不一致")
 
 
 def _check_common_state_rules(scan: dict, label: str, findings: list[str]) -> None:
@@ -1084,6 +1210,9 @@ def _run_checks_1_to_5_and_8(page: Page, label: str, findings: list[str]) -> Non
     _check_forbidden_rendered_text(scan, label, findings)
     _check_major_region_width(scan, label, findings)
     _check_common_state_rules(scan, label, findings)
+    _check_parent_boundaries(scan, label, findings)
+    _check_fixed_major_region_overlap(scan, label, findings)
+    _check_board_frame_and_link_alignment(scan, label, findings)
     _check_selecting_board_geometry(page, label, findings)
 
 
@@ -1606,6 +1735,26 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         self.assertEqual(put.status, 200, put.text())
         return shop_id
 
+    def _seed_shortlisted_shops(self, gathering_id: str, count: int) -> list[str]:
+        self.dsl.reset_candidate_state()
+        self.dsl.set_candidate_state("NORMAL_WITH_WEIGHTED_SAMPLING", random_seed=20260922)
+        token = csrf_token(self.page)
+        propose = self.context.request.post(
+            f"{self.base_url}/candidate-proposals",
+            data={"gatheringId": gathering_id},
+            headers={"X-CSRFToken": token},
+        )
+        self.assertEqual(propose.status, 200, propose.text())
+        shop_ids = [candidate["shopId"] for candidate in propose.json()["candidates"][:count]]
+        self.assertEqual(len(shop_ids), count, propose.text())
+        put = self.context.request.put(
+            f"{self.base_url}/gatherings/{gathering_id}/shortlisted-shops",
+            data={"shopIds": shop_ids},
+            headers={"X-CSRFToken": token},
+        )
+        self.assertEqual(put.status, 200, put.text())
+        return shop_ids
+
     def _issue_participant_link_url(self) -> str:
         by_test_id(self.page, "gathering-participant-link-copy").click()
         dialog = by_test_id(self.page, "gathering-participant-link-issue-dialog")
@@ -1968,6 +2117,67 @@ class LayoutSanityTests(StaticLiveServerTestCase):
         assert dash_box is not None and procedure_box is not None
         assert abs(procedure_box["width"] - 540) <= TOLERANCE_PX
         assert procedure_box["width"] < dash_box["width"]
+
+    def test_three_shop_low_viewport_keeps_map_and_action_bar_in_flow(self) -> None:
+        """KEN-71: the real-device-height three-shop state stays in its board."""
+        self._sign_in_as_organizer()
+        self.page.set_viewport_size({"width": 1410, "height": 885})
+        gathering_id = self._create_gathering_via_ui("実機高さの店3件確認会")
+        by_test_id(self.page, "gathering-candidate-date").first.click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        self._seed_shortlisted_shops(gathering_id, 3)
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+
+        procedure = self.page.locator(".gth-procedure-column").bounding_box()
+        card = by_test_id(self.page, "gathering-shop-selection-card").bounding_box()
+        map_box = self.page.locator(".gth-dash > .gth-shop-map").bounding_box()
+        bar = self.page.locator(".gth-bottom-bar").bounding_box()
+        app_card = self.page.locator(".app-card").bounding_box()
+        links = self.page.locator(".gth-link-section-wrapper").bounding_box()
+        assert procedure and card and map_box and bar and app_card and links
+        assert card["x"] >= procedure["x"]
+        assert card["x"] + card["width"] <= procedure["x"] + procedure["width"] + 1
+        assert map_box["x"] >= procedure["x"] + procedure["width"] + 4
+        assert bar["y"] >= card["y"]
+        assert bar["y"] + bar["height"] <= card["y"] + card["height"] + 1
+        assert links["y"] + links["height"] <= app_card["y"] + app_card["height"] + 1
+        findings: list[str] = []
+        _check_board_frame_and_link_alignment(_run_layout_scan(self.page), "1410x885", findings)
+        assert not findings, "1410x885 full-page board geometry regressed: " + "\n".join(findings)
+
+    def test_three_shop_tablet_full_page_stays_inside_page_frame(self) -> None:
+        """KEN-71: 820x1180 keeps ②, ③, and links on the white page card."""
+        self._sign_in_as_organizer()
+        self.page.set_viewport_size({"width": 820, "height": 1180})
+        gathering_id = self._create_gathering_via_ui("タブレット店3件フルページ確認会")
+        by_test_id(self.page, "gathering-candidate-date").first.click()
+        by_test_id(self.page, "gathering-confirm-date-select").click()
+        self._seed_shortlisted_shops(gathering_id, 3)
+        self.page.reload()
+        expect(by_test_id(self.page, "gathering-shortlisted-shop-list")).to_be_visible()
+
+        app_card = self.page.locator(".app-card").bounding_box()
+        procedure = self.page.locator(".gth-procedure-column").bounding_box()
+        map_box = self.page.locator(".gth-shop-step-content > .gth-shop-map").bounding_box()
+        final = self.page.locator('[data-step="FINAL"]').bounding_box()
+        links = self.page.locator(".gth-link-section-wrapper").bounding_box()
+        assert app_card and procedure and map_box and final and links
+        regions_bottom = [
+            map_box["y"] + map_box["height"],
+            final["y"] + final["height"],
+            links["y"] + links["height"],
+        ]
+        assert max(regions_bottom) <= app_card["y"] + app_card["height"] + 1
+        assert map_box["x"] >= app_card["x"]
+        assert map_box["x"] + map_box["width"] <= app_card["x"] + app_card["width"] + 1
+        assert links["x"] >= procedure["x"]
+        assert links["x"] + links["width"] <= procedure["x"] + procedure["width"] + 1
+        assert self.page.evaluate("() => document.documentElement.scrollHeight") > 1180
+
+        findings: list[str] = []
+        _check_board_frame_and_link_alignment(_run_layout_scan(self.page), "820x1180", findings)
+        assert not findings, "820x1180 full-page board geometry regressed: " + "\n".join(findings)
 
     def test_scheduling_response_controls_are_readable(self) -> None:
         """ADR-0080: the scheduling response table leaves room for its controls
@@ -2950,6 +3160,61 @@ class LayoutSanityFaultInjectionTests(StaticLiveServerTestCase):
         injected = []
         _check_common_state_rules(_run_layout_scan(self.page), "error", injected)
         assert any("エラー" in finding for finding in injected)
+
+    def test_injected_parent_boundary_and_fixed_bar_overlap_are_caught(self) -> None:
+        self.page.set_content(
+            """
+            <main>
+              <div class="gth-procedure-column" style="position:relative;width:240px;height:100px">
+                <div data-testid="overflowing-child" style="width:260px;height:140px"></div>
+              </div>
+              <div class="gth-shop-selection-card"
+                style="position:absolute;left:0;top:600px;width:240px;height:100px"></div>
+              <div class="gth-bottom-bar"
+                style="position:fixed;left:0;right:0;bottom:0;height:80px"></div>
+            </main>
+            """
+        )
+        findings: list[str] = []
+        scan = _run_layout_scan(self.page)
+        _check_parent_boundaries(scan, "injected", findings)
+        _check_fixed_major_region_overlap(scan, "injected", findings)
+        assert any("親枠内包" in finding for finding in findings), findings
+        assert any("固定バー重なり" in finding for finding in findings), findings
+
+    def test_injected_page_frame_and_link_edge_are_caught(self) -> None:
+        self.page.set_content(
+            """
+            <div class="app-card" style="position:relative;width:600px;height:400px">
+              <div class="gth-procedure-column" style="position:relative;width:300px">
+                <div data-testid="gathering-shop-selection-card"
+                     style="width:300px;height:80px"></div>
+                <div class="gth-shop-map" style="width:300px;height:160px"></div>
+                <section data-step="FINAL" style="width:300px;height:40px"></section>
+              </div>
+              <section class="gth-link-section-wrapper" style="width:300px">
+                <div class="gth-link-section">
+                  <div class="gth-pane-head-row" style="width:300px;height:30px">
+                    回答リンク
+                  </div>
+                  <button class="gth-link-section-open">回答リンク一覧</button>
+                </div>
+              </section>
+            </div>
+            """
+        )
+        baseline: list[str] = []
+        _check_board_frame_and_link_alignment(_run_layout_scan(self.page), "baseline", baseline)
+        assert not baseline, "baseline unexpectedly violates page-frame rules: " + "\n".join(
+            baseline
+        )
+
+        self.page.locator(".app-card").evaluate("node => { node.style.height = '100px'; }")
+        self.page.locator(".gth-pane-head-row").evaluate("node => { node.style.width = '420px'; }")
+        injected: list[str] = []
+        _check_board_frame_and_link_alignment(_run_layout_scan(self.page), "injected", injected)
+        assert any("ページ枠内包" in finding for finding in injected), injected
+        assert any("回答リンク右端" in finding for finding in injected), injected
 
     def test_injected_selecting_board_geometry_is_caught(self) -> None:
         self.page.set_content(
