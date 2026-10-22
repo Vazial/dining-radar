@@ -174,6 +174,7 @@ class ApplicationStructureTests(SimpleTestCase):
 
         self.assertIn("synthetic-service.onrender.com", runtime["ALLOWED_HOSTS"])
         self.assertEqual(runtime["SECURE_PROXY_SSL_HEADER"], ("HTTP_X_FORWARDED_PROTO", "https"))
+        self.assertTrue(runtime["USE_X_FORWARDED_HOST"])
         self.assertEqual(runtime["DATABASES"]["default"]["ENGINE"], "django.db.backends.postgresql")
         self.assertEqual(runtime["DATABASES"]["default"]["OPTIONS"]["sslmode"], "require")
         self.assertEqual(runtime["SECURE_HSTS_SECONDS"], 31_536_000)
@@ -211,6 +212,7 @@ class ApplicationStructureTests(SimpleTestCase):
 
         self.assertEqual(runtime["ALLOWED_HOSTS"], ["synthetic.invalid"])
         self.assertEqual(runtime["SECURE_PROXY_SSL_HEADER"], ("HTTP_X_FORWARDED_PROTO", "https"))
+        self.assertTrue(runtime["USE_X_FORWARDED_HOST"])
         self.assertEqual(runtime["DATABASES"]["default"]["ENGINE"], "django.db.backends.postgresql")
         self.assertEqual(runtime["DATABASES"]["default"]["OPTIONS"]["sslmode"], "require")
         self.assertEqual(runtime["SECURE_HSTS_SECONDS"], 31_536_000)

@@ -3982,6 +3982,33 @@ class ParticipantLinkApiTests(GatheringOrganizerTestCase):
 
         self.assertEqual(page.status_code, 200)
 
+    @override_settings(
+        SECURE_PROXY_SSL_HEADER=("HTTP_X_FORWARDED_PROTO", "https"),
+        ALLOWED_HOSTS=["testserver", "internal.example", "public.example"],
+        CSRF_TRUSTED_ORIGINS=["https://public.example"],
+        USE_X_FORWARDED_HOST=True,
+    )
+    def test_issued_link_url_is_reachable_through_a_tls_terminating_proxy(self):
+        payload = self.create_gathering_via_api()
+        issue_response = self.client.post(
+            reverse("gathering:participant-links", kwargs={"gathering_id": payload["id"]}),
+            data=json.dumps({"count": 1}),
+            content_type="application/json",
+            HTTP_HOST="internal.example",
+            HTTP_X_FORWARDED_HOST="public.example",
+            HTTP_X_FORWARDED_PROTO="https",
+            HTTP_REFERER="https://public.example/gatherings/",
+            HTTP_X_CSRFTOKEN=self.csrf_token,
+        )
+
+        self.assertEqual(issue_response.status_code, 201)
+        issued_url = issue_response.json()["issuedLinks"][0]["url"]
+        self.assertTrue(issued_url.startswith("https://public.example/"))
+
+        page = Client().get(issued_url)
+
+        self.assertEqual(page.status_code, 200)
+
     def test_list_participant_links_never_exposes_a_token(self):
         payload = self.create_gathering_via_api()
         self.post_json(

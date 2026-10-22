@@ -76,6 +76,11 @@ fargate_runtime = os.environ.get("AWS_ECS_FARGATE", "").strip()
 behind_tls_terminating_proxy = bool(render_runtime or fargate_runtime)
 if behind_tls_terminating_proxy:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    # The TLS terminator forwards the public origin separately from the
+    # container's internal Host. Django must use that public host when
+    # build_absolute_uri() creates links that users can open outside the
+    # proxy network (for example, issued participant-answer links).
+    USE_X_FORWARDED_HOST = True
 
 database_url = os.environ.get("DATABASE_URL", "").strip()
 if behind_tls_terminating_proxy and not database_url:
