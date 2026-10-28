@@ -9,7 +9,7 @@ superseded_by: null
 relates_to: [ADR-0039, ADR-0041, ADR-0057]
 ---
 
-# ADR-0082: PRではPythonソース差分だけを変異テストし、全体検査をmain後と夜間に行う
+# ADR-0082: PRでは変更Pythonソースだけを変異テストし、全体検査をmain後と夜間に行う
 
 > **承認者向けサマリ**: PythonのミューテーションテストがPRのL1実行時間を大きく占め、画面や文書だけのPRにも同じ全体検査が走る。PRでは変更されたPythonソースに対応する変異だけを検査し、Pythonソースに変更がなければ変異テストを省略する。mainへのマージ後と夜間scheduleでは全体を検査し、既存の閾値は変えない。失敗はGitHub Actionsのworkflow失敗通知で知らせる。
 
@@ -21,7 +21,7 @@ relates_to: [ADR-0039, ADR-0041, ADR-0057]
 
 ## 2. 決定
 
-1. `pull_request` では、PRのbase SHAとの差分に含まれる `projects/dining-radar/src/**/*.py` がある場合だけ、pytest-gremlinsに `--diff <base SHA>` を渡して変更部分の変異を実行する。
+1. `pull_request` では、PRのbase SHAとの差分に含まれる `projects/dining-radar/src/**/*.py` がある場合だけ、差分ファイルをカンマ区切りで `--gremlin-targets` に渡して変更部分の変異を実行する。これはpytest-gremlinsのCLIが受け付ける対象指定であり、`pyproject.toml` の `paths` を置き換えるため、そこに未掲載の `settings.py` も差分に含まれれば対象になる。
 2. Pythonソース差分がないPRでは、Pythonミューテーションのstepを実行しない。通常のruff・単体テスト・カバレッジは従来どおり実行する。
 3. `main`へのpush（マージ後）と毎夜のscheduleでは、Pythonと既存のclient JSの全体ミューテーションを実行する。PRではclient JSの全体ミューテーションも実行せず、PRのミューテーションは変更Pythonソースの差分だけに限定する。
 4. ミューテーションスコアの閾値（Python 80%、client JSの既存閾値）と既存の判定は変更しない。
